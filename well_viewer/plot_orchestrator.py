@@ -1,0 +1,121 @@
+"""Plot/export orchestration helpers for WellViewerApp."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from tkinter import filedialog, messagebox
+
+
+def redraw(
+    app,
+    *,
+    lineplot_redraw,
+    apply_ax_style,
+    aggregate_with_threshold,
+    all_fluor_values,
+    all_fluor_values_filtered,
+    plot_bg,
+    plot_spn,
+    txt_pri,
+    txt_mut,
+    warn,
+    well_colors,
+) -> None:
+    lineplot_redraw(
+        app,
+        apply_ax_style=apply_ax_style,
+        aggregate_with_threshold=aggregate_with_threshold,
+        all_fluor_values=all_fluor_values,
+        all_fluor_values_filtered=all_fluor_values_filtered,
+        plot_bg=plot_bg,
+        plot_spn=plot_spn,
+        txt_pri=txt_pri,
+        txt_mut=txt_mut,
+        warn=warn,
+        well_colors=well_colors,
+    )
+
+    if hasattr(app, "_notebook"):
+        tab = app._notebook.tab(app._notebook.select(), "text")
+        if tab == "Preview" and app._preview_selected_well:
+            app._update_preview(app._preview_selected_well)
+
+    if hasattr(app, "_notebook"):
+        tab = app._notebook.tab(app._notebook.select(), "text")
+        if tab == "Bar Plots":
+            app._update_bar_tp_menu()
+            app._redraw_bars()
+        elif tab == "Scatter":
+            app._update_scatter_menus()
+            app._redraw_scatter()
+
+
+def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
+    import matplotlib as _mpl
+
+    out = filedialog.asksaveasfilename(
+        parent=app,
+        title="Save figure",
+        defaultextension=".png",
+        filetypes=app._FIG_FILETYPES,
+        initialfile=default_name,
+        initialdir=str(app._data_dir) if app._data_dir else None,
+    )
+    if not out:
+        return
+
+    fmt = Path(out).suffix.lstrip(".").lower() or "png"
+    orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
+    orig_ps = _mpl.rcParams.get("ps.fonttype", 3)
+    try:
+        if fmt == "svg":
+            _mpl.rcParams["svg.fonttype"] = "none"
+        elif fmt == "eps":
+            _mpl.rcParams["ps.fonttype"] = 42
+        kw: dict = dict(bbox_inches="tight", facecolor=plot_bg, format=fmt)
+        if fmt == "png":
+            kw["dpi"] = 300
+        fig.savefig(out, **kw)
+        app._set_status(f"Figure saved → {Path(out).name}")
+    except Exception as exc:
+        messagebox.showerror("Save failed", str(exc), parent=app)
+    finally:
+        _mpl.rcParams["svg.fonttype"] = orig_svg
+        _mpl.rcParams["ps.fonttype"] = orig_ps
+
+
+def save_line_figure(app, *, plot_bg: str) -> None:
+    save_matplotlib_fig(app, app._fig, "line_graphs.png", plot_bg=plot_bg)
+
+
+def save_bar_figure(app, *, plot_bg: str) -> None:
+    tp = app._bar_tp_var.get().replace(".", "_")
+    save_matplotlib_fig(app, app._bar_fig, f"bar_t{tp}.png", plot_bg=plot_bg)
+
+
+def save_scatter_figure(app, *, plot_bg: str) -> None:
+    ch_x = app._scatter_ch_x_var.get()
+    ch_y = app._scatter_ch_y_var.get()
+    tp = app._scatter_tp_var.get().replace(".", "_")
+    save_matplotlib_fig(app, app._scatter_fig, f"scatter_{ch_x}_vs_{ch_y}_t{tp}.png", plot_bg=plot_bg)
+
+
+def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
+    stat_x = app._scatter_agg_stat_x_var.get()
+    stat_y = app._scatter_agg_stat_y_var.get()
+
+    # Get selected timepoints from BooleanVar selections
+    selected_timepoints = []
+    if hasattr(app, "_scatter_agg_tp_selections") and app._scatter_agg_tp_selections:
+        selected_timepoints = [float(tp_str) for tp_str, var in app._scatter_agg_tp_selections.items() if var.get()]
+        selected_timepoints.sort()
+
+    if selected_timepoints:
+        tp_range = f"t{min(selected_timepoints):.1f}-{max(selected_timepoints):.1f}".replace(".", "_")
+    else:
+        tp_range = "no_tp"
+
+    stat_x_safe = stat_x.replace(" ", "_").lower()
+    stat_y_safe = stat_y.replace(" ", "_").lower()
+
+    save_matplotlib_fig(app, app._scatter_agg_fig, f"scatter_agg_{stat_x_safe}_vs_{stat_y_safe}_{tp_range}.png", plot_bg=plot_bg)

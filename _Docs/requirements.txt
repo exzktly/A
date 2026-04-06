@@ -1,0 +1,52 @@
+# requirements.txt
+# -----------------
+# Pip-only dependencies for AllWell — Apple Silicon macOS.
+# Python 3.10.14, tensorflow-macos 2.13.0, tensorflow-metal 1.1.0
+#
+# ── ENVIRONMENT SETUP ────────────────────────────────────────────────────────
+#
+# Step 1 — create environment (setuptools pinned to <70 via mamba):
+#
+#   mamba create -n allwell python=3.10.14 setuptools=69.5.1 \
+#       "numpy>=1.24,<1.25" scipy scikit-image matplotlib pillow imageio h5py \
+#       -c conda-forge -y
+#
+# Step 2 — verify pkg_resources works:
+#
+#   mamba activate allwell
+#   python -c "import pkg_resources; print('OK')"
+#
+# Step 3 — install pip packages:
+#
+#   pip install --no-build-isolation -r requirements.txt
+#
+# IMPORTANT:
+#   - setuptools must stay at <70. Modern setuptools (v70+) removed
+#     pkg_resources which is required by stardist and csbdeep.
+#   - Always use --no-build-isolation with pip to prevent it from
+#     escaping to the system Python for wheel builds.
+#   - Never run: pip install setuptools  (this will upgrade and break things)
+#
+# ── VERIFY GPU AFTER INSTALL ─────────────────────────────────────────────────
+#
+#   python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+#   # Expected: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+
+# ── TensorFlow (Apple Silicon native) ────────────────────────────────────────
+tensorflow-macos==2.13.0
+tensorflow-metal==1.1.0
+keras==2.13.1
+protobuf==3.20.3
+
+# ── StarDist segmentation pipeline ───────────────────────────────────────────
+csbdeep==0.8.0
+stardist==0.9.1
+numba==0.57.1
+llvmlite==0.40.1
+
+# ── Image I/O ────────────────────────────────────────────────────────────────
+tifffile==2023.9.26
+imagecodecs==2023.9.18
+
+# ── Build tooling (build only) ───────────────────────────────────────────────
+pyinstaller==6.1.0

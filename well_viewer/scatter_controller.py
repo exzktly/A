@@ -1,0 +1,478 @@
+"""Scatter plot data collection and rendering for multi-well fluorescence analysis."""
+
+from __future__ import annotations
+
+import math
+import statistics as _statistics
+from typing import Any, Dict, List, Optional, Tuple
+
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import numpy as np
+
+
+def get_all_timepoints(app) -> List[float]:
+    """Extract all unique timepoints from loaded CSV data across all wells.
+
+    Returns:
+        Sorted list of unique timepoints (in hours) from all wells.
+    """
+    timepoints = set()
+
+    for label in app._well_paths:
+        rows = app._get_rows(label)
+        for row in rows:
+            try:
+                tp = float(row.get("timepoint_hours", float('nan')))
+                if not (tp != tp):  # Skip NaN
+                    timepoints.add(tp)
+            except (ValueError, TypeError):
+                pass
+
+    return sorted(timepoints)
+
+
+def collect_scatter_data(
+    app,
+    ch_x: str,
+    ch_y: str,
+    timepoint_h: float,
+    *,
+    well_colors: List[str],
+    cell_area_threshold: float = 0.0,
+    fluor_gate_x: float = 0.0,
+    fluor_gate_y: float = 0.0,
+) -> Dict[str, Dict[str, Any]]:
+    """Collect scatter plot data for the given channels and timepoint.
+
+    Groups data by well group (if defined) or by individual well. Each group/well
+    gets a distinct color and contains x/y values plus metadata for click tracking.
+
+    Args:
+        app: WellViewerApp instance with data and state
+        ch_x: X-axis channel name (e.g., "gfp")
+        ch_y: Y-axis channel name (e.g., "mcherry")
+        timepoint_h: Target timepoint in hours
+        well_colors: List of color strings for coloring groups/wells
+        cell_area_threshold: Minimum cell area in pixels; cells below are excluded
+        fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
+        fluor_gate_y: FluorGating threshold for Y channel; cells below are excluded
+
+    Returns:
+        Dict mapping group/well name → {
+            'x': [values],
+            'y': [values],
+            'color': color_str,
+            'metadata': [(well_label, fov, row_idx), ...]
+        }
+    """
+    col_x = f"{ch_x}_mean_intensity"
+    col_y = f"{ch_y}_mean_intensity"
+
+    scatter_data: Dict[str, Dict[str, Any]] = {}
+
+    # Use active replicate sets if defined, otherwise fall back to selected wells
+    active_rsets = app._rep_sets_active()
+
+    if active_rsets:
+        # Group by replicate sets
+        for group_idx, rset in enumerate(active_rsets):
+            group_name = rset.name
+            color = well_colors[group_idx % len(well_colors)]
+            x_vals: List[float] = []
+            y_vals: List[float] = []
+            metadata: List[Tuple[str, Optional[str], int]] = []
+
+            # Collect data from all wells in this replicate set
+            for well_label in rset.wells:
+                if well_label not in app._well_paths:
+                    continue
+
+                rows = app._get_rows(well_label)
+                for row_idx, row in enumerate(rows):
+                    # Filter by timepoint
+                    try:
+                        tp = float(row.get("timepoint_hours", float('nan')))
+                    except (ValueError, TypeError):
+                        continue
+
+                    if abs(tp - timepoint_h) > 1e-6:
+                        continue
+
+                    # Filter by cell area threshold
+                    try:
+                        area = float(row.get("area_px", float('nan')))
+                    except (ValueError, TypeError):
+                        continue
+
+                    if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
+                        continue
+
+                    # Filter by fluorescence gate threshold on both channels
+                    try:
+                        x = float(row.get(col_x, float('nan')))
+                        y = float(row.get(col_y, float('nan')))
+                    except (ValueError, TypeError):
+                        continue
+
+                    if (x != x) or (y != y):  # Skip NaN
+                        continue
+
+                    if x <= fluor_gate_x or y <= fluor_gate_y:
+                        continue
+
+                    x_vals.append(x)
+                    y_vals.append(y)
+
+                    # Store filename and nucleus_id for image lookup
+                    filename = row.get("filename", "")
+                    nuclear_id = row.get("nucleus_id", "")
+                    if row_idx == 0:  # Debug first row only
+                        print(f"DEBUG scatter_controller: Row keys: {list(row.keys())}")
+                        print(f"DEBUG scatter_controller: filename={filename!r}, nuclear_id={nuclear_id!r}")
+                    metadata.append((well_label, filename, nuclear_id, row_idx))
+
+            if x_vals:  # Only add group if it has data
+                scatter_data[group_name] = {
+                    'x': x_vals,
+                    'y': y_vals,
+                    'color': color,
+                    'metadata': metadata,
+                }
+    else:
+        # No groups: show each well separately
+        selected_wells = sorted(
+            (lbl for lbl in app._selected_wells if lbl in app._well_paths),
+            key=lambda lbl: app._parse_rc(lbl),
+        )
+
+        for well_idx, well_label in enumerate(selected_wells):
+            color = well_colors[well_idx % len(well_colors)]
+            x_vals: List[float] = []
+            y_vals: List[float] = []
+            metadata: List[Tuple[str, str, str, int]] = []
+
+            rows = app._get_rows(well_label)
+            for row_idx, row in enumerate(rows):
+                # Filter by timepoint
+                try:
+                    tp = float(row.get("timepoint_hours", float('nan')))
+                except (ValueError, TypeError):
+                    continue
+
+                if abs(tp - timepoint_h) > 1e-6:
+                    continue
+
+                # Filter by cell area threshold
+                try:
+                    area = float(row.get("area_px", float('nan')))
+                except (ValueError, TypeError):
+                    continue
+
+                if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
+                    continue
+
+                # Filter by fluorescence gate threshold on both channels
+                try:
+                    x = float(row.get(col_x, float('nan')))
+                    y = float(row.get(col_y, float('nan')))
+                except (ValueError, TypeError):
+                    continue
+
+                if (x != x) or (y != y):  # Skip NaN
+                    continue
+
+                if x <= fluor_gate_x or y <= fluor_gate_y:
+                    continue
+
+                x_vals.append(x)
+                y_vals.append(y)
+
+                # Store filename and nucleus_id for image lookup
+                filename = row.get("filename", "")
+                nuclear_id = row.get("nucleus_id", "")
+                metadata.append((well_label, filename, nuclear_id, row_idx))
+
+            if x_vals:  # Only add well if it has data
+                scatter_data[well_label] = {
+                    'x': x_vals,
+                    'y': y_vals,
+                    'color': color,
+                    'metadata': metadata,
+                }
+
+    return scatter_data
+
+
+def redraw_scatter(
+    app,
+    ch_x: str,
+    ch_y: str,
+    timepoint_h: float,
+    *,
+    well_colors: List[str],
+    cell_area_threshold: float = 0.0,
+    fluor_gate_x: float = 0.0,
+    fluor_gate_y: float = 0.0,
+) -> None:
+    """Redraw scatter plot with new data.
+
+    Args:
+        app: WellViewerApp instance
+        ch_x: X-axis channel name
+        ch_y: Y-axis channel name
+        timepoint_h: Timepoint in hours
+        well_colors: List of colors for groups/wells
+        cell_area_threshold: Minimum cell area in pixels; cells below are excluded
+        fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
+        fluor_gate_y: FluorGating threshold for Y channel; cells below are excluded
+    """
+    # Collect scatter data
+    scatter_data = collect_scatter_data(
+        app,
+        ch_x,
+        ch_y,
+        timepoint_h,
+        well_colors=well_colors,
+        cell_area_threshold=cell_area_threshold,
+        fluor_gate_x=fluor_gate_x,
+        fluor_gate_y=fluor_gate_y,
+    )
+
+    # Clear existing plot
+    app._ax_scatter.clear()
+
+    # Plot each group/well as separate scatter series
+    for label, data in scatter_data.items():
+        app._ax_scatter.scatter(
+            data['x'],
+            data['y'],
+            label=label,
+            color=data['color'],
+            alpha=0.6,
+            s=30,
+            edgecolors='none',
+        )
+
+        # Store metadata for click tracking
+        if not hasattr(app, '_scatter_metadata'):
+            app._scatter_metadata = {}
+        app._scatter_metadata[label] = data['metadata']
+
+    # Format axes
+    app._ax_scatter.set_xlabel(f"{ch_x.upper()} Mean Intensity")
+    app._ax_scatter.set_ylabel(f"{ch_y.upper()} Mean Intensity")
+    app._ax_scatter.set_title(f"Scatter: {ch_x.upper()} vs {ch_y.upper()} (t={timepoint_h}h)")
+    app._ax_scatter.grid(True, alpha=0.3)
+    app._ax_scatter.legend(loc='best', fontsize=8)
+
+    # Redraw canvas
+    app._scatter_canvas.draw()
+
+
+def collect_scatter_agg_data(
+    app,
+    stat_x: str,  # e.g., "Mean Fluorescence GFP"
+    stat_y: str,  # e.g., "Fraction On mCherry"
+    timepoints_h: List[float],
+    *,
+    well_colors: List[str],
+    aggregate_with_threshold,
+) -> Dict[str, Dict[str, Any]]:
+    """Collect aggregate scatter plot data by computing statistics for each replicate/well.
+
+    Args:
+        app: WellViewerApp instance with data and state
+        stat_x: X-axis statistic (e.g., "Mean Fluorescence GFP" or "Fraction On GFP")
+        stat_y: Y-axis statistic (e.g., "Mean Fluorescence mCherry" or "Fraction On mCherry")
+        timepoints_h: List of target timepoints in hours
+        well_colors: List of color strings for coloring replicates/wells
+        aggregate_with_threshold: Function to compute aggregate statistics
+
+    Returns:
+        Dict mapping "label_tp{timepoint}" → {
+            'x': [mean_x],
+            'y': [mean_y],
+            'x_err': [error_x],
+            'y_err': [error_y],
+            'color': color_str,
+            'timepoint': timepoint_h,
+            'label': 'label (t=Xh)'
+        }
+    """
+    scatter_data: Dict[str, Dict[str, Any]] = {}
+
+    # Extract channel and metric type from statistic names
+    def parse_statistic(stat_str: str) -> Tuple[str, str]:
+        """Parse 'Mean Fluorescence GFP' or 'Fraction On GFP' into ('gfp', 'mean'/'frac')."""
+        if stat_str.startswith("Mean Fluorescence"):
+            channel = stat_str.replace("Mean Fluorescence ", "").lower()
+            return channel, "mean"
+        elif stat_str.startswith("Fraction On"):
+            channel = stat_str.replace("Fraction On ", "").lower()
+            return channel, "frac"
+        else:
+            return "gfp", "mean"
+
+    ch_x, metric_x = parse_statistic(stat_x)
+    ch_y, metric_y = parse_statistic(stat_y)
+    use_sem = app._use_sem.get()
+    threshold_x = app._get_thresh_frac_on(ch_x)  # Threshold for X channel
+    threshold_y = app._get_thresh_frac_on(ch_y)  # Threshold for Y channel
+    cell_area_threshold = app._get_cell_area_threshold()
+    fluor_gates = app._get_all_fluor_gates()  # Apply all channel gates
+
+    # Get active replicates or selected wells
+    active_rsets = app._rep_sets_active()
+
+    if active_rsets:
+        # Mode: replicate sets
+        labels_to_process = [(r.name, r.wells) for r in active_rsets]
+    else:
+        # Mode: individual wells
+        selected_wells = sorted(
+            (lbl for lbl in app._selected_wells if lbl in app._well_paths),
+            key=lambda lbl: app._parse_rc(lbl),
+        )
+        labels_to_process = [(lbl, [lbl]) for lbl in selected_wells]
+
+    # Define markers for each well/group
+    markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'h', '+', 'x']  # circle, square, triangle, diamond, etc.
+
+    # Create color gradient for timepoints using a colormap
+    if timepoints_h:
+        cmap = cm.get_cmap('viridis')
+        normalized_tps = np.linspace(0, 1, len(timepoints_h))
+        tp_to_color = {tp: cmap(norm_val) for tp, norm_val in zip(sorted(timepoints_h), normalized_tps)}
+    else:
+        tp_to_color = {}
+
+    val_col_x = f"{ch_x}_mean_intensity"
+    val_col_y = f"{ch_y}_mean_intensity"
+
+    def _agg_wells(wells, tp, val_col, threshold, metric):
+        """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""
+        well_means: List[float] = []
+        well_fracs: List[float] = []
+        for well_label in wells:
+            if well_label not in app._well_paths:
+                continue
+            rows = app._get_rows(well_label)
+            pts = aggregate_with_threshold(
+                rows, threshold, use_sem=False,
+                val_col=val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            matched = [(m, f) for t, m, _s, f, *_ in pts if abs(t - tp) < 1e-6]
+            if matched:
+                m, f = matched[0]
+                if not math.isnan(m):
+                    well_means.append(m)
+                if not math.isnan(f):
+                    well_fracs.append(f)
+
+        vals = well_fracs if metric == "frac" else well_means
+        if not vals:
+            return float("nan"), 0.0
+        mean_v = _statistics.mean(vals)
+        n = len(vals)
+        sd = _statistics.pstdev(vals) if n > 1 else 0.0
+        err = sd / math.sqrt(n) if (use_sem and n > 1) else sd
+        return mean_v, err
+
+    for label_idx, (label, wells) in enumerate(labels_to_process):
+        marker = markers[label_idx % len(markers)]
+
+        for tp in sorted(timepoints_h):
+            mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
+            mean_y, err_y = _agg_wells(wells, tp, val_col_y, threshold_y, metric_y)
+
+            if math.isnan(mean_x) or math.isnan(mean_y):
+                continue
+
+            data_key = f"{label}_tp{tp}"
+            tp_color = tp_to_color.get(tp, (0, 0, 0, 1))
+            scatter_data[data_key] = {
+                'x': [mean_x],
+                'y': [mean_y],
+                'x_err': [err_x],
+                'y_err': [err_y],
+                'color': tp_color,
+                'marker': marker,
+                'timepoint': tp,
+                'label': f"{label} (t={tp}h)",
+            }
+
+    return scatter_data
+
+
+def redraw_scatter_agg(
+    app,
+    stat_x: str,
+    stat_y: str,
+    timepoints_h: List[float],
+    *,
+    well_colors: List[str],
+    aggregate_with_threshold,
+) -> None:
+    """Redraw aggregate scatter plot with statistics for multiple timepoints.
+
+    Args:
+        app: WellViewerApp instance
+        stat_x: X-axis statistic (e.g., "Mean Fluorescence GFP")
+        stat_y: Y-axis statistic (e.g., "Fraction On GFP")
+        timepoints_h: List of timepoints in hours
+        well_colors: List of colors for replicates/wells
+        aggregate_with_threshold: Function to compute statistics
+    """
+    # Collect aggregate scatter data
+    scatter_data = collect_scatter_agg_data(
+        app,
+        stat_x,
+        stat_y,
+        timepoints_h,
+        well_colors=well_colors,
+        aggregate_with_threshold=aggregate_with_threshold,
+    )
+
+    # Clear existing plot
+    app._ax_scatter_agg.clear()
+
+    if not scatter_data:
+        app._ax_scatter_agg.text(
+            0.5, 0.5,
+            "No data available.\nPlease select wells/groups and timepoints.",
+            ha='center', va='center',
+            transform=app._ax_scatter_agg.transAxes,
+            fontsize=10,
+            color='gray'
+        )
+    else:
+        # Plot each replicate/well-timepoint as separate error bar series
+        for label, data in scatter_data.items():
+            app._ax_scatter_agg.errorbar(
+                data['x'],
+                data['y'],
+                xerr=data['x_err'],
+                yerr=data['y_err'],
+                label=data['label'],
+                color=data['color'],
+                marker=data.get('marker', 'o'),
+                markersize=8,
+                linestyle='none',
+                capsize=5,
+                capthick=1.5,
+                alpha=0.7,
+            )
+
+        # Format axes
+        app._ax_scatter_agg.set_xlabel(stat_x)
+        app._ax_scatter_agg.set_ylabel(stat_y)
+        tp_range = f"t={min(timepoints_h)}h to {max(timepoints_h)}h" if timepoints_h else ""
+        app._ax_scatter_agg.set_title(f"Aggregate Scatter: {stat_x} vs {stat_y} ({tp_range})")
+        app._ax_scatter_agg.grid(True, alpha=0.3)
+        app._ax_scatter_agg.legend(loc='best', fontsize=8)
+
+    # Redraw canvas
+    app._scatter_agg_canvas.draw()

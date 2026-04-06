@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent.parent
+PIPELINE_SCRIPT = HERE / "process_microscopy_v2.py"
+
+
+def find_pipeline_script() -> Path | None:
+    return PIPELINE_SCRIPT if PIPELINE_SCRIPT.exists() else None
+
+
+def write_pipeline_info(
+    output_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+    fluor_tokens: list[str],
+) -> Path:
+    fields = [f.strip() for f in filename_schema.split(":")]
+    info = {
+        "schema": filename_schema,
+        "separator": filename_sep,
+        "fov_index": fields.index("fov") if "fov" in fields else -1,
+        "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
+        "fluor_tokens": fluor_tokens,
+    }
+    p = output_dir / "pipeline_info.json"
+    p.write_text(json.dumps(info, indent=2))
+    return p
+
+
+def build_pipeline_args(
+    pipeline: Path,
+    input_dir: Path,
+    output_dir: Path,
+    opts: dict,
+) -> list[str]:
+    args = [
+        sys.executable,
+        str(pipeline),
+        "--input_dir",
+        str(input_dir),
+        "--output_dir",
+        str(output_dir),
+        "--nuclear_token",
+        opts["nuclear_token"],
+        "--fluor_tokens",
+        *opts["fluor_tokens"],
+        "--csv_prefix",
+        opts["csv_prefix"],
+        "--filename_schema",
+        opts["filename_schema"],
+        "--filename_sep",
+        opts["filename_sep"],
+    ]
+    try:
+        args += ["--tophat_radius_nir", str(int(opts["tophat_radius_nir"]))]
+    except ValueError:
+        pass
+    try:
+        args += ["--tophat_radius_fluor", str(int(opts["tophat_radius_fluor"]))]
+    except ValueError:
+        pass
+
+    for flag in (
+        "no_tophat_nir",
+        "no_tophat_fluor",
+        "no_save_masks",
+        "no_save_overlays",
+        "force",
+        "cpu_only",
+    ):
+        if opts.get(flag):
+            args.append(f"--{flag}")
+
+    try:
+        tf = int(opts["tf_threads"])
+        if tf != 0:
+            args += ["--tf_threads", str(tf)]
+    except ValueError:
+        pass
+    try:
+        workers = int(opts.get("workers", 0))
+        if workers > 0:
+            args += ["--workers", str(workers)]
+    except (TypeError, ValueError):
+        pass
+
+    return args
+
+
+def spawn_pipeline(args: list[str]) -> subprocess.Popen:
+    return subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
