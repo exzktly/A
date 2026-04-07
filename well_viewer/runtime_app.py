@@ -5421,6 +5421,15 @@ class WellViewerApp(tk.Frame):
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_sidebar_map()
 
+        elif tab == "Review CSV":
+            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
+                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4), before=self._sidebar_allnone_frame)
+            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
+                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6), before=self._sel_count_lbl)
+            self._refresh_sidebar_map()
+            self._refresh_review_csv()
+
         elif tab == "smFISH":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
             if hasattr(self, "_sidebar_rc_frame"):
@@ -5457,6 +5466,120 @@ class WellViewerApp(tk.Frame):
     def _show_line_sidebar(self) -> None:
         """No-op: the unified well picker is always visible for plot tabs."""
         pass
+
+    def _build_review_csv_tab(self, parent: tk.Frame) -> None:
+        wrap = tk.Frame(parent, bg=BG_APP, padx=10, pady=10)
+        wrap.pack(fill=tk.BOTH, expand=True)
+
+        ctrl = tk.Frame(wrap, bg=BG_SIDE, padx=8, pady=6)
+        ctrl.pack(fill=tk.X)
+        tk.Label(ctrl, text="Well:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
+        self._review_well_var = tk.StringVar(value="(select one well)")
+        tk.Label(ctrl, textvariable=self._review_well_var, font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(6, 14))
+
+        tk.Label(ctrl, text="FOV:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
+        self._review_fov_var = tk.StringVar(value="")
+        self._review_fov_cb = ttk.Combobox(ctrl, textvariable=self._review_fov_var, state="readonly", width=12)
+        self._review_fov_cb.pack(side=tk.LEFT, padx=(6, 12))
+        self._review_fov_cb.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_csv_rows())
+
+        tk.Label(ctrl, text="Timepoint:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
+        self._review_tp_var = tk.StringVar(value="")
+        self._review_tp_cb = ttk.Combobox(ctrl, textvariable=self._review_tp_var, state="readonly", width=14)
+        self._review_tp_cb.pack(side=tk.LEFT, padx=(6, 12))
+        self._review_tp_cb.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_csv_rows())
+        ttk.Button(ctrl, text="Refresh", command=self._refresh_review_csv).pack(side=tk.LEFT)
+
+        table_wrap = tk.Frame(wrap, bg=BG_APP)
+        table_wrap.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self._review_csv_table = ttk.Treeview(table_wrap, show="headings")
+        ys = ttk.Scrollbar(table_wrap, orient=tk.VERTICAL, command=self._review_csv_table.yview)
+        xs = ttk.Scrollbar(table_wrap, orient=tk.HORIZONTAL, command=self._review_csv_table.xview)
+        self._review_csv_table.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+        self._review_csv_table.grid(row=0, column=0, sticky="nsew")
+        ys.grid(row=0, column=1, sticky="ns")
+        xs.grid(row=1, column=0, sticky="ew")
+        table_wrap.rowconfigure(0, weight=1)
+        table_wrap.columnconfigure(0, weight=1)
+        self._review_csv_msg = tk.StringVar(value="Select a single well to inspect CSV rows.")
+        tk.Label(wrap, textvariable=self._review_csv_msg, font=FM_TINY, fg=TXT_MUT, bg=BG_APP, anchor="w").pack(fill=tk.X, pady=(6, 0))
+
+    def _refresh_review_csv(self) -> None:
+        if not hasattr(self, "_review_csv_table"):
+            return
+        sels = sorted(self._selected_wells, key=self._parse_rc)
+        if len(sels) != 1:
+            self._review_well_var.set("(select one well)")
+            self._review_fov_cb["values"] = []
+            self._review_tp_cb["values"] = []
+            self._review_fov_var.set("")
+            self._review_tp_var.set("")
+            self._refresh_review_csv_rows([])
+            self._review_csv_msg.set("Select exactly one well in the picker.")
+            return
+
+        label = sels[0]
+        tok = self._extract_well_token(label) or label
+        self._review_well_var.set(tok)
+        rows = self._get_rows(label)
+        if not rows:
+            self._review_fov_cb["values"] = []
+            self._review_tp_cb["values"] = []
+            self._review_fov_var.set("")
+            self._review_tp_var.set("")
+            self._refresh_review_csv_rows([])
+            self._review_csv_msg.set("No CSV rows loaded for this well.")
+            return
+
+        fovs = sorted({str(r.get("fov", r.get("FOV", ""))).strip() for r in rows if str(r.get("fov", r.get("FOV", ""))).strip()})
+        tps = sorted({str(r.get("timepoint", r.get("tp", r.get("time", "")))).strip() for r in rows if str(r.get("timepoint", r.get("tp", r.get("time", "")))).strip()})
+        self._review_fov_cb["values"] = fovs
+        self._review_tp_cb["values"] = tps
+        if fovs and self._review_fov_var.get() not in fovs:
+            self._review_fov_var.set(fovs[0])
+        if tps and self._review_tp_var.get() not in tps:
+            self._review_tp_var.set(tps[0])
+        self._refresh_review_csv_rows(rows)
+
+    def _refresh_review_csv_rows(self, rows: Optional[List[dict]] = None) -> None:
+        if not hasattr(self, "_review_csv_table"):
+            return
+        table = self._review_csv_table
+        for iid in table.get_children():
+            table.delete(iid)
+
+        if rows is None:
+            sels = sorted(self._selected_wells, key=self._parse_rc)
+            if len(sels) != 1:
+                rows = []
+            else:
+                rows = self._get_rows(sels[0])
+
+        fov_sel = self._review_fov_var.get().strip() if hasattr(self, "_review_fov_var") else ""
+        tp_sel = self._review_tp_var.get().strip() if hasattr(self, "_review_tp_var") else ""
+        filtered = []
+        for row in rows:
+            row_fov = str(row.get("fov", row.get("FOV", ""))).strip()
+            row_tp = str(row.get("timepoint", row.get("tp", row.get("time", "")))).strip()
+            if fov_sel and row_fov != fov_sel:
+                continue
+            if tp_sel and row_tp != tp_sel:
+                continue
+            filtered.append(row)
+
+        if not filtered:
+            table["columns"] = ()
+            self._review_csv_msg.set("No rows match the selected Well/FOV/Timepoint.")
+            return
+
+        cols = list(filtered[0].keys())
+        table["columns"] = cols
+        for c in cols:
+            table.heading(c, text=c)
+            table.column(c, width=120, minwidth=60, stretch=True, anchor="w")
+        for row in filtered:
+            table.insert("", tk.END, values=[row.get(c, "") for c in cols])
+        self._review_csv_msg.set(f"Showing {len(filtered):,} row(s).")
 
     def _update_bar_tp_menu(self) -> None:
         """

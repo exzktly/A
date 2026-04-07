@@ -61,7 +61,6 @@ class SmfishTab(tk.Frame):
         self._cdf_canvas: FigureCanvasTkAgg | None = None
         self._cdf_ax = None
         self._cdf_fig = None
-        self._redraw_after_id: str | None = None
 
         self._build_ui()
 
@@ -97,7 +96,7 @@ class SmfishTab(tk.Frame):
                        highlightcolor=ACCENT)
         thr.pack(side=tk.LEFT, padx=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
-        self._threshold_var.trace_add("write", self._on_threshold_edit)
+        thr.bind("<FocusOut>", lambda _e: self._redraw())
         tk.Label(ctrl, text="LUT Min:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(4, 6))
         lut_min = tk.Entry(ctrl, textvariable=self._lut_min_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
                            relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
@@ -115,6 +114,7 @@ class SmfishTab(tk.Frame):
         btn_row.pack(fill=tk.X, side=tk.TOP)
         ttk.Button(btn_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
         ttk.Button(btn_row, text="Apply Global Threshold", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(btn_row, text="Refresh", command=self._redraw).pack(side=tk.LEFT, padx=(6, 0))
         self._overlay_btn = ttk.Button(btn_row, text="Hide Overlays", command=self._toggle_overlays)
         self._overlay_btn.pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(btn_row, text="CDF", command=self._open_cdf_popup).pack(side=tk.LEFT, padx=(6, 0))
@@ -133,11 +133,6 @@ class SmfishTab(tk.Frame):
         self._canvas_img.mpl_connect("button_press_event", self._on_img_press)
         self._canvas_img.mpl_connect("button_release_event", self._on_img_release)
         self._canvas_img.mpl_connect("motion_notify_event", self._on_img_drag)
-
-    def _on_threshold_edit(self, *_args) -> None:
-        if self._redraw_after_id is not None:
-            self.after_cancel(self._redraw_after_id)
-        self._redraw_after_id = self.after(120, self._redraw)
 
     def _toggle_overlays(self) -> None:
         self._show_overlays = not self._show_overlays
@@ -397,7 +392,6 @@ class SmfishTab(tk.Frame):
             return 0.0
 
     def _redraw(self) -> None:
-        self._redraw_after_id = None
         if self._current_log_img is None or self._current_labels is None:
             return
         thr = self._get_threshold()
@@ -527,11 +521,11 @@ class SmfishTab(tk.Frame):
         log_img = self._current_log_img
         col = f"{channel}_smfish_count"
         counts: dict[str, int] = {}
-        for nid in np.unique(labels):
-            if nid == 0:
-                continue
-            nuc_mask = labels == nid
-            counts[str(int(nid))] = int(np.sum(log_img[nuc_mask] > thr))
+        hits = labels[(labels > 0) & (log_img > thr)].astype(np.int64, copy=False)
+        if hits.size:
+            hit_counts = np.bincount(hits)
+            for nid in np.nonzero(hit_counts)[0]:
+                counts[str(int(nid))] = int(hit_counts[nid])
 
         sel_label = self._selected_well_label()
         if self._app is not None and sel_label and sel_label in self._app._well_paths:
@@ -598,11 +592,11 @@ class SmfishTab(tk.Frame):
                     continue
                 log_img = imread(io.BytesIO(sm_raw)).astype(np.float32)
                 labels = imread(io.BytesIO(mk_raw))
-                for nid in np.unique(labels):
-                    if nid == 0:
-                        continue
-                    nuc_mask = labels == nid
-                    counts[(well, key[0], key[1], str(int(nid)))] = int(np.sum(log_img[nuc_mask] > thr))
+                hits = labels[(labels > 0) & (log_img > thr)].astype(np.int64, copy=False)
+                if hits.size:
+                    hit_counts = np.bincount(hits)
+                    for nid in np.nonzero(hit_counts)[0]:
+                        counts[(well, key[0], key[1], str(int(nid)))] = int(hit_counts[nid])
 
         for well in sorted(self._well_to_zip):
             csv_matches = list(out_dir.glob(f"*_{well}.csv"))
