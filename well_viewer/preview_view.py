@@ -64,11 +64,11 @@ def refresh_preview_picker(
     for tok, btn in app._sidebar_preview_btns.items():
         label = app._tok_to_label.get(tok)
         if label is None:
-            btn.config(bg=bg_cell, fg=txt_mut, state=tk.DISABLED, cursor="arrow")
+            btn.config(bg=bg_cell, fg=txt_mut, state=tk.DISABLED, cursor="arrow", relief=tk.FLAT)
         elif label == app._preview_selected_well:
-            btn.config(bg=accent, fg=clr_white, state=tk.NORMAL, activebackground=clr_accent_dark, cursor="hand2")
+            btn.config(bg=accent, fg=clr_white, state=tk.NORMAL, activebackground=clr_accent_dark, cursor="hand2", relief=tk.SUNKEN)
         else:
-            btn.config(bg=bg_panel, fg=txt_pri, state=tk.NORMAL, activebackground=bg_hover, cursor="hand2")
+            btn.config(bg=bg_panel, fg=txt_pri, state=tk.NORMAL, activebackground=bg_hover, cursor="hand2", relief=tk.FLAT)
     if hasattr(app, "_preview_sel_lbl"):
         if app._preview_selected_well:
             tok = extract_well_token_fn(app._preview_selected_well) or app._preview_selected_well
