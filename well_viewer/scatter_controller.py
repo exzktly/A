@@ -204,8 +204,8 @@ def collect_scatter_data(
 
 def redraw_scatter(
     app,
-    ch_x: str,
-    ch_y: str,
+    col_x: str,
+    col_y: str,
     timepoint_h: float,
     *,
     well_colors: List[str],
@@ -217,8 +217,8 @@ def redraw_scatter(
 
     Args:
         app: WellViewerApp instance
-        ch_x: X-axis channel name
-        ch_y: Y-axis channel name
+        col_x: X-axis column name (e.g., "gfp_mean_intensity" or "gfp_smfish_count")
+        col_y: Y-axis column name (e.g., "mcherry_mean_intensity" or "mcherry_smfish_count")
         timepoint_h: Timepoint in hours
         well_colors: List of colors for groups/wells
         cell_area_threshold: Minimum cell area in pixels; cells below are excluded
@@ -228,8 +228,8 @@ def redraw_scatter(
     # Collect scatter data
     scatter_data = collect_scatter_data(
         app,
-        ch_x,
-        ch_y,
+        col_x,
+        col_y,
         timepoint_h,
         well_colors=well_colors,
         cell_area_threshold=cell_area_threshold,
@@ -302,13 +302,16 @@ def collect_scatter_agg_data(
 
     # Extract channel and metric type from statistic names
     def parse_statistic(stat_str: str) -> Tuple[str, str]:
-        """Parse 'Mean Fluorescence GFP' or 'Fraction On GFP' into ('gfp', 'mean'/'frac')."""
+        """Parse statistic strings: 'Mean Fluorescence GFP', 'Fraction On GFP', or 'smFISH Count GFP'."""
         if stat_str.startswith("Mean Fluorescence"):
             channel = stat_str.replace("Mean Fluorescence ", "").lower()
             return channel, "mean"
         elif stat_str.startswith("Fraction On"):
             channel = stat_str.replace("Fraction On ", "").lower()
             return channel, "frac"
+        elif stat_str.startswith("smFISH Count"):
+            channel = stat_str.replace("smFISH Count ", "").lower()
+            return channel, "smfish"
         else:
             return "gfp", "mean"
 
@@ -345,8 +348,18 @@ def collect_scatter_agg_data(
     else:
         tp_to_color = {}
 
-    val_col_x = f"{ch_x}_mean_intensity"
-    val_col_y = f"{ch_y}_mean_intensity"
+    # Derive column names based on metric type
+    if metric_x == "smfish":
+        val_col_x = f"{ch_x}_smfish_count"
+        threshold_x = 0  # No threshold for smfish counts (all spots)
+    else:
+        val_col_x = f"{ch_x}_mean_intensity"
+
+    if metric_y == "smfish":
+        val_col_y = f"{ch_y}_smfish_count"
+        threshold_y = 0  # No threshold for smfish counts (all spots)
+    else:
+        val_col_y = f"{ch_y}_mean_intensity"
 
     def _agg_wells(wells, tp, val_col, threshold, metric):
         """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""

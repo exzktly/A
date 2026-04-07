@@ -253,22 +253,29 @@ def export_scatter_data(app) -> None:
     from well_viewer.scatter_controller import collect_scatter_data as _scatter_collect_data
 
     try:
-        ch_x = app._scatter_ch_x_var.get()
-        ch_y = app._scatter_ch_y_var.get()
+        ch_x_entry = app._scatter_ch_x_var.get()
+        ch_y_entry = app._scatter_ch_y_var.get()
         tp_str = app._scatter_tp_var.get()
         timepoint_h = float(tp_str) if tp_str else 0.0
     except (ValueError, AttributeError):
         rt.messagebox.showwarning("Export", "Select channels and timepoint first.", parent=app)
         return
 
+    # Extract base channel names for gate lookups
+    ch_x_base = ch_x_entry.split(" ")[0]
+    ch_y_base = ch_y_entry.split(" ")[0]
+    # Resolve to actual column names
+    col_x = app._col_for_scatter_entry(ch_x_entry)
+    col_y = app._col_for_scatter_entry(ch_y_entry)
+
     cell_area_threshold = app._get_cell_area_threshold()
-    fluor_gate_x = app._get_fluor_gate(ch_x)
-    fluor_gate_y = app._get_fluor_gate(ch_y)
+    fluor_gate_x = app._get_fluor_gate(ch_x_base)
+    fluor_gate_y = app._get_fluor_gate(ch_y_base)
 
     scatter_data = _scatter_collect_data(
         app,
-        ch_x,
-        ch_y,
+        col_x,
+        col_y,
         timepoint_h,
         well_colors=[],  # Not needed for export
         cell_area_threshold=cell_area_threshold,
@@ -283,8 +290,8 @@ def export_scatter_data(app) -> None:
         for x, y in zip(x_vals, y_vals):
             rows_out.append({
                 "group_well": label,
-                f"{ch_x}_intensity": f"{x:.6f}",
-                f"{ch_y}_intensity": f"{y:.6f}",
+                f"{col_x}": f"{x:.6f}",
+                f"{col_y}": f"{y:.6f}",
                 "timepoint_h": f"{timepoint_h:.4f}",
             })
 
@@ -305,7 +312,7 @@ def export_scatter_data(app) -> None:
 
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = rt.csv.DictWriter(fh, fieldnames=["group_well", f"{ch_x}_intensity", f"{ch_y}_intensity", "timepoint_h"])
+            writer = rt.csv.DictWriter(fh, fieldnames=["group_well", f"{col_x}", f"{col_y}", "timepoint_h"])
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} datapoint(s) → {Path(out_path).name}")
