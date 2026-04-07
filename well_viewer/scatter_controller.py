@@ -34,8 +34,8 @@ def get_all_timepoints(app) -> List[float]:
 
 def collect_scatter_data(
     app,
-    ch_x: str,
-    ch_y: str,
+    col_x: str,
+    col_y: str,
     timepoint_h: float,
     *,
     well_colors: List[str],
@@ -43,15 +43,15 @@ def collect_scatter_data(
     fluor_gate_x: float = 0.0,
     fluor_gate_y: float = 0.0,
 ) -> Dict[str, Dict[str, Any]]:
-    """Collect scatter plot data for the given channels and timepoint.
+    """Collect scatter plot data for the given column names and timepoint.
 
     Groups data by well group (if defined) or by individual well. Each group/well
     gets a distinct color and contains x/y values plus metadata for click tracking.
 
     Args:
         app: WellViewerApp instance with data and state
-        ch_x: X-axis channel name (e.g., "gfp")
-        ch_y: Y-axis channel name (e.g., "mcherry")
+        col_x: X-axis column name (e.g., "gfp_mean_intensity" or "gfp_smfish_count")
+        col_y: Y-axis column name (e.g., "mcherry_mean_intensity" or "mcherry_smfish_count")
         timepoint_h: Target timepoint in hours
         well_colors: List of color strings for coloring groups/wells
         cell_area_threshold: Minimum cell area in pixels; cells below are excluded
@@ -66,8 +66,6 @@ def collect_scatter_data(
             'metadata': [(well_label, fov, row_idx), ...]
         }
     """
-    col_x = f"{ch_x}_mean_intensity"
-    col_y = f"{ch_y}_mean_intensity"
 
     scatter_data: Dict[str, Dict[str, Any]] = {}
 

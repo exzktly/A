@@ -6536,18 +6536,36 @@ class WellViewerApp(tk.Frame):
 
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
+    def _col_for_scatter_entry(self, entry: str) -> str:
+        """Map scatter dropdown entry to CSV column name.
+
+        "gfp" -> "gfp_mean_intensity"
+        "gfp (spots)" -> "gfp_smfish_count"
+        """
+        if entry.endswith(" (spots)"):
+            ch = entry[:-8]  # Remove " (spots)"
+            return f"{ch}_smfish_count"
+        else:
+            return f"{entry}_mean_intensity"
+
     def _update_scatter_menus(self) -> None:
         """Populate scatter plot dropdowns with available channels and timepoints."""
-        # Update channel dropdowns for cells scatter
+        # Update channel dropdowns for cells scatter (include smfish_count variants)
         channels = list(self._fluor_channels) if self._fluor_channels else ["gfp"]
-        self._scatter_ch_x_cb.config(values=channels)
-        self._scatter_ch_y_cb.config(values=channels)
+        scatter_ch_options = []
+        for ch in channels:
+            scatter_ch_options.append(ch)
+            if ch in self._smfish_channels:
+                scatter_ch_options.append(f"{ch} (spots)")
 
-        if channels:
-            if self._scatter_ch_x_var.get() not in channels:
-                self._scatter_ch_x_var.set(channels[0])
-            if self._scatter_ch_y_var.get() not in channels:
-                self._scatter_ch_y_var.set(channels[0 if len(channels) == 1 else 1])
+        self._scatter_ch_x_cb.config(values=scatter_ch_options)
+        self._scatter_ch_y_cb.config(values=scatter_ch_options)
+
+        if scatter_ch_options:
+            if self._scatter_ch_x_var.get() not in scatter_ch_options:
+                self._scatter_ch_x_var.set(scatter_ch_options[0])
+            if self._scatter_ch_y_var.get() not in scatter_ch_options:
+                self._scatter_ch_y_var.set(scatter_ch_options[0 if len(scatter_ch_options) == 1 else 1])
 
         # Update timepoint dropdown for cells scatter
         timepoints = _scatter_get_timepoints(self)
@@ -6558,11 +6576,13 @@ class WellViewerApp(tk.Frame):
             self._scatter_tp_var.set(tp_strs[0])
 
         # Update statistic dropdowns for aggregate scatter
-        # Build list of available statistics: Mean Fluorescence and Fraction On for each channel
+        # Build list of available statistics: Mean Fluorescence, Fraction On, and smFISH Count for each channel
         statistics = []
         for ch in channels:
             statistics.append(f"Mean Fluorescence {ch.upper()}")
             statistics.append(f"Fraction On {ch.upper()}")
+            if ch in self._smfish_channels:
+                statistics.append(f"smFISH Count {ch.upper()}")
 
         self._scatter_agg_stat_x_cb.config(values=statistics)
         self._scatter_agg_stat_y_cb.config(values=statistics)
@@ -6595,21 +6615,29 @@ class WellViewerApp(tk.Frame):
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
         try:
-            ch_x = self._scatter_ch_x_var.get()
-            ch_y = self._scatter_ch_y_var.get()
+            ch_x_entry = self._scatter_ch_x_var.get()
+            ch_y_entry = self._scatter_ch_y_var.get()
             tp_str = self._scatter_tp_var.get()
             timepoint_h = float(tp_str) if tp_str else 0.0
         except ValueError:
             return
 
+        # Extract base channel names (e.g., "gfp (spots)" -> "gfp")
+        ch_x_base = ch_x_entry.split(" ")[0]
+        ch_y_base = ch_y_entry.split(" ")[0]
+
         cell_area_threshold = self._get_cell_area_threshold()
-        fluor_gate_x = self._get_fluor_gate(ch_x)
-        fluor_gate_y = self._get_fluor_gate(ch_y)
+        fluor_gate_x = self._get_fluor_gate(ch_x_base)
+        fluor_gate_y = self._get_fluor_gate(ch_y_base)
+
+        # Resolve to actual column names
+        col_x = self._col_for_scatter_entry(ch_x_entry)
+        col_y = self._col_for_scatter_entry(ch_y_entry)
 
         _scatter_redraw(
             self,
-            ch_x,
-            ch_y,
+            col_x,
+            col_y,
             timepoint_h,
             well_colors=WELL_COLORS,
             cell_area_threshold=cell_area_threshold,
