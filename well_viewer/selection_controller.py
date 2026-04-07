@@ -114,10 +114,18 @@ def on_plate_sel_change(app) -> None:
         deselected = next(iter(removed))
         app._last_sel = deselected if cur_labels else None
     app._prev_sel = cur_labels
+    if hasattr(app, "_notebook"):
+        tab = app._notebook.tab(app._notebook.select(), "text")
+        if tab == "smFISH" and len(app._selected_wells) > 1:
+            keep = app._last_sel if app._last_sel in app._selected_wells else next(iter(app._selected_wells))
+            app._selected_wells = {keep}
+            app._prev_sel = app._selected_wells.copy()
     app._refresh_sidebar_map()
     app._redraw()
     app._redraw_bars()
     app._redraw_scatter()
+    if hasattr(app, "_notebook") and app._notebook.tab(app._notebook.select(), "text") == "smFISH":
+        app._smfish_tab.sync_from_app()
 
 
 def select_row(app, row: str) -> None:
@@ -194,4 +202,3 @@ def select_none(app) -> None:
     app._redraw()
     app._redraw_bars()
     app._redraw_scatter()
-

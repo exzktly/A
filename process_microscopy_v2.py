@@ -524,20 +524,21 @@ def process_image_group(
              time.perf_counter() - _t, tophat_radius_nir, tophat_nir)
 
     # Top-hat on each fluorescent channel.
-    fluor_corr: list[np.ndarray] = []
+    fluor_tophat: list[np.ndarray] = []
     for i, (fraw, do_th, radius) in enumerate(
             zip(fluor_raws, tophat_fluor, tophat_radius_fluor)):
         _t = time.perf_counter()
         fc = apply_tophat(fraw, radius) if do_th else fraw.copy()
-        fluor_corr.append(fc)
+        fluor_tophat.append(fc)
         log.info("  tophat_%s:  %.1f s  (radius %d, enabled=%s)",
                  fluor_tokens[i].lower(), time.perf_counter() - _t, radius, do_th)
 
     smfish_set = set(smfish_tokens or [])
+    fluor_corr = [img.copy() for img in fluor_tophat]
     for i, tok in enumerate(fluor_tokens):
         if tok in smfish_set:
             _t = time.perf_counter()
-            fluor_corr[i] = apply_smfish_log(fluor_corr[i])
+            fluor_corr[i] = apply_smfish_log(fluor_tophat[i])
             log.info("  smfish_log_%s: %.1f s", tok.lower(), time.perf_counter() - _t)
 
     # StarDist segmentation on the nuclear channel.
@@ -563,7 +564,7 @@ def process_image_group(
     _t = time.perf_counter()
     th_nir_path = output_dir / f"{base_name}_tophat_nir.tif"
     imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
-    for fc, tok in zip(fluor_corr, fluor_tokens):
+    for fc, tok in zip(fluor_tophat, fluor_tokens):
         th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
         imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
     for i, tok in enumerate(fluor_tokens):

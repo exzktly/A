@@ -361,7 +361,7 @@ def build_centre(app, parent: tk.Frame) -> None:
     # ── Tab 5: smFISH ─────────────────────────────────────────────────────
     tab_smfish = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_smfish, text="smFISH")
-    app._smfish_tab = SmfishTab(tab_smfish)
+    app._smfish_tab = SmfishTab(tab_smfish, app=app)
     app._smfish_tab.pack(fill=tk.BOTH, expand=True)
 
     # ── Tab 6: Batch Export ───────────────────────────────────────────────
