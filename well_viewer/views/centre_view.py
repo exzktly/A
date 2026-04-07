@@ -16,9 +16,9 @@ relevant module:
   Tabs that stay inline (class instantiation or single method call):
     Preview            → app._build_right_panel / app._build_preview_picker
     Review CSV         → app._build_review_csv_tab
-    smFISH             → SmfishTab class
+    smFISH             → well_viewer/smfish_tab.py  (SmfishTab)
     Statistics         → app._build_stats_tab / app._build_stats_group_editor
-    Cell Gating        → CellGatingTab class
+    Cell Gating        → well_viewer/cell_gating_tab.py  (CellGatingTab)
     Sample Definitions → app._build_groups_centre / app._build_replicate_panel
                          / app._build_bar_group_panel
 """
@@ -30,8 +30,8 @@ from well_viewer.runtime_app import BG_APP, BG_SIDE
 
 
 def build_centre(app, parent: tk.Frame) -> None:
-    from smfish_tab import SmfishTab
-    from well_viewer.runtime_app import CellGatingTab
+    from well_viewer.smfish_tab import SmfishTab
+    from well_viewer.cell_gating_tab import CellGatingTab
     from well_viewer.tabs.line_graphs_tab_view import build_line_graphs_tab
     from well_viewer.tabs.bar_plots_tab_view import build_bar_plots_tab
     from well_viewer.tabs.batch_export_tab_view import build_batch_export_tab
