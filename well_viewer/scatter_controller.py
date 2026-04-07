@@ -257,10 +257,19 @@ def redraw_scatter(
             app._scatter_metadata = {}
         app._scatter_metadata[label] = data['metadata']
 
-    # Format axes
-    app._ax_scatter.set_xlabel(f"{ch_x.upper()} Mean Intensity")
-    app._ax_scatter.set_ylabel(f"{ch_y.upper()} Mean Intensity")
-    app._ax_scatter.set_title(f"Scatter: {ch_x.upper()} vs {ch_y.upper()} (t={timepoint_h}h)")
+    # Format axes — derive readable label from column name
+    def _col_label(col: str) -> str:
+        if col.endswith("_smfish_count"):
+            ch = col[:-len("_smfish_count")]
+            return f"{ch.upper()} smFISH Count"
+        elif col.endswith("_mean_intensity"):
+            ch = col[:-len("_mean_intensity")]
+            return f"{ch.upper()} Mean Intensity"
+        return col
+
+    app._ax_scatter.set_xlabel(_col_label(col_x))
+    app._ax_scatter.set_ylabel(_col_label(col_y))
+    app._ax_scatter.set_title(f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)} (t={timepoint_h}h)")
     app._ax_scatter.grid(True, alpha=0.3)
     app._ax_scatter.legend(loc='best', fontsize=8)
 

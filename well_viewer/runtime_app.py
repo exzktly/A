@@ -6659,17 +6659,19 @@ class WellViewerApp(tk.Frame):
 
         # Simple nearest-neighbor finder
         try:
-            ch_x = self._scatter_ch_x_var.get()
-            ch_y = self._scatter_ch_y_var.get()
+            ch_x_entry = self._scatter_ch_x_var.get()
+            ch_y_entry = self._scatter_ch_y_var.get()
             tp_str = self._scatter_tp_var.get()
             timepoint_h = float(tp_str) if tp_str else 0.0
+            col_x = self._col_for_scatter_entry(ch_x_entry)
+            col_y = self._col_for_scatter_entry(ch_y_entry)
 
-            print(f"DEBUG: Collecting scatter data for {ch_x} vs {ch_y} at t={timepoint_h}")
+            print(f"DEBUG: Collecting scatter data for {col_x} vs {col_y} at t={timepoint_h}")
 
             scatter_data = _scatter_collect_data(
                 self,
-                ch_x,
-                ch_y,
+                col_x,
+                col_y,
                 timepoint_h,
                 well_colors=WELL_COLORS,
             )
@@ -6717,15 +6719,17 @@ class WellViewerApp(tk.Frame):
             return
 
         try:
-            ch_x = self._scatter_ch_x_var.get()
-            ch_y = self._scatter_ch_y_var.get()
+            ch_x_entry = self._scatter_ch_x_var.get()
+            ch_y_entry = self._scatter_ch_y_var.get()
             tp_str = self._scatter_tp_var.get()
             timepoint_h = float(tp_str) if tp_str else 0.0
+            col_x = self._col_for_scatter_entry(ch_x_entry)
+            col_y = self._col_for_scatter_entry(ch_y_entry)
 
             scatter_data = _scatter_collect_data(
                 self,
-                ch_x,
-                ch_y,
+                col_x,
+                col_y,
                 timepoint_h,
                 well_colors=WELL_COLORS,
             )
