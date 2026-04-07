@@ -367,9 +367,17 @@ class AnalyzeTab(tk.Frame):
             fg=TXT_PRI,
             bg=BG_SIDE,
         ).pack(anchor="w", pady=(6, 2))
+        tk.Label(
+            sec,
+            text="Mark smFISH channels with the checkbox on each row.",
+            font=FM_TINY,
+            fg=TXT_MUT,
+            bg=BG_SIDE,
+        ).pack(anchor="w", pady=(0, 2))
         self._fluor_frame = tk.Frame(sec, bg=BG_SIDE)
         self._fluor_frame.pack(fill=tk.X)
         self._fluor_vars = []
+        self._fluor_smfish_vars: list[tk.BooleanVar] = []
         self._fluor_add_row("GFP")
         self._fluor_add_btn = ttk.Button(sec, text="+ Add channel",
                                          command=self._fluor_add_row,
@@ -549,8 +557,6 @@ class AnalyzeTab(tk.Frame):
         self._fluor_vars.append(var)
         var.trace_add("write", lambda *_: self._refresh_schema_preview())
 
-        idx = len(self._fluor_vars) - 1   # index of the row we just appended
-
         row = tk.Frame(self._fluor_frame, bg=BG_SIDE)
         row.pack(fill=tk.X, pady=1)
 
@@ -566,6 +572,13 @@ class AnalyzeTab(tk.Frame):
         remove_btn = ttk.Button(row, text="✕", style="SideMuted.TButton",
                                 command=lambda r=row, v=var: self._fluor_remove_row(r, v))
         remove_btn.pack(side=tk.LEFT, padx=(4, 0))
+        smfish_var = tk.BooleanVar(value=False)
+        self._fluor_smfish_vars.append(smfish_var)
+        tk.Checkbutton(
+            row, text="smFISH", variable=smfish_var,
+            font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE,
+            activebackground=BG_SIDE, selectcolor=BG_PANEL,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self._fluor_refresh_remove_buttons()
         self._refresh_schema_preview()
@@ -577,6 +590,8 @@ class AnalyzeTab(tk.Frame):
         """Remove a fluorescent channel row (never removes the last one)."""
         if len(self._fluor_vars) <= 1:
             return
+        idx = self._fluor_vars.index(var)
+        self._fluor_smfish_vars.pop(idx)
         self._fluor_vars.remove(var)
         row_frame.destroy()
         self._fluor_refresh_remove_buttons()
@@ -593,6 +608,11 @@ class AnalyzeTab(tk.Frame):
     def _fluor_tokens_list(self) -> list[str]:
         """Return non-empty token strings from the fluor channel list."""
         return [v.get().strip() for v in self._fluor_vars if v.get().strip()]
+
+    def _smfish_tokens_list(self) -> list[str]:
+        return [v.get().strip() for v, sm in
+                zip(self._fluor_vars, self._fluor_smfish_vars)
+                if sm.get() and v.get().strip()]
 
     # ------------------------------------------------------------------
     # Schema helpers
@@ -933,6 +953,7 @@ class AnalyzeTab(tk.Frame):
             workers=self._workers.get(),
             filename_schema=self._build_schema_arg(),
             filename_sep=self._filename_sep.get() or DEFAULT_SEP,
+            smfish_tokens=self._smfish_tokens_list(),
         )
 
     def _expected_well_count(self, opts: dict) -> int:
@@ -983,6 +1004,7 @@ class AnalyzeTab(tk.Frame):
                 filename_schema=opts["filename_schema"],
                 filename_sep=opts["filename_sep"],
                 fluor_tokens=opts.get("fluor_tokens", []),
+                smfish_tokens=opts.get("smfish_tokens", []),
             )
             self._log_q.put(("line", f"[info] Wrote {info_path}\n"))
         except Exception as exc:

@@ -21,12 +21,16 @@ def classify_member(
 ) -> Tuple[str, str, str]:
     is_mask = bool(mask_re.search(name))
     is_overlay = bool(overlay_re.search(name))
+    is_smfish = bool(re.search(r"_smfish_" + re.escape(fluor_lower) + r"\.tif{1,2}$", name, re.I))
     is_tophat_fluor = bool(re.search(r"_tophat_" + re.escape(fluor_lower) + r"\.tif{1,2}$", name, re.I))
 
     if is_mask:
         stem = Path(mask_re.sub("", name)).stem
     elif is_overlay:
         stem = Path(overlay_re.sub("", name)).stem
+    elif is_smfish:
+        stem = re.sub(r"_smfish_" + re.escape(fluor_lower) + r"\.tif{1,2}$", "", name, flags=re.I)
+        stem = Path(stem).stem
     elif is_tophat_fluor:
         stem = Path(tophat_fluor_re.sub("", name)).stem
     else:
@@ -39,6 +43,8 @@ def classify_member(
         return "mask", fov, tp
     if is_overlay:
         return "overlay", fov, tp
+    if is_smfish:
+        return "smfish", fov, tp
     if is_tophat_fluor:
         return "tophat_fluor", fov, tp
 
@@ -81,11 +87,12 @@ def scan_zip_members(
     logger,
     member_prefix: str = "",
     fov_tp_extractor=None,
-) -> Tuple[Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object]]:
+) -> Tuple[Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object]]:
     fluor: Dict[Tuple[str, str], object] = {}
     overlay: Dict[Tuple[str, str], object] = {}
     mask: Dict[Tuple[str, str], object] = {}
     tophat: Dict[Tuple[str, str], object] = {}
+    smfish: Dict[Tuple[str, str], object] = {}
     try:
         if member_prefix:
             raw = read_member_bytes(zip_path=zip_path, member=member_prefix, logger=logger)
@@ -125,10 +132,13 @@ def scan_zip_members(
                 elif kind == "mask" and key not in mask:
                     mask[key] = ref
                     logger.info("  + MASK      fov=%s tp=%s  %s", fov, tp, full)
-        logger.info("Result: %d fluor, %d tophat, %d overlay(s), %d mask(s) from %s", len(fluor), len(tophat), len(overlay), len(mask), zip_path.name)
+                elif kind == "smfish" and key not in smfish:
+                    smfish[key] = ref
+                    logger.info("  + SMFISH    fov=%s tp=%s  %s", fov, tp, full)
+        logger.info("Result: %d fluor, %d tophat, %d smfish, %d overlay(s), %d mask(s) from %s", len(fluor), len(tophat), len(smfish), len(overlay), len(mask), zip_path.name)
     except Exception as exc:
         logger.warning("Failed scanning %s: %s", zip_path, exc)
-    return fluor, overlay, mask, tophat
+    return fluor, overlay, mask, tophat, smfish
 
 
 def open_imgref_as_array(

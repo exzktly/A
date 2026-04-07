@@ -1125,7 +1125,8 @@ def _scan_zip_members(
     member_prefix: str = "",
     _fov_tp_extractor=None,
 ) -> Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
-           Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef]]:
+           Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
+           Dict[Tuple[str,str], _ImgRef]]:
     """Scan a zip file (or nested zip via member_prefix) for fluor/overlay/mask/tophat images."""
     return _preview_scan_zip_members(
         zip_path=zip_path,
@@ -1233,8 +1234,8 @@ def find_well_images_and_masks(
     if in_dir and in_dir.is_dir() and well_token:
         in_zips = _find_plain_well_zips_in_dir(in_dir, well_token)
         for wzip in in_zips:
-            g, ov, mk, th = _scan_zip_members(wzip, fluor_lower,
-                                               _fov_tp_extractor=_fov_tp_extractor)
+            g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
+                                                   _fov_tp_extractor=_fov_tp_extractor)
             for k, v in g.items():
                 fluor.setdefault(k, v)
             # Fluor zips may also contain overlays/masks in some workflows
@@ -1249,8 +1250,8 @@ def find_well_images_and_masks(
         # out-zips contain masks and overlays
         out_zips = _find_out_well_zips_in_dir(data_dir, well_token)
         for wzip in out_zips:
-            g, ov, mk, th = _scan_zip_members(wzip, fluor_lower,
-                                               _fov_tp_extractor=_fov_tp_extractor)
+            g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
+                                                   _fov_tp_extractor=_fov_tp_extractor)
             for k, v in g.items():
                 fluor.setdefault(k, v)
             for k, v in ov.items():
@@ -1263,8 +1264,8 @@ def find_well_images_and_masks(
     # ── 2. Flat directory: all zips in data_dir ───────────────────────────────
     if in_dir is None and data_dir and data_dir.is_dir() and well_token:
         for wzip in _find_well_zips_in_dir(data_dir, well_token):
-            g, ov, mk, th = _scan_zip_members(wzip, fluor_lower,
-                                               _fov_tp_extractor=_fov_tp_extractor)
+            g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
+                                                   _fov_tp_extractor=_fov_tp_extractor)
             for k, v in g.items():
                 fluor.setdefault(k, v)
             for k, v in ov.items():

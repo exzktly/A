@@ -137,6 +137,8 @@ def _update_tp_selection_display(app):
 
 
 def build_centre(app, parent: tk.Frame) -> None:
+    from smfish_tab import SmfishTab
+
     app._notebook = ttk.Notebook(parent)
     app._notebook.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
     app._notebook.bind("<<NotebookTabChanged>>", app._on_tab_change)
@@ -356,7 +358,13 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._build_right_panel(tab_preview)
     app._build_preview_picker(app._sidebar_preview_frame)
 
-    # ── Tab 5: Batch Export ───────────────────────────────────────────────
+    # ── Tab 5: smFISH ─────────────────────────────────────────────────────
+    tab_smfish = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(tab_smfish, text="smFISH")
+    app._smfish_tab = SmfishTab(tab_smfish)
+    app._smfish_tab.pack(fill=tk.BOTH, expand=True)
+
+    # ── Tab 6: Batch Export ───────────────────────────────────────────────
     tab_batch = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_batch, text="Batch Export")
 
@@ -391,13 +399,13 @@ def build_centre(app, parent: tk.Frame) -> None:
         command=app._export_raw_data_csv, style="ActionSuccess.TButton",
     ).pack(anchor="w", pady=(0, 6))
 
-    # ── Tab 6: Statistics ──────────────────────────────────────────────────
+    # ── Tab 7: Statistics ──────────────────────────────────────────────────
     tab_stats = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_stats, text="Statistics")
     app._build_stats_tab(tab_stats)
     app._build_stats_group_editor(app._sidebar_stats_frame)
 
-    # ── Tab 7: Scatter Plot: Cells ────────────────────────────────────────
+    # ── Tab 8: Scatter Plot: Cells ────────────────────────────────────────
     tab_scatter = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_scatter, text="Scatter Plot: Cells")
 
