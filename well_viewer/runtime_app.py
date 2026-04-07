@@ -5424,9 +5424,9 @@ class WellViewerApp(tk.Frame):
         elif tab == "Review CSV":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
             if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4), before=self._sidebar_allnone_frame)
+                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
             if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6), before=self._sel_count_lbl)
+                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
             self._refresh_sidebar_map()
             self._refresh_review_csv()
 
@@ -5447,9 +5447,9 @@ class WellViewerApp(tk.Frame):
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
             if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4), before=self._sidebar_allnone_frame)
+                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
             if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6), before=self._sel_count_lbl)
+                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
             self._refresh_sidebar_map()
             if tab == "Bar Plots":
                 self._update_bar_tp_menu()
@@ -5521,7 +5521,7 @@ class WellViewerApp(tk.Frame):
         label = sels[0]
         tok = self._extract_well_token(label) or label
         self._review_well_var.set(tok)
-        rows = self._get_rows(label)
+        rows = self._review_load_rows(label)
         if not rows:
             self._review_fov_cb["values"] = []
             self._review_tp_cb["values"] = []
@@ -5553,7 +5553,7 @@ class WellViewerApp(tk.Frame):
             if len(sels) != 1:
                 rows = []
             else:
-                rows = self._get_rows(sels[0])
+                rows = self._review_load_rows(sels[0])
 
         fov_sel = self._review_fov_var.get().strip() if hasattr(self, "_review_fov_var") else ""
         tp_sel = self._review_tp_var.get().strip() if hasattr(self, "_review_tp_var") else ""
@@ -5580,6 +5580,16 @@ class WellViewerApp(tk.Frame):
         for row in filtered:
             table.insert("", tk.END, values=[row.get(c, "") for c in cols])
         self._review_csv_msg.set(f"Showing {len(filtered):,} row(s).")
+
+    def _review_load_rows(self, label: str) -> List[dict]:
+        csv_path = self._well_paths.get(label)
+        if csv_path is None or not csv_path.exists():
+            return []
+        try:
+            with csv_path.open("r", newline="", encoding="utf-8") as fh:
+                return list(csv.DictReader(fh))
+        except Exception:
+            return []
 
     def _update_bar_tp_menu(self) -> None:
         """
