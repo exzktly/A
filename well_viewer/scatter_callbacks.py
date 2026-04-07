@@ -135,8 +135,8 @@ class ScatterCellViewer(tk.Toplevel):
             if arr is not None:
                 self._cell_images[ch] = arr
 
-        # Load and crop overlay and mask for display
-        arr = self._load_and_crop_channel("overlay")
+        # Load and crop nuclear channel image (self.filename is the nuclear image)
+        arr = self._load_and_crop_nuclear()
         if arr is not None:
             self._cell_images["nuclear_fluor"] = arr
 
@@ -263,6 +263,61 @@ class ScatterCellViewer(tk.Toplevel):
 
             y_min, x_min, y_max, x_max = self._cell_bounds
             return arr[y_min:y_max, x_min:x_max]
+
+        except Exception:
+            return None
+
+    def _load_and_crop_nuclear(self) -> Optional:
+        """Load and crop the nuclear channel image (self.filename) from the input folder."""
+        try:
+            import zipfile
+            from pathlib import Path as _Path
+            from well_viewer.runtime_app import (
+                open_imgref_as_array, _ImgRef,
+                _extract_well_token,
+                _find_plain_well_zips_in_dir,
+                _find_well_zips_in_dir,
+            )
+
+            if not self._cell_bounds:
+                return None
+
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                return None
+
+            in_dir = self.app._in_dir
+            data_dir = self.app._data_dir
+
+            zips: list = []
+            if in_dir and in_dir.is_dir():
+                zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+            if not zips and data_dir and data_dir.is_dir():
+                zips = _find_well_zips_in_dir(data_dir, well_token)
+
+            target_lower = self.filename.lower()
+            for zip_path in zips:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.namelist():
+                        if _Path(member).name.lower() == target_lower:
+                            arr = open_imgref_as_array(
+                                ref=_ImgRef(zip_path=zip_path, zip_member=member),
+                                greyscale=True,
+                            )
+                            if arr is not None:
+                                y_min, x_min, y_max, x_max = self._cell_bounds
+                                return arr[y_min:y_max, x_min:x_max]
+
+            # Fallback: disk
+            search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
+            for d in search_dirs:
+                for img_path in d.rglob(self.filename):
+                    arr = open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+                    if arr is not None:
+                        y_min, x_min, y_max, x_max = self._cell_bounds
+                        return arr[y_min:y_max, x_min:x_max]
+
+            return None
 
         except Exception:
             return None
