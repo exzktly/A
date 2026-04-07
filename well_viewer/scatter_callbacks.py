@@ -126,6 +126,12 @@ class ScatterCellViewer(tk.Toplevel):
         except (ValueError, TypeError):
             timepoint_h = 0.0
 
+        # Use the FOV column from the CSV row directly — it was populated by
+        # parse_filename() from the input filename and matches the (fov, tp)
+        # keys used in the output image dictionaries.
+        self._target_fov = str(row.get("fov") or row.get("FOV") or "").strip() or None
+        print(f"DEBUG: target_fov={self._target_fov!r} from CSV row")
+
         # Get cell bounds from mask using filename and nuclear_id
         self._cell_bounds = self._get_cell_bounds(nuclear_id, timepoint_h)
         if not self._cell_bounds:
@@ -261,16 +267,10 @@ class ScatterCellViewer(tk.Toplevel):
                 print(f"DEBUG: No {image_type} images found")
                 return None
 
-            # Extract FOV from the filename so we look in the right FOV's images
-            from pathlib import Path as _Path
-            filename_stem = _Path(self.filename).stem
-            target_fov: str | None = None
-            if self.app._fov_tp_extractor is not None:
-                try:
-                    target_fov, _ = self.app._fov_tp_extractor(filename_stem)
-                    print(f"DEBUG: Extracted FOV={target_fov!r} from filename {self.filename!r}")
-                except Exception:
-                    target_fov = None
+            # Use the FOV from the CSV row (set by _load_cell_data).  The CSV
+            # fov column comes from parse_filename() on the input file and
+            # already matches the (fov, tp) keys in the output image dicts.
+            target_fov: str | None = getattr(self, "_target_fov", None)
 
             tp_int = int(round(timepoint_h))
             img_ref = None
