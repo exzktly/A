@@ -64,6 +64,8 @@ class SmfishTab(tk.Frame):
         self._fov_var = tk.StringVar(value="")
         self._tp_var = tk.StringVar(value="")
         self._threshold_var = tk.StringVar(value="0.0")
+        self._lut_min_var = tk.StringVar(value="")
+        self._lut_max_var = tk.StringVar(value="")
         self._status_var = tk.StringVar(value="Select a single well from the global picker.")
 
         ctrl = tk.Frame(right, bg=BG_SIDE, pady=6, padx=10)
@@ -86,6 +88,18 @@ class SmfishTab(tk.Frame):
                        highlightcolor=ACCENT)
         thr.pack(side=tk.LEFT, padx=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
+        tk.Label(ctrl, text="LUT Min:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(4, 6))
+        lut_min = tk.Entry(ctrl, textvariable=self._lut_min_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
+                           relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
+                           highlightcolor=ACCENT)
+        lut_min.pack(side=tk.LEFT, padx=(0, 6))
+        lut_min.bind("<Return>", lambda _e: self._redraw())
+        tk.Label(ctrl, text="LUT Max:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+        lut_max = tk.Entry(ctrl, textvariable=self._lut_max_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
+                           relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
+                           highlightcolor=ACCENT)
+        lut_max.pack(side=tk.LEFT, padx=(0, 8))
+        lut_max.bind("<Return>", lambda _e: self._redraw())
 
         ttk.Button(ctrl, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
         ttk.Button(ctrl, text="Apply to All", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
@@ -165,6 +179,26 @@ class SmfishTab(tk.Frame):
         if not m:
             return None
         return f"{m.group(1).upper()}{int(m.group(2)):02d}"
+
+    def _selected_well_label(self) -> str | None:
+        if self._app is None:
+            return None
+        sels = sorted(self._app._selected_wells, key=lambda lbl: self._app._parse_rc(lbl))
+        return sels[0] if len(sels) == 1 else None
+
+    @staticmethod
+    def _norm_well_token(well: str) -> str:
+        m = re.match(r"([A-Ha-h])(\d{1,2})$", well.strip())
+        if not m:
+            return well.strip().upper()
+        return f"{m.group(1).upper()}{int(m.group(2)):02d}"
+
+    @staticmethod
+    def _norm_id(v: str) -> str:
+        t = (v or "").strip()
+        if t.isdigit():
+            return str(int(t))
+        return t
 
     def _classify_local(self, name: str, fluor_lower: str, fov_tp_extractor=None):
         mask_re = re.compile(r"_labels\.(tif{1,2}|png)$", re.I)
@@ -259,11 +293,19 @@ class SmfishTab(tk.Frame):
         thr = self._get_threshold()
         log_img = self._current_log_img
         labels = self._current_labels
+        try:
+            lut_min = float(self._lut_min_var.get().strip()) if self._lut_min_var.get().strip() else None
+        except ValueError:
+            lut_min = None
+        try:
+            lut_max = float(self._lut_max_var.get().strip()) if self._lut_max_var.get().strip() else None
+        except ValueError:
+            lut_max = None
         spot_mask = (log_img > thr) & (labels > 0)
         ys, xs = np.where(spot_mask)
 
         self._ax_img.clear()
-        self._ax_img.imshow(log_img, cmap="gray")
+        self._ax_img.imshow(log_img, cmap="gray", vmin=lut_min, vmax=lut_max)
         bnd = find_boundaries(labels, mode="outer")
         self._ax_img.contour(bnd.astype(np.uint8), levels=[0.5], colors="red", linewidths=0.5)
         if xs.size:
@@ -293,6 +335,10 @@ class SmfishTab(tk.Frame):
         self._ax_cdf.set_title("CDF of LoG values inside labels", color=TXT_PRI, fontsize=9)
         self._ax_cdf.set_xlabel("LoG value", color=TXT_PRI, fontsize=8)
         self._ax_cdf.set_ylabel("CDF", color=TXT_PRI, fontsize=8)
+        self._ax_cdf.tick_params(axis="x", colors=TXT_PRI, labelsize=8)
+        self._ax_cdf.tick_params(axis="y", colors=TXT_PRI, labelsize=8)
+        for spine in self._ax_cdf.spines.values():
+            spine.set_color(TXT_PRI)
 
         self._canvas_img.draw_idle()
         self._canvas_cdf.draw_idle()
@@ -309,6 +355,10 @@ class SmfishTab(tk.Frame):
         y = int(round(event.ydata))
         h, w = self._current_log_img.shape[:2]
         if not (0 <= x < w and 0 <= y < h):
+            self._hover_annot.set_visible(False)
+            self._canvas_img.draw_idle()
+            return
+        if self._current_labels is None or int(self._current_labels[y, x]) <= 0:
             self._hover_annot.set_visible(False)
             self._canvas_img.draw_idle()
             return
@@ -377,11 +427,15 @@ class SmfishTab(tk.Frame):
             nuc_mask = labels == nid
             counts[str(int(nid))] = int(np.sum(log_img[nuc_mask] > thr))
 
-        csv_matches = list(out_dir.glob(f"*_{well}.csv"))
-        if not csv_matches:
-            self._status_var.set(f"No CSV found for well {well}.")
-            return
-        csv_path = csv_matches[0]
+        sel_label = self._selected_well_label()
+        if self._app is not None and sel_label and sel_label in self._app._well_paths:
+            csv_path = self._app._well_paths[sel_label]
+        else:
+            csv_matches = list(out_dir.glob(f"*_{well}.csv"))
+            if not csv_matches:
+                self._status_var.set(f"No CSV found for well {well}.")
+                return
+            csv_path = csv_matches[0]
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
             rows = list(reader)
@@ -391,11 +445,11 @@ class SmfishTab(tk.Frame):
 
         updated = 0
         for row in rows:
-            row_well = (row.get("well") or well).strip().upper()
-            row_fov = (row.get("fov") or row.get("FOV") or "").strip()
-            row_tp = (row.get("timepoint") or row.get("tp") or row.get("time") or "").strip()
+            row_well = self._norm_well_token((row.get("well") or well))
+            row_fov = self._norm_id((row.get("fov") or row.get("FOV") or ""))
+            row_tp = self._norm_id((row.get("timepoint") or row.get("tp") or row.get("time") or ""))
             row_nid = (row.get("nucleus_id") or "").strip()
-            if row_well == well and row_fov == fov and row_tp == tp:
+            if row_well == self._norm_well_token(well) and row_fov == self._norm_id(fov) and row_tp == self._norm_id(tp):
                 row[col] = str(counts.get(row_nid, 0))
                 updated += 1
 
