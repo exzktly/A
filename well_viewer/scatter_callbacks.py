@@ -139,9 +139,11 @@ class ScatterCellViewer(tk.Toplevel):
         print(f"DEBUG: nuclear_token={self._nuclear_token!r}")
 
         # Get cell bounds from mask using filename and nuclear_id
+        self._diag = ""
         self._cell_bounds = self._get_cell_bounds(nuclear_id, timepoint_h)
         if not self._cell_bounds:
-            self._img_label.config(text=f"Cell {nuclear_id} not found in mask or mask error")
+            diag = getattr(self, "_diag", "") or "mask error"
+            self._img_label.config(text=f"Cell {nuclear_id} not found\n{diag}")
             return
 
         print(f"DEBUG: Cell bounds: {self._cell_bounds}")
@@ -183,38 +185,36 @@ class ScatterCellViewer(tk.Toplevel):
         """Get cell pixel boundaries from mask file specified by filename.
 
         Returns (y_min, x_min, y_max, x_max) or None if not found.
+        Sets self._diag with a human-readable explanation on failure.
         """
         try:
-            from well_viewer.runtime_app import open_imgref_as_array
-            from pathlib import Path
             import numpy as np
 
-            # Try to find mask file matching the filename
-            # The filename typically indicates which files to use
-            mask_arr = self._load_image_by_filename(timepoint_h, "mask")
+            mask_arr, mask_path = self._load_image_by_filename_with_path(timepoint_h, "mask")
             if mask_arr is None:
-                print(f"DEBUG: Could not load mask for {self.filename}")
+                self._diag = f"No mask found\nfov={self._target_fov!r} tp={timepoint_h}\ndata_dir={self.app._data_dir}\nin_dir={self.app._in_dir}"
                 return None
 
-            # Find pixels belonging to this cell
             mask_arr = np.asarray(mask_arr)
-            print(f"DEBUG: Mask shape: {mask_arr.shape}, dtype: {mask_arr.dtype}")
-            print(f"DEBUG: Unique values in mask: {np.unique(mask_arr)}")
-
+            unique_vals = np.unique(mask_arr)
             cell_pixels = np.where(mask_arr == nuclear_id)
 
             if len(cell_pixels[0]) == 0:
-                print(f"DEBUG: Cell {nuclear_id} not found in mask")
+                sample = unique_vals[:10].tolist()
+                self._diag = (
+                    f"Cell {nuclear_id} not in mask\n"
+                    f"mask: {mask_path}\n"
+                    f"mask dtype={mask_arr.dtype} shape={mask_arr.shape}\n"
+                    f"mask IDs (first 10): {sample}"
+                )
                 return None
 
-            # Get bounding box
             y_min, y_max = int(cell_pixels[0].min()), int(cell_pixels[0].max()) + 1
             x_min, x_max = int(cell_pixels[1].min()), int(cell_pixels[1].max()) + 1
-
             return (y_min, x_min, y_max, x_max)
 
         except Exception as e:
-            print(f"DEBUG: Exception in _get_cell_bounds: {e}")
+            self._diag = f"Exception in _get_cell_bounds: {e}"
             import traceback
             traceback.print_exc()
             return None
@@ -326,6 +326,94 @@ class ScatterCellViewer(tk.Toplevel):
             import traceback
             traceback.print_exc()
             return None
+
+    def _load_image_by_filename_with_path(self, timepoint_h: float, image_type: str):
+        """Like _load_image_by_filename but returns (array, path_str) for diagnostics."""
+        try:
+            from well_viewer.runtime_app import find_well_images_and_masks, open_imgref_as_array
+
+            if image_type == "mask":
+                _, _, img_dict, _ = find_well_images_and_masks(
+                    self.app._data_dir, self.well_label,
+                    fluor_token=self.app._active_channel,
+                    in_dir=self.app._in_dir,
+                    _fov_tp_extractor=self.app._fov_tp_extractor,
+                )
+            elif image_type == "overlay":
+                _, img_dict, _, _ = find_well_images_and_masks(
+                    self.app._data_dir, self.well_label,
+                    fluor_token=self.app._active_channel,
+                    in_dir=self.app._in_dir,
+                    _fov_tp_extractor=self.app._fov_tp_extractor,
+                )
+            else:
+                fluor_dict, _, _, _ = find_well_images_and_masks(
+                    self.app._data_dir, self.well_label,
+                    fluor_token=image_type,
+                    in_dir=self.app._in_dir,
+                    _fov_tp_extractor=self.app._fov_tp_extractor,
+                )
+                img_dict = fluor_dict
+
+            if not img_dict:
+                keys_info = f"dict empty — data_dir={self.app._data_dir} in_dir={self.app._in_dir}"
+                return None, keys_info
+
+            target_fov: str | None = getattr(self, "_target_fov", None)
+            tp_int = int(round(timepoint_h))
+            img_ref = None
+            all_keys = list(img_dict.keys())
+
+            for (fov, tp_str), ref in img_dict.items():
+                if target_fov is not None and fov != target_fov:
+                    continue
+                try:
+                    if abs(float(tp_str) - timepoint_h) < 0.1:
+                        img_ref = ref
+                        break
+                except (ValueError, TypeError):
+                    pass
+
+            if not img_ref and tp_int > 0:
+                for (fov, tp_str), ref in img_dict.items():
+                    if target_fov is not None and fov != target_fov:
+                        continue
+                    if tp_str.upper().startswith('T'):
+                        try:
+                            if int(tp_str[1:]) == tp_int:
+                                img_ref = ref
+                                break
+                        except (ValueError, IndexError):
+                            pass
+
+            if not img_ref and target_fov is not None:
+                for (fov, tp_str), ref in img_dict.items():
+                    try:
+                        if abs(float(tp_str) - timepoint_h) < 0.1:
+                            img_ref = ref
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                if not img_ref and tp_int > 0:
+                    for (fov, tp_str), ref in img_dict.items():
+                        if tp_str.upper().startswith('T'):
+                            try:
+                                if int(tp_str[1:]) == tp_int:
+                                    img_ref = ref
+                                    break
+                            except (ValueError, IndexError):
+                                pass
+
+            if not img_ref:
+                keys_str = str(all_keys[:6])
+                return None, f"no match: fov={target_fov!r} tp={timepoint_h}\navailable keys: {keys_str}"
+
+            path_str = str(img_ref.zip_path) + "::" + (img_ref.zip_member or "") if img_ref.zip_path else str(img_ref.disk_path)
+            arr = open_imgref_as_array(ref=img_ref, greyscale=True)
+            return arr, path_str
+
+        except Exception as e:
+            return None, f"exception: {e}"
 
     def _load_image_by_filename(self, timepoint_h: float, image_type: str) -> Optional:
         """Load image from the well's image dictionary using filename as template.
