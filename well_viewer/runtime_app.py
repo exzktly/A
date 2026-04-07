@@ -5041,14 +5041,14 @@ class WellViewerApp(tk.Frame):
                 )
             elif label in self._selected_wells:
                 btn.config(
-                    bg=button_bg_color,
-                    fg=button_text_color,
+                    bg=ACCENT,
+                    fg="white",
                     state=tk.NORMAL,
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
+                    activebackground=self._mute_color(ACCENT, 0.3),
+                    activeforeground="white",
                     disabledforeground=button_text_disabled_color,
                     cursor="hand2",
-                    relief=tk.FLAT,
+                    relief=tk.SUNKEN,
                 )
             else:
                 btn.config(
@@ -5508,27 +5508,28 @@ class WellViewerApp(tk.Frame):
         if not hasattr(self, "_review_csv_table"):
             return
         sels = sorted(self._selected_wells, key=self._parse_rc)
-        if len(sels) != 1:
-            self._review_well_var.set("(select one well)")
+        if not sels:
+            self._review_well_var.set("(select well(s))")
             self._review_fov_cb["values"] = []
             self._review_tp_cb["values"] = []
             self._review_fov_var.set("")
             self._review_tp_var.set("")
             self._refresh_review_csv_rows([])
-            self._review_csv_msg.set("Select exactly one well in the picker.")
+            self._review_csv_msg.set("Select one or more wells in the picker.")
             return
 
-        label = sels[0]
-        tok = self._extract_well_token(label) or label
-        self._review_well_var.set(tok)
-        rows = self._review_load_rows(label)
+        toks = [self._extract_well_token(lbl) or lbl for lbl in sels]
+        self._review_well_var.set(", ".join(toks[:3]) + (f" (+{len(toks) - 3} more)" if len(toks) > 3 else ""))
+        rows: List[dict] = []
+        for label in sels:
+            rows.extend(self._review_load_rows(label))
         if not rows:
             self._review_fov_cb["values"] = []
             self._review_tp_cb["values"] = []
             self._review_fov_var.set("")
             self._review_tp_var.set("")
             self._refresh_review_csv_rows([])
-            self._review_csv_msg.set("No CSV rows loaded for this well.")
+            self._review_csv_msg.set("No CSV rows loaded for selected well(s).")
             return
 
         fovs = sorted({str(r.get("fov", r.get("FOV", ""))).strip() for r in rows if str(r.get("fov", r.get("FOV", ""))).strip()})
@@ -5550,10 +5551,9 @@ class WellViewerApp(tk.Frame):
 
         if rows is None:
             sels = sorted(self._selected_wells, key=self._parse_rc)
-            if len(sels) != 1:
-                rows = []
-            else:
-                rows = self._review_load_rows(sels[0])
+            rows = []
+            for label in sels:
+                rows.extend(self._review_load_rows(label))
 
         fov_sel = self._review_fov_var.get().strip() if hasattr(self, "_review_fov_var") else ""
         tp_sel = self._review_tp_var.get().strip() if hasattr(self, "_review_tp_var") else ""
@@ -5587,7 +5587,11 @@ class WellViewerApp(tk.Frame):
             return []
         try:
             with csv_path.open("r", newline="", encoding="utf-8") as fh:
-                return list(csv.DictReader(fh))
+                rows = list(csv.DictReader(fh))
+            tok = self._extract_well_token(label) or label
+            for row in rows:
+                row.setdefault("well", tok)
+            return rows
         except Exception:
             return []
 
