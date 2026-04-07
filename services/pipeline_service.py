@@ -20,6 +20,7 @@ def write_pipeline_info(
     filename_schema: str,
     filename_sep: str,
     fluor_tokens: list[str],
+    smfish_tokens: list[str] = [],
 ) -> Path:
     fields = [f.strip() for f in filename_schema.split(":")]
     info = {
@@ -28,6 +29,7 @@ def write_pipeline_info(
         "fov_index": fields.index("fov") if "fov" in fields else -1,
         "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
         "fluor_tokens": fluor_tokens,
+        "smfish_tokens": smfish_tokens,
     }
     p = output_dir / "pipeline_info.json"
     p.write_text(json.dumps(info, indent=2))
@@ -77,6 +79,9 @@ def build_pipeline_args(
     ):
         if opts.get(flag):
             args.append(f"--{flag}")
+    smfish = opts.get("smfish_tokens", [])
+    if smfish:
+        args += ["--smfish_tokens"] + list(smfish)
 
     try:
         tf = int(opts["tf_threads"])

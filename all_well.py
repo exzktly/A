@@ -23,6 +23,7 @@ from ui.theme import (
     FM_UI, FM_TITLE, ThemeManager, THEMES, set_theme, get_color,
     update_widget_colors
 )
+from smfish_tab import SmfishTab
 
 
 class AllWellApp(tk.Tk):
@@ -37,6 +38,7 @@ class AllWellApp(tk.Tk):
 
         self._review = None
         self._analyze = None
+        self._smfish = None
         self._theme_manager = ThemeManager("Dark")
         self._cell_threshold = 0.0  # Shared cell area threshold
 
@@ -103,6 +105,11 @@ class AllWellApp(tk.Tk):
         self._analyze = AnalyzeTab(analyze_frame)
         self._analyze.pack(fill=tk.BOTH, expand=True)
 
+        smfish_frame = tk.Frame(self._nb, bg=BG_APP)
+        self._nb.add(smfish_frame, text="  smFISH  ")
+        self._smfish = SmfishTab(smfish_frame)
+        self._smfish.pack(fill=tk.BOTH, expand=True)
+
         self._nb.select(0)
         self._nb.bind("<<NotebookTabChanged>>", self._on_tab_change)
 
@@ -161,6 +168,8 @@ class AllWellApp(tk.Tk):
             self._review._cleanup_tmp()
         if self._analyze is not None:
             self._analyze.destroy()
+        if self._smfish is not None:
+            self._smfish.destroy()
         self.destroy()
 
     def get_cell_threshold(self) -> float:

@@ -437,6 +437,20 @@ def apply_tophat(image: np.ndarray, radius: int) -> np.ndarray:
     return img - background                    # always ≥ 0 (opening is anti-extensive)
 
 
+SMFISH_LOG_KERNEL = np.array([
+    [-4, -1, 0, -1, -4],
+    [-1, 2, 3, 2, -1],
+    [0, 3, 4, 3, 0],
+    [-1, 2, 3, 2, -1],
+    [-4, -1, 0, -1, -4],
+], dtype=np.float32)
+
+
+def apply_smfish_log(image: np.ndarray) -> np.ndarray:
+    from scipy.ndimage import convolve
+    return convolve(image.astype(np.float32), SMFISH_LOG_KERNEL)
+
+
 def save_overlay(nir_raw: np.ndarray, labels: np.ndarray, out_path: Path) -> None:
     """Save an 8-bit RGB PNG with nucleus boundaries drawn in red."""
     mn, mx = nir_raw.min(), nir_raw.max()
@@ -467,6 +481,7 @@ def process_image_group(
     save_overlays: bool,
     schema: "list[str] | None" = None,
     sep: str = DEFAULT_SEP,
+    smfish_tokens: "list[str] | None" = None,
 ) -> list[dict]:
     """
     Process one nuclear image together with an arbitrary number of fluorescent
@@ -518,6 +533,13 @@ def process_image_group(
         log.info("  tophat_%s:  %.1f s  (radius %d, enabled=%s)",
                  fluor_tokens[i].lower(), time.perf_counter() - _t, radius, do_th)
 
+    smfish_set = set(smfish_tokens or [])
+    for i, tok in enumerate(fluor_tokens):
+        if tok in smfish_set:
+            _t = time.perf_counter()
+            fluor_corr[i] = apply_smfish_log(fluor_corr[i])
+            log.info("  smfish_log_%s: %.1f s", tok.lower(), time.perf_counter() - _t)
+
     # StarDist segmentation on the nuclear channel.
     _t = time.perf_counter()
     nir_norm = normalize(nir_corr, 1, 99.8)
@@ -544,6 +566,10 @@ def process_image_group(
     for fc, tok in zip(fluor_corr, fluor_tokens):
         th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
         imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
+    for i, tok in enumerate(fluor_tokens):
+        if tok in smfish_set:
+            smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
+            imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
     log.info("  tophat tifs written")
     if save_masks:
         imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
@@ -1274,6 +1300,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Disable white top-hat on the nuclear channel")
     p.add_argument("--no_tophat_fluor", action="store_true",
                    help="Disable white top-hat on all fluorescent channels")
+    p.add_argument("--smfish_tokens", nargs="*", default=[],
+                   help="Fluorescent channel tokens containing smFISH data. "
+                        "A LoG spot-enhancement kernel is applied after tophat.")
 
     p.add_argument("--no_save_masks",    action="store_true",
                    help="Do not save label-mask TIFFs")
@@ -1442,6 +1471,7 @@ def main() -> None:
         save_overlays=not args.no_save_overlays,
         schema=schema,
         sep=sep,
+        smfish_tokens=args.smfish_tokens,
     )
 
     # ── Decide mode: zip or flat ─────────────────────────────────────────────
