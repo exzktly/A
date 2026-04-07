@@ -20,11 +20,13 @@ def load_path(app, path: Path) -> None:
         logger.info("Detected in/out layout: in=%s  out=%s", in_dir, out_dir)
         logger.info("Fluor images from: %s  |  masks/overlays from: %s", in_dir, out_dir)
         app._in_dir = in_dir
-        app._fov_tp_extractor, _fluor_tokens = app._read_pipeline_info(out_dir)
+        app._fov_tp_extractor, _fluor_tokens, _smfish_tokens = app._read_pipeline_info(out_dir)
+        app._smfish_channels = _smfish_tokens
         app._load_directory(out_dir, label=f"{path.name}/out")
     else:
         app._in_dir = None
-        app._fov_tp_extractor, _fluor_tokens = app._read_pipeline_info(path)
+        app._fov_tp_extractor, _fluor_tokens, _smfish_tokens = app._read_pipeline_info(path)
+        app._smfish_channels = _smfish_tokens
         app._load_directory(path)
 
 

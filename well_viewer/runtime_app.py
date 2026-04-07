@@ -745,6 +745,25 @@ def detect_fluor_channels(rows: List[dict]) -> List[str]:
     return sorted(channels)
 
 
+def detect_smfish_channels(rows: List[dict]) -> List[str]:
+    """
+    Inspect column names in *rows* and return a sorted list of smFISH
+    channel prefixes that have a *_smfish_count column.
+
+    e.g. columns ["gfp_smfish_count", "mcherry_smfish_count", ...]
+         -> ["gfp", "mcherry"]
+    """
+    if not rows:
+        return []
+    channels = []
+    for col in rows[0].keys():
+        if col.endswith("_smfish_count"):
+            prefix = col[: -len("_smfish_count")]
+            if prefix:
+                channels.append(prefix)
+    return sorted(channels)
+
+
 # (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
 # n_above : cells above threshold at this timepoint  → denominator for plot 1
 # n_total : all cells at this timepoint              → denominator for plot 2
@@ -2101,7 +2120,9 @@ class WellViewerApp(tk.Frame):
 
         # Active fluorescent channel (set when CSVs are loaded)
         self._fluor_channels: List[str] = []          # e.g. ["gfp", "mcherry"]
+        self._smfish_channels: set[str] = set()       # channels with smfish_count data
         self._active_channel: str       = "gfp"       # column prefix (overwritten on CSV load)
+        self._active_metric: str        = "mean_intensity"  # "mean_intensity" or "smfish_count"
         self._active_val_col: str       = "gfp_mean_intensity"  # overwritten on CSV load
 
         # Plot controls
@@ -5184,14 +5205,30 @@ class WellViewerApp(tk.Frame):
             (self._get_rows(lbl) for lbl in self._well_paths), []
         )
         detected = detect_fluor_channels(all_rows_sample)
+        detected_smfish = detect_smfish_channels(all_rows_sample)
         if detected and detected != self._fluor_channels:
             self._fluor_channels = detected
             # Keep the active channel if it is still present; otherwise
             # default to the first detected channel.
             if self._active_channel not in detected:
                 self._active_channel = detected[0]
-            self._active_val_col = f"{self._active_channel}_mean_intensity"
             self._update_channel_selector()
+
+        # Update smFISH channels and reset metric if needed
+        self._smfish_channels = set(detected_smfish)
+        if self._active_metric == "smfish_count" and self._active_channel not in self._smfish_channels:
+            self._active_metric = "mean_intensity"
+
+        # Derive _active_val_col from active channel and metric
+        self._active_val_col = f"{self._active_channel}_{self._active_metric}"
+
+        # Update metric selector visibility (both line and bar tabs)
+        for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
+            if hasattr(self, frame_attr):
+                frame = getattr(self, frame_attr)
+                frame.pack_forget()
+                if self._active_channel in self._smfish_channels:
+                    frame.pack(side=tk.LEFT, padx=(0, 12))
 
         # Always refresh timepoint menus regardless of whether intensity
         # values exist — single-timepoint experiments still need the bar menu.
@@ -5221,7 +5258,11 @@ class WellViewerApp(tk.Frame):
         if channel == self._active_channel:
             return
         self._active_channel = channel
-        self._active_val_col = f"{channel}_mean_intensity"
+        # Reset metric to mean_intensity if new channel doesn't have smfish_count
+        if channel not in self._smfish_channels:
+            self._active_metric = "mean_intensity"
+        # Derive val_col from channel and metric
+        self._active_val_col = f"{channel}_{self._active_metric}"
         # Reset threshold to the range of the new channel.
         self._recalculate_threshold()
         self._invalidate_stats_cache()
@@ -5241,6 +5282,28 @@ class WellViewerApp(tk.Frame):
             tab = self._notebook.tab(self._notebook.select(), "text")
             if tab == "Preview":
                 self._update_preview(self._preview_selected_well)
+
+    def _on_metric_selected(self) -> None:
+        """Handle metric selector change in UI."""
+        metric_label = self._metric_var.get()
+        metric = "smfish_count" if metric_label == "smFISH Count" else "mean_intensity"
+        self._set_active_metric(metric)
+
+    def _set_active_metric(self, metric: str) -> None:
+        """Switch the active metric (mean_intensity or smfish_count) and redraw."""
+        if metric == self._active_metric:
+            return
+        self._active_metric = metric
+        self._active_val_col = f"{self._active_channel}_{self._active_metric}"
+        # Update UI to match new metric
+        if hasattr(self, "_metric_var"):
+            label = "smFISH Count" if metric == "smfish_count" else "Mean Intensity"
+            self._metric_var.set(label)
+        self._recalculate_threshold()
+        self._invalidate_stats_cache()
+        self._redraw()
+        if hasattr(self, "_bar_tp_cb"):
+            self._redraw_bars()
 
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
@@ -6473,18 +6536,36 @@ class WellViewerApp(tk.Frame):
 
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
+    def _col_for_scatter_entry(self, entry: str) -> str:
+        """Map scatter dropdown entry to CSV column name.
+
+        "gfp" -> "gfp_mean_intensity"
+        "gfp (spots)" -> "gfp_smfish_count"
+        """
+        if entry.endswith(" (spots)"):
+            ch = entry[:-8]  # Remove " (spots)"
+            return f"{ch}_smfish_count"
+        else:
+            return f"{entry}_mean_intensity"
+
     def _update_scatter_menus(self) -> None:
         """Populate scatter plot dropdowns with available channels and timepoints."""
-        # Update channel dropdowns for cells scatter
+        # Update channel dropdowns for cells scatter (include smfish_count variants)
         channels = list(self._fluor_channels) if self._fluor_channels else ["gfp"]
-        self._scatter_ch_x_cb.config(values=channels)
-        self._scatter_ch_y_cb.config(values=channels)
+        scatter_ch_options = []
+        for ch in channels:
+            scatter_ch_options.append(ch)
+            if ch in self._smfish_channels:
+                scatter_ch_options.append(f"{ch} (spots)")
 
-        if channels:
-            if self._scatter_ch_x_var.get() not in channels:
-                self._scatter_ch_x_var.set(channels[0])
-            if self._scatter_ch_y_var.get() not in channels:
-                self._scatter_ch_y_var.set(channels[0 if len(channels) == 1 else 1])
+        self._scatter_ch_x_cb.config(values=scatter_ch_options)
+        self._scatter_ch_y_cb.config(values=scatter_ch_options)
+
+        if scatter_ch_options:
+            if self._scatter_ch_x_var.get() not in scatter_ch_options:
+                self._scatter_ch_x_var.set(scatter_ch_options[0])
+            if self._scatter_ch_y_var.get() not in scatter_ch_options:
+                self._scatter_ch_y_var.set(scatter_ch_options[0 if len(scatter_ch_options) == 1 else 1])
 
         # Update timepoint dropdown for cells scatter
         timepoints = _scatter_get_timepoints(self)
@@ -6495,11 +6576,13 @@ class WellViewerApp(tk.Frame):
             self._scatter_tp_var.set(tp_strs[0])
 
         # Update statistic dropdowns for aggregate scatter
-        # Build list of available statistics: Mean Fluorescence and Fraction On for each channel
+        # Build list of available statistics: Mean Fluorescence, Fraction On, and smFISH Count for each channel
         statistics = []
         for ch in channels:
             statistics.append(f"Mean Fluorescence {ch.upper()}")
             statistics.append(f"Fraction On {ch.upper()}")
+            if ch in self._smfish_channels:
+                statistics.append(f"smFISH Count {ch.upper()}")
 
         self._scatter_agg_stat_x_cb.config(values=statistics)
         self._scatter_agg_stat_y_cb.config(values=statistics)
@@ -6532,21 +6615,29 @@ class WellViewerApp(tk.Frame):
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
         try:
-            ch_x = self._scatter_ch_x_var.get()
-            ch_y = self._scatter_ch_y_var.get()
+            ch_x_entry = self._scatter_ch_x_var.get()
+            ch_y_entry = self._scatter_ch_y_var.get()
             tp_str = self._scatter_tp_var.get()
             timepoint_h = float(tp_str) if tp_str else 0.0
         except ValueError:
             return
 
+        # Extract base channel names (e.g., "gfp (spots)" -> "gfp")
+        ch_x_base = ch_x_entry.split(" ")[0]
+        ch_y_base = ch_y_entry.split(" ")[0]
+
         cell_area_threshold = self._get_cell_area_threshold()
-        fluor_gate_x = self._get_fluor_gate(ch_x)
-        fluor_gate_y = self._get_fluor_gate(ch_y)
+        fluor_gate_x = self._get_fluor_gate(ch_x_base)
+        fluor_gate_y = self._get_fluor_gate(ch_y_base)
+
+        # Resolve to actual column names
+        col_x = self._col_for_scatter_entry(ch_x_entry)
+        col_y = self._col_for_scatter_entry(ch_y_entry)
 
         _scatter_redraw(
             self,
-            ch_x,
-            ch_y,
+            col_x,
+            col_y,
             timepoint_h,
             well_colors=WELL_COLORS,
             cell_area_threshold=cell_area_threshold,
@@ -6568,17 +6659,19 @@ class WellViewerApp(tk.Frame):
 
         # Simple nearest-neighbor finder
         try:
-            ch_x = self._scatter_ch_x_var.get()
-            ch_y = self._scatter_ch_y_var.get()
+            ch_x_entry = self._scatter_ch_x_var.get()
+            ch_y_entry = self._scatter_ch_y_var.get()
             tp_str = self._scatter_tp_var.get()
             timepoint_h = float(tp_str) if tp_str else 0.0
+            col_x = self._col_for_scatter_entry(ch_x_entry)
+            col_y = self._col_for_scatter_entry(ch_y_entry)
 
-            print(f"DEBUG: Collecting scatter data for {ch_x} vs {ch_y} at t={timepoint_h}")
+            print(f"DEBUG: Collecting scatter data for {col_x} vs {col_y} at t={timepoint_h}")
 
             scatter_data = _scatter_collect_data(
                 self,
-                ch_x,
-                ch_y,
+                col_x,
+                col_y,
                 timepoint_h,
                 well_colors=WELL_COLORS,
             )
@@ -6626,15 +6719,17 @@ class WellViewerApp(tk.Frame):
             return
 
         try:
-            ch_x = self._scatter_ch_x_var.get()
-            ch_y = self._scatter_ch_y_var.get()
+            ch_x_entry = self._scatter_ch_x_var.get()
+            ch_y_entry = self._scatter_ch_y_var.get()
             tp_str = self._scatter_tp_var.get()
             timepoint_h = float(tp_str) if tp_str else 0.0
+            col_x = self._col_for_scatter_entry(ch_x_entry)
+            col_y = self._col_for_scatter_entry(ch_y_entry)
 
             scatter_data = _scatter_collect_data(
                 self,
-                ch_x,
-                ch_y,
+                col_x,
+                col_y,
                 timepoint_h,
                 well_colors=WELL_COLORS,
             )

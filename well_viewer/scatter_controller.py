@@ -34,8 +34,8 @@ def get_all_timepoints(app) -> List[float]:
 
 def collect_scatter_data(
     app,
-    ch_x: str,
-    ch_y: str,
+    col_x: str,
+    col_y: str,
     timepoint_h: float,
     *,
     well_colors: List[str],
@@ -43,15 +43,15 @@ def collect_scatter_data(
     fluor_gate_x: float = 0.0,
     fluor_gate_y: float = 0.0,
 ) -> Dict[str, Dict[str, Any]]:
-    """Collect scatter plot data for the given channels and timepoint.
+    """Collect scatter plot data for the given column names and timepoint.
 
     Groups data by well group (if defined) or by individual well. Each group/well
     gets a distinct color and contains x/y values plus metadata for click tracking.
 
     Args:
         app: WellViewerApp instance with data and state
-        ch_x: X-axis channel name (e.g., "gfp")
-        ch_y: Y-axis channel name (e.g., "mcherry")
+        col_x: X-axis column name (e.g., "gfp_mean_intensity" or "gfp_smfish_count")
+        col_y: Y-axis column name (e.g., "mcherry_mean_intensity" or "mcherry_smfish_count")
         timepoint_h: Target timepoint in hours
         well_colors: List of color strings for coloring groups/wells
         cell_area_threshold: Minimum cell area in pixels; cells below are excluded
@@ -66,8 +66,6 @@ def collect_scatter_data(
             'metadata': [(well_label, fov, row_idx), ...]
         }
     """
-    col_x = f"{ch_x}_mean_intensity"
-    col_y = f"{ch_y}_mean_intensity"
 
     scatter_data: Dict[str, Dict[str, Any]] = {}
 
@@ -206,8 +204,8 @@ def collect_scatter_data(
 
 def redraw_scatter(
     app,
-    ch_x: str,
-    ch_y: str,
+    col_x: str,
+    col_y: str,
     timepoint_h: float,
     *,
     well_colors: List[str],
@@ -219,8 +217,8 @@ def redraw_scatter(
 
     Args:
         app: WellViewerApp instance
-        ch_x: X-axis channel name
-        ch_y: Y-axis channel name
+        col_x: X-axis column name (e.g., "gfp_mean_intensity" or "gfp_smfish_count")
+        col_y: Y-axis column name (e.g., "mcherry_mean_intensity" or "mcherry_smfish_count")
         timepoint_h: Timepoint in hours
         well_colors: List of colors for groups/wells
         cell_area_threshold: Minimum cell area in pixels; cells below are excluded
@@ -230,8 +228,8 @@ def redraw_scatter(
     # Collect scatter data
     scatter_data = collect_scatter_data(
         app,
-        ch_x,
-        ch_y,
+        col_x,
+        col_y,
         timepoint_h,
         well_colors=well_colors,
         cell_area_threshold=cell_area_threshold,
@@ -259,10 +257,19 @@ def redraw_scatter(
             app._scatter_metadata = {}
         app._scatter_metadata[label] = data['metadata']
 
-    # Format axes
-    app._ax_scatter.set_xlabel(f"{ch_x.upper()} Mean Intensity")
-    app._ax_scatter.set_ylabel(f"{ch_y.upper()} Mean Intensity")
-    app._ax_scatter.set_title(f"Scatter: {ch_x.upper()} vs {ch_y.upper()} (t={timepoint_h}h)")
+    # Format axes — derive readable label from column name
+    def _col_label(col: str) -> str:
+        if col.endswith("_smfish_count"):
+            ch = col[:-len("_smfish_count")]
+            return f"{ch.upper()} smFISH Count"
+        elif col.endswith("_mean_intensity"):
+            ch = col[:-len("_mean_intensity")]
+            return f"{ch.upper()} Mean Intensity"
+        return col
+
+    app._ax_scatter.set_xlabel(_col_label(col_x))
+    app._ax_scatter.set_ylabel(_col_label(col_y))
+    app._ax_scatter.set_title(f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)} (t={timepoint_h}h)")
     app._ax_scatter.grid(True, alpha=0.3)
     app._ax_scatter.legend(loc='best', fontsize=8)
 
@@ -304,13 +311,16 @@ def collect_scatter_agg_data(
 
     # Extract channel and metric type from statistic names
     def parse_statistic(stat_str: str) -> Tuple[str, str]:
-        """Parse 'Mean Fluorescence GFP' or 'Fraction On GFP' into ('gfp', 'mean'/'frac')."""
+        """Parse statistic strings: 'Mean Fluorescence GFP', 'Fraction On GFP', or 'smFISH Count GFP'."""
         if stat_str.startswith("Mean Fluorescence"):
             channel = stat_str.replace("Mean Fluorescence ", "").lower()
             return channel, "mean"
         elif stat_str.startswith("Fraction On"):
             channel = stat_str.replace("Fraction On ", "").lower()
             return channel, "frac"
+        elif stat_str.startswith("smFISH Count"):
+            channel = stat_str.replace("smFISH Count ", "").lower()
+            return channel, "smfish"
         else:
             return "gfp", "mean"
 
@@ -347,8 +357,18 @@ def collect_scatter_agg_data(
     else:
         tp_to_color = {}
 
-    val_col_x = f"{ch_x}_mean_intensity"
-    val_col_y = f"{ch_y}_mean_intensity"
+    # Derive column names based on metric type
+    if metric_x == "smfish":
+        val_col_x = f"{ch_x}_smfish_count"
+        threshold_x = 0  # No threshold for smfish counts (all spots)
+    else:
+        val_col_x = f"{ch_x}_mean_intensity"
+
+    if metric_y == "smfish":
+        val_col_y = f"{ch_y}_smfish_count"
+        threshold_y = 0  # No threshold for smfish counts (all spots)
+    else:
+        val_col_y = f"{ch_y}_mean_intensity"
 
     def _agg_wells(wells, tp, val_col, threshold, metric):
         """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""

@@ -13,6 +13,7 @@ def export_plot_data(app) -> None:
         rt.messagebox.showwarning("Export", "No wells selected.")
         return
     ch = app._active_channel
+    metric = app._active_metric  # "mean_intensity" or "smfish_count"
     threshold = app._get_thresh_frac_on(ch)
     rows_out = []
     cell_area_threshold = app._get_cell_area_threshold()
@@ -24,12 +25,13 @@ def export_plot_data(app) -> None:
                 {
                     "well": label,
                     "time_h": f"{t:.4f}",
-                    f"mean_{ch}": f"{mean:.6f}" if not rt.math.isnan(mean) else "",
-                    f"sd_{ch}": f"{sd:.6f}",
+                    f"mean_{ch}_{metric}": f"{mean:.6f}" if not rt.math.isnan(mean) else "",
+                    f"sd_{ch}_{metric}": f"{sd:.6f}",
                     "n_above_threshold": n_above,
                     "fraction_above": f"{frac:.6f}" if not rt.math.isnan(frac) else "",
                     "n_total": n_total,
                     "threshold": f"{threshold:.4f}",
+                    "metric": metric,
                 }
             )
     if not rows_out:
@@ -39,11 +41,11 @@ def export_plot_data(app) -> None:
         title="Export plot data",
         defaultextension=".csv",
         filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile=f"{ch}_plot_export.csv",
+        initialfile=f"{ch}_{metric}_plot_export.csv",
     )
     if not out_path:
         return
-    fieldnames = ["well", "time_h", f"mean_{ch}", f"sd_{ch}", "n_above_threshold", "fraction_above", "n_total", "threshold"]
+    fieldnames = ["well", "time_h", f"mean_{ch}_{metric}", f"sd_{ch}_{metric}", "n_above_threshold", "fraction_above", "n_total", "threshold", "metric"]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = rt.csv.DictWriter(fh, fieldnames=fieldnames)
@@ -67,6 +69,7 @@ def export_bar_plot_data(app) -> None:
         return
     use_groups, items, band_lbl = app._collect_bar_items(target_t)
     ch = app._active_channel
+    metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
     rows_out = []
     if use_groups:
@@ -75,11 +78,12 @@ def export_bar_plot_data(app) -> None:
                 {
                     "name": name,
                     "timepoint_h": tp_str,
-                    f"mean_{ch}": f"{gm:.6f}" if has else "",
-                    f"err_mean_{band_lbl}_{ch}": f"{g_err_m:.6f}" if has else "",
+                    f"mean_{ch}_{metric}": f"{gm:.6f}" if has else "",
+                    f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
                     "fraction_above": f"{gf:.6f}" if not rt.math.isnan(gf) else "",
                     f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not rt.math.isnan(gf) else "",
                     "threshold": f"{threshold:.4f}",
+                    "metric": metric,
                 }
             )
     else:
@@ -88,10 +92,11 @@ def export_bar_plot_data(app) -> None:
                 {
                     "well": rt._extract_well_token(label) or label,
                     "timepoint_h": tp_str,
-                    f"mean_{ch}": f"{mean:.6f}" if has and not rt.math.isnan(mean) else "",
-                    f"err_{band_lbl}_{ch}": f"{spread:.6f}" if has else "",
+                    f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not rt.math.isnan(mean) else "",
+                    f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
                     "fraction_above": f"{frac:.6f}" if has and not rt.math.isnan(frac) else "",
                     "threshold": f"{threshold:.4f}",
+                    "metric": metric,
                 }
             )
     if not rows_out:
@@ -248,22 +253,29 @@ def export_scatter_data(app) -> None:
     from well_viewer.scatter_controller import collect_scatter_data as _scatter_collect_data
 
     try:
-        ch_x = app._scatter_ch_x_var.get()
-        ch_y = app._scatter_ch_y_var.get()
+        ch_x_entry = app._scatter_ch_x_var.get()
+        ch_y_entry = app._scatter_ch_y_var.get()
         tp_str = app._scatter_tp_var.get()
         timepoint_h = float(tp_str) if tp_str else 0.0
     except (ValueError, AttributeError):
         rt.messagebox.showwarning("Export", "Select channels and timepoint first.", parent=app)
         return
 
+    # Extract base channel names for gate lookups
+    ch_x_base = ch_x_entry.split(" ")[0]
+    ch_y_base = ch_y_entry.split(" ")[0]
+    # Resolve to actual column names
+    col_x = app._col_for_scatter_entry(ch_x_entry)
+    col_y = app._col_for_scatter_entry(ch_y_entry)
+
     cell_area_threshold = app._get_cell_area_threshold()
-    fluor_gate_x = app._get_fluor_gate(ch_x)
-    fluor_gate_y = app._get_fluor_gate(ch_y)
+    fluor_gate_x = app._get_fluor_gate(ch_x_base)
+    fluor_gate_y = app._get_fluor_gate(ch_y_base)
 
     scatter_data = _scatter_collect_data(
         app,
-        ch_x,
-        ch_y,
+        col_x,
+        col_y,
         timepoint_h,
         well_colors=[],  # Not needed for export
         cell_area_threshold=cell_area_threshold,
@@ -278,8 +290,8 @@ def export_scatter_data(app) -> None:
         for x, y in zip(x_vals, y_vals):
             rows_out.append({
                 "group_well": label,
-                f"{ch_x}_intensity": f"{x:.6f}",
-                f"{ch_y}_intensity": f"{y:.6f}",
+                f"{col_x}": f"{x:.6f}",
+                f"{col_y}": f"{y:.6f}",
                 "timepoint_h": f"{timepoint_h:.4f}",
             })
 
@@ -300,7 +312,7 @@ def export_scatter_data(app) -> None:
 
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = rt.csv.DictWriter(fh, fieldnames=["group_well", f"{ch_x}_intensity", f"{ch_y}_intensity", "timepoint_h"])
+            writer = rt.csv.DictWriter(fh, fieldnames=["group_well", f"{col_x}", f"{col_y}", "timepoint_h"])
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} datapoint(s) → {Path(out_path).name}")

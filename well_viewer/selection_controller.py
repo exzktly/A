@@ -64,9 +64,9 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
         btn = btn_dict.get(tok)
         if btn:
             if label in well_set:
-                btn.config(bg=rt.ACCENT, fg=rt.CLR_WHITE, activebackground=rt.CLR_ACCENT_DARK)
+                btn.config(bg=rt.ACCENT, fg=rt.CLR_WHITE, activebackground=rt.CLR_ACCENT_DARK, relief=rt.tk.SUNKEN)
             else:
-                btn.config(bg=rt.BG_PANEL, fg=rt.TXT_PRI, activebackground=rt.BG_HOVER)
+                btn.config(bg=rt.BG_PANEL, fg=rt.TXT_PRI, activebackground=rt.BG_HOVER, relief=rt.tk.FLAT)
 
 
 def plate_drag_release(app, ds: dict, on_rep_change, on_well_change) -> None:
