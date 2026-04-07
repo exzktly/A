@@ -181,6 +181,80 @@ class ScatterCellViewer(tk.Toplevel):
         else:
             self._img_label.config(text="No images could be loaded")
 
+    def _load_output_image_by_filename(self, image_type: str):
+        """Load a mask or overlay from the output zip by constructing the expected
+        output filename from self.filename.
+
+        process_microscopy_v2.py writes output files as:
+            <stem with nuclear_token removed>_labels.tif   (mask)
+            <stem with nuclear_token removed>_overlay.png  (overlay)
+
+        Returns (array, path_str) for diagnostics.
+        """
+        try:
+            import zipfile
+            from pathlib import Path as _Path
+            from well_viewer.runtime_app import (
+                open_imgref_as_array, _ImgRef,
+                _extract_well_token,
+                _find_out_well_zips_in_dir,
+                _find_plain_well_zips_in_dir,
+                _find_well_zips_in_dir,
+            )
+
+            nuclear_token = getattr(self, "_nuclear_token", "")
+            stem = _Path(self.filename).stem
+            base = stem.replace(nuclear_token, "") if nuclear_token else stem
+
+            if image_type == "mask":
+                candidates = [base + "_labels.tif", base + "_labels.tiff", base + "_labels.png"]
+            elif image_type == "overlay":
+                candidates = [base + "_overlay.png", base + "_overlay.jpg", base + "_overlay.jpeg", base + "_overlay.tif"]
+            else:
+                return None, f"unknown image_type {image_type!r}"
+
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                return None, f"could not extract well_token from {self.well_label!r}"
+
+            data_dir = self.app._data_dir
+            in_dir = self.app._in_dir
+            zips: list = []
+            if in_dir and data_dir and data_dir.is_dir():
+                zips = _find_out_well_zips_in_dir(data_dir, well_token)
+                zips += _find_plain_well_zips_in_dir(data_dir, well_token)
+            if not zips and data_dir and data_dir.is_dir():
+                zips = _find_well_zips_in_dir(data_dir, well_token)
+
+            candidate_lowers = [c.lower() for c in candidates]
+            for zip_path in zips:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.namelist():
+                        if _Path(member).name.lower() in candidate_lowers:
+                            ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                            path_str = f"{zip_path}::{member}"
+                            return arr, path_str
+
+            # Fallback: raw files on disk
+            search_dirs = [d for d in (data_dir, in_dir) if d and d.is_dir()]
+            for d in search_dirs:
+                for candidate in candidates:
+                    for img_path in d.rglob(candidate):
+                        ref = _ImgRef(disk_path=img_path)
+                        arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                        return arr, str(img_path)
+
+            zip_list = [str(z) for z in zips]
+            return None, (
+                f"not found: {candidates[0]!r}\n"
+                f"base={base!r} nuclear_token={nuclear_token!r}\n"
+                f"zips searched: {zip_list}"
+            )
+
+        except Exception as e:
+            return None, f"exception: {e}"
+
     def _get_cell_bounds(self, nuclear_id: int, timepoint_h: float) -> Optional[Tuple[int, int, int, int]]:
         """Get cell pixel boundaries from mask file specified by filename.
 
@@ -190,9 +264,9 @@ class ScatterCellViewer(tk.Toplevel):
         try:
             import numpy as np
 
-            mask_arr, mask_path = self._load_image_by_filename_with_path(timepoint_h, "mask")
+            mask_arr, mask_path = self._load_output_image_by_filename("mask")
             if mask_arr is None:
-                self._diag = f"No mask found\nfov={self._target_fov!r} tp={timepoint_h}\ndata_dir={self.app._data_dir}\nin_dir={self.app._in_dir}"
+                self._diag = f"No mask found\n{mask_path}"
                 return None
 
             mask_arr = np.asarray(mask_arr)
@@ -223,7 +297,7 @@ class ScatterCellViewer(tk.Toplevel):
         """Load and crop image for a channel."""
         try:
             if channel in ("mask", "overlay"):
-                arr = self._load_image_by_filename(timepoint_h, channel)
+                arr, _ = self._load_output_image_by_filename(channel)
             else:
                 arr = self._load_input_channel_by_filename(channel)
             if arr is None or not self._cell_bounds:
