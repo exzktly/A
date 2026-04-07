@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Optional
 
-from well_viewer.ui_support import btn_primary, btn_secondary
+from well_viewer.ui_helpers import btn_primary, btn_secondary
 from ui.theme import get_color
 
 

@@ -58,8 +58,8 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
-from well_viewer.state import groups_with_loaded_wells as _groups_with_loaded_wells
-from well_viewer.state import selected_listbox_values as _selected_listbox_values
+from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
+from well_viewer.viewer_state import selected_listbox_values as _selected_listbox_values
 from well_viewer.barplot_controller import bar_groups_from_data as _bar_groups_from_data
 from well_viewer.barplot_controller import bar_groups_to_dict as _bar_groups_to_dict
 from well_viewer.barplot_controller import apply_bar_ylims as _bar_apply_ylims
@@ -70,9 +70,9 @@ from well_viewer.preview_controller import classify_member as _preview_classify_
 from well_viewer.preview_controller import open_imgref_as_array as _preview_open_imgref_as_array
 from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
 from well_viewer.preview_controller import scan_zip_members as _preview_scan_zip_members
-from well_viewer.preview_view import build_preview_picker as _build_preview_picker_view
-from well_viewer.preview_view import preview_pick_well as _preview_pick_well_view
-from well_viewer.preview_view import refresh_preview_picker as _refresh_preview_picker_view
+from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
+from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
+from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
 from well_viewer.lineplot_controller import redraw_line_plots as _lineplot_redraw
 from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
 from well_viewer.scatter_controller import collect_scatter_data as _scatter_collect_data
@@ -119,12 +119,12 @@ from well_viewer.montage_controller import on_montage_wheel as _on_montage_wheel
 from well_viewer.stats_controller import collect_group_values as _stats_collect_group_values
 from well_viewer.stats_controller import draw_ks_cdf as _stats_draw_ks_cdf
 from well_viewer.stats_controller import run_stats as _stats_run_controller
-from well_viewer.stats_view import build_stats_group_editor as _build_stats_group_editor_view
-from well_viewer.stats_view import build_stats_results_panel as _build_stats_results_panel_view
-from well_viewer.stats_view import build_stats_tab as _build_stats_tab_view
-from well_viewer.state import make_schema_extractor as _make_schema_extractor
-from well_viewer.state import read_pipeline_info as _read_pipeline_info_shared
-from well_viewer.ui_support import (
+from well_viewer.views.stats_view import build_stats_group_editor as _build_stats_group_editor_view
+from well_viewer.views.stats_view import build_stats_results_panel as _build_stats_results_panel_view
+from well_viewer.views.stats_view import build_stats_tab as _build_stats_tab_view
+from well_viewer.viewer_state import make_schema_extractor as _make_schema_extractor
+from well_viewer.viewer_state import read_pipeline_info as _read_pipeline_info_shared
+from well_viewer.ui_helpers import (
     ask_name_dialog as _ui_ask_name_dialog,
     btn_card as _btn_card,
     btn_danger as _btn_danger,
@@ -3036,7 +3036,7 @@ class WellViewerApp(tk.Frame):
         )
 
     def _rep_panel_refresh(self) -> None:
-        from well_viewer.grouping_view import rep_panel_refresh as _rep_panel_refresh_view
+        from well_viewer.views.grouping_view import rep_panel_refresh as _rep_panel_refresh_view
 
         _rep_panel_refresh_view(self)
 
@@ -5428,7 +5428,7 @@ class WellViewerApp(tk.Frame):
     # ── Batch export ──────────────────────────────────────────────────────────
 
     def _open_batch_export(self) -> None:
-        from well_viewer.batch_export_dialogs import BatchExportDialog, open_line_batch_export
+        from well_viewer.batch_export_dialog import BatchExportDialog, open_line_batch_export
 
         open_line_batch_export(self, BatchExportDialog)
 
@@ -6503,7 +6503,7 @@ class WellViewerApp(tk.Frame):
 
     def _open_bar_batch_export(self) -> None:
         """Open the bar-plot batch export dialog."""
-        from well_viewer.batch_export_dialogs import BarBatchExportDialog, open_bar_batch_export
+        from well_viewer.batch_export_dialog import BarBatchExportDialog, open_bar_batch_export
 
         open_bar_batch_export(self, BarBatchExportDialog)
 
@@ -6883,10 +6883,10 @@ class WellViewerApp(tk.Frame):
             return
 
         # ── Left-click: start threshold drag if near the vline ───────────────
-        if event.button == 1 and event.inaxes is self._ax_cdf:
+        if event.button == 1 and event.inaxes is self._line_ax_cdf:
             # Accept if click is within 5% of the CDF x-range of the threshold
             try:
-                lo, hi = self._ax_cdf.get_xlim()
+                lo, hi = self._line_ax_cdf.get_xlim()
                 tol = (hi - lo) * 0.05
             except Exception:
                 tol = 5.0
@@ -6899,9 +6899,9 @@ class WellViewerApp(tk.Frame):
         if event.button != 3:
             return
         ax_map = {
-            id(self._ax_mean): "mean",
-            id(self._ax_frac): "frac",
-            id(self._ax_cdf):  "cdf",
+            id(self._line_ax_mean): "mean",
+            id(self._line_ax_frac): "frac",
+            id(self._line_ax_cdf):  "cdf",
         }
         clicked_ax = event.inaxes
         key = ax_map.get(id(clicked_ax))
@@ -6911,7 +6911,7 @@ class WellViewerApp(tk.Frame):
         leg = clicked_ax.get_legend()
         if leg is not None:
             leg.set_visible(self._legend_visible[key])
-            self._mpl_canvas.draw_idle()
+            self._line_canvas.draw_idle()
         state = "shown" if self._legend_visible[key] else "hidden"
         self._set_status(f"Legend for '{key}' plot {state}  (right-click to toggle)")
 
@@ -6919,11 +6919,11 @@ class WellViewerApp(tk.Frame):
         """Move the threshold line live while dragging."""
         if not self._thr_dragging:
             return
-        if event.inaxes is not self._ax_cdf or event.xdata is None:
+        if event.inaxes is not self._line_ax_cdf or event.xdata is None:
             return
         # Clamp to visible CDF range
         try:
-            lo, hi = self._ax_cdf.get_xlim()
+            lo, hi = self._line_ax_cdf.get_xlim()
         except Exception:
             lo, hi = 0.0, 300.0
         new_thr = max(lo, min(hi, event.xdata))

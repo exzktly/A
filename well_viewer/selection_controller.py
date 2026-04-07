@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from well_viewer.ui_support import tok_at_event as _tok_at_event
+from well_viewer.ui_helpers import tok_at_event as _tok_at_event
 
 
 def sidebar_tok_at(app, event) -> Optional[str]:
