@@ -261,17 +261,29 @@ class ScatterCellViewer(tk.Toplevel):
                 print(f"DEBUG: No {image_type} images found")
                 return None
 
-            # Try to match timepoint, accepting any FOV
+            # Extract FOV from the filename so we look in the right FOV's images
+            from pathlib import Path as _Path
+            filename_stem = _Path(self.filename).stem
+            target_fov: str | None = None
+            if self.app._fov_tp_extractor is not None:
+                try:
+                    target_fov, _ = self.app._fov_tp_extractor(filename_stem)
+                    print(f"DEBUG: Extracted FOV={target_fov!r} from filename {self.filename!r}")
+                except Exception:
+                    target_fov = None
+
             tp_int = int(round(timepoint_h))
             img_ref = None
 
-            # Try numeric format first
+            # Try numeric format first, matching FOV when available
             for (fov, tp_str), ref in img_dict.items():
+                if target_fov is not None and fov != target_fov:
+                    continue
                 try:
                     tp_float = float(tp_str)
                     if abs(tp_float - timepoint_h) < 0.1:
                         img_ref = ref
-                        print(f"DEBUG: Matched {image_type} numeric format: tp={tp_str}")
+                        print(f"DEBUG: Matched {image_type} numeric format: fov={fov}, tp={tp_str}")
                         break
                 except (ValueError, TypeError):
                     pass
@@ -279,15 +291,41 @@ class ScatterCellViewer(tk.Toplevel):
             # Try T## format
             if not img_ref and tp_int > 0:
                 for (fov, tp_str), ref in img_dict.items():
+                    if target_fov is not None and fov != target_fov:
+                        continue
                     if tp_str.upper().startswith('T'):
                         try:
                             tp_num = int(tp_str[1:])
                             if tp_num == tp_int:
                                 img_ref = ref
-                                print(f"DEBUG: Matched {image_type} T## format: tp={tp_str}")
+                                print(f"DEBUG: Matched {image_type} T## format: fov={fov}, tp={tp_str}")
                                 break
                         except (ValueError, IndexError):
                             pass
+
+            # Fall back to any FOV if no match found with target FOV
+            if not img_ref and target_fov is not None:
+                print(f"DEBUG: No match for FOV={target_fov!r}, falling back to any FOV")
+                for (fov, tp_str), ref in img_dict.items():
+                    try:
+                        tp_float = float(tp_str)
+                        if abs(tp_float - timepoint_h) < 0.1:
+                            img_ref = ref
+                            print(f"DEBUG: Fallback matched {image_type} numeric: fov={fov}, tp={tp_str}")
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                if not img_ref and tp_int > 0:
+                    for (fov, tp_str), ref in img_dict.items():
+                        if tp_str.upper().startswith('T'):
+                            try:
+                                tp_num = int(tp_str[1:])
+                                if tp_num == tp_int:
+                                    img_ref = ref
+                                    print(f"DEBUG: Fallback matched {image_type} T## format: fov={fov}, tp={tp_str}")
+                                    break
+                            except (ValueError, IndexError):
+                                pass
 
             if not img_ref:
                 print(f"DEBUG: No matching {image_type} image for timepoint={timepoint_h}")
