@@ -367,6 +367,13 @@ class AnalyzeTab(tk.Frame):
             fg=TXT_PRI,
             bg=BG_SIDE,
         ).pack(anchor="w", pady=(6, 2))
+        tk.Label(
+            sec,
+            text="Mark smFISH channels with the checkbox on each row.",
+            font=FM_TINY,
+            fg=TXT_MUT,
+            bg=BG_SIDE,
+        ).pack(anchor="w", pady=(0, 2))
         self._fluor_frame = tk.Frame(sec, bg=BG_SIDE)
         self._fluor_frame.pack(fill=tk.X)
         self._fluor_vars = []
@@ -549,8 +556,6 @@ class AnalyzeTab(tk.Frame):
         var = tk.StringVar(value=default_token)
         self._fluor_vars.append(var)
         var.trace_add("write", lambda *_: self._refresh_schema_preview())
-
-        idx = len(self._fluor_vars) - 1   # index of the row we just appended
 
         row = tk.Frame(self._fluor_frame, bg=BG_SIDE)
         row.pack(fill=tk.X, pady=1)
