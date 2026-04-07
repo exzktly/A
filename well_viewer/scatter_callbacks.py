@@ -42,6 +42,7 @@ class ScatterCellViewer(tk.Toplevel):
         self._cell_images: dict[str, Optional] = {}  # channel → cropped array
         self._current_channel = None
         self._current_lut: Tuple[float, float] = (0.0, 100.0)
+        self._channel_luts: dict[str, Tuple[float, float]] = {}  # channel → (lo, hi)
 
         # Build UI
         self._build_ui()
@@ -106,6 +107,7 @@ class ScatterCellViewer(tk.Toplevel):
 
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask."""
+        self._channel_luts = {}
         try:
             nuclear_id = int(float(self.nuclear_id))
         except (ValueError, TypeError):
@@ -397,13 +399,18 @@ class ScatterCellViewer(tk.Toplevel):
             self._img_label.config(text="Image not found")
             return
 
-        try:
-            lo, hi = float(arr.min()), float(arr.max())
-        except (ValueError, TypeError, AttributeError):
-            lo, hi = 0.0, 100.0
+        if self._current_channel in self._channel_luts:
+            lo, hi = self._channel_luts[self._current_channel]
+        else:
+            try:
+                lo, hi = float(arr.min()), float(arr.max())
+            except (ValueError, TypeError, AttributeError):
+                lo, hi = 0.0, 100.0
 
-        if hi <= lo:
-            hi = lo + 1.0
+            if hi <= lo:
+                hi = lo + 1.0
+
+            self._channel_luts[self._current_channel] = (lo, hi)
 
         self._current_lut = (lo, hi)
         self._lut_min_var.set(f"{lo:.1f}")
@@ -417,6 +424,8 @@ class ScatterCellViewer(tk.Toplevel):
             lo = float(self._lut_min_var.get())
             hi = float(self._lut_max_var.get())
             self._current_lut = (lo, hi)
+            if self._current_channel:
+                self._channel_luts[self._current_channel] = (lo, hi)
             self._display_current_image()
         except ValueError:
             pass
@@ -436,6 +445,8 @@ class ScatterCellViewer(tk.Toplevel):
             hi = lo + 1.0
 
         self._current_lut = (lo, hi)
+        if self._current_channel:
+            self._channel_luts[self._current_channel] = (lo, hi)
         self._lut_min_var.set(f"{lo:.1f}")
         self._lut_max_var.set(f"{hi:.1f}")
         self._display_current_image()
