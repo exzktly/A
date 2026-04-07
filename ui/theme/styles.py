@@ -453,7 +453,7 @@ _TBUTTON_VARIANT_PADDING = {
 }
 
 
-def apply_all_well_theme(style: ttk.Style, theme_name: str = "Dark") -> None:
+def apply_all_well_theme(style: ttk.Style, theme_name: str = None) -> None:
     """Apply the AllWell theme to *style*.
 
     Uses the "clam" TTK theme engine — macOS "aqua" ignores most colour
@@ -461,8 +461,10 @@ def apply_all_well_theme(style: ttk.Style, theme_name: str = "Dark") -> None:
 
     Args:
         style: ttk.Style object to configure
-        theme_name: "Dark" or "Light" (default: "Dark")
+        theme_name: "Dark" or "Light" (default: current theme)
     """
+    if theme_name is None:
+        theme_name = _CURRENT_THEME
     set_theme(theme_name)
     colors = get_theme_colors()
 
@@ -513,6 +515,19 @@ def apply_all_well_theme(style: ttk.Style, theme_name: str = "Dark") -> None:
     style.map("TCombobox",
               fieldbackground=[("readonly", bg_panel)],
               foreground=[("readonly", txt_pri)])
+
+    # Combobox popdown (the dropdown list is a plain tk.Listbox, not a ttk widget,
+    # so it must be styled via the option database rather than ttk styles)
+    try:
+        import tkinter as _tk
+        _root = _tk._default_root
+        if _root is not None:
+            _root.option_add("*TCombobox*Listbox.background", bg_panel, "interactive")
+            _root.option_add("*TCombobox*Listbox.foreground", txt_pri, "interactive")
+            _root.option_add("*TCombobox*Listbox.selectBackground", accent, "interactive")
+            _root.option_add("*TCombobox*Listbox.selectForeground", clr_white, "interactive")
+    except Exception:
+        pass
 
     # Legacy flat-dark action buttons
     for _name, _pad in _TBUTTON_PADDING.items():
