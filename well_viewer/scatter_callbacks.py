@@ -256,7 +256,7 @@ class ScatterCellViewer(tk.Toplevel):
 
             nuclear_token = getattr(self, "_nuclear_token", "")
             if not nuclear_token:
-                print(f"DEBUG: No nuclear_token set; cannot swap channel in filename")
+                print(f"DEBUG _load_input_channel_by_filename: No nuclear_token set; cannot swap channel in filename")
                 return None
 
             # Replace the nuclear token in the filename (case-insensitive, first occurrence)
@@ -268,51 +268,61 @@ class ScatterCellViewer(tk.Toplevel):
                 flags=_re.IGNORECASE,
             )
             if target_name == self.filename:
-                print(f"DEBUG: nuclear_token {nuclear_token!r} not found in {self.filename!r}")
-                return None
-
-            print(f"DEBUG: Looking for input channel file: {target_name!r}")
-
-            well_token = _extract_well_token(self.well_label)
-            if well_token is None:
+                print(f"DEBUG _load_input_channel_by_filename: nuclear_token {nuclear_token!r} not found in {self.filename!r}")
                 return None
 
             in_dir = self.app._in_dir
             data_dir = self.app._data_dir
+            print(f"DEBUG _load_input_channel_by_filename: target={target_name!r}  in_dir={in_dir}  data_dir={data_dir}")
+
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                print(f"DEBUG _load_input_channel_by_filename: could not extract well_token from {self.well_label!r}")
+                return None
 
             # Find candidate zip files: prefer in_dir plain zips, fall back to data_dir
             zips: list = []
             if in_dir and in_dir.is_dir():
                 zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+                print(f"DEBUG _load_input_channel_by_filename: in_dir zips={[str(z) for z in zips]}")
             if not zips and data_dir and data_dir.is_dir():
                 zips = _find_well_zips_in_dir(data_dir, well_token)
+                print(f"DEBUG _load_input_channel_by_filename: data_dir zips={[str(z) for z in zips]}")
+
+            if not zips:
+                print(f"DEBUG _load_input_channel_by_filename: no zip files found for well_token={well_token!r}")
 
             target_lower = target_name.lower()
             for zip_path in zips:
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    for member in zf.namelist():
+                    members = zf.namelist()
+                    print(f"DEBUG _load_input_channel_by_filename: scanning {zip_path} ({len(members)} members), looking for {target_lower!r}")
+                    for member in members:
                         if _Path(member).name.lower() == target_lower:
+                            print(f"DEBUG _load_input_channel_by_filename: matched {zip_path}::{member}")
                             ref = _ImgRef(zip_path=zip_path, zip_member=member)
                             arr = open_imgref_as_array(ref=ref, greyscale=True)
                             if arr is not None:
-                                print(f"DEBUG: Loaded {channel_token!r} from {zip_path.name}::{member}, shape={arr.shape}")
+                                print(f"DEBUG _load_input_channel_by_filename: loaded shape={arr.shape}")
                             return arr
+                    print(f"DEBUG _load_input_channel_by_filename: not found in {zip_path}; first 5 members: {members[:5]}")
 
             # Fallback: raw files on disk (unzipped layout)
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             for d in search_dirs:
                 for img_path in d.rglob(target_name):
+                    print(f"DEBUG _load_input_channel_by_filename: found on disk: {img_path}")
                     ref = _ImgRef(disk_path=img_path)
                     arr = open_imgref_as_array(ref=ref, greyscale=True)
                     if arr is not None:
-                        print(f"DEBUG: Loaded {channel_token!r} from disk: {img_path}, shape={arr.shape}")
+                        print(f"DEBUG _load_input_channel_by_filename: loaded shape={arr.shape}")
                     return arr
 
-            print(f"DEBUG: {target_name!r} not found in any input zip or disk location")
+            print(f"DEBUG _load_input_channel_by_filename: FAILED — {target_name!r} not found anywhere")
             return None
 
         except Exception as e:
-            print(f"DEBUG: Exception in _load_input_channel_by_filename({channel_token!r}): {e}")
+            print(f"DEBUG _load_input_channel_by_filename({channel_token!r}): exception: {e}")
             import traceback
             traceback.print_exc()
             return None
