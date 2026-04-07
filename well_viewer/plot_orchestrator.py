@@ -21,6 +21,9 @@ def redraw(
     warn,
     well_colors,
 ) -> None:
+    # Determine metric label for axis titles
+    metric_label = "smFISH Count" if app._active_metric == "smfish_count" else "Intensity"
+
     lineplot_redraw(
         app,
         apply_ax_style=apply_ax_style,
@@ -33,6 +36,7 @@ def redraw(
         txt_mut=txt_mut,
         warn=warn,
         well_colors=well_colors,
+        metric_label=metric_label,
     )
 
     if hasattr(app, "_notebook"):

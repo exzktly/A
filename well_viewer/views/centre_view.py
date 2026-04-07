@@ -161,6 +161,17 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._chan_cb_line.pack(side=tk.LEFT, padx=(0, 12))
     app._chan_cb_line.bind("<<ComboboxSelected>>", lambda _e: app._set_active_channel(app._chan_var.get().lower()))
 
+    # Metric selector (hidden by default, shown when current channel has smfish_count)
+    app._metric_selector_frame = tk.Frame(line_ctrl, bg=BG_SIDE)
+    tk.Label(app._metric_selector_frame, text="Metric:", font=FM_BOLD,
+             fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+    app._metric_var = tk.StringVar(value="Mean Intensity")
+    app._metric_cb = ttk.Combobox(app._metric_selector_frame, textvariable=app._metric_var,
+                                   values=["Mean Intensity", "smFISH Count"], state="readonly",
+                                   width=14, font=FM_BOLD)
+    app._metric_cb.pack(side=tk.LEFT, padx=(0, 12))
+    app._metric_cb.bind("<<ComboboxSelected>>", lambda _e: app._on_metric_selected())
+
     # Right side: Export actions
     _make_action_button(
         line_ctrl, text="Export CSV", command=app._export_plot_data,
@@ -248,6 +259,16 @@ def build_centre(app, parent: tk.Frame) -> None:
                                     width=10, font=FM_BOLD)
     app._chan_cb_bar.pack(side=tk.LEFT, padx=(0, 15))
     app._chan_cb_bar.bind("<<ComboboxSelected>>", lambda _e: app._set_active_channel(app._chan_var.get().lower()))
+
+    # Metric selector for bar tab (shares _metric_var with line tab)
+    app._metric_selector_frame_bar = tk.Frame(bar_ctrl, bg=BG_SIDE)
+    tk.Label(app._metric_selector_frame_bar, text="Metric:", font=FM_BOLD,
+             fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+    app._metric_cb_bar = ttk.Combobox(app._metric_selector_frame_bar, textvariable=app._metric_var,
+                                       values=["Mean Intensity", "smFISH Count"], state="readonly",
+                                       width=14, font=FM_BOLD)
+    app._metric_cb_bar.pack(side=tk.LEFT, padx=(0, 12))
+    app._metric_cb_bar.bind("<<ComboboxSelected>>", lambda _e: app._on_metric_selected())
 
     tk.Label(bar_ctrl, text="Timepoint:", font=FM_BOLD,
              fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))

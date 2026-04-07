@@ -13,6 +13,7 @@ def export_plot_data(app) -> None:
         rt.messagebox.showwarning("Export", "No wells selected.")
         return
     ch = app._active_channel
+    metric = app._active_metric  # "mean_intensity" or "smfish_count"
     threshold = app._get_thresh_frac_on(ch)
     rows_out = []
     cell_area_threshold = app._get_cell_area_threshold()
@@ -24,12 +25,13 @@ def export_plot_data(app) -> None:
                 {
                     "well": label,
                     "time_h": f"{t:.4f}",
-                    f"mean_{ch}": f"{mean:.6f}" if not rt.math.isnan(mean) else "",
-                    f"sd_{ch}": f"{sd:.6f}",
+                    f"mean_{ch}_{metric}": f"{mean:.6f}" if not rt.math.isnan(mean) else "",
+                    f"sd_{ch}_{metric}": f"{sd:.6f}",
                     "n_above_threshold": n_above,
                     "fraction_above": f"{frac:.6f}" if not rt.math.isnan(frac) else "",
                     "n_total": n_total,
                     "threshold": f"{threshold:.4f}",
+                    "metric": metric,
                 }
             )
     if not rows_out:
@@ -39,11 +41,11 @@ def export_plot_data(app) -> None:
         title="Export plot data",
         defaultextension=".csv",
         filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile=f"{ch}_plot_export.csv",
+        initialfile=f"{ch}_{metric}_plot_export.csv",
     )
     if not out_path:
         return
-    fieldnames = ["well", "time_h", f"mean_{ch}", f"sd_{ch}", "n_above_threshold", "fraction_above", "n_total", "threshold"]
+    fieldnames = ["well", "time_h", f"mean_{ch}_{metric}", f"sd_{ch}_{metric}", "n_above_threshold", "fraction_above", "n_total", "threshold", "metric"]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = rt.csv.DictWriter(fh, fieldnames=fieldnames)
@@ -67,6 +69,7 @@ def export_bar_plot_data(app) -> None:
         return
     use_groups, items, band_lbl = app._collect_bar_items(target_t)
     ch = app._active_channel
+    metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
     rows_out = []
     if use_groups:
@@ -75,11 +78,12 @@ def export_bar_plot_data(app) -> None:
                 {
                     "name": name,
                     "timepoint_h": tp_str,
-                    f"mean_{ch}": f"{gm:.6f}" if has else "",
-                    f"err_mean_{band_lbl}_{ch}": f"{g_err_m:.6f}" if has else "",
+                    f"mean_{ch}_{metric}": f"{gm:.6f}" if has else "",
+                    f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
                     "fraction_above": f"{gf:.6f}" if not rt.math.isnan(gf) else "",
                     f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not rt.math.isnan(gf) else "",
                     "threshold": f"{threshold:.4f}",
+                    "metric": metric,
                 }
             )
     else:
@@ -88,10 +92,11 @@ def export_bar_plot_data(app) -> None:
                 {
                     "well": rt._extract_well_token(label) or label,
                     "timepoint_h": tp_str,
-                    f"mean_{ch}": f"{mean:.6f}" if has and not rt.math.isnan(mean) else "",
-                    f"err_{band_lbl}_{ch}": f"{spread:.6f}" if has else "",
+                    f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not rt.math.isnan(mean) else "",
+                    f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
                     "fraction_above": f"{frac:.6f}" if has and not rt.math.isnan(frac) else "",
                     "threshold": f"{threshold:.4f}",
+                    "metric": metric,
                 }
             )
     if not rows_out:

@@ -18,6 +18,7 @@ def redraw_line_plots(
     txt_mut: str,
     warn: str,
     well_colors: list[str],
+    metric_label: str = "Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
     for ax in (app._ax_mean, app._ax_frac, app._ax_cdf):
@@ -30,13 +31,13 @@ def redraw_line_plots(
     legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=plot_bg, edgecolor=plot_spn, labelcolor=txt_pri)
 
     _ch = app._active_channel.upper()
-    apply_ax_style(app._ax_mean, f"Mean {_ch} (above threshold) ± {band_lbl}", f"Mean {_ch}")
+    apply_ax_style(app._ax_mean, f"Mean {_ch} {metric_label} (above threshold) ± {band_lbl}", f"Mean {metric_label}")
     apply_ax_style(app._ax_frac, "Fraction of Cells Above Threshold", "Fraction")
-    cdf_lbl = (f"{_ch} Value CDF (all wells per replicate set)" if app._rep_sets_active() else f"{_ch} Value CDF (all selected wells)")
+    cdf_lbl = (f"{_ch} {metric_label} CDF (all wells per replicate set)" if app._rep_sets_active() else f"{_ch} {metric_label} CDF (all selected wells)")
     apply_ax_style(app._ax_cdf, cdf_lbl, "Cumulative fraction")
     app._ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)
     app._ax_frac.set_ylim(-0.05, 1.05)
-    app._ax_cdf.set_xlabel(f"{_ch} mean intensity", fontsize=8, labelpad=5)
+    app._ax_cdf.set_xlabel(f"{_ch} {metric_label}", fontsize=8, labelpad=5)
     app._ax_cdf.set_ylim(-0.02, 1.05)
 
     active_rsets = app._rep_sets_active()
