@@ -58,7 +58,7 @@ from well_viewer.runtime_app import (
     ttk,
 )
 from well_viewer.batch_models import BarGroup
-from well_viewer.ui_support import btn_card, btn_danger, btn_primary, btn_secondary
+from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
 from pathlib import Path
 from typing import Dict, List, Optional
 

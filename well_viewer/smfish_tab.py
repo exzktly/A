@@ -21,7 +21,7 @@ from tifffile import imread
 
 from ui.theme import ACCENT, BG_APP, BG_PANEL, BG_SIDE, BORDER, FM_BOLD, FM_TINY, TXT_MUT, TXT_PRI
 from well_viewer.preview_controller import classify_member, read_member_bytes, scan_zip_members
-from well_viewer.state import make_schema_extractor
+from well_viewer.viewer_state import make_schema_extractor
 
 matplotlib.use("TkAgg")
 

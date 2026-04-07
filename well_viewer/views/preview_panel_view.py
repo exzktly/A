@@ -22,7 +22,7 @@ from well_viewer.runtime_app import (
     TXT_SEC,
     _Tooltip,
 )
-from well_viewer.ui_support import btn_card, btn_secondary
+from well_viewer.ui_helpers import btn_card, btn_secondary
 
 
 def build_right_panel(self, parent: tk.Frame) -> None:

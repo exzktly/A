@@ -89,7 +89,7 @@ def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
 
 
 def save_line_figure(app, *, plot_bg: str) -> None:
-    save_matplotlib_fig(app, app._fig, "line_graphs.png", plot_bg=plot_bg)
+    save_matplotlib_fig(app, app._line_fig, "line_graphs.png", plot_bg=plot_bg)
 
 
 def save_bar_figure(app, *, plot_bg: str) -> None:

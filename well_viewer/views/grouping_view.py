@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from well_viewer.ui_support import btn_card, btn_danger
+from well_viewer.ui_helpers import btn_card, btn_danger
 
 
 def rep_panel_refresh(app) -> None:

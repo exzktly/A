@@ -6,8 +6,8 @@ import tkinter as tk
 from tkinter import messagebox
 
 from well_viewer.batch_models import BarGroup, ReplicateSet
-from well_viewer.state import extract_well_token as _extract_well_token
-from well_viewer.ui_support import tok_at_event as _tok_at_event
+from well_viewer.viewer_state import extract_well_token as _extract_well_token
+from well_viewer.ui_helpers import tok_at_event as _tok_at_event
 
 
 def rep_map_tok_at(app, event: tk.Event):
