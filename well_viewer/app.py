@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 
-from .state import ViewerAppState
+from .viewer_state import ViewerAppState
 
 
 class WellViewerApp:

@@ -155,7 +155,7 @@ def _open_timepoint_selector(app) -> None:
         frame.pack(anchor="w", padx=4, pady=2)
 
         def on_check_change(v=var):
-            _update_tp_selection_display(app)
+            app._update_tp_selection_display()
             app._redraw_scatter_agg()
 
         cb = tk.Checkbutton(
@@ -177,13 +177,13 @@ def _open_timepoint_selector(app) -> None:
     def select_all():
         for var in app._scatter_agg_tp_selections.values():
             var.set(True)
-        _update_tp_selection_display(app)
+        app._update_tp_selection_display()
         app._redraw_scatter_agg()
 
     def deselect_all():
         for var in app._scatter_agg_tp_selections.values():
             var.set(False)
-        _update_tp_selection_display(app)
+        app._update_tp_selection_display()
         app._redraw_scatter_agg()
 
     ttk.Button(button_frame, text="All", command=select_all,
@@ -197,11 +197,3 @@ def _open_timepoint_selector(app) -> None:
     selector.bind("<Leave>", lambda e: selector.after(
         200, lambda: selector.destroy() if selector.winfo_exists() else None))
     selector.focus()
-
-
-def _update_tp_selection_display(app) -> None:
-    """Update the label showing how many timepoints are selected."""
-    count = sum(1 for var in app._scatter_agg_tp_selections.values() if var.get())
-    total = len(app._scatter_agg_tp_selections)
-    label_text = f"(All {count} selected)" if count == total else f"({count}/{total} selected)"
-    app._scatter_agg_tp_label.config(text=label_text)
