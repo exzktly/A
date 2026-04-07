@@ -132,6 +132,12 @@ class ScatterCellViewer(tk.Toplevel):
         self._target_fov = str(row.get("fov") or row.get("FOV") or "").strip() or None
         print(f"DEBUG: target_fov={self._target_fov!r} from CSV row")
 
+        # The 'channel' field in the CSV identifies the nuclear channel token
+        # that appears in self.filename (e.g. "NIR", "DAPI").  Used to swap
+        # in the correct fluor token when loading input images.
+        self._nuclear_token = str(row.get("channel") or "").strip()
+        print(f"DEBUG: nuclear_token={self._nuclear_token!r}")
+
         # Get cell bounds from mask using filename and nuclear_id
         self._cell_bounds = self._get_cell_bounds(nuclear_id, timepoint_h)
         if not self._cell_bounds:
@@ -214,9 +220,12 @@ class ScatterCellViewer(tk.Toplevel):
             return None
 
     def _load_and_crop_channel(self, channel: str, timepoint_h: float) -> Optional:
-        """Load and crop fluorescence image for a channel using filename."""
+        """Load and crop image for a channel."""
         try:
-            arr = self._load_image_by_filename(timepoint_h, channel)
+            if channel in ("mask", "overlay"):
+                arr = self._load_image_by_filename(timepoint_h, channel)
+            else:
+                arr = self._load_input_channel_by_filename(channel)
             if arr is None or not self._cell_bounds:
                 return None
 
@@ -226,6 +235,86 @@ class ScatterCellViewer(tk.Toplevel):
 
         except Exception as e:
             print(f"DEBUG: Exception loading {channel}: {e}")
+            return None
+
+    def _load_input_channel_by_filename(self, channel_token: str) -> Optional:
+        """Load a channel image from the input folder by swapping the nuclear
+        channel token in self.filename with channel_token.
+
+        Uses the CSV row's 'channel' field as the nuclear token to replace.
+        """
+        try:
+            import re as _re
+            import zipfile
+            from pathlib import Path as _Path
+            from well_viewer.runtime_app import (
+                open_imgref_as_array, _ImgRef,
+                _extract_well_token,
+                _find_plain_well_zips_in_dir,
+                _find_well_zips_in_dir,
+            )
+
+            nuclear_token = getattr(self, "_nuclear_token", "")
+            if not nuclear_token:
+                print(f"DEBUG: No nuclear_token set; cannot swap channel in filename")
+                return None
+
+            # Replace the nuclear token in the filename (case-insensitive, first occurrence)
+            target_name = _re.sub(
+                _re.escape(nuclear_token),
+                channel_token,
+                self.filename,
+                count=1,
+                flags=_re.IGNORECASE,
+            )
+            if target_name == self.filename:
+                print(f"DEBUG: nuclear_token {nuclear_token!r} not found in {self.filename!r}")
+                return None
+
+            print(f"DEBUG: Looking for input channel file: {target_name!r}")
+
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                return None
+
+            in_dir = self.app._in_dir
+            data_dir = self.app._data_dir
+
+            # Find candidate zip files: prefer in_dir plain zips, fall back to data_dir
+            zips: list = []
+            if in_dir and in_dir.is_dir():
+                zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+            if not zips and data_dir and data_dir.is_dir():
+                zips = _find_well_zips_in_dir(data_dir, well_token)
+
+            target_lower = target_name.lower()
+            for zip_path in zips:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.namelist():
+                        if _Path(member).name.lower() == target_lower:
+                            ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            arr = open_imgref_as_array(ref=ref, greyscale=True)
+                            if arr is not None:
+                                print(f"DEBUG: Loaded {channel_token!r} from {zip_path.name}::{member}, shape={arr.shape}")
+                            return arr
+
+            # Fallback: raw files on disk (unzipped layout)
+            search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
+            for d in search_dirs:
+                for img_path in d.rglob(target_name):
+                    ref = _ImgRef(disk_path=img_path)
+                    arr = open_imgref_as_array(ref=ref, greyscale=True)
+                    if arr is not None:
+                        print(f"DEBUG: Loaded {channel_token!r} from disk: {img_path}, shape={arr.shape}")
+                    return arr
+
+            print(f"DEBUG: {target_name!r} not found in any input zip or disk location")
+            return None
+
+        except Exception as e:
+            print(f"DEBUG: Exception in _load_input_channel_by_filename({channel_token!r}): {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _load_image_by_filename(self, timepoint_h: float, image_type: str) -> Optional:
