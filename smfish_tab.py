@@ -53,6 +53,7 @@ class SmfishTab(tk.Frame):
         self._current_sorted_vals: np.ndarray | None = None
         self._hover_annot = None
         self._pan_anchor: tuple[float, float, tuple[float, float], tuple[float, float]] | None = None
+        self._fit_on_next_redraw = True
 
         self._build_ui()
 
@@ -63,7 +64,7 @@ class SmfishTab(tk.Frame):
         self._channel_var = tk.StringVar(value="")
         self._fov_var = tk.StringVar(value="")
         self._tp_var = tk.StringVar(value="")
-        self._threshold_var = tk.StringVar(value="0.0")
+        self._threshold_var = tk.StringVar(value="1500")
         self._lut_min_var = tk.StringVar(value="")
         self._lut_max_var = tk.StringVar(value="")
         self._status_var = tk.StringVar(value="Select a single well from the global picker.")
@@ -101,8 +102,10 @@ class SmfishTab(tk.Frame):
         lut_max.pack(side=tk.LEFT, padx=(0, 8))
         lut_max.bind("<Return>", lambda _e: self._redraw())
 
-        ttk.Button(ctrl, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
-        ttk.Button(ctrl, text="Apply to All", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
+        btn_row = tk.Frame(right, bg=BG_SIDE, pady=2, padx=10)
+        btn_row.pack(fill=tk.X, side=tk.TOP)
+        ttk.Button(btn_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Button(btn_row, text="Apply Global Threshold", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(right, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
                  justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(0, 6))
 
@@ -279,6 +282,7 @@ class SmfishTab(tk.Frame):
         self._current_sorted_vals = np.sort(vals) if vals.size else np.array([], dtype=np.float32)
         well = self._selected_well_token() or "N/A"
         self._status_var.set(f"Loaded {well} fov={key[0]} tp={key[1]}.")
+        self._fit_on_next_redraw = True
         self._redraw()
 
     def _get_threshold(self) -> float:
@@ -313,6 +317,11 @@ class SmfishTab(tk.Frame):
         self._ax_img.set_title(f"Spots above threshold: {int(xs.size)}", color=TXT_PRI, fontsize=10)
         self._ax_img.set_xticks([])
         self._ax_img.set_yticks([])
+        if self._fit_on_next_redraw:
+            h, w = log_img.shape[:2]
+            self._ax_img.set_xlim(-0.5, w - 0.5)
+            self._ax_img.set_ylim(h - 0.5, -0.5)
+            self._fit_on_next_redraw = False
         if self._hover_annot is None:
             self._hover_annot = self._ax_img.annotate(
                 "",
@@ -326,8 +335,10 @@ class SmfishTab(tk.Frame):
             self._hover_annot.set_visible(False)
 
         self._ax_cdf.clear()
-        candidate = (log_img > 0) & (labels > 0)
-        vals = np.sort(np.abs(log_img[candidate])) if np.any(candidate) else np.array([], dtype=np.float32)
+        candidate_vals = log_img[(log_img > 0) & (labels > 0)]
+        if candidate_vals.size == 0:
+            candidate_vals = np.abs(log_img[labels > 0])
+        vals = np.sort(candidate_vals) if candidate_vals.size else np.array([], dtype=np.float32)
         if vals.size:
             y = np.arange(1, vals.size + 1, dtype=np.float32) / vals.size
             self._ax_cdf.plot(vals, y, color="white", linewidth=1.0)
