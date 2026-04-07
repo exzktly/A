@@ -36,7 +36,7 @@ def read_pipeline_info(
     *,
     logger=None,
     check_parent: bool = True,
-) -> tuple[Callable[[str], Tuple[str, str]] | None, list[str]]:
+) -> tuple[Callable[[str], Tuple[str, str]] | None, list[str], set[str]]:
     if logger is None:
         logger = logging.getLogger("well_viewer")
 
@@ -47,7 +47,7 @@ def read_pipeline_info(
             info_path = parent_path
 
     if not info_path.exists():
-        return None, []
+        return None, [], set()
 
     try:
         data = json.loads(info_path.read_text())
@@ -55,9 +55,10 @@ def read_pipeline_info(
         fov_idx = int(data["fov_index"])
         tp_idx = int(data["tp_index"])
         fluor_tokens = [str(t).lower() for t in data.get("fluor_tokens", [])]
+        smfish_tokens = set(str(t).lower() for t in data.get("smfish_tokens", []))
         if tp_idx < 0:
             logger.warning("pipeline_info.json has invalid tp_index (%s); using legacy regex", info_path)
-            return None, fluor_tokens
+            return None, fluor_tokens, smfish_tokens
         if fov_idx < 0:
             logger.info("Loaded pipeline_info from %s  sep=%r fov=<single> tp=%d", info_path, sep, tp_idx)
 
@@ -66,19 +67,20 @@ def read_pipeline_info(
                 tp = parts[tp_idx] if 0 <= tp_idx < len(parts) else "unknown"
                 return "1", tp
 
-            return _extract_single_fov, fluor_tokens
+            return _extract_single_fov, fluor_tokens, smfish_tokens
         logger.info(
-            "Loaded pipeline_info from %s  sep=%r fov=%d tp=%d fluor=%s",
+            "Loaded pipeline_info from %s  sep=%r fov=%d tp=%d fluor=%s smfish=%s",
             info_path,
             sep,
             fov_idx,
             tp_idx,
             fluor_tokens,
+            smfish_tokens,
         )
-        return make_schema_extractor(sep, fov_idx, tp_idx), fluor_tokens
+        return make_schema_extractor(sep, fov_idx, tp_idx), fluor_tokens, smfish_tokens
     except Exception as exc:
         logger.warning("Could not parse pipeline_info.json (%s): %s — using legacy regex", info_path, exc)
-        return None, []
+        return None, [], set()
 
 
 # ── Batch export utilities (merged from batch_export.py) ─────────────────────
