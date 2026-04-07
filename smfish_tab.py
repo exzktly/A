@@ -25,6 +25,8 @@ from well_viewer.state import make_schema_extractor
 
 matplotlib.use("TkAgg")
 
+logger = logging.getLogger("smfish_tab")
+
 
 @dataclass
 class _ImgRef:
@@ -238,7 +240,7 @@ class SmfishTab(tk.Frame):
             image_exts={".tif", ".tiff", ".png", ".jpg", ".jpeg"},
             classify_member_fn=self._classify_local,
             imgref_factory=lambda p, m: _ImgRef(zip_path=p, zip_member=m),
-            logger=logging.getLogger("smfish_tab"),
+            logger=logger,
             fov_tp_extractor=self._fov_tp_extractor,
         )
         source = smfish if smfish else tophat
@@ -271,8 +273,8 @@ class SmfishTab(tk.Frame):
         if sm_ref is None or mk_ref is None:
             self._status_var.set("No smFISH/mask pair found for current selection.")
             return
-        sm_raw = read_member_bytes(zip_path=sm_ref.zip_path, member=sm_ref.zip_member, logger=logging.getLogger("smfish_tab"))
-        mk_raw = read_member_bytes(zip_path=mk_ref.zip_path, member=mk_ref.zip_member, logger=logging.getLogger("smfish_tab"))
+        sm_raw = read_member_bytes(zip_path=sm_ref.zip_path, member=sm_ref.zip_member, logger=logger)
+        mk_raw = read_member_bytes(zip_path=mk_ref.zip_path, member=mk_ref.zip_member, logger=logger)
         if sm_raw is None or mk_raw is None:
             self._status_var.set("Failed to load selected image data.")
             return
@@ -335,21 +337,43 @@ class SmfishTab(tk.Frame):
             self._hover_annot.set_visible(False)
 
         self._ax_cdf.clear()
-        candidate_vals = log_img[(log_img > 0) & (labels > 0)]
+        self._ax_cdf.set_facecolor(BG_PANEL)
+        self._fig_cdf.patch.set_facecolor(BG_PANEL)
+
+        candidate_mask = (log_img > 0) & (labels > 0)
+        candidate_ys, candidate_xs = np.where(candidate_mask)
+        candidate_vals = log_img[candidate_ys, candidate_xs]
         if candidate_vals.size == 0:
-            candidate_vals = np.abs(log_img[labels > 0])
+            candidate_mask = labels > 0
+            candidate_ys, candidate_xs = np.where(candidate_mask)
+            candidate_vals = np.abs(log_img[candidate_ys, candidate_xs])
+
+        debug_limit = min(100, candidate_vals.size)
+        logger.debug("smFISH CDF candidate pixel sample (showing %d/%d)", debug_limit, candidate_vals.size)
+        for i in range(debug_limit):
+            logger.debug(
+                "CDF[%03d] x=%d y=%d value=%.6f",
+                i,
+                int(candidate_xs[i]),
+                int(candidate_ys[i]),
+                float(candidate_vals[i]),
+            )
+
         vals = np.sort(candidate_vals) if candidate_vals.size else np.array([], dtype=np.float32)
         if vals.size:
             y = np.arange(1, vals.size + 1, dtype=np.float32) / vals.size
-            self._ax_cdf.plot(vals, y, color="white", linewidth=1.0)
-        self._ax_cdf.axvline(thr, color="red", linestyle="--", linewidth=1.0)
-        self._ax_cdf.set_title("CDF of LoG values inside labels", color=TXT_PRI, fontsize=9)
-        self._ax_cdf.set_xlabel("LoG value", color=TXT_PRI, fontsize=8)
-        self._ax_cdf.set_ylabel("CDF", color=TXT_PRI, fontsize=8)
-        self._ax_cdf.tick_params(axis="x", colors=TXT_PRI, labelsize=8)
-        self._ax_cdf.tick_params(axis="y", colors=TXT_PRI, labelsize=8)
+            self._ax_cdf.plot(vals, y, color=ACCENT, linewidth=2.0, alpha=0.85)
+            self._ax_cdf.fill_between(vals, y, alpha=0.2, color=ACCENT)
+
+        self._ax_cdf.axvline(thr, color="red", linestyle="--", linewidth=2.0, alpha=0.7)
+        self._ax_cdf.set_title("CDF of LoG values inside labels", color=TXT_PRI, fontsize=10, fontweight="bold")
+        self._ax_cdf.set_xlabel("LoG value", color=TXT_PRI, fontsize=9)
+        self._ax_cdf.set_ylabel("Cumulative Probability", color=TXT_PRI, fontsize=9)
+        self._ax_cdf.grid(True, alpha=0.2, color=TXT_MUT)
+        self._ax_cdf.tick_params(axis="x", colors=TXT_MUT, labelsize=8)
+        self._ax_cdf.tick_params(axis="y", colors=TXT_MUT, labelsize=8)
         for spine in self._ax_cdf.spines.values():
-            spine.set_color(TXT_PRI)
+            spine.set_color(TXT_MUT)
 
         self._canvas_img.draw_idle()
         self._canvas_cdf.draw_idle()
@@ -490,15 +514,15 @@ class SmfishTab(tk.Frame):
                 image_exts={".tif", ".tiff", ".png", ".jpg", ".jpeg"},
                 classify_member_fn=self._classify_local,
                 imgref_factory=lambda p, m: _ImgRef(zip_path=p, zip_member=m),
-                logger=logging.getLogger("smfish_tab"),
+                logger=logger,
                 fov_tp_extractor=self._fov_tp_extractor,
             )
             _ = g
             for key in sorted(set(smfish).intersection(mask)):
                 sm_ref = smfish[key]
                 mk_ref = mask[key]
-                sm_raw = read_member_bytes(zip_path=sm_ref.zip_path, member=sm_ref.zip_member, logger=logging.getLogger("smfish_tab"))
-                mk_raw = read_member_bytes(zip_path=mk_ref.zip_path, member=mk_ref.zip_member, logger=logging.getLogger("smfish_tab"))
+                sm_raw = read_member_bytes(zip_path=sm_ref.zip_path, member=sm_ref.zip_member, logger=logger)
+                mk_raw = read_member_bytes(zip_path=mk_ref.zip_path, member=mk_ref.zip_member, logger=logger)
                 if sm_raw is None or mk_raw is None:
                     continue
                 log_img = imread(io.BytesIO(sm_raw)).astype(np.float32)
