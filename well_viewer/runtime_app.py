@@ -6237,8 +6237,14 @@ class WellViewerApp(tk.Frame):
             self._scatter_agg_tp_selections[tp_str] = var
 
         # Update the display label
-        from well_viewer.tabs.scatter_agg_tab_view import _update_tp_selection_display
-        _update_tp_selection_display(self)
+        self._update_tp_selection_display()
+
+    def _update_tp_selection_display(self) -> None:
+        """Update the aggregate scatter label showing selected timepoints."""
+        count = sum(1 for var in self._scatter_agg_tp_selections.values() if var.get())
+        total = len(self._scatter_agg_tp_selections)
+        label_text = f"(All {count} selected)" if count == total else f"({count}/{total} selected)"
+        self._scatter_agg_tp_label.config(text=label_text)
 
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
