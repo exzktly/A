@@ -5419,6 +5419,15 @@ class WellViewerApp(tk.Frame):
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_sidebar_map()
 
+        elif tab == "smFISH":
+            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            if len(self._selected_wells) > 1:
+                keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
+                self._selected_wells = {keep}
+            self._refresh_sidebar_map()
+            if hasattr(self, "_smfish_tab"):
+                self._smfish_tab.sync_from_app()
+
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
