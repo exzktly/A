@@ -14,7 +14,7 @@ from typing import Callable
 
 import matplotlib
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from skimage.segmentation import find_boundaries
 from tifffile import imread
@@ -50,6 +50,8 @@ class SmfishTab(tk.Frame):
         self._current_log_img: np.ndarray | None = None
         self._current_labels: np.ndarray | None = None
         self._current_sorted_vals: np.ndarray | None = None
+        self._hover_annot = None
+        self._pan_anchor: tuple[float, float, tuple[float, float], tuple[float, float]] | None = None
 
         self._build_ui()
 
@@ -98,7 +100,10 @@ class SmfishTab(tk.Frame):
         thr.pack(fill=tk.X, padx=10, pady=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
 
-        ttk.Button(l_inner, text="Apply to All", command=self._apply_to_all).pack(anchor="w", padx=10, pady=(0, 8))
+        apply_row = tk.Frame(l_inner, bg=BG_SIDE)
+        apply_row.pack(fill=tk.X, padx=10, pady=(0, 8))
+        ttk.Button(apply_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT)
+        ttk.Button(apply_row, text="Apply to All", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(l_inner, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
                  wraplength=260, justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(4, 6))
 
@@ -106,6 +111,14 @@ class SmfishTab(tk.Frame):
         self._ax_img = self._fig_img.add_subplot(111)
         self._canvas_img = FigureCanvasTkAgg(self._fig_img, master=right)
         self._canvas_img.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=6, pady=(6, 3))
+        self._toolbar = NavigationToolbar2Tk(self._canvas_img, right, pack_toolbar=False)
+        self._toolbar.update()
+        self._toolbar.pack(fill=tk.X, padx=6, pady=(0, 3))
+        self._canvas_img.mpl_connect("motion_notify_event", self._on_img_hover)
+        self._canvas_img.mpl_connect("scroll_event", self._on_img_scroll)
+        self._canvas_img.mpl_connect("button_press_event", self._on_img_press)
+        self._canvas_img.mpl_connect("button_release_event", self._on_img_release)
+        self._canvas_img.mpl_connect("motion_notify_event", self._on_img_drag)
 
         self._fig_cdf = Figure(figsize=(6, 2.7), dpi=100)
         self._ax_cdf = self._fig_cdf.add_subplot(111)
@@ -263,13 +276,25 @@ class SmfishTab(tk.Frame):
         bnd = find_boundaries(labels, mode="outer")
         self._ax_img.contour(bnd.astype(np.uint8), levels=[0.5], colors="red", linewidths=0.5)
         if xs.size:
-            self._ax_img.scatter(xs, ys, s=10, c="cyan", edgecolors="none")
+            self._ax_img.scatter(xs, ys, s=20, facecolors="none", edgecolors="cyan", linewidths=0.6)
         self._ax_img.set_title(f"Spots above threshold: {int(xs.size)}", color=TXT_PRI, fontsize=10)
         self._ax_img.set_xticks([])
         self._ax_img.set_yticks([])
+        if self._hover_annot is None:
+            self._hover_annot = self._ax_img.annotate(
+                "",
+                xy=(0, 0),
+                xytext=(8, 8),
+                textcoords="offset points",
+                color="white",
+                fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.2", fc="black", ec="white", lw=0.6, alpha=0.8),
+            )
+            self._hover_annot.set_visible(False)
 
         self._ax_cdf.clear()
-        vals = self._current_sorted_vals if self._current_sorted_vals is not None else np.array([])
+        candidate = (log_img > 0) & (labels > 0)
+        vals = np.sort(log_img[candidate]) if np.any(candidate) else np.array([], dtype=np.float32)
         if vals.size:
             y = np.arange(1, vals.size + 1, dtype=np.float32) / vals.size
             self._ax_cdf.plot(vals, y, color="white", linewidth=1.0)
@@ -281,8 +306,114 @@ class SmfishTab(tk.Frame):
         self._canvas_img.draw_idle()
         self._canvas_cdf.draw_idle()
 
+    def _on_img_hover(self, event) -> None:
+        if self._current_log_img is None or event.inaxes != self._ax_img:
+            if self._hover_annot is not None and self._hover_annot.get_visible():
+                self._hover_annot.set_visible(False)
+                self._canvas_img.draw_idle()
+            return
+        if event.xdata is None or event.ydata is None or self._hover_annot is None:
+            return
+        x = int(round(event.xdata))
+        y = int(round(event.ydata))
+        h, w = self._current_log_img.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            self._hover_annot.set_visible(False)
+            self._canvas_img.draw_idle()
+            return
+        px = float(self._current_log_img[y, x])
+        self._hover_annot.xy = (x, y)
+        self._hover_annot.set_text(f"({x}, {y}) = {px:.3f}")
+        self._hover_annot.set_visible(True)
+        self._canvas_img.draw_idle()
+
+    def _on_img_scroll(self, event) -> None:
+        if event.inaxes != self._ax_img or event.xdata is None or event.ydata is None:
+            return
+        scale = 1 / 1.2 if event.button == "up" else 1.2
+        xlim = self._ax_img.get_xlim()
+        ylim = self._ax_img.get_ylim()
+        new_w = (xlim[1] - xlim[0]) * scale
+        new_h = (ylim[1] - ylim[0]) * scale
+        relx = (event.xdata - xlim[0]) / (xlim[1] - xlim[0]) if xlim[1] != xlim[0] else 0.5
+        rely = (event.ydata - ylim[0]) / (ylim[1] - ylim[0]) if ylim[1] != ylim[0] else 0.5
+        self._ax_img.set_xlim(event.xdata - new_w * relx, event.xdata + new_w * (1 - relx))
+        self._ax_img.set_ylim(event.ydata - new_h * rely, event.ydata + new_h * (1 - rely))
+        self._canvas_img.draw_idle()
+
+    def _on_img_press(self, event) -> None:
+        if event.inaxes != self._ax_img or event.button != 1 or event.xdata is None or event.ydata is None:
+            return
+        self._pan_anchor = (event.xdata, event.ydata, self._ax_img.get_xlim(), self._ax_img.get_ylim())
+
+    def _on_img_release(self, _event) -> None:
+        self._pan_anchor = None
+
+    def _on_img_drag(self, event) -> None:
+        if self._pan_anchor is None or event.inaxes != self._ax_img or event.xdata is None or event.ydata is None:
+            return
+        x0, y0, xlim0, ylim0 = self._pan_anchor
+        dx = event.xdata - x0
+        dy = event.ydata - y0
+        self._ax_img.set_xlim(xlim0[0] - dx, xlim0[1] - dx)
+        self._ax_img.set_ylim(ylim0[0] - dy, ylim0[1] - dy)
+        self._canvas_img.draw_idle()
+
     def _apply_to_all(self) -> None:
         threading.Thread(target=self._apply_to_all_worker, daemon=True).start()
+
+    def _apply_to_current(self) -> None:
+        if self._current_log_img is None or self._current_labels is None:
+            self._status_var.set("No image loaded to apply threshold.")
+            return
+        out_dir = self._out_dir
+        channel = self._channel_var.get().strip().lower()
+        well = self._well_var.get().strip().upper()
+        fov = self._fov_var.get().strip()
+        tp = self._tp_var.get().strip()
+        if out_dir is None or not channel or not well or not fov or not tp:
+            self._status_var.set("Select output folder, channel, well, FOV, and timepoint first.")
+            return
+
+        thr = self._get_threshold()
+        labels = self._current_labels
+        log_img = self._current_log_img
+        col = f"{channel}_smfish_count"
+        counts: dict[str, int] = {}
+        for nid in np.unique(labels):
+            if nid == 0:
+                continue
+            nuc_mask = labels == nid
+            counts[str(int(nid))] = int(np.sum(log_img[nuc_mask] > thr))
+
+        csv_matches = list(out_dir.glob(f"*_{well}.csv"))
+        if not csv_matches:
+            self._status_var.set(f"No CSV found for well {well}.")
+            return
+        csv_path = csv_matches[0]
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            rows = list(reader)
+            fieldnames = list(reader.fieldnames or [])
+        if col not in fieldnames:
+            fieldnames.append(col)
+
+        updated = 0
+        for row in rows:
+            row_well = (row.get("well") or well).strip().upper()
+            row_fov = (row.get("fov") or row.get("FOV") or "").strip()
+            row_tp = (row.get("timepoint") or row.get("tp") or row.get("time") or "").strip()
+            row_nid = (row.get("nucleus_id") or "").strip()
+            if row_well == well and row_fov == fov and row_tp == tp:
+                row[col] = str(counts.get(row_nid, 0))
+                updated += 1
+
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        self._status_var.set(f"Applied threshold to current image ({updated} rows updated).")
 
     def _apply_to_all_worker(self) -> None:
         out_dir = self._out_dir
