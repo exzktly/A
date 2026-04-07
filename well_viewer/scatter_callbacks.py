@@ -112,48 +112,39 @@ class ScatterCellViewer(tk.Toplevel):
             self._img_label.config(text="Invalid nuclear_id")
             return
 
-        print(f"DEBUG: Loading well={self.well_label}, filename={self.filename}, nuclear_id={nuclear_id}")
-
-        # Get timepoint from row
         rows = self.app._get_rows(self.well_label)
         if self.row_idx >= len(rows):
             self._img_label.config(text="Invalid row index")
             return
 
         row = rows[self.row_idx]
-        try:
-            timepoint_h = float(row.get("timepoint_hours", 0.0))
-        except (ValueError, TypeError):
-            timepoint_h = 0.0
 
-        # Get cell bounds from mask using filename and nuclear_id
-        self._cell_bounds = self._get_cell_bounds(nuclear_id, timepoint_h)
+        # The 'channel' field in the CSV identifies the nuclear channel token
+        # that appears in self.filename (e.g. "NIR", "DAPI").  Used to swap
+        # in the correct fluor token when loading input images.
+        self._nuclear_token = str(row.get("channel") or "").strip()
+
+        self._cell_bounds = self._get_cell_bounds(nuclear_id)
         if not self._cell_bounds:
-            self._img_label.config(text=f"Cell {nuclear_id} not found in mask or mask error")
+            self._img_label.config(text=f"Cell {nuclear_id} not found in mask")
             return
-
-        print(f"DEBUG: Cell bounds: {self._cell_bounds}")
 
         # Load and crop fluorescence images for all channels
         for ch in sorted(self.app._fluor_channels):
-            arr = self._load_and_crop_channel(ch, timepoint_h)
+            arr = self._load_and_crop_channel(ch)
             if arr is not None:
                 self._cell_images[ch] = arr
-                print(f"DEBUG: Loaded and cropped {ch}, shape: {arr.shape}")
 
-        # Load and crop nuclear fluorescence image (overlay)
-        arr = self._load_and_crop_channel("overlay", timepoint_h)
+        # Load and crop nuclear channel image (self.filename is the nuclear image)
+        arr = self._load_and_crop_nuclear()
         if arr is not None:
             self._cell_images["nuclear_fluor"] = arr
-            print(f"DEBUG: Loaded and cropped nuclear_fluor (overlay), shape: {arr.shape}")
 
-        # Load and crop nuclear mask image
-        arr = self._load_and_crop_channel("mask", timepoint_h)
+        arr = self._load_and_crop_channel("mask")
         if arr is not None:
             self._cell_images["nuclear"] = arr
-            print(f"DEBUG: Loaded and cropped nuclear (mask), shape: {arr.shape}")
 
-        # Populate dropdown with fluorescence channels first, then nuclear fluor and mask
+        # Populate dropdown with fluorescence channels first, then overlay and mask
         available_channels = [ch for ch in sorted(self.app._fluor_channels) if self._cell_images.get(ch) is not None]
         if "nuclear_fluor" in self._cell_images:
             available_channels.append("nuclear_fluor")
@@ -167,142 +158,232 @@ class ScatterCellViewer(tk.Toplevel):
         else:
             self._img_label.config(text="No images could be loaded")
 
-    def _get_cell_bounds(self, nuclear_id: int, timepoint_h: float) -> Optional[Tuple[int, int, int, int]]:
-        """Get cell pixel boundaries from mask file specified by filename.
+    def _load_output_image_by_filename(self, image_type: str):
+        """Load a mask or overlay from the output zip by constructing the expected
+        output filename from self.filename.
+
+        process_microscopy_v2.py writes output files as:
+            <stem with nuclear_token removed>_labels.tif   (mask)
+            <stem with nuclear_token removed>_overlay.png  (overlay)
+
+        Returns (array, path_str).
+        """
+        try:
+            import zipfile
+            from pathlib import Path as _Path
+            from well_viewer.runtime_app import (
+                open_imgref_as_array, _ImgRef,
+                _extract_well_token,
+                _find_out_well_zips_in_dir,
+                _find_plain_well_zips_in_dir,
+                _find_well_zips_in_dir,
+            )
+
+            nuclear_token = getattr(self, "_nuclear_token", "")
+            stem = _Path(self.filename).stem
+            base = stem.replace(nuclear_token, "") if nuclear_token else stem
+
+            if image_type == "mask":
+                candidates = [base + "_labels.tif", base + "_labels.tiff", base + "_labels.png"]
+            elif image_type == "overlay":
+                candidates = [base + "_overlay.png", base + "_overlay.jpg", base + "_overlay.jpeg", base + "_overlay.tif"]
+            else:
+                return None, f"unknown image_type {image_type!r}"
+
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                return None, f"could not extract well_token from {self.well_label!r}"
+
+            data_dir = self.app._data_dir
+            in_dir = self.app._in_dir
+            zips: list = []
+            if in_dir and data_dir and data_dir.is_dir():
+                zips = _find_out_well_zips_in_dir(data_dir, well_token)
+                zips += _find_plain_well_zips_in_dir(data_dir, well_token)
+            if not zips and data_dir and data_dir.is_dir():
+                zips = _find_well_zips_in_dir(data_dir, well_token)
+
+            candidate_lowers = [c.lower() for c in candidates]
+            for zip_path in zips:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.namelist():
+                        if _Path(member).name.lower() in candidate_lowers:
+                            ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                            return arr, f"{zip_path}::{member}"
+
+            # Fallback: raw files on disk
+            search_dirs = [d for d in (data_dir, in_dir) if d and d.is_dir()]
+            for d in search_dirs:
+                for candidate in candidates:
+                    for img_path in d.rglob(candidate):
+                        ref = _ImgRef(disk_path=img_path)
+                        arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                        return arr, str(img_path)
+
+            return None, f"not found: {candidates[0]!r}"
+
+        except Exception as e:
+            return None, f"exception: {e}"
+
+    def _get_cell_bounds(self, nuclear_id: int) -> Optional[Tuple[int, int, int, int]]:
+        """Get cell pixel boundaries from mask file.
 
         Returns (y_min, x_min, y_max, x_max) or None if not found.
         """
         try:
-            from well_viewer.runtime_app import open_imgref_as_array
-            from pathlib import Path
             import numpy as np
 
-            # Try to find mask file matching the filename
-            # The filename typically indicates which files to use
-            mask_arr = self._load_image_by_filename(timepoint_h, "mask")
+            mask_arr, _ = self._load_output_image_by_filename("mask")
             if mask_arr is None:
-                print(f"DEBUG: Could not load mask for {self.filename}")
                 return None
 
-            # Find pixels belonging to this cell
             mask_arr = np.asarray(mask_arr)
-            print(f"DEBUG: Mask shape: {mask_arr.shape}, dtype: {mask_arr.dtype}")
-            print(f"DEBUG: Unique values in mask: {np.unique(mask_arr)}")
-
             cell_pixels = np.where(mask_arr == nuclear_id)
 
             if len(cell_pixels[0]) == 0:
-                print(f"DEBUG: Cell {nuclear_id} not found in mask")
                 return None
 
-            # Get bounding box
             y_min, y_max = int(cell_pixels[0].min()), int(cell_pixels[0].max()) + 1
             x_min, x_max = int(cell_pixels[1].min()), int(cell_pixels[1].max()) + 1
-
             return (y_min, x_min, y_max, x_max)
 
-        except Exception as e:
-            print(f"DEBUG: Exception in _get_cell_bounds: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
             return None
 
-    def _load_and_crop_channel(self, channel: str, timepoint_h: float) -> Optional:
-        """Load and crop fluorescence image for a channel using filename."""
+    def _load_and_crop_channel(self, channel: str) -> Optional:
+        """Load and crop image for a channel."""
         try:
-            arr = self._load_image_by_filename(timepoint_h, channel)
+            if channel in ("mask", "overlay"):
+                arr, _ = self._load_output_image_by_filename(channel)
+            else:
+                arr = self._load_input_channel_by_filename(channel)
             if arr is None or not self._cell_bounds:
                 return None
 
-            # Crop to cell
             y_min, x_min, y_max, x_max = self._cell_bounds
             return arr[y_min:y_max, x_min:x_max]
 
-        except Exception as e:
-            print(f"DEBUG: Exception loading {channel}: {e}")
+        except Exception:
             return None
 
-    def _load_image_by_filename(self, timepoint_h: float, image_type: str) -> Optional:
-        """Load image from the well's image dictionary using filename as template.
+    def _load_and_crop_nuclear(self) -> Optional:
+        """Load and crop the nuclear channel image (self.filename) from the input folder."""
+        try:
+            import zipfile
+            from pathlib import Path as _Path
+            from well_viewer.runtime_app import (
+                open_imgref_as_array, _ImgRef,
+                _extract_well_token,
+                _find_plain_well_zips_in_dir,
+                _find_well_zips_in_dir,
+            )
 
-        image_type: 'mask', 'overlay', 'fluor', channel name like 'gfp', 'mcherry', etc.
+            if not self._cell_bounds:
+                return None
+
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                return None
+
+            in_dir = self.app._in_dir
+            data_dir = self.app._data_dir
+
+            zips: list = []
+            if in_dir and in_dir.is_dir():
+                zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+            if not zips and data_dir and data_dir.is_dir():
+                zips = _find_well_zips_in_dir(data_dir, well_token)
+
+            target_lower = self.filename.lower()
+            for zip_path in zips:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.namelist():
+                        if _Path(member).name.lower() == target_lower:
+                            arr = open_imgref_as_array(
+                                ref=_ImgRef(zip_path=zip_path, zip_member=member),
+                                greyscale=True,
+                            )
+                            if arr is not None:
+                                y_min, x_min, y_max, x_max = self._cell_bounds
+                                return arr[y_min:y_max, x_min:x_max]
+
+            # Fallback: disk
+            search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
+            for d in search_dirs:
+                for img_path in d.rglob(self.filename):
+                    arr = open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+                    if arr is not None:
+                        y_min, x_min, y_max, x_max = self._cell_bounds
+                        return arr[y_min:y_max, x_min:x_max]
+
+            return None
+
+        except Exception:
+            return None
+
+    def _load_input_channel_by_filename(self, channel_token: str) -> Optional:
+        """Load a channel image from the input folder by swapping the nuclear
+        channel token in self.filename with channel_token.
+
+        Uses the CSV row's 'channel' field as the nuclear token to replace.
         """
         try:
-            from well_viewer.runtime_app import find_well_images_and_masks, open_imgref_as_array
+            import re as _re
+            import zipfile
+            from pathlib import Path as _Path
+            from well_viewer.runtime_app import (
+                open_imgref_as_array, _ImgRef,
+                _extract_well_token,
+                _find_plain_well_zips_in_dir,
+                _find_well_zips_in_dir,
+            )
 
-            # Get appropriate image dictionary
-            if image_type == "mask":
-                _, _, img_dict, _ = find_well_images_and_masks(
-                    self.app._data_dir,
-                    self.well_label,
-                    fluor_token=self.app._active_channel,
-                    in_dir=self.app._in_dir,
-                    _fov_tp_extractor=self.app._fov_tp_extractor,
-                )
-            elif image_type == "overlay":
-                _, img_dict, _, _ = find_well_images_and_masks(
-                    self.app._data_dir,
-                    self.well_label,
-                    fluor_token=self.app._active_channel,
-                    in_dir=self.app._in_dir,
-                    _fov_tp_extractor=self.app._fov_tp_extractor,
-                )
-            else:
-                fluor_dict, _, _, _ = find_well_images_and_masks(
-                    self.app._data_dir,
-                    self.well_label,
-                    fluor_token=image_type,
-                    in_dir=self.app._in_dir,
-                    _fov_tp_extractor=self.app._fov_tp_extractor,
-                )
-                img_dict = fluor_dict
-
-            if not img_dict:
-                print(f"DEBUG: No {image_type} images found")
+            nuclear_token = getattr(self, "_nuclear_token", "")
+            if not nuclear_token:
                 return None
 
-            # Try to match timepoint, accepting any FOV
-            tp_int = int(round(timepoint_h))
-            img_ref = None
-
-            # Try numeric format first
-            for (fov, tp_str), ref in img_dict.items():
-                try:
-                    tp_float = float(tp_str)
-                    if abs(tp_float - timepoint_h) < 0.1:
-                        img_ref = ref
-                        print(f"DEBUG: Matched {image_type} numeric format: tp={tp_str}")
-                        break
-                except (ValueError, TypeError):
-                    pass
-
-            # Try T## format
-            if not img_ref and tp_int > 0:
-                for (fov, tp_str), ref in img_dict.items():
-                    if tp_str.upper().startswith('T'):
-                        try:
-                            tp_num = int(tp_str[1:])
-                            if tp_num == tp_int:
-                                img_ref = ref
-                                print(f"DEBUG: Matched {image_type} T## format: tp={tp_str}")
-                                break
-                        except (ValueError, IndexError):
-                            pass
-
-            if not img_ref:
-                print(f"DEBUG: No matching {image_type} image for timepoint={timepoint_h}")
+            # Replace the nuclear token in the filename (case-insensitive, first occurrence)
+            target_name = _re.sub(
+                _re.escape(nuclear_token),
+                channel_token,
+                self.filename,
+                count=1,
+                flags=_re.IGNORECASE,
+            )
+            if target_name == self.filename:
                 return None
 
-            # Load and return array
-            arr = open_imgref_as_array(ref=img_ref, greyscale=True)
-            if arr is not None:
-                print(f"DEBUG: Loaded {image_type}, shape={arr.shape}")
-            return arr
+            well_token = _extract_well_token(self.well_label)
+            if well_token is None:
+                return None
 
-        except Exception as e:
-            print(f"DEBUG: Exception in _load_image_by_filename({image_type}): {e}")
-            import traceback
-            traceback.print_exc()
+            in_dir = self.app._in_dir
+            data_dir = self.app._data_dir
+
+            zips: list = []
+            if in_dir and in_dir.is_dir():
+                zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+            if not zips and data_dir and data_dir.is_dir():
+                zips = _find_well_zips_in_dir(data_dir, well_token)
+
+            target_lower = target_name.lower()
+            for zip_path in zips:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.namelist():
+                        if _Path(member).name.lower() == target_lower:
+                            ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            return open_imgref_as_array(ref=ref, greyscale=True)
+
+            # Fallback: raw files on disk
+            search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
+            for d in search_dirs:
+                for img_path in d.rglob(target_name):
+                    return open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+
+            return None
+
+        except Exception:
             return None
 
     def _on_channel_changed(self) -> None:
@@ -311,13 +392,11 @@ class ScatterCellViewer(tk.Toplevel):
         if not self._current_channel:
             return
 
-        # Update image display
         arr = self._cell_images.get(self._current_channel)
         if arr is None:
             self._img_label.config(text="Image not found")
             return
 
-        # Auto-compute LUT
         try:
             lo, hi = float(arr.min()), float(arr.max())
         except (ValueError, TypeError, AttributeError):
@@ -363,7 +442,6 @@ class ScatterCellViewer(tk.Toplevel):
 
     def _on_window_resize(self, event) -> None:
         """Handle window resize event to redraw image at new size."""
-        # Only redraw if we have a current image and the size actually changed
         if self._current_channel and self._cell_images.get(self._current_channel) is not None:
             self._display_current_image()
 
@@ -374,21 +452,16 @@ class ScatterCellViewer(tk.Toplevel):
             self._img_label.config(text="No image")
             return
 
-        # Force layout update to get accurate dimensions
         self.update_idletasks()
 
-        # Calculate thumbnail size based on label's current size
-        # Get the label's allocated size
         label_width = self._img_label.winfo_width()
         label_height = self._img_label.winfo_height()
 
-        # If size is not yet available, use window size as estimate
         if label_width <= 1:
             label_width = self.winfo_width() - 40
         if label_height <= 1:
-            label_height = self.winfo_height() - 200  # Account for title, controls, LUT frame
+            label_height = self.winfo_height() - 200
 
-        # Ensure minimum reasonable size
         label_width = max(label_width, 300)
         label_height = max(label_height, 300)
 
@@ -414,20 +487,17 @@ class ScatterCellViewer(tk.Toplevel):
             if ahi <= alo:
                 ahi = alo + 1.0
 
-            # Normalize to 0-255
             disp = ((np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(np.uint8)
             img = _PILImage.fromarray(disp, mode="L").convert("RGB")
 
-            # Scale to fit - allow magnification (no 1.0 cap like make_fluor_thumb)
             iw, ih = img.size
-            scale = min(sz_w / iw, sz_h / ih)  # No upper limit, allows magnification
+            scale = min(sz_w / iw, sz_h / ih)
             new_w = max(1, int(iw * scale))
             new_h = max(1, int(ih * scale))
             img = img.resize((new_w, new_h), _PILImage.LANCZOS)
 
             return _PILImageTk.PhotoImage(img)
-        except Exception as e:
-            print(f"DEBUG: Error in _make_magnified_thumb: {e}")
+        except Exception:
             return None
 
     def update_cell(self, well_label: str, filename: str, nuclear_id: str, row_idx: int) -> None:
