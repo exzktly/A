@@ -56,6 +56,12 @@ class SmfishTab(tk.Frame):
         self._hover_annot = None
         self._pan_anchor: tuple[float, float, tuple[float, float], tuple[float, float]] | None = None
         self._fit_on_next_redraw = True
+        self._show_overlays = True
+        self._cdf_popup: tk.Toplevel | None = None
+        self._cdf_canvas: FigureCanvasTkAgg | None = None
+        self._cdf_ax = None
+        self._cdf_fig = None
+        self._redraw_after_id: str | None = None
 
         self._build_ui()
 
@@ -91,6 +97,7 @@ class SmfishTab(tk.Frame):
                        highlightcolor=ACCENT)
         thr.pack(side=tk.LEFT, padx=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
+        self._threshold_var.trace_add("write", self._on_threshold_edit)
         tk.Label(ctrl, text="LUT Min:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(4, 6))
         lut_min = tk.Entry(ctrl, textvariable=self._lut_min_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
                            relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
@@ -108,6 +115,9 @@ class SmfishTab(tk.Frame):
         btn_row.pack(fill=tk.X, side=tk.TOP)
         ttk.Button(btn_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
         ttk.Button(btn_row, text="Apply Global Threshold", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
+        self._overlay_btn = ttk.Button(btn_row, text="Hide Overlays", command=self._toggle_overlays)
+        self._overlay_btn.pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(btn_row, text="CDF", command=self._open_cdf_popup).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(right, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
                  justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(0, 6))
 
@@ -124,10 +134,103 @@ class SmfishTab(tk.Frame):
         self._canvas_img.mpl_connect("button_release_event", self._on_img_release)
         self._canvas_img.mpl_connect("motion_notify_event", self._on_img_drag)
 
-        self._fig_cdf = Figure(figsize=(6, 2.7), dpi=100)
-        self._ax_cdf = self._fig_cdf.add_subplot(111)
-        self._canvas_cdf = FigureCanvasTkAgg(self._fig_cdf, master=right)
-        self._canvas_cdf.get_tk_widget().pack(fill=tk.BOTH, expand=False, padx=6, pady=(3, 6))
+    def _on_threshold_edit(self, *_args) -> None:
+        if self._redraw_after_id is not None:
+            self.after_cancel(self._redraw_after_id)
+        self._redraw_after_id = self.after(120, self._redraw)
+
+    def _toggle_overlays(self) -> None:
+        self._show_overlays = not self._show_overlays
+        self._overlay_btn.config(text="Hide Overlays" if self._show_overlays else "Show Overlays")
+        self._redraw()
+
+    def _open_cdf_popup(self) -> None:
+        if self._cdf_popup is not None and self._cdf_popup.winfo_exists():
+            self._cdf_popup.lift()
+            self._cdf_popup.focus_force()
+            self._update_cdf_plot()
+            return
+
+        popup = tk.Toplevel(self)
+        popup.title("smFISH CDF")
+        popup.configure(bg=BG_APP)
+        popup.geometry("760x380")
+        popup.protocol("WM_DELETE_WINDOW", self._close_cdf_popup)
+        self._cdf_popup = popup
+
+        self._cdf_fig = Figure(figsize=(7.2, 3.4), dpi=100)
+        self._cdf_ax = self._cdf_fig.add_subplot(111)
+        self._cdf_canvas = FigureCanvasTkAgg(self._cdf_fig, master=popup)
+        self._cdf_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self._update_cdf_plot()
+
+    def _close_cdf_popup(self) -> None:
+        if self._cdf_popup is not None and self._cdf_popup.winfo_exists():
+            self._cdf_popup.destroy()
+        self._cdf_popup = None
+        self._cdf_canvas = None
+        self._cdf_ax = None
+        self._cdf_fig = None
+
+    def _update_cdf_plot(self) -> None:
+        if self._cdf_ax is None:
+            return
+
+        log_img = self._current_log_img
+        labels = self._current_labels
+        thr = self._get_threshold()
+        ax = self._cdf_ax
+        ax.clear()
+        ax.set_facecolor(BG_PANEL)
+        if self._cdf_fig is not None:
+            self._cdf_fig.patch.set_facecolor(BG_PANEL)
+
+        if log_img is None or labels is None:
+            ax.text(0.5, 0.5, "No smFISH image loaded.", transform=ax.transAxes,
+                    ha="center", va="center", color=TXT_MUT, fontsize=10)
+            if self._cdf_canvas is not None:
+                self._cdf_canvas.draw_idle()
+            return
+
+        candidate_mask = (log_img > 0) & (labels > 0)
+        candidate_ys, candidate_xs = np.where(candidate_mask)
+        candidate_vals = log_img[candidate_ys, candidate_xs]
+        if candidate_vals.size == 0:
+            candidate_mask = labels > 0
+            candidate_ys, candidate_xs = np.where(candidate_mask)
+            candidate_vals = np.abs(log_img[candidate_ys, candidate_xs])
+
+        debug_limit = min(100, candidate_vals.size)
+        logger.debug("smFISH CDF candidate pixel sample (showing %d/%d)", debug_limit, candidate_vals.size)
+        for i in range(debug_limit):
+            logger.debug(
+                "CDF[%03d] x=%d y=%d value=%.6f",
+                i,
+                int(candidate_xs[i]),
+                int(candidate_ys[i]),
+                float(candidate_vals[i]),
+            )
+
+        vals = np.sort(candidate_vals) if candidate_vals.size else np.array([], dtype=np.float32)
+        if vals.size:
+            y = np.arange(1, vals.size + 1, dtype=np.float32) / vals.size
+            ax.plot(vals, y, color=ACCENT, linewidth=2.0, alpha=0.85)
+            ax.fill_between(vals, y, alpha=0.2, color=ACCENT)
+        else:
+            ax.text(0.5, 0.5, "No candidate values found.", transform=ax.transAxes,
+                    ha="center", va="center", color=TXT_MUT, fontsize=10)
+
+        ax.axvline(thr, color="red", linestyle="--", linewidth=2.0, alpha=0.7)
+        ax.set_title("CDF of LoG values inside labels", color=TXT_PRI, fontsize=10, fontweight="bold")
+        ax.set_xlabel("LoG value", color=TXT_PRI, fontsize=9)
+        ax.set_ylabel("Cumulative Probability", color=TXT_PRI, fontsize=9)
+        ax.grid(True, alpha=0.2, color=TXT_MUT)
+        ax.tick_params(axis="x", colors=TXT_MUT, labelsize=8)
+        ax.tick_params(axis="y", colors=TXT_MUT, labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color(TXT_MUT)
+        if self._cdf_canvas is not None:
+            self._cdf_canvas.draw_idle()
 
     def _section_label(self, parent: tk.Widget, text: str) -> None:
         tk.Label(parent, text=text, bg=BG_SIDE, fg=TXT_PRI, font=FM_BOLD).pack(anchor="w", padx=10, pady=(10, 4))
@@ -294,6 +397,7 @@ class SmfishTab(tk.Frame):
             return 0.0
 
     def _redraw(self) -> None:
+        self._redraw_after_id = None
         if self._current_log_img is None or self._current_labels is None:
             return
         thr = self._get_threshold()
@@ -313,9 +417,10 @@ class SmfishTab(tk.Frame):
         self._ax_img.clear()
         self._ax_img.imshow(log_img, cmap="gray", vmin=lut_min, vmax=lut_max)
         bnd = find_boundaries(labels, mode="outer")
-        self._ax_img.contour(bnd.astype(np.uint8), levels=[0.5], colors="red", linewidths=0.5)
-        if xs.size:
-            self._ax_img.scatter(xs, ys, s=20, facecolors="none", edgecolors="cyan", linewidths=0.6)
+        if self._show_overlays:
+            self._ax_img.contour(bnd.astype(np.uint8), levels=[0.5], colors="red", linewidths=0.5)
+            if xs.size:
+                self._ax_img.scatter(xs, ys, s=20, facecolors="none", edgecolors="cyan", linewidths=0.6)
         self._ax_img.set_title(f"Spots above threshold: {int(xs.size)}", color=TXT_PRI, fontsize=10)
         self._ax_img.set_xticks([])
         self._ax_img.set_yticks([])
@@ -336,47 +441,8 @@ class SmfishTab(tk.Frame):
             )
             self._hover_annot.set_visible(False)
 
-        self._ax_cdf.clear()
-        self._ax_cdf.set_facecolor(BG_PANEL)
-        self._fig_cdf.patch.set_facecolor(BG_PANEL)
-
-        candidate_mask = (log_img > 0) & (labels > 0)
-        candidate_ys, candidate_xs = np.where(candidate_mask)
-        candidate_vals = log_img[candidate_ys, candidate_xs]
-        if candidate_vals.size == 0:
-            candidate_mask = labels > 0
-            candidate_ys, candidate_xs = np.where(candidate_mask)
-            candidate_vals = np.abs(log_img[candidate_ys, candidate_xs])
-
-        debug_limit = min(100, candidate_vals.size)
-        logger.debug("smFISH CDF candidate pixel sample (showing %d/%d)", debug_limit, candidate_vals.size)
-        for i in range(debug_limit):
-            logger.debug(
-                "CDF[%03d] x=%d y=%d value=%.6f",
-                i,
-                int(candidate_xs[i]),
-                int(candidate_ys[i]),
-                float(candidate_vals[i]),
-            )
-
-        vals = np.sort(candidate_vals) if candidate_vals.size else np.array([], dtype=np.float32)
-        if vals.size:
-            y = np.arange(1, vals.size + 1, dtype=np.float32) / vals.size
-            self._ax_cdf.plot(vals, y, color=ACCENT, linewidth=2.0, alpha=0.85)
-            self._ax_cdf.fill_between(vals, y, alpha=0.2, color=ACCENT)
-
-        self._ax_cdf.axvline(thr, color="red", linestyle="--", linewidth=2.0, alpha=0.7)
-        self._ax_cdf.set_title("CDF of LoG values inside labels", color=TXT_PRI, fontsize=10, fontweight="bold")
-        self._ax_cdf.set_xlabel("LoG value", color=TXT_PRI, fontsize=9)
-        self._ax_cdf.set_ylabel("Cumulative Probability", color=TXT_PRI, fontsize=9)
-        self._ax_cdf.grid(True, alpha=0.2, color=TXT_MUT)
-        self._ax_cdf.tick_params(axis="x", colors=TXT_MUT, labelsize=8)
-        self._ax_cdf.tick_params(axis="y", colors=TXT_MUT, labelsize=8)
-        for spine in self._ax_cdf.spines.values():
-            spine.set_color(TXT_MUT)
-
         self._canvas_img.draw_idle()
-        self._canvas_cdf.draw_idle()
+        self._update_cdf_plot()
 
     def _on_img_hover(self, event) -> None:
         if self._current_log_img is None or event.inaxes != self._ax_img:

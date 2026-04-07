@@ -2264,6 +2264,7 @@ class WellViewerApp(tk.Frame):
         # Two rows of compact buttons: one per row letter (A-H), one per column.
         rc_frame = tk.Frame(parent, bg=BG_SIDE)
         rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
+        self._sidebar_rc_frame = rc_frame
 
         # Row quick-select — grid so buttons scale to available width like the
         # plate map.  uniform="rc_row" forces all 8 columns to equal widths.
@@ -5422,6 +5423,8 @@ class WellViewerApp(tk.Frame):
 
         elif tab == "smFISH":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.pack_forget()
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.pack_forget()
             if len(self._selected_wells) > 1:
@@ -5434,6 +5437,8 @@ class WellViewerApp(tk.Frame):
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
+                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4), before=self._sidebar_allnone_frame)
             if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
                 self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6), before=self._sel_count_lbl)
             self._refresh_sidebar_map()
