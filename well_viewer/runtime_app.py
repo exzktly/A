@@ -6237,7 +6237,7 @@ class WellViewerApp(tk.Frame):
             self._scatter_agg_tp_selections[tp_str] = var
 
         # Update the display label
-        from well_viewer.views.centre_view import _update_tp_selection_display
+        from well_viewer.tabs.scatter_agg_tab_view import _update_tp_selection_display
         _update_tp_selection_display(self)
 
     def _redraw_scatter(self) -> None:
