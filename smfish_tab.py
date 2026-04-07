@@ -9,12 +9,12 @@ import threading
 import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import Callable
 
 import matplotlib
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from skimage.segmentation import find_boundaries
 from tifffile import imread
@@ -40,8 +40,9 @@ class _ImgRef:
 
 
 class SmfishTab(tk.Frame):
-    def __init__(self, parent: tk.Widget, **kw):
+    def __init__(self, parent: tk.Widget, app=None, **kw):
         super().__init__(parent, bg=BG_APP, **kw)
+        self._app = app
         self._out_dir: Path | None = None
         self._separator = "_"
         self._fov_tp_extractor: Callable[[str], tuple[str, str]] | None = None
@@ -50,62 +51,76 @@ class SmfishTab(tk.Frame):
         self._current_log_img: np.ndarray | None = None
         self._current_labels: np.ndarray | None = None
         self._current_sorted_vals: np.ndarray | None = None
+        self._hover_annot = None
+        self._pan_anchor: tuple[float, float, tuple[float, float], tuple[float, float]] | None = None
+        self._fit_on_next_redraw = True
 
         self._build_ui()
 
     def _build_ui(self) -> None:
-        left = tk.Frame(self, bg=BG_SIDE, width=300)
-        left.pack(side=tk.LEFT, fill=tk.Y)
-        left.pack_propagate(False)
-
-        l_canvas = tk.Canvas(left, bg=BG_SIDE, highlightthickness=0)
-        l_scroll = tk.Scrollbar(left, orient=tk.VERTICAL, command=l_canvas.yview)
-        l_inner = tk.Frame(l_canvas, bg=BG_SIDE)
-        l_inner.bind("<Configure>", lambda _e: l_canvas.configure(scrollregion=l_canvas.bbox("all")))
-        l_canvas.create_window((0, 0), window=l_inner, anchor="nw")
-        l_canvas.configure(yscrollcommand=l_scroll.set)
-        l_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        l_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
         right = tk.Frame(self, bg=BG_APP)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._output_var = tk.StringVar(value="")
         self._channel_var = tk.StringVar(value="")
-        self._well_var = tk.StringVar(value="")
         self._fov_var = tk.StringVar(value="")
         self._tp_var = tk.StringVar(value="")
-        self._threshold_var = tk.StringVar(value="0.0")
-        self._status_var = tk.StringVar(value="Select an output folder.")
+        self._threshold_var = tk.StringVar(value="1500")
+        self._lut_min_var = tk.StringVar(value="")
+        self._lut_max_var = tk.StringVar(value="")
+        self._status_var = tk.StringVar(value="Select a single well from the global picker.")
 
-        self._section_label(l_inner, "Output folder")
-        out_row = tk.Frame(l_inner, bg=BG_SIDE)
-        out_row.pack(fill=tk.X, padx=10, pady=(0, 8))
-        tk.Entry(out_row, textvariable=self._output_var, state=tk.DISABLED, relief=tk.FLAT,
-                 bg=BG_PANEL, fg=TXT_PRI, highlightthickness=1, highlightbackground=BORDER,
-                 highlightcolor=ACCENT).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(out_row, text="Browse...", command=self._browse_output).pack(side=tk.LEFT, padx=(6, 0))
-
-        self._channel_cb = self._combo(l_inner, "Channel", self._channel_var, self._on_selection_change)
-        self._well_cb = self._combo(l_inner, "Well", self._well_var, self._on_selection_change)
-        self._fov_cb = self._combo(l_inner, "FOV", self._fov_var, self._on_selection_change)
-        self._tp_cb = self._combo(l_inner, "Timepoint", self._tp_var, self._on_selection_change)
-
-        self._section_label(l_inner, "smFISH_Thresh")
-        thr = tk.Entry(l_inner, textvariable=self._threshold_var, bg=BG_PANEL, fg=TXT_PRI,
+        ctrl = tk.Frame(right, bg=BG_SIDE, pady=6, padx=10)
+        ctrl.pack(fill=tk.X, side=tk.TOP)
+        tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+        self._channel_cb = ttk.Combobox(ctrl, textvariable=self._channel_var, state="readonly", width=12)
+        self._channel_cb.pack(side=tk.LEFT, padx=(0, 10))
+        self._channel_cb.bind("<<ComboboxSelected>>", self._on_selection_change)
+        tk.Label(ctrl, text="FOV:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+        self._fov_cb = ttk.Combobox(ctrl, textvariable=self._fov_var, state="readonly", width=10)
+        self._fov_cb.pack(side=tk.LEFT, padx=(0, 10))
+        self._fov_cb.bind("<<ComboboxSelected>>", self._on_selection_change)
+        tk.Label(ctrl, text="Timepoint:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+        self._tp_cb = ttk.Combobox(ctrl, textvariable=self._tp_var, state="readonly", width=12)
+        self._tp_cb.pack(side=tk.LEFT, padx=(0, 10))
+        self._tp_cb.bind("<<ComboboxSelected>>", self._on_selection_change)
+        tk.Label(ctrl, text="smFISH_Thresh:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+        thr = tk.Entry(ctrl, textvariable=self._threshold_var, bg=BG_PANEL, fg=TXT_PRI,
                        relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
                        highlightcolor=ACCENT)
-        thr.pack(fill=tk.X, padx=10, pady=(0, 8))
+        thr.pack(side=tk.LEFT, padx=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
+        tk.Label(ctrl, text="LUT Min:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(4, 6))
+        lut_min = tk.Entry(ctrl, textvariable=self._lut_min_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
+                           relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
+                           highlightcolor=ACCENT)
+        lut_min.pack(side=tk.LEFT, padx=(0, 6))
+        lut_min.bind("<Return>", lambda _e: self._redraw())
+        tk.Label(ctrl, text="LUT Max:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+        lut_max = tk.Entry(ctrl, textvariable=self._lut_max_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
+                           relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
+                           highlightcolor=ACCENT)
+        lut_max.pack(side=tk.LEFT, padx=(0, 8))
+        lut_max.bind("<Return>", lambda _e: self._redraw())
 
-        ttk.Button(l_inner, text="Apply to All", command=self._apply_to_all).pack(anchor="w", padx=10, pady=(0, 8))
-        tk.Label(l_inner, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
-                 wraplength=260, justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(4, 6))
+        btn_row = tk.Frame(right, bg=BG_SIDE, pady=2, padx=10)
+        btn_row.pack(fill=tk.X, side=tk.TOP)
+        ttk.Button(btn_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Button(btn_row, text="Apply Global Threshold", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Label(right, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
+                 justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(0, 6))
 
         self._fig_img = Figure(figsize=(6, 5), dpi=100)
         self._ax_img = self._fig_img.add_subplot(111)
         self._canvas_img = FigureCanvasTkAgg(self._fig_img, master=right)
         self._canvas_img.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=6, pady=(6, 3))
+        self._toolbar = NavigationToolbar2Tk(self._canvas_img, right, pack_toolbar=False)
+        self._toolbar.update()
+        self._toolbar.pack(fill=tk.X, padx=6, pady=(0, 3))
+        self._canvas_img.mpl_connect("motion_notify_event", self._on_img_hover)
+        self._canvas_img.mpl_connect("scroll_event", self._on_img_scroll)
+        self._canvas_img.mpl_connect("button_press_event", self._on_img_press)
+        self._canvas_img.mpl_connect("button_release_event", self._on_img_release)
+        self._canvas_img.mpl_connect("motion_notify_event", self._on_img_drag)
 
         self._fig_cdf = Figure(figsize=(6, 2.7), dpi=100)
         self._ax_cdf = self._fig_cdf.add_subplot(111)
@@ -122,16 +137,13 @@ class SmfishTab(tk.Frame):
         cb.bind("<<ComboboxSelected>>", callback)
         return cb
 
-    def _browse_output(self) -> None:
-        p = filedialog.askdirectory(title="Select output folder")
-        if not p:
-            return
-        out_dir = Path(p)
-        info_path = out_dir / "pipeline_info.json"
-        if not info_path.exists():
-            messagebox.showerror("Missing file", f"pipeline_info.json not found in:\n{out_dir}", parent=self)
+    def sync_from_app(self) -> None:
+        out_dir = self._app._data_dir if self._app is not None else self._out_dir
+        if out_dir is None:
+            self._status_var.set("No output loaded.")
             return
         try:
+            info_path = out_dir / "pipeline_info.json"
             info = json.loads(info_path.read_text())
             self._smfish_tokens = [str(t).strip() for t in info.get("smfish_tokens", []) if str(t).strip()]
             self._separator = str(info.get("separator", "_"))
@@ -146,7 +158,6 @@ class SmfishTab(tk.Frame):
             return
 
         self._out_dir = out_dir
-        self._output_var.set(str(out_dir))
         zips = sorted(out_dir.glob("*_out.zip"))
         self._well_to_zip = {}
         for z in zips:
@@ -156,12 +167,41 @@ class SmfishTab(tk.Frame):
 
         channels = self._smfish_tokens
         self._channel_cb["values"] = channels
-        self._well_cb["values"] = sorted(self._well_to_zip)
         if channels:
             self._channel_var.set(channels[0])
-        if self._well_cb["values"]:
-            self._well_var.set(self._well_cb["values"][0])
         self._refresh_fov_tp_values()
+
+    def _selected_well_token(self) -> str | None:
+        if self._app is None:
+            return None
+        sels = sorted(self._app._selected_wells, key=lambda lbl: self._app._parse_rc(lbl))
+        if len(sels) != 1:
+            return None
+        tok = self._app._extract_well_token(sels[0]) or sels[0]
+        m = re.match(r"([A-Ha-h])(\d{1,2})$", tok.strip())
+        if not m:
+            return None
+        return f"{m.group(1).upper()}{int(m.group(2)):02d}"
+
+    def _selected_well_label(self) -> str | None:
+        if self._app is None:
+            return None
+        sels = sorted(self._app._selected_wells, key=lambda lbl: self._app._parse_rc(lbl))
+        return sels[0] if len(sels) == 1 else None
+
+    @staticmethod
+    def _norm_well_token(well: str) -> str:
+        m = re.match(r"([A-Ha-h])(\d{1,2})$", well.strip())
+        if not m:
+            return well.strip().upper()
+        return f"{m.group(1).upper()}{int(m.group(2)):02d}"
+
+    @staticmethod
+    def _norm_id(v: str) -> str:
+        t = (v or "").strip()
+        if t.isdigit():
+            return str(int(t))
+        return t
 
     def _classify_local(self, name: str, fluor_lower: str, fov_tp_extractor=None):
         mask_re = re.compile(r"_labels\.(tif{1,2}|png)$", re.I)
@@ -187,12 +227,12 @@ class SmfishTab(tk.Frame):
     def _scan_selected_zip(self):
         if self._out_dir is None:
             return {}, {}
-        well = self._well_var.get().strip()
+        well = self._selected_well_token()
         channel = self._channel_var.get().strip().lower()
         zip_path = self._well_to_zip.get(well)
         if not well or not channel or zip_path is None:
             return {}, {}
-        g, _ov, mask, _th, smfish = scan_zip_members(
+        _g, _ov, mask, tophat, smfish = scan_zip_members(
             zip_path=zip_path,
             fluor_lower=channel,
             image_exts={".tif", ".tiff", ".png", ".jpg", ".jpeg"},
@@ -201,8 +241,8 @@ class SmfishTab(tk.Frame):
             logger=logging.getLogger("smfish_tab"),
             fov_tp_extractor=self._fov_tp_extractor,
         )
-        _ = g
-        return smfish, mask
+        source = smfish if smfish else tophat
+        return source, mask
 
     def _refresh_fov_tp_values(self) -> None:
         smfish, mask = self._scan_selected_zip()
@@ -218,7 +258,7 @@ class SmfishTab(tk.Frame):
         self._load_selected_images()
 
     def _on_selection_change(self, _event=None) -> None:
-        if _event is not None and _event.widget in (self._channel_cb, self._well_cb):
+        if _event is not None and _event.widget == self._channel_cb:
             self._refresh_fov_tp_values()
             return
         self._load_selected_images()
@@ -240,7 +280,9 @@ class SmfishTab(tk.Frame):
         self._current_labels = imread(io.BytesIO(mk_raw))
         vals = self._current_log_img[self._current_labels > 0]
         self._current_sorted_vals = np.sort(vals) if vals.size else np.array([], dtype=np.float32)
-        self._status_var.set(f"Loaded {self._well_var.get()} fov={key[0]} tp={key[1]}.")
+        well = self._selected_well_token() or "N/A"
+        self._status_var.set(f"Loaded {well} fov={key[0]} tp={key[1]}.")
+        self._fit_on_next_redraw = True
         self._redraw()
 
     def _get_threshold(self) -> float:
@@ -255,21 +297,48 @@ class SmfishTab(tk.Frame):
         thr = self._get_threshold()
         log_img = self._current_log_img
         labels = self._current_labels
+        try:
+            lut_min = float(self._lut_min_var.get().strip()) if self._lut_min_var.get().strip() else None
+        except ValueError:
+            lut_min = None
+        try:
+            lut_max = float(self._lut_max_var.get().strip()) if self._lut_max_var.get().strip() else None
+        except ValueError:
+            lut_max = None
         spot_mask = (log_img > thr) & (labels > 0)
         ys, xs = np.where(spot_mask)
 
         self._ax_img.clear()
-        self._ax_img.imshow(log_img, cmap="gray")
+        self._ax_img.imshow(log_img, cmap="gray", vmin=lut_min, vmax=lut_max)
         bnd = find_boundaries(labels, mode="outer")
         self._ax_img.contour(bnd.astype(np.uint8), levels=[0.5], colors="red", linewidths=0.5)
         if xs.size:
-            self._ax_img.scatter(xs, ys, s=10, c="cyan", edgecolors="none")
+            self._ax_img.scatter(xs, ys, s=20, facecolors="none", edgecolors="cyan", linewidths=0.6)
         self._ax_img.set_title(f"Spots above threshold: {int(xs.size)}", color=TXT_PRI, fontsize=10)
         self._ax_img.set_xticks([])
         self._ax_img.set_yticks([])
+        if self._fit_on_next_redraw:
+            h, w = log_img.shape[:2]
+            self._ax_img.set_xlim(-0.5, w - 0.5)
+            self._ax_img.set_ylim(h - 0.5, -0.5)
+            self._fit_on_next_redraw = False
+        if self._hover_annot is None:
+            self._hover_annot = self._ax_img.annotate(
+                "",
+                xy=(0, 0),
+                xytext=(8, 8),
+                textcoords="offset points",
+                color="white",
+                fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.2", fc="black", ec="white", lw=0.6, alpha=0.8),
+            )
+            self._hover_annot.set_visible(False)
 
         self._ax_cdf.clear()
-        vals = self._current_sorted_vals if self._current_sorted_vals is not None else np.array([])
+        candidate_vals = log_img[(log_img > 0) & (labels > 0)]
+        if candidate_vals.size == 0:
+            candidate_vals = np.abs(log_img[labels > 0])
+        vals = np.sort(candidate_vals) if candidate_vals.size else np.array([], dtype=np.float32)
         if vals.size:
             y = np.arange(1, vals.size + 1, dtype=np.float32) / vals.size
             self._ax_cdf.plot(vals, y, color="white", linewidth=1.0)
@@ -277,18 +346,136 @@ class SmfishTab(tk.Frame):
         self._ax_cdf.set_title("CDF of LoG values inside labels", color=TXT_PRI, fontsize=9)
         self._ax_cdf.set_xlabel("LoG value", color=TXT_PRI, fontsize=8)
         self._ax_cdf.set_ylabel("CDF", color=TXT_PRI, fontsize=8)
+        self._ax_cdf.tick_params(axis="x", colors=TXT_PRI, labelsize=8)
+        self._ax_cdf.tick_params(axis="y", colors=TXT_PRI, labelsize=8)
+        for spine in self._ax_cdf.spines.values():
+            spine.set_color(TXT_PRI)
 
         self._canvas_img.draw_idle()
         self._canvas_cdf.draw_idle()
 
+    def _on_img_hover(self, event) -> None:
+        if self._current_log_img is None or event.inaxes != self._ax_img:
+            if self._hover_annot is not None and self._hover_annot.get_visible():
+                self._hover_annot.set_visible(False)
+                self._canvas_img.draw_idle()
+            return
+        if event.xdata is None or event.ydata is None or self._hover_annot is None:
+            return
+        x = int(round(event.xdata))
+        y = int(round(event.ydata))
+        h, w = self._current_log_img.shape[:2]
+        if not (0 <= x < w and 0 <= y < h):
+            self._hover_annot.set_visible(False)
+            self._canvas_img.draw_idle()
+            return
+        if self._current_labels is None or int(self._current_labels[y, x]) <= 0:
+            self._hover_annot.set_visible(False)
+            self._canvas_img.draw_idle()
+            return
+        px = float(self._current_log_img[y, x])
+        self._hover_annot.xy = (x, y)
+        self._hover_annot.set_text(f"({x}, {y}) = {px:.3f}")
+        self._hover_annot.set_visible(True)
+        self._canvas_img.draw_idle()
+
+    def _on_img_scroll(self, event) -> None:
+        if event.inaxes != self._ax_img or event.xdata is None or event.ydata is None:
+            return
+        scale = 1 / 1.2 if event.button == "up" else 1.2
+        xlim = self._ax_img.get_xlim()
+        ylim = self._ax_img.get_ylim()
+        new_w = (xlim[1] - xlim[0]) * scale
+        new_h = (ylim[1] - ylim[0]) * scale
+        relx = (event.xdata - xlim[0]) / (xlim[1] - xlim[0]) if xlim[1] != xlim[0] else 0.5
+        rely = (event.ydata - ylim[0]) / (ylim[1] - ylim[0]) if ylim[1] != ylim[0] else 0.5
+        self._ax_img.set_xlim(event.xdata - new_w * relx, event.xdata + new_w * (1 - relx))
+        self._ax_img.set_ylim(event.ydata - new_h * rely, event.ydata + new_h * (1 - rely))
+        self._canvas_img.draw_idle()
+
+    def _on_img_press(self, event) -> None:
+        if event.inaxes != self._ax_img or event.button != 1 or event.xdata is None or event.ydata is None:
+            return
+        self._pan_anchor = (event.xdata, event.ydata, self._ax_img.get_xlim(), self._ax_img.get_ylim())
+
+    def _on_img_release(self, _event) -> None:
+        self._pan_anchor = None
+
+    def _on_img_drag(self, event) -> None:
+        if self._pan_anchor is None or event.inaxes != self._ax_img or event.xdata is None or event.ydata is None:
+            return
+        x0, y0, xlim0, ylim0 = self._pan_anchor
+        dx = event.xdata - x0
+        dy = event.ydata - y0
+        self._ax_img.set_xlim(xlim0[0] - dx, xlim0[1] - dx)
+        self._ax_img.set_ylim(ylim0[0] - dy, ylim0[1] - dy)
+        self._canvas_img.draw_idle()
+
     def _apply_to_all(self) -> None:
         threading.Thread(target=self._apply_to_all_worker, daemon=True).start()
+
+    def _apply_to_current(self) -> None:
+        if self._current_log_img is None or self._current_labels is None:
+            self._status_var.set("No image loaded to apply threshold.")
+            return
+        out_dir = self._out_dir
+        channel = self._channel_var.get().strip().lower()
+        well = self._selected_well_token()
+        fov = self._fov_var.get().strip()
+        tp = self._tp_var.get().strip()
+        if out_dir is None or not channel or not well or not fov or not tp:
+            self._status_var.set("Select channel, and ensure exactly one well/FOV/timepoint is selected.")
+            return
+
+        thr = self._get_threshold()
+        labels = self._current_labels
+        log_img = self._current_log_img
+        col = f"{channel}_smfish_count"
+        counts: dict[str, int] = {}
+        for nid in np.unique(labels):
+            if nid == 0:
+                continue
+            nuc_mask = labels == nid
+            counts[str(int(nid))] = int(np.sum(log_img[nuc_mask] > thr))
+
+        sel_label = self._selected_well_label()
+        if self._app is not None and sel_label and sel_label in self._app._well_paths:
+            csv_path = self._app._well_paths[sel_label]
+        else:
+            csv_matches = list(out_dir.glob(f"*_{well}.csv"))
+            if not csv_matches:
+                self._status_var.set(f"No CSV found for well {well}.")
+                return
+            csv_path = csv_matches[0]
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            rows = list(reader)
+            fieldnames = list(reader.fieldnames or [])
+        if col not in fieldnames:
+            fieldnames.append(col)
+
+        updated = 0
+        for row in rows:
+            row_well = self._norm_well_token((row.get("well") or well))
+            row_fov = self._norm_id((row.get("fov") or row.get("FOV") or ""))
+            row_tp = self._norm_id((row.get("timepoint") or row.get("tp") or row.get("time") or ""))
+            row_nid = (row.get("nucleus_id") or "").strip()
+            if row_well == self._norm_well_token(well) and row_fov == self._norm_id(fov) and row_tp == self._norm_id(tp):
+                row[col] = str(counts.get(row_nid, 0))
+                updated += 1
+
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        self._status_var.set(f"Applied threshold to current image ({updated} rows updated).")
 
     def _apply_to_all_worker(self) -> None:
         out_dir = self._out_dir
         channel = self._channel_var.get().strip().lower()
         if out_dir is None or not channel:
-            self.after(0, lambda: self._status_var.set("Select output folder and channel first."))
+            self.after(0, lambda: self._status_var.set("Select channel and ensure one well is selected."))
             return
         thr = self._get_threshold()
         col = f"{channel}_smfish_count"
