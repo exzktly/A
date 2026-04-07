@@ -403,6 +403,8 @@ class SmfishTab(tk.Frame):
         thr = self._get_threshold()
         log_img = self._current_log_img
         labels = self._current_labels
+        prev_xlim = self._ax_img.get_xlim()
+        prev_ylim = self._ax_img.get_ylim()
         try:
             lut_min = float(self._lut_min_var.get().strip()) if self._lut_min_var.get().strip() else None
         except ValueError:
@@ -429,6 +431,9 @@ class SmfishTab(tk.Frame):
             self._ax_img.set_xlim(-0.5, w - 0.5)
             self._ax_img.set_ylim(h - 0.5, -0.5)
             self._fit_on_next_redraw = False
+        else:
+            self._ax_img.set_xlim(prev_xlim)
+            self._ax_img.set_ylim(prev_ylim)
         if self._hover_annot is None:
             self._hover_annot = self._ax_img.annotate(
                 "",
