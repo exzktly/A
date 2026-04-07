@@ -100,7 +100,10 @@ class SmfishTab(tk.Frame):
         thr.pack(fill=tk.X, padx=10, pady=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
 
-        ttk.Button(l_inner, text="Apply to All", command=self._apply_to_all).pack(anchor="w", padx=10, pady=(0, 8))
+        apply_row = tk.Frame(l_inner, bg=BG_SIDE)
+        apply_row.pack(fill=tk.X, padx=10, pady=(0, 8))
+        ttk.Button(apply_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT)
+        ttk.Button(apply_row, text="Apply to All", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(l_inner, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
                  wraplength=260, justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(4, 6))
 
@@ -358,6 +361,59 @@ class SmfishTab(tk.Frame):
 
     def _apply_to_all(self) -> None:
         threading.Thread(target=self._apply_to_all_worker, daemon=True).start()
+
+    def _apply_to_current(self) -> None:
+        if self._current_log_img is None or self._current_labels is None:
+            self._status_var.set("No image loaded to apply threshold.")
+            return
+        out_dir = self._out_dir
+        channel = self._channel_var.get().strip().lower()
+        well = self._well_var.get().strip().upper()
+        fov = self._fov_var.get().strip()
+        tp = self._tp_var.get().strip()
+        if out_dir is None or not channel or not well or not fov or not tp:
+            self._status_var.set("Select output folder, channel, well, FOV, and timepoint first.")
+            return
+
+        thr = self._get_threshold()
+        labels = self._current_labels
+        log_img = self._current_log_img
+        col = f"{channel}_smfish_count"
+        counts: dict[str, int] = {}
+        for nid in np.unique(labels):
+            if nid == 0:
+                continue
+            nuc_mask = labels == nid
+            counts[str(int(nid))] = int(np.sum(log_img[nuc_mask] > thr))
+
+        csv_matches = list(out_dir.glob(f"*_{well}.csv"))
+        if not csv_matches:
+            self._status_var.set(f"No CSV found for well {well}.")
+            return
+        csv_path = csv_matches[0]
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            rows = list(reader)
+            fieldnames = list(reader.fieldnames or [])
+        if col not in fieldnames:
+            fieldnames.append(col)
+
+        updated = 0
+        for row in rows:
+            row_well = (row.get("well") or well).strip().upper()
+            row_fov = (row.get("fov") or row.get("FOV") or "").strip()
+            row_tp = (row.get("timepoint") or row.get("tp") or row.get("time") or "").strip()
+            row_nid = (row.get("nucleus_id") or "").strip()
+            if row_well == well and row_fov == fov and row_tp == tp:
+                row[col] = str(counts.get(row_nid, 0))
+                updated += 1
+
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        self._status_var.set(f"Applied threshold to current image ({updated} rows updated).")
 
     def _apply_to_all_worker(self) -> None:
         out_dir = self._out_dir
