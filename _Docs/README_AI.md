@@ -85,7 +85,9 @@ The project no longer uses `well_viewer3.py` as a runtime shim. Runtime ownershi
 **Root-level modules:**
 - `well_viewer/app.py` — Package-facing wrapper for `WellViewerApp` construction.
 - `well_viewer/__init__.py` — Re-exports package API (`WellViewerApp`).
-- `well_viewer/runtime_app.py` — `WellViewerApp` main class, `CellGatingTab`, and shared design-token constants (`BG_*`, `TXT_*`, `ACCENT`, `PLOT_BG`, etc.).
+- `well_viewer/runtime_app.py` — `WellViewerApp` main class and shared design-token constants (`BG_*`, `TXT_*`, `ACCENT`, `PLOT_BG`, etc.).
+- `well_viewer/smfish_tab.py` — `SmfishTab` (`tk.Frame` subclass): smFISH image annotation and threshold analysis tab.
+- `well_viewer/cell_gating_tab.py` — `CellGatingTab` (`tk.Frame` subclass): cell area / FluorGating configuration tab.
 - `well_viewer/batch_models.py` — `BarGroup`, `ReplicateSet` data models.
 - `well_viewer/export_service.py` — CSV/figure/montage export helpers.
 - `well_viewer/batch_export_dialog.py` — Batch export dialog UI classes.
