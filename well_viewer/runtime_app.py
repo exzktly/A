@@ -1727,7 +1727,7 @@ class WellViewerApp(tk.Frame):
             self._tk_root.title("Well Viewer")
             self._tk_root.configure(bg=BG_APP)
             self._tk_root.minsize(1000, 800)
-            self._tk_root.geometry("1600x960")
+            self._position_root_on_screen(self._tk_root, preferred_w=1600, preferred_h=960)
             super().__init__(self._tk_root)
             self._tk_root.protocol("WM_DELETE_WINDOW", self._on_close)
         else:
@@ -1811,6 +1811,19 @@ class WellViewerApp(tk.Frame):
             # Defer until after mainloop() so the window is mapped and
             # the progress bar can actually render during the load.
             self.after(100, lambda: self._load_path(data_path))
+
+    @staticmethod
+    def _position_root_on_screen(root: tk.Tk, *, preferred_w: int, preferred_h: int) -> None:
+        """Size and place root so it starts fully visible on screen."""
+        root.update_idletasks()
+        sw = max(1, int(root.winfo_screenwidth()))
+        sh = max(1, int(root.winfo_screenheight()))
+        margin = 40  # leave room for WM borders/titlebars
+        w = min(preferred_w, max(1000, sw - margin))
+        h = min(preferred_h, max(800, sh - margin))
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        root.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Threshold helpers ─────────────────────────────────────────────────────
 
