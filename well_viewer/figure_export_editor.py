@@ -159,6 +159,8 @@ def apply_export_style_to_current(app, fig, canvas=None) -> None:
 class _ExportStyleSidebar(ttk.Frame):
     def __init__(self, app, parent, fig, canvas, default_name: str):
         super().__init__(parent, padding=(8, 8), style="Card.TFrame")
+        self.configure(width=220)
+        self.pack_propagate(False)
         self._app = app
         self._fig = fig
         self._canvas = canvas
@@ -209,7 +211,7 @@ class _ExportStyleSidebar(ttk.Frame):
 
         wrap = ttk.Frame(self)
         wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-        canvas = tk.Canvas(wrap, height=430, highlightthickness=0, bd=0)
+        canvas = tk.Canvas(wrap, width=200, height=430, highlightthickness=0, bd=0)
         vs = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
         body = ttk.Frame(canvas)
         body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -222,29 +224,29 @@ class _ExportStyleSidebar(ttk.Frame):
         r = 0
         def add(label, widget):
             nonlocal r
-            ttk.Label(body, text=label, width=8, font=FM_TINY).grid(row=r, column=0, sticky="w", pady=1)
+            ttk.Label(body, text=label, width=5, font=FM_TINY).grid(row=r, column=0, sticky="w", pady=1)
             widget.grid(row=r, column=1, columnspan=3, sticky="ew", pady=1)
             r += 1
 
-        add("Profile", ttk.Combobox(body, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14, font=FM_TINY))
-        add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10, font=FM_TINY))
-        add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=10, font=FM_TINY))
-        add("Axis", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=10))
-        add("Ticks", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=10))
-        add("Title", ttk.Spinbox(body, from_=1, to=128, textvariable=self._vars["title_size"], width=10))
-        add("X°", ttk.Spinbox(body, from_=0, to=90, textvariable=self._vars["x_tick_angle"], width=10))
+        add("Profile", ttk.Combobox(body, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=9, font=FM_TINY))
+        add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=7, font=FM_TINY))
+        add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=7, font=FM_TINY))
+        add("Axis", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=7))
+        add("Ticks", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=7))
+        add("Title", ttk.Spinbox(body, from_=1, to=128, textvariable=self._vars["title_size"], width=7))
+        add("X°", ttk.Spinbox(body, from_=0, to=90, textvariable=self._vars["x_tick_angle"], width=7))
 
         add("Legend", ttk.Checkbutton(body, variable=self._vars["legend_show"]))
-        add("Leg size", ttk.Spinbox(body, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=10))
-        add("Leg loc", ttk.Combobox(body, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=14, font=FM_TINY))
+        add("Leg size", ttk.Spinbox(body, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=7))
+        add("Leg loc", ttk.Combobox(body, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=9, font=FM_TINY))
 
-        add("Line w", ttk.Spinbox(body, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=10))
-        add("Mkr sz", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=10))
-        add("Mkr edge", ttk.Spinbox(body, from_=0.0, to=5.0, increment=0.1, textvariable=self._vars["marker_edge_width"], width=10))
+        add("Line w", ttk.Spinbox(body, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=7))
+        add("Mkr sz", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=7))
+        add("Mkr edge", ttk.Spinbox(body, from_=0.0, to=5.0, increment=0.1, textvariable=self._vars["marker_edge_width"], width=7))
 
         add("Grid", ttk.Checkbutton(body, variable=self._vars["grid_show"]))
-        add("Grid α", ttk.Spinbox(body, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=10))
-        add("Grid ls", ttk.Combobox(body, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=10, font=FM_TINY))
+        add("Grid α", ttk.Spinbox(body, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=7))
+        add("Grid ls", ttk.Combobox(body, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=7, font=FM_TINY))
 
         limrow = ttk.Frame(body)
         ttk.Entry(limrow, textvariable=self._vars["x_lim_min"], width=6).pack(side=tk.LEFT)
@@ -267,8 +269,8 @@ class _ExportStyleSidebar(ttk.Frame):
         ttk.Checkbutton(row_tick, text="Major", variable=self._vars["tick_major"]).pack(side=tk.LEFT)
         ttk.Checkbutton(row_tick, text="Minor", variable=self._vars["tick_minor"]).pack(side=tk.LEFT, padx=6)
         add("Tick vis", row_tick)
-        add("Tick len", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=10))
-        add("Tick dir", ttk.Combobox(body, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=10, font=FM_TINY))
+        add("Tick len", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=7))
+        add("Tick dir", ttk.Combobox(body, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=7, font=FM_TINY))
         lay = ttk.Frame(body)
         ttk.Checkbutton(lay, text="Tight", variable=self._vars["layout_tight"]).pack(side=tk.LEFT)
         ttk.Checkbutton(lay, text="Constrained", variable=self._vars["layout_constrained"]).pack(side=tk.LEFT, padx=6)
