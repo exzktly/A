@@ -61,49 +61,54 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._notebook.add(tab_bar, text="Bar Plots")
     build_bar_plots_tab(app, tab_bar)
 
-    # ── Tab 4: Preview ────────────────────────────────────────────────────
+    # ── Tab 4: Scatter Plot: Cells ────────────────────────────────────────
+    tab_scatter = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(tab_scatter, text="Scatter Plot: Cells")
+    build_scatter_cells_tab(app, tab_scatter)
+
+    # ── Tab 5: Scatter Plot: Aggregate ────────────────────────────────────
+    tab_scatter_agg = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(tab_scatter_agg, text="Scatter Plot: Aggregate")
+    build_scatter_agg_tab(app, tab_scatter_agg)
+
+    # Spacer between left and middle tab groups
+    spacer_left_mid = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(spacer_left_mid, text="                ")
+    app._notebook.tab(spacer_left_mid, state="disabled")
+
+    # ── Middle group: Preview / Statistics / smFISH ───────────────────────
     tab_preview = tk.Frame(app._notebook, bg=BG_SIDE)
     app._notebook.add(tab_preview, text="Preview")
     app._build_right_panel(tab_preview)
     app._build_preview_picker(app._sidebar_preview_frame)
 
-    # ── Tab 5: Review CSV ─────────────────────────────────────────────────
-    tab_review_csv = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_review_csv, text="Review CSV")
-    app._build_review_csv_tab(tab_review_csv)
-
-    # ── Tab 6: smFISH ─────────────────────────────────────────────────────
-    tab_smfish = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_smfish, text="smFISH")
-    app._smfish_tab = SmfishTab(tab_smfish, app=app)
-    app._smfish_tab.pack(fill=tk.BOTH, expand=True)
-
-    # ── Tab 7: Batch Export ───────────────────────────────────────────────
-    tab_batch = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_batch, text="Batch Export")
-    build_batch_export_tab(app, tab_batch)
-
-    # ── Tab 8: Statistics ─────────────────────────────────────────────────
     tab_stats = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_stats, text="Statistics")
     app._build_stats_tab(tab_stats)
     app._build_stats_group_editor(app._sidebar_stats_frame)
 
-    # ── Tab 9: Scatter Plot: Cells ────────────────────────────────────────
-    tab_scatter = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_scatter, text="Scatter Plot: Cells")
-    build_scatter_cells_tab(app, tab_scatter)
+    tab_smfish = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(tab_smfish, text="smFISH")
+    app._smfish_tab = SmfishTab(tab_smfish, app=app)
+    app._smfish_tab.pack(fill=tk.BOTH, expand=True)
 
-    # ── Tab 10: Scatter Plot: Aggregate ───────────────────────────────────
-    tab_scatter_agg = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_scatter_agg, text="Scatter Plot: Aggregate")
-    build_scatter_agg_tab(app, tab_scatter_agg)
+    # Spacer between middle and right tab groups
+    spacer_mid_right = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(spacer_mid_right, text="                ")
+    app._notebook.tab(spacer_mid_right, state="disabled")
 
-    # ── Tab 11: Cell Gating ───────────────────────────────────────────────
+    # ── Right group: workflow/data tabs ────────────────────────────────────
+    tab_review_csv = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(tab_review_csv, text="Review CSV")
+    app._build_review_csv_tab(tab_review_csv)
+
     tab_cell_gating = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_cell_gating, text="Cell Gating")
     app._cell_gating_tab = CellGatingTab(tab_cell_gating, app)
     app._cell_gating_tab.pack(fill=tk.BOTH, expand=True)
 
-    # ── Tab 12: Sample Definitions (deferred add) ─────────────────────────
+    tab_batch = tk.Frame(app._notebook, bg=BG_APP)
+    app._notebook.add(tab_batch, text="Batch Export")
+    build_batch_export_tab(app, tab_batch)
+
     app._notebook.add(tab_groups, text="Sample Definitions")
