@@ -164,6 +164,7 @@ class _ExportEditorSession:
 def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> _ExportEditorSession | None:
     try:
         parent = canvas.get_tk_widget().master if canvas is not None else app
+        canvas_widget = canvas.get_tk_widget() if canvas is not None else None
         if not hasattr(app, "_export_style_sidebars"):
             app._export_style_sidebars = {}
         key = id(fig)
@@ -171,8 +172,20 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=No
         if sb is None or not sb.winfo_exists():
             sb = _ExportStyleSidebar(app, parent, fig, canvas, default_name=default_name)
             app._export_style_sidebars[key] = sb
+        # Ensure there is physical room for the right sidebar by making the
+        # plot canvas occupy the left side of the same parent container.
+        if canvas_widget is not None and canvas_widget.winfo_manager() == "pack":
+            try:
+                pinfo = dict(canvas_widget.pack_info())
+                canvas_widget.pack_forget()
+                pinfo["side"] = tk.LEFT
+                canvas_widget.pack(**pinfo)
+            except Exception:
+                # Fall back to original layout if repack fails.
+                pass
         if not sb.winfo_ismapped():
             sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 8), pady=(8, 8))
+            sb.lift()
         sb._apply()
         return _ExportEditorSession(sb)
     except Exception as exc:
