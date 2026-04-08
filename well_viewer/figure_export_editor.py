@@ -62,6 +62,7 @@ class _ExportStyleSidebar(ttk.Frame):
         self._default_name = default_name
 
         self._build_ui()
+        self._bind_auto_apply()
 
     def _build_ui(self) -> None:
         ttk.Label(self, text="Export Style", style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
@@ -88,10 +89,22 @@ class _ExportStyleSidebar(ttk.Frame):
 
         btns = ttk.Frame(self)
         btns.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Button(btns, text="Apply", command=self._apply, style="ActionSecondary.TButton").pack(side=tk.LEFT)
-        ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT)
 
         self.columnconfigure(1, weight=1)
+
+    def _bind_auto_apply(self) -> None:
+        tracked = (self._axis, self._tick, self._title, self._xang, self._fmt)
+        for var in tracked:
+            var.trace_add("write", lambda *_args: self._on_fields_changed())
+
+    def _on_fields_changed(self) -> None:
+        try:
+            self._persist()
+            apply_export_style_to_current(self._app, self._fig, self._canvas)
+        except Exception:
+            # Ignore transient invalid edits while users type.
+            pass
 
     def _persist(self) -> None:
         self._prefs.update(
@@ -101,10 +114,6 @@ class _ExportStyleSidebar(ttk.Frame):
             x_tick_angle=int(self._xang.get()),
             format=self._fmt.get(),
         )
-
-    def _apply(self) -> None:
-        self._persist()
-        apply_export_style_to_current(self._app, self._fig, self._canvas)
 
     def _export(self) -> None:
         try:
@@ -180,7 +189,7 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=No
         if not sb.winfo_ismapped():
             sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 8), pady=(8, 8))
             sb.lift()
-        sb._apply()
+        sb._on_fields_changed()
         return _ExportEditorSession(sb)
     except Exception as exc:
         messagebox.showwarning("Export editor unavailable", str(exc), parent=app)

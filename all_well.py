@@ -42,6 +42,7 @@ class AllWellApp(tk.Tk):
 
         self._apply_outer_theme()
         self._build_ui()
+        self._install_app_icon()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -137,6 +138,43 @@ class AllWellApp(tk.Tk):
         # Notify child components of theme change
         if self._review is not None and hasattr(self._review, "_on_theme_change"):
             self._review._on_theme_change(theme_name)
+
+        self._install_app_icon()
+
+    def _install_app_icon(self) -> None:
+        """Install Option 1 app icon: highlighted well + sparkline."""
+        size = 64
+        img = tk.PhotoImage(width=size, height=size)
+        bg = get_color("BG_APP")
+        panel = get_color("BG_SIDE")
+        accent = get_color("ACCENT")
+        muted = get_color("TXT_MUT")
+        white = "#FFFFFF"
+
+        img.put(bg, to=(0, 0, size, size))
+        img.put(panel, to=(6, 6, size - 6, size - 6))
+
+        def _disk(cx: int, cy: int, r: int, color: str) -> None:
+            for y in range(cy - r, cy + r + 1):
+                for x in range(cx - r, cx + r + 1):
+                    if 0 <= x < size and 0 <= y < size and ((x - cx) ** 2 + (y - cy) ** 2 <= r * r):
+                        img.put(color, (x, y))
+
+        # 2x2 microplate wells
+        _disk(22, 22, 7, muted)
+        _disk(42, 22, 7, muted)
+        _disk(22, 42, 7, muted)
+        _disk(42, 42, 7, accent)  # highlighted well
+
+        # Sparkline overlay (simple stepped polyline)
+        for x, y in [(12, 46), (18, 42), (24, 44), (30, 36), (36, 38), (42, 30), (48, 28)]:
+            img.put(white, to=(x, y, x + 2, y + 2))
+
+        self._app_icon = img  # keep ref alive
+        try:
+            self.iconphoto(True, self._app_icon)
+        except Exception:
+            pass
 
     def _on_tab_change(self, _event=None) -> None:
         if self._review is None:
