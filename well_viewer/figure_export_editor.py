@@ -1,166 +1,180 @@
-"""In-app export editor for matplotlib figures."""
+"""In-tab export style sidebar for matplotlib figures."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import colorchooser, messagebox
+from tkinter import messagebox
 
 import tkinter as tk
 from tkinter import ttk
 
+DEFAULT_EXPORT_STYLE_PREFS = {
+    "background_color": "transparent",
+    "axis_label_size": 12,
+    "tick_label_size": 10,
+    "title_size": 14,
+    "line_marker_face_color": "#1f77b4",
+    "bar_face_color": "#1f77b4",
+    "x_tick_angle": 0,
+    "format": "png",
+}
+
 
 def _normalize_facecolor(bg_value: str | None):
     v = (bg_value or "").strip().lower()
-    if (not v) or (v == "transparent"):
-        return "none"
-    return bg_value
+    return "none" if (not v or v == "transparent") else bg_value
 
 
-def _apply_export_style(
-    fig,
-    *,
-    background_color: str,
-    axis_label_size: int,
-    tick_label_size: int,
-    title_size: int,
-    line_marker_face_color: str,
-    bar_face_color: str,
-    x_tick_angle: int,
-) -> None:
-    face = _normalize_facecolor(background_color)
+def _ensure_export_style_prefs(app) -> dict:
+    if not hasattr(app, "_export_style_prefs"):
+        app._export_style_prefs = dict(DEFAULT_EXPORT_STYLE_PREFS)
+    return app._export_style_prefs
+
+
+def apply_export_style_prefs(fig, prefs: dict) -> None:
+    face = _normalize_facecolor(prefs.get("background_color"))
     fig.set_facecolor(face)
     for ax in fig.axes:
         ax.set_facecolor(face)
-        ax.xaxis.label.set_fontsize(axis_label_size)
-        ax.yaxis.label.set_fontsize(axis_label_size)
-        ax.tick_params(axis="x", labelsize=tick_label_size)
-        ax.tick_params(axis="y", labelsize=tick_label_size)
-        ax.title.set_fontsize(title_size)
-
+        ax.xaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
+        ax.yaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
+        ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)))
+        ax.tick_params(axis="y", labelsize=int(prefs.get("tick_label_size", 10)))
+        ax.title.set_fontsize(int(prefs.get("title_size", 14)))
         for tick in ax.get_xticklabels():
-            tick.set_rotation(x_tick_angle)
-
+            tick.set_rotation(int(prefs.get("x_tick_angle", 0)))
         for ln in ax.lines:
-            ln.set_markerfacecolor(line_marker_face_color)
-
+            ln.set_markerfacecolor(prefs.get("line_marker_face_color", "#1f77b4"))
         for patch in ax.patches:
-            patch.set_facecolor(bar_face_color)
+            patch.set_facecolor(prefs.get("bar_face_color", "#1f77b4"))
 
 
-class _ExportEditorSession:
-    def __init__(self, window: tk.Toplevel) -> None:
-        self.window = window
+def apply_export_style_to_current(app, fig, canvas=None) -> None:
+    prefs = _ensure_export_style_prefs(app)
+    apply_export_style_prefs(fig, prefs)
+    if canvas is not None:
+        canvas.draw_idle()
 
 
-class _ExportEditorDialog(tk.Toplevel):
-    def __init__(self, app, fig, canvas, default_name: str, plot_bg: str):
-        super().__init__(app)
+class _ExportStyleSidebar(ttk.Frame):
+    def __init__(self, app, parent, fig, canvas, default_name: str):
+        super().__init__(parent, padding=(8, 8), style="Card.TFrame")
         self._app = app
         self._fig = fig
         self._canvas = canvas
         self._default_name = default_name
         self._base_dir = Path(app._data_dir) if getattr(app, "_data_dir", None) else Path.cwd()
+        self._prefs = _ensure_export_style_prefs(app)
 
-        self.title("Figure Export Editor")
-        self.configure(padx=12, pady=12)
-        self.resizable(False, False)
-
-        self._bg_var = tk.StringVar(value="transparent")
-        self._axis_var = tk.IntVar(value=12)
-        self._tick_var = tk.IntVar(value=10)
-        self._title_var = tk.IntVar(value=14)
-        self._line_color_var = tk.StringVar(value="#1f77b4")
-        self._bar_color_var = tk.StringVar(value="#1f77b4")
-        self._fmt_var = tk.StringVar(value="png")
-        self._xangle_var = tk.IntVar(value=0)
-        self._name_var = tk.StringVar(value=default_name)
-        self._dir_var = tk.StringVar(value=str(self._base_dir))
-        self._status_var = tk.StringVar(value="Apply updates to the tab figure, then export.")
+        self._bg = tk.StringVar(value=str(self._prefs["background_color"]))
+        self._axis = tk.IntVar(value=int(self._prefs["axis_label_size"]))
+        self._tick = tk.IntVar(value=int(self._prefs["tick_label_size"]))
+        self._title = tk.IntVar(value=int(self._prefs["title_size"]))
+        self._line = tk.StringVar(value=str(self._prefs["line_marker_face_color"]))
+        self._bar = tk.StringVar(value=str(self._prefs["bar_face_color"]))
+        self._xang = tk.IntVar(value=int(self._prefs["x_tick_angle"]))
+        self._fmt = tk.StringVar(value=str(self._prefs["format"]))
+        self._name = tk.StringVar(value=default_name)
+        self._out = tk.StringVar(value=str(self._base_dir))
 
         self._build_ui()
 
-    def _add_row(self, row: int, label: str, widget: tk.Widget) -> None:
-        ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
-        widget.grid(row=row, column=1, sticky="ew", pady=3)
-
-    def _choose_color(self, var: tk.StringVar) -> None:
-        chosen = colorchooser.askcolor(color=var.get(), parent=self)[1]
-        if chosen:
-            var.set(chosen)
-
     def _build_ui(self) -> None:
+        ttk.Label(self, text="Export Style", style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Button(self, text="Hide", command=lambda: self.pack_forget()).grid(row=0, column=2, sticky="e")
+
+        row = 1
+        for label, var in (
+            ("BG", self._bg),
+            ("Axis", self._axis),
+            ("Ticks", self._tick),
+            ("Title", self._title),
+            ("Line", self._line),
+            ("Bars", self._bar),
+            ("X°", self._xang),
+            ("Fmt", self._fmt),
+        ):
+            ttk.Label(self, text=label, width=6).grid(row=row, column=0, sticky="w", pady=1)
+            if label == "Fmt":
+                w = ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], state="readonly", textvariable=var, width=9)
+            elif isinstance(var, tk.IntVar):
+                lim = 90 if label == "X°" else 96
+                w = ttk.Spinbox(self, from_=0 if label == "X°" else 1, to=lim, textvariable=var, width=10)
+            else:
+                w = ttk.Entry(self, textvariable=var, width=12)
+            w.grid(row=row, column=1, columnspan=2, sticky="ew", pady=1)
+            row += 1
+
+        ttk.Label(self, text="Name", width=6).grid(row=row, column=0, sticky="w", pady=(4, 1))
+        ttk.Entry(self, textvariable=self._name, width=20).grid(row=row, column=1, columnspan=2, sticky="ew", pady=(4, 1))
+        row += 1
+        ttk.Label(self, text="Dir", width=6).grid(row=row, column=0, sticky="w", pady=1)
+        ttk.Entry(self, textvariable=self._out, width=20).grid(row=row, column=1, columnspan=2, sticky="ew", pady=1)
+        row += 1
+
+        btns = ttk.Frame(self)
+        btns.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+        ttk.Button(btns, text="Apply", command=self._apply).pack(side=tk.LEFT)
+        ttk.Button(btns, text="Export", command=self._export).pack(side=tk.LEFT, padx=4)
+
         self.columnconfigure(1, weight=1)
-        self._add_row(0, "Background (or 'transparent')", ttk.Entry(self, textvariable=self._bg_var, width=20))
-        self._add_row(1, "Axis label size", ttk.Spinbox(self, from_=1, to=72, textvariable=self._axis_var, width=8))
-        self._add_row(2, "Tick label size", ttk.Spinbox(self, from_=1, to=72, textvariable=self._tick_var, width=8))
-        self._add_row(3, "Title size", ttk.Spinbox(self, from_=1, to=96, textvariable=self._title_var, width=8))
 
-        line_frame = ttk.Frame(self)
-        ttk.Entry(line_frame, textvariable=self._line_color_var, width=18).pack(side=tk.LEFT)
-        ttk.Button(line_frame, text="Pick", command=lambda: self._choose_color(self._line_color_var)).pack(side=tk.LEFT, padx=4)
-        self._add_row(4, "Line marker color", line_frame)
-
-        bar_frame = ttk.Frame(self)
-        ttk.Entry(bar_frame, textvariable=self._bar_color_var, width=18).pack(side=tk.LEFT)
-        ttk.Button(bar_frame, text="Pick", command=lambda: self._choose_color(self._bar_color_var)).pack(side=tk.LEFT, padx=4)
-        self._add_row(5, "Bar face color", bar_frame)
-
-        self._add_row(6, "X tick angle", ttk.Spinbox(self, from_=0, to=90, increment=5, textvariable=self._xangle_var, width=8))
-        self._add_row(7, "Format", ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], textvariable=self._fmt_var, state="readonly", width=8))
-        self._add_row(8, "Filename", ttk.Entry(self, textvariable=self._name_var, width=32))
-        self._add_row(9, "Output dir", ttk.Entry(self, textvariable=self._dir_var, width=32))
-
-        btn_row = ttk.Frame(self)
-        btn_row.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(10, 4))
-        ttk.Button(btn_row, text="Apply to Figure", command=self._apply_live).pack(side=tk.LEFT)
-        ttk.Button(btn_row, text="Export", command=self._export).pack(side=tk.LEFT, padx=8)
-        ttk.Button(btn_row, text="Close", command=self.destroy).pack(side=tk.LEFT)
-
-        ttk.Label(self, textvariable=self._status_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=(4, 0))
-
-    def _apply_live(self) -> None:
-        _apply_export_style(
-            self._fig,
-            background_color=self._bg_var.get(),
-            axis_label_size=int(self._axis_var.get()),
-            tick_label_size=int(self._tick_var.get()),
-            title_size=int(self._title_var.get()),
-            line_marker_face_color=self._line_color_var.get() or "#1f77b4",
-            bar_face_color=self._bar_color_var.get() or "#1f77b4",
-            x_tick_angle=int(self._xangle_var.get()),
+    def _persist(self) -> None:
+        self._prefs.update(
+            background_color=self._bg.get(),
+            axis_label_size=int(self._axis.get()),
+            tick_label_size=int(self._tick.get()),
+            title_size=int(self._title.get()),
+            line_marker_face_color=self._line.get(),
+            bar_face_color=self._bar.get(),
+            x_tick_angle=int(self._xang.get()),
+            format=self._fmt.get(),
         )
-        if self._canvas is not None:
-            self._canvas.draw_idle()
-        self._status_var.set("Applied styling to figure in current tab.")
+
+    def _apply(self) -> None:
+        self._persist()
+        apply_export_style_to_current(self._app, self._fig, self._canvas)
 
     def _export(self) -> None:
         try:
-            fmt = (self._fmt_var.get() or "png").lower()
-            out_name = (self._name_var.get() or self._default_name).strip() or self._default_name
-            if not out_name.lower().endswith(f".{fmt}"):
-                out_name = f"{Path(out_name).stem}.{fmt}"
-            out_path = Path(self._dir_var.get() or str(self._base_dir)) / out_name
+            self._persist()
+            fmt = (self._prefs.get("format") or "png").lower()
+            name = (self._name.get() or self._default_name).strip() or self._default_name
+            if not name.lower().endswith(f".{fmt}"):
+                name = f"{Path(name).stem}.{fmt}"
+            out_path = Path(self._out.get() or str(self._base_dir)) / name
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            face = _normalize_facecolor(self._bg_var.get())
+            face = _normalize_facecolor(self._prefs.get("background_color"))
             kw = {"format": fmt, "bbox_inches": "tight", "transparent": face == "none"}
             if face != "none":
                 kw["facecolor"] = face
             if fmt == "png":
                 kw["dpi"] = 300
             self._fig.savefig(str(out_path), **kw)
-            self._status_var.set(f"Saved: {out_path}")
             self._app._set_status(f"Figure saved → {out_path.name}")
         except Exception as exc:
             messagebox.showerror("Export failed", str(exc), parent=self)
 
 
+class _ExportEditorSession:
+    def __init__(self, sidebar: _ExportStyleSidebar) -> None:
+        self.sidebar = sidebar
+
+
 def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> _ExportEditorSession | None:
-    """Launch in-app export editor dialog."""
     try:
-        dlg = _ExportEditorDialog(app, fig, canvas=canvas, default_name=default_name, plot_bg=plot_bg)
-        dlg.transient(app)
-        dlg.grab_set()
-        return _ExportEditorSession(window=dlg)
+        parent = canvas.get_tk_widget().master if canvas is not None else app
+        if not hasattr(app, "_export_style_sidebars"):
+            app._export_style_sidebars = {}
+        key = id(fig)
+        sb = app._export_style_sidebars.get(key)
+        if sb is None or not sb.winfo_exists():
+            sb = _ExportStyleSidebar(app, parent, fig, canvas, default_name=default_name)
+            app._export_style_sidebars[key] = sb
+        if not sb.winfo_ismapped():
+            sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 8), pady=(8, 8))
+        sb._apply()
+        return _ExportEditorSession(sb)
     except Exception as exc:
         messagebox.showwarning("Export editor unavailable", str(exc), parent=app)
         return None

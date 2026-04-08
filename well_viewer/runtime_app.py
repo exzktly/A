@@ -5102,6 +5102,9 @@ class WellViewerApp(tk.Frame):
             warn=WARN,
             well_colors=WELL_COLORS,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
 
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
@@ -5766,6 +5769,9 @@ class WellViewerApp(tk.Frame):
             band_lbl=band_lbl,
             use_sem=use_sem,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._bar_fig, getattr(self, "_bar_canvas", None))
 
     def _selected_bar_wells(self, active_rsets: "List[ReplicateSet]") -> List[str]:
         if active_rsets:
@@ -6301,6 +6307,9 @@ class WellViewerApp(tk.Frame):
             fluor_gate_x=fluor_gate_x,
             fluor_gate_y=fluor_gate_y,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._scatter_fig, getattr(self, "_scatter_canvas", None))
 
     def _on_scatter_click(self, event) -> None:
         """Handle click events on scatter plot datapoints."""
@@ -6511,6 +6520,9 @@ class WellViewerApp(tk.Frame):
             well_colors=WELL_COLORS,
             aggregate_with_threshold=aggregate_with_threshold,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._scatter_agg_fig, getattr(self, "_scatter_agg_canvas", None))
 
     def _export_scatter_agg_data(self) -> None:
         """Export aggregate scatter plot data to CSV."""
