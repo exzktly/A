@@ -124,12 +124,18 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
 
         leg = ax.get_legend()
         if leg is not None:
-            leg.set_visible(bool(prefs.get("legend_show", True)))
-            try:
-                leg.set_bbox_to_anchor(None)
-                leg._loc = str(prefs.get("legend_loc", "best"))
-            except Exception:
-                pass
+            show_leg = bool(prefs.get("legend_show", True))
+            leg.set_visible(show_leg)
+            if show_leg:
+                loc_name = str(prefs.get("legend_loc", "best"))
+                try:
+                    leg.set_loc(loc_name)  # Matplotlib >=3.8
+                except Exception:
+                    try:
+                        from matplotlib.legend import Legend as _Legend
+                        leg._loc = _Legend.codes.get(loc_name, 0)  # fallback for older versions
+                    except Exception:
+                        pass
             for txt in leg.get_texts():
                 txt.set_fontsize(float(prefs.get("legend_font_size", 9)))
 
