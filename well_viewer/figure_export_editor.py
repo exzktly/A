@@ -66,10 +66,12 @@ def launch_dash_export_editor(app, fig, default_name: str, *, plot_bg: str) -> _
     try:
         from dash import Dash, Input, Output, State, dcc, html, no_update
     except Exception as exc:
+        fix_hint = "Install/upgrade Dash dependencies (e.g. `pip install -U dash typing_extensions`)."
         msg = (
-            "Dash export wizard is unavailable because the 'dash' package is not installed.\n\n"
+            "Dash export wizard is unavailable because Dash (or one of its dependencies) failed to import.\n\n"
             "Falling back to the classic Save Figure dialog.\n"
-            f"Details: {exc}"
+            f"Details: {exc}\n"
+            f"Suggested fix: {fix_hint}"
         )
         try:
             app._set_status(msg.replace("\n", " "))
