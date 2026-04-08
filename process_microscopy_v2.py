@@ -165,16 +165,29 @@ def find_well_zips(input_dir: Path) -> list[tuple[str, Path]]:
 # Zip extraction / compression helpers
 # ---------------------------------------------------------------------------
 
-def extract_zip(zip_path: Path, dest_dir: Path) -> None:
+def extract_zip(
+    zip_path: Path,
+    dest_dir: Path,
+    members_to_extract: "set[str] | None" = None,
+) -> int:
     """
     Extract image members of *zip_path* flat into *dest_dir*.
+
+    When *members_to_extract* is provided, only those base filenames are
+    extracted. This allows zip-mode processing to pull only the channel files
+    required by discovered image groups instead of unpacking every image.
+
     CSV files and other non-image files inside the zip are skipped so
     that outputs from a previous run packaged back into the input zip
     cannot interfere with the current run or end up re-zipped in output.
+
+    Returns the number of image files extracted.
     """
     image_exts = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+    wanted = set(members_to_extract or [])
     dest_dir.mkdir(parents=True, exist_ok=True)
     skipped: list[str] = []
+    extracted = 0
     with zipfile.ZipFile(zip_path, "r") as zf:
         for member in zf.infolist():
             # Strip any directory structure inside the zip; extract flat.
@@ -187,15 +200,22 @@ def extract_zip(zip_path: Path, dest_dir: Path) -> None:
             if Path(member_name).suffix.lower() not in image_exts:
                 skipped.append(member_name)
                 continue
+            if wanted and member_name not in wanted:
+                continue
             target = dest_dir / member_name
             with zf.open(member) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
+            extracted += 1
     if skipped:
         log.debug(
             "Skipped %d non-image file(s) in %s: %s",
             len(skipped), zip_path.name, ", ".join(skipped),
         )
-    log.info("Extracted %s  ->  %s", zip_path.name, dest_dir)
+    if wanted:
+        log.info("Extracted %d selected image(s) from %s -> %s", extracted, zip_path.name, dest_dir)
+    else:
+        log.info("Extracted %s  ->  %s", zip_path.name, dest_dir)
+    return extracted
 
 
 def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
@@ -609,6 +629,96 @@ def process_image_group(
 # Directory scan
 # ---------------------------------------------------------------------------
 
+def find_image_groups_in_zip(
+    zip_path: Path,
+    nuclear_token: str,
+    fluor_tokens: "list[str]",
+    dest_dir: Path,
+    schema: "list[str] | None" = None,
+    sep: str = DEFAULT_SEP,
+) -> "tuple[list[tuple[Path, list[Path]]], set[str]]":
+    """
+    Discover complete image groups from filenames inside *zip_path*.
+
+    Returns:
+      - groups as paths rooted at *dest_dir* (where selected members are later extracted)
+      - set of base member names that must be extracted to satisfy those groups
+    """
+    if schema is None:
+        schema = parse_schema(DEFAULT_SCHEMA)
+
+    channel_idx: "int | None" = schema.index("channel") if "channel" in schema else None
+    image_exts = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+
+    by_name: set[str] = set()
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for member in zf.infolist():
+            base = Path(member.filename).name
+            if not base or base.startswith("."):
+                continue
+            if Path(base).suffix.lower() not in image_exts:
+                continue
+            if base in by_name:
+                log.warning(
+                    "Zip %s contains duplicate basename '%s'; using first occurrence.",
+                    zip_path.name,
+                    base,
+                )
+                continue
+            by_name.add(base)
+
+    def _derive_fluor_name(nuclear_name: str, fluor_token: str) -> str:
+        p = Path(nuclear_name)
+        if channel_idx is not None:
+            parts = p.stem.split(sep)
+            if channel_idx >= len(parts):
+                return ""
+            parts[channel_idx] = fluor_token
+            return sep.join(parts) + p.suffix
+        return p.name.replace(nuclear_token, fluor_token)
+
+    groups: list[tuple[Path, list[Path]]] = []
+    needed_members: set[str] = set()
+    incomplete: list[str] = []
+
+    for base in sorted(by_name):
+        p = Path(base)
+        if channel_idx is not None:
+            stem_parts = p.stem.split(sep)
+            if channel_idx >= len(stem_parts) or stem_parts[channel_idx] != nuclear_token:
+                continue
+        elif nuclear_token not in p.name:
+            continue
+
+        fluor_names = [_derive_fluor_name(base, tok) for tok in fluor_tokens]
+        if any(not fn for fn in fluor_names):
+            incomplete.append(base)
+            continue
+        missing = [fn for fn in fluor_names if fn not in by_name]
+        if missing:
+            incomplete.append(base)
+            for fn in missing:
+                log.warning("  missing fluor file in zip %s: %s", zip_path.name, fn)
+            continue
+
+        needed_members.add(base)
+        needed_members.update(fluor_names)
+        groups.append((dest_dir / base, [dest_dir / fn for fn in fluor_names]))
+
+    if incomplete:
+        log.warning(
+            "%d nuclear file(s) skipped in %s due to missing fluorescent channel(s).",
+            len(incomplete),
+            zip_path.name,
+        )
+
+    log.info(
+        "Found %d image group(s) in %s  (%d fluor channel(s): %s)",
+        len(groups), zip_path.name, len(fluor_tokens), ", ".join(fluor_tokens),
+    )
+    return groups, needed_members
+
+
 def find_image_groups(
     input_dir: Path,
     nuclear_token: str,
@@ -912,7 +1022,8 @@ def process_well_zip_task(
     Top-level picklable task: full lifecycle for one zipped well.
 
     Runs inside a worker process (StarDist already loaded by _worker_init).
-    1. Extract zip to a temporary directory.
+    1. Discover complete image groups from zip member names, then extract only
+       required channel files to a temporary directory.
     2. Discover image groups (nuclear + all fluor channels) and process them.
     3. Write the per-well CSV.
     4. Compress output images to <output_dir>/<well>_out.zip.
@@ -937,13 +1048,25 @@ def process_well_zip_task(
         tmp_extract.mkdir(parents=True, exist_ok=True)
         tmp_images.mkdir(parents=True,  exist_ok=True)
 
-        extract_zip(zip_path, tmp_extract)
-
-        groups = find_image_groups(tmp_extract, nuclear_token, fluor_tokens,
-                                   schema=schema, sep=sep)
+        groups, needed_members = find_image_groups_in_zip(
+            zip_path,
+            nuclear_token,
+            fluor_tokens,
+            tmp_extract,
+            schema=schema,
+            sep=sep,
+        )
         if not groups:
-            log.warning("Well %s: no image groups found after extraction.", well_label)
+            log.warning("Well %s: no image groups found in %s.", well_label, zip_path.name)
             return [], []
+
+        n_extracted = extract_zip(zip_path, tmp_extract, members_to_extract=needed_members)
+        log.info(
+            "Well %s: extracted %d/%d required image file(s).",
+            well_label,
+            n_extracted,
+            len(needed_members),
+        )
 
         kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
         records, failed = _process_groups_in_worker(groups, kwargs, well_label)
