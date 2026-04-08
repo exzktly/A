@@ -63,10 +63,25 @@ class _DashExportEditorSession:
 
 def launch_dash_export_editor(app, fig, default_name: str, *, plot_bg: str) -> _DashExportEditorSession | None:
     """Launch a Dash UI for export-only figure styling and saving."""
+    # Some environments pin typing_extensions for TensorFlow compatibility.
+    # Dash (or one of its deps) may reference typing_extensions.Generic, which
+    # is missing in some older builds. Bridge it from typing.Generic when absent.
+    try:
+        import typing as _typing
+        import typing_extensions as _te
+
+        if not hasattr(_te, "Generic"):
+            _te.Generic = _typing.Generic  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     try:
         from dash import Dash, Input, Output, State, dcc, html, no_update
     except Exception as exc:
-        fix_hint = "Install/repair Dash dependencies (e.g. `pip install -U dash`)."
+        fix_hint = (
+            "Reinstall Dash and verify no local `typing_extensions.py` shadows the package "
+            "(e.g. `pip install --force-reinstall dash`)."
+        )
         msg = (
             "Dash export wizard is unavailable because Dash (or one of its dependencies) failed to import.\n\n"
             "Falling back to the classic Save Figure dialog.\n"
