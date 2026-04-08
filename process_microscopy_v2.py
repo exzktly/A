@@ -46,7 +46,6 @@ Filename convention (underscore-separated):
 from __future__ import annotations
 
 import argparse
-import copy
 import importlib.util
 import logging
 import os
@@ -62,6 +61,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import tifffile                                      # noqa: F401  (side-effects)
 from tifffile import imread, imwrite
 import numpy as np
+from scipy import ndimage as ndi
 from scipy.ndimage import grey_opening
 from skimage.segmentation import find_boundaries
 import imageio.v3 as iio
@@ -499,6 +499,7 @@ def process_image_group(
     tophat_radius_fluor: "list[int]",
     save_masks: bool,
     save_overlays: bool,
+    save_tophat_images: bool,
     schema: "list[str] | None" = None,
     sep: str = DEFAULT_SEP,
     smfish_tokens: "list[str] | None" = None,
@@ -539,7 +540,7 @@ def process_image_group(
 
     # Top-hat on nuclear channel.
     _t = time.perf_counter()
-    nir_corr = apply_tophat(nir_raw, tophat_radius_nir) if tophat_nir else nir_raw.copy()
+    nir_corr = apply_tophat(nir_raw, tophat_radius_nir) if tophat_nir else nir_raw
     log.info("  tophat_nir:  %.1f s  (radius %d, enabled=%s)",
              time.perf_counter() - _t, tophat_radius_nir, tophat_nir)
 
@@ -548,13 +549,13 @@ def process_image_group(
     for i, (fraw, do_th, radius) in enumerate(
             zip(fluor_raws, tophat_fluor, tophat_radius_fluor)):
         _t = time.perf_counter()
-        fc = apply_tophat(fraw, radius) if do_th else fraw.copy()
+        fc = apply_tophat(fraw, radius) if do_th else fraw
         fluor_tophat.append(fc)
         log.info("  tophat_%s:  %.1f s  (radius %d, enabled=%s)",
                  fluor_tokens[i].lower(), time.perf_counter() - _t, radius, do_th)
 
     smfish_set = set(smfish_tokens or [])
-    fluor_corr = [img.copy() for img in fluor_tophat]
+    fluor_corr = list(fluor_tophat)
     for i, tok in enumerate(fluor_tokens):
         if tok in smfish_set:
             _t = time.perf_counter()
@@ -582,16 +583,17 @@ def process_image_group(
     base_name = stem.replace(nuclear_token, "")
 
     _t = time.perf_counter()
-    th_nir_path = output_dir / f"{base_name}_tophat_nir.tif"
-    imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
-    for fc, tok in zip(fluor_tophat, fluor_tokens):
-        th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
-        imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
-    for i, tok in enumerate(fluor_tokens):
-        if tok in smfish_set:
-            smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
-            imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
-    log.info("  tophat tifs written")
+    if save_tophat_images:
+        th_nir_path = output_dir / f"{base_name}_tophat_nir.tif"
+        imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
+        for fc, tok in zip(fluor_tophat, fluor_tokens):
+            th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
+            imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
+        for i, tok in enumerate(fluor_tokens):
+            if tok in smfish_set:
+                smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
+                imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
+        log.info("  tophat tifs written")
     if save_masks:
         imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
     if save_overlays:
@@ -605,21 +607,31 @@ def process_image_group(
 
     _t = time.perf_counter()
     records: list[dict] = []
-    for nid in nuc_ids:
-        mask = labels == nid
+    idx = np.asarray(nuc_ids, dtype=np.int32)
+    area = ndi.sum(np.ones_like(labels, dtype=np.float32), labels=labels, index=idx)
+    fluor_stats: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]] = []
+    for fc, tok in zip(fluor_corr, fluor_tokens):
+        fluor_stats.append((
+            ndi.sum(fc, labels=labels, index=idx),
+            ndi.mean(fc, labels=labels, index=idx),
+            ndi.maximum(fc, labels=labels, index=idx),
+            ndi.minimum(fc, labels=labels, index=idx),
+            ndi.standard_deviation(fc, labels=labels, index=idx),
+            tok.lower(),
+        ))
+
+    for i, nid in enumerate(nuc_ids):
         rec: dict = {
             **meta,
             "nucleus_id": int(nid),
-            "area_px":    int(mask.sum()),
+            "area_px":    int(area[i]),
         }
-        for fc, tok in zip(fluor_corr, fluor_tokens):
-            px  = fc[mask]
-            pfx = tok.lower()
-            rec[f"{pfx}_total_intensity"] = float(px.sum())
-            rec[f"{pfx}_mean_intensity"]  = float(px.mean())
-            rec[f"{pfx}_max_intensity"]   = float(px.max())
-            rec[f"{pfx}_min_intensity"]   = float(px.min())
-            rec[f"{pfx}_std_intensity"]   = float(px.std())
+        for total, mean, maxv, minv, stdv, pfx in fluor_stats:
+            rec[f"{pfx}_total_intensity"] = float(total[i])
+            rec[f"{pfx}_mean_intensity"]  = float(mean[i])
+            rec[f"{pfx}_max_intensity"]   = float(maxv[i])
+            rec[f"{pfx}_min_intensity"]   = float(minv[i])
+            rec[f"{pfx}_std_intensity"]   = float(stdv[i])
         records.append(rec)
     log.info("  quantify:    %.1f s  (%d nuclei)", time.perf_counter() - _t, len(records))
 
@@ -743,6 +755,14 @@ def find_image_groups(
     extensions = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
     groups: "list[tuple[Path, list[Path]]]" = []
     incomplete: list[Path] = []
+    all_images = [
+        p for p in sorted(input_dir.rglob("*"))
+        if p.is_file()
+        and not p.name.startswith(".")
+        and not any(part.startswith(".") for part in p.parts)
+        and p.suffix.lower() in extensions
+    ]
+    all_set = set(all_images)
 
     channel_idx: "int | None" = (
         schema.index("channel") if "channel" in schema else None
@@ -759,13 +779,7 @@ def find_image_groups(
             nuclear_token, fluor_token
         )
 
-    for path in sorted(input_dir.rglob("*")):
-        if path.name.startswith("."):
-            continue
-        if any(part.startswith(".") for part in path.parts):
-            continue
-        if path.suffix.lower() not in extensions:
-            continue
+    for path in all_images:
 
         # Filter to nuclear channel files only.
         if channel_idx is not None:
@@ -780,7 +794,7 @@ def find_image_groups(
 
         # Build the expected path for each fluorescent channel.
         fluor_paths = [_derive_fluor_path(path, tok) for tok in fluor_tokens]
-        missing = [fp for fp in fluor_paths if not fp.exists()]
+        missing = [fp for fp in fluor_paths if fp not in all_set]
         if missing:
             incomplete.append(path)
             for fp in missing:
@@ -969,6 +983,7 @@ def _process_groups_in_worker(
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     fov_threads = shared_kwargs.pop("_fov_threads", fov_threads)
+    fov_threads = max(1, min(fov_threads, len(groups), os.cpu_count() or 1))
     kwargs = {k: v for k, v in shared_kwargs.items() if not k.startswith("_")}
 
     all_records: list[dict] = []
@@ -1432,6 +1447,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Do not save label-mask TIFFs")
     p.add_argument("--no_save_overlays", action="store_true",
                    help="Do not save red-outline overlay PNGs")
+    p.add_argument("--no_save_tophat",   action="store_true",
+                   help="Do not save top-hat/smFISH intermediate TIFFs")
 
     p.add_argument("--tf_threads", type=int, default=0,
                    help=(
@@ -1581,6 +1598,7 @@ def main() -> None:
     log.info("Fluor channels : %s", ", ".join(args.fluor_tokens))
     log.info("Tophat fluor   : radius=%d, enabled=%s",
              args.tophat_radius_fluor, not args.no_tophat_fluor)
+    log.info("Save tophat    : %s", not args.no_save_tophat)
 
     # kwargs forwarded to every process_image_group call.
     shared_kwargs = dict(
@@ -1593,6 +1611,7 @@ def main() -> None:
         tophat_radius_fluor=tophat_radius_fluor,
         save_masks=not args.no_save_masks,
         save_overlays=not args.no_save_overlays,
+        save_tophat_images=not args.no_save_tophat,
         schema=schema,
         sep=sep,
         smfish_tokens=args.smfish_tokens,
