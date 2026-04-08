@@ -93,7 +93,7 @@ def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
 def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str) -> None:
     session = launch_dash_export_editor(app, fig, default_name, plot_bg=plot_bg)
     if session is not None:
-        app._set_status(f"Export editor started at http://{session.host}:{session.port}")
+        app._set_status("Export editor opened.")
         return
     save_matplotlib_fig(app, fig, default_name, plot_bg=plot_bg)
 
