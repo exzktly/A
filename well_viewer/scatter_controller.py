@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 
+NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
+
 
 def get_all_timepoints(app) -> List[float]:
     """Extract all unique timepoints from loaded CSV data across all wells.
@@ -225,6 +227,27 @@ def redraw_scatter(
         fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
         fluor_gate_y: FluorGating threshold for Y channel; cells below are excluded
     """
+    active_rsets = app._rep_sets_active()
+    selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
+
+    # Clear existing plot
+    app._ax_scatter.clear()
+
+    if not selected_wells and not active_rsets:
+        app._ax_scatter.text(
+            0.5,
+            0.5,
+            NO_SELECTION_MSG,
+            ha='center',
+            va='center',
+            transform=app._ax_scatter.transAxes,
+            fontsize=10,
+            color='gray',
+        )
+        app._ax_scatter.set_axis_off()
+        app._scatter_canvas.draw()
+        return
+
     # Collect scatter data
     scatter_data = collect_scatter_data(
         app,
@@ -236,9 +259,6 @@ def redraw_scatter(
         fluor_gate_x=fluor_gate_x,
         fluor_gate_y=fluor_gate_y,
     )
-
-    # Clear existing plot
-    app._ax_scatter.clear()
 
     # Plot each group/well as separate scatter series
     for label, data in scatter_data.items():
@@ -271,7 +291,8 @@ def redraw_scatter(
     app._ax_scatter.set_ylabel(_col_label(col_y))
     app._ax_scatter.set_title(f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)} (t={timepoint_h}h)")
     app._ax_scatter.grid(True, alpha=0.3)
-    app._ax_scatter.legend(loc='best', fontsize=8)
+    if scatter_data:
+        app._ax_scatter.legend(loc='best', fontsize=8)
 
     # Redraw canvas
     app._scatter_canvas.draw()
@@ -446,6 +467,27 @@ def redraw_scatter_agg(
         well_colors: List of colors for replicates/wells
         aggregate_with_threshold: Function to compute statistics
     """
+    active_rsets = app._rep_sets_active()
+    selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
+
+    # Clear existing plot
+    app._ax_scatter_agg.clear()
+
+    if not selected_wells and not active_rsets:
+        app._ax_scatter_agg.text(
+            0.5,
+            0.5,
+            NO_SELECTION_MSG,
+            ha='center',
+            va='center',
+            transform=app._ax_scatter_agg.transAxes,
+            fontsize=10,
+            color='gray',
+        )
+        app._ax_scatter_agg.set_axis_off()
+        app._scatter_agg_canvas.draw()
+        return
+
     # Collect aggregate scatter data
     scatter_data = collect_scatter_agg_data(
         app,
@@ -455,9 +497,6 @@ def redraw_scatter_agg(
         well_colors=well_colors,
         aggregate_with_threshold=aggregate_with_threshold,
     )
-
-    # Clear existing plot
-    app._ax_scatter_agg.clear()
 
     if not scatter_data:
         app._ax_scatter_agg.text(

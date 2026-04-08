@@ -230,6 +230,7 @@ WELL_COLORS = [
     WELL_COLOR_1, WELL_COLOR_2, WELL_COLOR_3, CLR_SUCCESS, WELL_COLOR_4,
     WELL_COLOR_5, WELL_COLOR_6, WELL_COLOR_7, WELL_COLOR_8, WELL_COLOR_9,
 ]
+NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
 def make_scrollable_canvas(
@@ -1727,7 +1728,7 @@ class WellViewerApp(tk.Frame):
             self._tk_root.title("Well Viewer")
             self._tk_root.configure(bg=BG_APP)
             self._tk_root.minsize(1000, 800)
-            self._tk_root.geometry("1600x960")
+            self._position_root_on_screen(self._tk_root, preferred_w=1600, preferred_h=960)
             super().__init__(self._tk_root)
             self._tk_root.protocol("WM_DELETE_WINDOW", self._on_close)
         else:
@@ -1736,6 +1737,7 @@ class WellViewerApp(tk.Frame):
         self.configure(bg=BG_APP)
         self._NP_AVAILABLE = _NP_AVAILABLE
         self._np = _np
+        self._theme_name = "Dark"
 
         # Data state
         self._data_dir:   Optional[Path]        = None   # dir with CSVs (and out-zips)
@@ -1811,6 +1813,19 @@ class WellViewerApp(tk.Frame):
             # Defer until after mainloop() so the window is mapped and
             # the progress bar can actually render during the load.
             self.after(100, lambda: self._load_path(data_path))
+
+    @staticmethod
+    def _position_root_on_screen(root: tk.Tk, *, preferred_w: int, preferred_h: int) -> None:
+        """Size and place root so it starts fully visible on screen."""
+        root.update_idletasks()
+        sw = max(1, int(root.winfo_screenwidth()))
+        sh = max(1, int(root.winfo_screenheight()))
+        margin = 40  # leave room for WM borders/titlebars
+        w = min(preferred_w, max(1000, sw - margin))
+        h = min(preferred_h, max(800, sh - margin))
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        root.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Threshold helpers ─────────────────────────────────────────────────────
 
@@ -4517,6 +4532,12 @@ class WellViewerApp(tk.Frame):
 
         Refreshes all UI components to use the new theme colors.
         """
+        from ui.theme import rebuild_widget_colors
+
+        new_theme = theme_name or self._theme_name
+        old_theme = self._theme_name
+        self._theme_name = new_theme
+
         # Apply TTK style changes
         self._apply_theme()
 
@@ -4535,6 +4556,9 @@ class WellViewerApp(tk.Frame):
         # Refresh statistics tab colors
         if hasattr(self, '_stats_fig') and self._stats_fig:
             self._stats_refresh_colors()
+
+        # Re-map tk widget colors after any panel rebuilds performed above.
+        rebuild_widget_colors(self, old_theme, new_theme)
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
@@ -5079,6 +5103,9 @@ class WellViewerApp(tk.Frame):
             warn=WARN,
             well_colors=WELL_COLORS,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
 
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
@@ -5715,7 +5742,7 @@ class WellViewerApp(tk.Frame):
         ax_frac.set_ylim(-0.05, 1.05)
 
         if not bar_selected and not active_rsets:
-            self._draw_bar_empty_state(ax_mean, ax_frac, "Select wells on the left panel")
+            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG)
             return
 
         tp_data = self._resolve_bar_timepoint()
@@ -5743,6 +5770,9 @@ class WellViewerApp(tk.Frame):
             band_lbl=band_lbl,
             use_sem=use_sem,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._bar_fig, getattr(self, "_bar_canvas", None))
 
     def _selected_bar_wells(self, active_rsets: "List[ReplicateSet]") -> List[str]:
         if active_rsets:
@@ -6278,6 +6308,9 @@ class WellViewerApp(tk.Frame):
             fluor_gate_x=fluor_gate_x,
             fluor_gate_y=fluor_gate_y,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._scatter_fig, getattr(self, "_scatter_canvas", None))
 
     def _on_scatter_click(self, event) -> None:
         """Handle click events on scatter plot datapoints."""
@@ -6488,6 +6521,9 @@ class WellViewerApp(tk.Frame):
             well_colors=WELL_COLORS,
             aggregate_with_threshold=aggregate_with_threshold,
         )
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, self._scatter_agg_fig, getattr(self, "_scatter_agg_canvas", None))
 
     def _export_scatter_agg_data(self) -> None:
         """Export aggregate scatter plot data to CSV."""

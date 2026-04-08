@@ -5,6 +5,9 @@ from __future__ import annotations
 import math
 
 
+NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
+
+
 def redraw_line_plots(
     app,
     *,
@@ -43,7 +46,7 @@ def redraw_line_plots(
     active_rsets = app._rep_sets_active()
     if not selected and not active_rsets:
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
-            ax.text(0.5, 0.5, "Select wells in the left panel\nor define replicate sets in the Replicates tab", transform=ax.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
+            ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
             ax.set_axis_off()
         app._line_canvas.draw_idle()
         app._set_status("No wells selected.")
