@@ -143,12 +143,23 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
             for txt in leg.get_texts():
                 txt.set_fontsize(float(prefs.get("legend_font_size", 9)))
 
-    fig.set_constrained_layout(bool(prefs.get("layout_constrained", False)))
-    if bool(prefs.get("layout_tight", False)):
-        try:
-            fig.tight_layout()
-        except Exception:
-            pass
+    use_constrained = bool(prefs.get("layout_constrained", False))
+    use_tight = bool(prefs.get("layout_tight", False))
+    try:
+        if use_constrained:
+            fig.set_layout_engine("constrained")
+        elif use_tight:
+            fig.set_layout_engine("tight")
+        else:
+            fig.set_layout_engine(None)
+    except Exception:
+        # Fallback for older matplotlib
+        fig.set_constrained_layout(use_constrained)
+        if use_tight and not use_constrained:
+            try:
+                fig.tight_layout()
+            except Exception:
+                pass
 
 
 def apply_export_style_to_current(app, fig, canvas=None) -> None:
@@ -205,73 +216,86 @@ class _ExportStyleSidebar(ttk.Frame):
         self._bind_auto_apply()
 
     def _build_ui(self) -> None:
-        ttk.Label(self, text="Export Style", style="Title.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Button(self, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").grid(row=0, column=3, sticky="e")
+        hdr = ttk.Frame(self)
+        hdr.pack(fill=tk.X)
+        ttk.Label(hdr, text="Export Style", style="Title.TLabel").pack(side=tk.LEFT)
+        ttk.Button(hdr, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").pack(side=tk.RIGHT)
 
-        r = 1
+        wrap = ttk.Frame(self)
+        wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        canvas = tk.Canvas(wrap, height=430, highlightthickness=0, bd=0)
+        vs = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
+        body = ttk.Frame(canvas)
+        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=vs.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vs.pack(side=tk.RIGHT, fill=tk.Y)
+
+        r = 0
         def add(label, widget):
             nonlocal r
-            ttk.Label(self, text=label, width=8).grid(row=r, column=0, sticky="w", pady=1)
+            ttk.Label(body, text=label, width=8).grid(row=r, column=0, sticky="w", pady=1)
             widget.grid(row=r, column=1, columnspan=3, sticky="ew", pady=1)
             r += 1
 
-        add("Profile", ttk.Combobox(self, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14))
-        add("Format", ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10))
-        add("Axis #", ttk.Combobox(self, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=10))
-        add("Axis", ttk.Spinbox(self, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=10))
-        add("Ticks", ttk.Spinbox(self, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=10))
-        add("Title", ttk.Spinbox(self, from_=1, to=128, textvariable=self._vars["title_size"], width=10))
-        add("X°", ttk.Spinbox(self, from_=0, to=90, textvariable=self._vars["x_tick_angle"], width=10))
+        add("Profile", ttk.Combobox(body, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14))
+        add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10))
+        add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=10))
+        add("Axis", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=10))
+        add("Ticks", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=10))
+        add("Title", ttk.Spinbox(body, from_=1, to=128, textvariable=self._vars["title_size"], width=10))
+        add("X°", ttk.Spinbox(body, from_=0, to=90, textvariable=self._vars["x_tick_angle"], width=10))
 
-        add("Legend", ttk.Checkbutton(self, variable=self._vars["legend_show"]))
-        add("Leg size", ttk.Spinbox(self, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=10))
-        add("Leg loc", ttk.Combobox(self, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=14))
+        add("Legend", ttk.Checkbutton(body, variable=self._vars["legend_show"]))
+        add("Leg size", ttk.Spinbox(body, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=10))
+        add("Leg loc", ttk.Combobox(body, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=14))
 
-        add("Line w", ttk.Spinbox(self, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=10))
-        add("Mkr sz", ttk.Spinbox(self, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=10))
-        add("Mkr edge", ttk.Spinbox(self, from_=0.0, to=5.0, increment=0.1, textvariable=self._vars["marker_edge_width"], width=10))
+        add("Line w", ttk.Spinbox(body, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=10))
+        add("Mkr sz", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=10))
+        add("Mkr edge", ttk.Spinbox(body, from_=0.0, to=5.0, increment=0.1, textvariable=self._vars["marker_edge_width"], width=10))
 
-        add("Grid", ttk.Checkbutton(self, variable=self._vars["grid_show"]))
-        add("Grid α", ttk.Spinbox(self, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=10))
-        add("Grid ls", ttk.Combobox(self, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=10))
+        add("Grid", ttk.Checkbutton(body, variable=self._vars["grid_show"]))
+        add("Grid α", ttk.Spinbox(body, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=10))
+        add("Grid ls", ttk.Combobox(body, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=10))
 
-        limrow = ttk.Frame(self)
+        limrow = ttk.Frame(body)
         ttk.Entry(limrow, textvariable=self._vars["x_lim_min"], width=6).pack(side=tk.LEFT)
         ttk.Label(limrow, text="…").pack(side=tk.LEFT, padx=2)
         ttk.Entry(limrow, textvariable=self._vars["x_lim_max"], width=6).pack(side=tk.LEFT)
         add("X lim", limrow)
 
-        limrow2 = ttk.Frame(self)
+        limrow2 = ttk.Frame(body)
         ttk.Entry(limrow2, textvariable=self._vars["y_lim_min"], width=6).pack(side=tk.LEFT)
         ttk.Label(limrow2, text="…").pack(side=tk.LEFT, padx=2)
         ttk.Entry(limrow2, textvariable=self._vars["y_lim_max"], width=6).pack(side=tk.LEFT)
         add("Y lim", limrow2)
 
-        row_scale = ttk.Frame(self)
+        row_scale = ttk.Frame(body)
         ttk.Checkbutton(row_scale, text="X log", variable=self._vars["x_log"]).pack(side=tk.LEFT)
         ttk.Checkbutton(row_scale, text="Y log", variable=self._vars["y_log"]).pack(side=tk.LEFT, padx=6)
         add("Scale", row_scale)
 
-        row_tick = ttk.Frame(self)
+        row_tick = ttk.Frame(body)
         ttk.Checkbutton(row_tick, text="Major", variable=self._vars["tick_major"]).pack(side=tk.LEFT)
         ttk.Checkbutton(row_tick, text="Minor", variable=self._vars["tick_minor"]).pack(side=tk.LEFT, padx=6)
         add("Tick vis", row_tick)
-        add("Tick len", ttk.Spinbox(self, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=10))
-        add("Tick dir", ttk.Combobox(self, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=10))
+        add("Tick len", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=10))
+        add("Tick dir", ttk.Combobox(body, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=10))
 
-        add("Fig size", ttk.Combobox(self, values=list(FIG_SIZE_PRESETS.keys()), textvariable=self._vars["fig_size_preset"], state="readonly", width=14))
-        lay = ttk.Frame(self)
+        add("Fig size", ttk.Combobox(body, values=list(FIG_SIZE_PRESETS.keys()), textvariable=self._vars["fig_size_preset"], state="readonly", width=14))
+        lay = ttk.Frame(body)
         ttk.Checkbutton(lay, text="Tight", variable=self._vars["layout_tight"]).pack(side=tk.LEFT)
         ttk.Checkbutton(lay, text="Constrained", variable=self._vars["layout_constrained"]).pack(side=tk.LEFT, padx=6)
         add("Layout", lay)
 
-        btns = ttk.Frame(self)
+        btns = ttk.Frame(body)
         btns.grid(row=r, column=0, columnspan=4, sticky="ew", pady=(8, 0))
         ttk.Button(btns, text="Reset", command=self._reset_defaults, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT)
 
         for c in (1, 2, 3):
-            self.columnconfigure(c, weight=1)
+            body.columnconfigure(c, weight=1)
 
     def _bind_auto_apply(self) -> None:
         for var in self._vars.values():
