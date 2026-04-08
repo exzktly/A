@@ -136,7 +136,7 @@ class AllWellApp(tk.Tk):
 
         # Notify child components of theme change
         if self._review is not None and hasattr(self._review, "_on_theme_change"):
-            self._review._on_theme_change()
+            self._review._on_theme_change(theme_name)
 
     def _on_tab_change(self, _event=None) -> None:
         if self._review is None:

@@ -1736,6 +1736,7 @@ class WellViewerApp(tk.Frame):
         self.configure(bg=BG_APP)
         self._NP_AVAILABLE = _NP_AVAILABLE
         self._np = _np
+        self._theme_name = "Dark"
 
         # Data state
         self._data_dir:   Optional[Path]        = None   # dir with CSVs (and out-zips)
@@ -4530,6 +4531,12 @@ class WellViewerApp(tk.Frame):
 
         Refreshes all UI components to use the new theme colors.
         """
+        from ui.theme import rebuild_widget_colors
+
+        new_theme = theme_name or self._theme_name
+        old_theme = self._theme_name
+        self._theme_name = new_theme
+
         # Apply TTK style changes
         self._apply_theme()
 
@@ -4548,6 +4555,9 @@ class WellViewerApp(tk.Frame):
         # Refresh statistics tab colors
         if hasattr(self, '_stats_fig') and self._stats_fig:
             self._stats_refresh_colors()
+
+        # Re-map tk widget colors after any panel rebuilds performed above.
+        rebuild_widget_colors(self, old_theme, new_theme)
 
     # ── Loading ───────────────────────────────────────────────────────────────
 

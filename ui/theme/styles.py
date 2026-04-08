@@ -508,6 +508,37 @@ def apply_all_well_theme(style: ttk.Style, theme_name: str = None) -> None:
               background=[("selected", bg_panel), ("active", bg_side)],
               foreground=[("selected", txt_pri)])
 
+    # Treeview / table widgets
+    style.configure(
+        "Treeview",
+        background=bg_panel,
+        fieldbackground=bg_panel,
+        foreground=txt_pri,
+        bordercolor=colors["BORDER"],
+        lightcolor=colors["BORDER"],
+        darkcolor=colors["BORDER"],
+        rowheight=22,
+    )
+    style.map(
+        "Treeview",
+        background=[("selected", accent)],
+        foreground=[("selected", clr_white)],
+    )
+    style.configure(
+        "Treeview.Heading",
+        background=bg_side,
+        foreground=txt_pri,
+        bordercolor=colors["BORDER"],
+        lightcolor=colors["BORDER"],
+        darkcolor=colors["BORDER"],
+        font=FM_TINY,
+    )
+    style.map(
+        "Treeview.Heading",
+        background=[("active", bg_hover)],
+        foreground=[("active", txt_pri)],
+    )
+
     # Combobox
     style.configure("TCombobox", fieldbackground=bg_panel, background=bg_panel,
                     foreground=txt_pri, selectbackground=accent, selectforeground=clr_white,
