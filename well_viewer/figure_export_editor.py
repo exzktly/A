@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox
 
 import tkinter as tk
 from tkinter import ttk
+from ui.theme import FM_BOLD, FM_TINY
 
 DEFAULT_EXPORT_STYLE_PREFS = {
     "axis_label_size": 12,
@@ -34,18 +35,9 @@ DEFAULT_EXPORT_STYLE_PREFS = {
     "tick_minor": False,
     "tick_length": 4.0,
     "tick_direction": "out",
-    "fig_size_preset": "Current",
     "layout_tight": False,
     "layout_constrained": False,
     "export_profile": "Custom",
-}
-
-FIG_SIZE_PRESETS = {
-    "Current": None,
-    "Journal Single": (3.5, 2.6),
-    "Journal Double": (7.2, 4.4),
-    "Slide": (10.0, 5.625),
-    "Poster": (12.0, 8.0),
 }
 
 EXPORT_PROFILES = {
@@ -71,11 +63,6 @@ def _to_float_or_none(value: str):
 
 def apply_export_style_prefs(fig, prefs: dict) -> None:
     fig.patch.set_alpha(1.0)
-
-    preset = prefs.get("fig_size_preset", "Current")
-    size = FIG_SIZE_PRESETS.get(preset)
-    if size:
-        fig.set_size_inches(*size, forward=True)
 
     axis_target = str(prefs.get("axis_target", "All"))
     target_idx = None if axis_target == "All" else int(axis_target)
@@ -206,7 +193,6 @@ class _ExportStyleSidebar(ttk.Frame):
             "tick_minor": tk.BooleanVar(value=bool(self._prefs["tick_minor"])),
             "tick_length": tk.DoubleVar(value=float(self._prefs["tick_length"])),
             "tick_direction": tk.StringVar(value=str(self._prefs["tick_direction"])),
-            "fig_size_preset": tk.StringVar(value=str(self._prefs["fig_size_preset"])),
             "layout_tight": tk.BooleanVar(value=bool(self._prefs["layout_tight"])),
             "layout_constrained": tk.BooleanVar(value=bool(self._prefs["layout_constrained"])),
             "export_profile": tk.StringVar(value=str(self._prefs["export_profile"])),
@@ -218,7 +204,7 @@ class _ExportStyleSidebar(ttk.Frame):
     def _build_ui(self) -> None:
         hdr = ttk.Frame(self)
         hdr.pack(fill=tk.X)
-        ttk.Label(hdr, text="Export Style", style="Title.TLabel").pack(side=tk.LEFT)
+        ttk.Label(hdr, text="Export Style", style="Title.TLabel", font=FM_BOLD).pack(side=tk.LEFT)
         ttk.Button(hdr, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").pack(side=tk.RIGHT)
 
         wrap = ttk.Frame(self)
@@ -227,7 +213,8 @@ class _ExportStyleSidebar(ttk.Frame):
         vs = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
         body = ttk.Frame(canvas)
         body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=body, anchor="nw")
+        win_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
         canvas.configure(yscrollcommand=vs.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vs.pack(side=tk.RIGHT, fill=tk.Y)
@@ -235,13 +222,13 @@ class _ExportStyleSidebar(ttk.Frame):
         r = 0
         def add(label, widget):
             nonlocal r
-            ttk.Label(body, text=label, width=8).grid(row=r, column=0, sticky="w", pady=1)
+            ttk.Label(body, text=label, width=8, font=FM_TINY).grid(row=r, column=0, sticky="w", pady=1)
             widget.grid(row=r, column=1, columnspan=3, sticky="ew", pady=1)
             r += 1
 
-        add("Profile", ttk.Combobox(body, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14))
-        add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10))
-        add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=10))
+        add("Profile", ttk.Combobox(body, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14, font=FM_TINY))
+        add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10, font=FM_TINY))
+        add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=10, font=FM_TINY))
         add("Axis", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=10))
         add("Ticks", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=10))
         add("Title", ttk.Spinbox(body, from_=1, to=128, textvariable=self._vars["title_size"], width=10))
@@ -249,7 +236,7 @@ class _ExportStyleSidebar(ttk.Frame):
 
         add("Legend", ttk.Checkbutton(body, variable=self._vars["legend_show"]))
         add("Leg size", ttk.Spinbox(body, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=10))
-        add("Leg loc", ttk.Combobox(body, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=14))
+        add("Leg loc", ttk.Combobox(body, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=14, font=FM_TINY))
 
         add("Line w", ttk.Spinbox(body, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=10))
         add("Mkr sz", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=10))
@@ -257,17 +244,17 @@ class _ExportStyleSidebar(ttk.Frame):
 
         add("Grid", ttk.Checkbutton(body, variable=self._vars["grid_show"]))
         add("Grid α", ttk.Spinbox(body, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=10))
-        add("Grid ls", ttk.Combobox(body, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=10))
+        add("Grid ls", ttk.Combobox(body, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=10, font=FM_TINY))
 
         limrow = ttk.Frame(body)
         ttk.Entry(limrow, textvariable=self._vars["x_lim_min"], width=6).pack(side=tk.LEFT)
-        ttk.Label(limrow, text="…").pack(side=tk.LEFT, padx=2)
+        ttk.Label(limrow, text="…", font=FM_TINY).pack(side=tk.LEFT, padx=2)
         ttk.Entry(limrow, textvariable=self._vars["x_lim_max"], width=6).pack(side=tk.LEFT)
         add("X lim", limrow)
 
         limrow2 = ttk.Frame(body)
         ttk.Entry(limrow2, textvariable=self._vars["y_lim_min"], width=6).pack(side=tk.LEFT)
-        ttk.Label(limrow2, text="…").pack(side=tk.LEFT, padx=2)
+        ttk.Label(limrow2, text="…", font=FM_TINY).pack(side=tk.LEFT, padx=2)
         ttk.Entry(limrow2, textvariable=self._vars["y_lim_max"], width=6).pack(side=tk.LEFT)
         add("Y lim", limrow2)
 
@@ -281,9 +268,7 @@ class _ExportStyleSidebar(ttk.Frame):
         ttk.Checkbutton(row_tick, text="Minor", variable=self._vars["tick_minor"]).pack(side=tk.LEFT, padx=6)
         add("Tick vis", row_tick)
         add("Tick len", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=10))
-        add("Tick dir", ttk.Combobox(body, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=10))
-
-        add("Fig size", ttk.Combobox(body, values=list(FIG_SIZE_PRESETS.keys()), textvariable=self._vars["fig_size_preset"], state="readonly", width=14))
+        add("Tick dir", ttk.Combobox(body, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=10, font=FM_TINY))
         lay = ttk.Frame(body)
         ttk.Checkbutton(lay, text="Tight", variable=self._vars["layout_tight"]).pack(side=tk.LEFT)
         ttk.Checkbutton(lay, text="Constrained", variable=self._vars["layout_constrained"]).pack(side=tk.LEFT, padx=6)
