@@ -3,26 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import colorchooser, filedialog, messagebox
+from tkinter import filedialog, messagebox
 
 import tkinter as tk
 from tkinter import ttk
 
 DEFAULT_EXPORT_STYLE_PREFS = {
-    "background_color": "transparent",
     "axis_label_size": 12,
     "tick_label_size": 10,
     "title_size": 14,
-    "line_marker_face_color": "#1f77b4",
-    "bar_face_color": "#1f77b4",
     "x_tick_angle": 0,
     "format": "png",
 }
-
-
-def _normalize_facecolor(bg_value: str | None):
-    v = (bg_value or "").strip().lower()
-    return "none" if (not v or v == "transparent") else bg_value
 
 
 def _ensure_export_style_prefs(app) -> dict:
@@ -32,7 +24,7 @@ def _ensure_export_style_prefs(app) -> dict:
 
 
 def apply_export_style_prefs(fig, prefs: dict) -> None:
-    face = _normalize_facecolor(prefs.get("background_color"))
+    face = "none"
     fig.set_facecolor(face)
     for ax in fig.axes:
         ax.set_facecolor(face)
@@ -43,10 +35,6 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
         ax.title.set_fontsize(int(prefs.get("title_size", 14)))
         for tick in ax.get_xticklabels():
             tick.set_rotation(int(prefs.get("x_tick_angle", 0)))
-        for ln in ax.lines:
-            ln.set_markerfacecolor(prefs.get("line_marker_face_color", "#1f77b4"))
-        for patch in ax.patches:
-            patch.set_facecolor(prefs.get("bar_face_color", "#1f77b4"))
 
 
 def apply_export_style_to_current(app, fig, canvas=None) -> None:
@@ -66,12 +54,9 @@ class _ExportStyleSidebar(ttk.Frame):
         self._base_dir = Path(app._data_dir) if getattr(app, "_data_dir", None) else Path.cwd()
         self._prefs = _ensure_export_style_prefs(app)
 
-        self._bg = tk.StringVar(value=str(self._prefs["background_color"]))
         self._axis = tk.IntVar(value=int(self._prefs["axis_label_size"]))
         self._tick = tk.IntVar(value=int(self._prefs["tick_label_size"]))
         self._title = tk.IntVar(value=int(self._prefs["title_size"]))
-        self._line = tk.StringVar(value=str(self._prefs["line_marker_face_color"]))
-        self._bar = tk.StringVar(value=str(self._prefs["bar_face_color"]))
         self._xang = tk.IntVar(value=int(self._prefs["x_tick_angle"]))
         self._fmt = tk.StringVar(value=str(self._prefs["format"]))
         self._default_name = default_name
@@ -84,33 +69,18 @@ class _ExportStyleSidebar(ttk.Frame):
 
         row = 1
         for label, var in (
-            ("Canvas", self._bg),
             ("Axis", self._axis),
             ("Ticks", self._tick),
             ("Title", self._title),
-            ("Line", self._line),
-            ("Bars", self._bar),
             ("X°", self._xang),
             ("Fmt", self._fmt),
         ):
             ttk.Label(self, text=label, width=6).grid(row=row, column=0, sticky="w", pady=1)
-            if label == "Canvas":
-                w = ttk.Frame(self)
-                ttk.Entry(w, textvariable=var, width=10).pack(side=tk.LEFT)
-                ttk.Button(w, text="◌", width=2, style="ActionSecondary.TButton",
-                           command=lambda v=var: v.set("transparent")).pack(side=tk.LEFT, padx=(2, 0))
-                ttk.Button(w, text="✎", width=2, style="ActionSecondary.TButton",
-                           command=lambda v=var: self._pick_color(v)).pack(side=tk.LEFT, padx=(2, 0))
-            elif label == "Fmt":
+            if label == "Fmt":
                 w = ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], state="readonly", textvariable=var, width=9)
             elif isinstance(var, tk.IntVar):
                 lim = 90 if label == "X°" else 96
                 w = ttk.Spinbox(self, from_=0 if label == "X°" else 1, to=lim, textvariable=var, width=10)
-            elif label in ("Line", "Bars"):
-                w = ttk.Frame(self)
-                ttk.Entry(w, textvariable=var, width=10).pack(side=tk.LEFT)
-                ttk.Button(w, text="✎", width=2, style="ActionSecondary.TButton",
-                           command=lambda v=var: self._pick_color(v)).pack(side=tk.LEFT, padx=(2, 0))
             else:
                 w = ttk.Entry(self, textvariable=var, width=12)
             w.grid(row=row, column=1, columnspan=2, sticky="ew", pady=1)
@@ -123,20 +93,11 @@ class _ExportStyleSidebar(ttk.Frame):
 
         self.columnconfigure(1, weight=1)
 
-    @staticmethod
-    def _pick_color(var: tk.StringVar) -> None:
-        picked = colorchooser.askcolor(color=var.get())[1]
-        if picked:
-            var.set(picked)
-
     def _persist(self) -> None:
         self._prefs.update(
-            background_color=self._bg.get(),
             axis_label_size=int(self._axis.get()),
             tick_label_size=int(self._tick.get()),
             title_size=int(self._title.get()),
-            line_marker_face_color=self._line.get(),
-            bar_face_color=self._bar.get(),
             x_tick_angle=int(self._xang.get()),
             format=self._fmt.get(),
         )
@@ -163,13 +124,27 @@ class _ExportStyleSidebar(ttk.Frame):
             if not out:
                 return
             out_path = Path(out)
-            face = _normalize_facecolor(self._prefs.get("background_color"))
-            kw = {"format": fmt, "bbox_inches": "tight", "transparent": face == "none"}
-            if face != "none":
-                kw["facecolor"] = face
+            kw = {"format": fmt, "bbox_inches": "tight", "transparent": True}
+            orig_svg = orig_ps = None
             if fmt == "png":
                 kw["dpi"] = 300
-            self._fig.savefig(str(out_path), **kw)
+            elif fmt == "svg":
+                import matplotlib as _mpl
+                orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
+                _mpl.rcParams["svg.fonttype"] = "none"
+            elif fmt == "eps":
+                import matplotlib as _mpl
+                orig_ps = _mpl.rcParams.get("ps.fonttype", 3)
+                _mpl.rcParams["ps.fonttype"] = 42
+            try:
+                self._fig.savefig(str(out_path), **kw)
+            finally:
+                if fmt == "svg" and orig_svg is not None:
+                    import matplotlib as _mpl
+                    _mpl.rcParams["svg.fonttype"] = orig_svg
+                if fmt == "eps" and orig_ps is not None:
+                    import matplotlib as _mpl
+                    _mpl.rcParams["ps.fonttype"] = orig_ps
             self._app._set_status(f"Figure saved → {out_path.name}")
         except Exception as exc:
             messagebox.showerror("Export failed", str(exc), parent=self)
