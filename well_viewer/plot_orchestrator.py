@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
-from well_viewer.figure_export_editor import launch_dash_export_editor
+from well_viewer.figure_export_editor import launch_export_editor
 
 
 def redraw(
@@ -91,7 +91,7 @@ def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
 
 
 def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> None:
-    session = launch_dash_export_editor(app, fig, default_name, plot_bg=plot_bg, canvas=canvas)
+    session = launch_export_editor(app, fig, default_name, plot_bg=plot_bg, canvas=canvas)
     if session is not None:
         app._set_status("Export editor opened.")
         return

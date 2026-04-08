@@ -154,11 +154,8 @@ class _ExportEditorDialog(tk.Toplevel):
             messagebox.showerror("Export failed", str(exc), parent=self)
 
 
-def launch_dash_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> _ExportEditorSession | None:
-    """Launch in-app export editor dialog.
-
-    Function name kept for backward compatibility with existing call sites.
-    """
+def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> _ExportEditorSession | None:
+    """Launch in-app export editor dialog."""
     try:
         dlg = _ExportEditorDialog(app, fig, canvas=canvas, default_name=default_name, plot_bg=plot_bg)
         dlg.transient(app)
