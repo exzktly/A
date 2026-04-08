@@ -46,7 +46,6 @@ Filename convention (underscore-separated):
 from __future__ import annotations
 
 import argparse
-import copy
 import importlib.util
 import logging
 import os
@@ -62,6 +61,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import tifffile                                      # noqa: F401  (side-effects)
 from tifffile import imread, imwrite
 import numpy as np
+from scipy import ndimage as ndi
 from scipy.ndimage import grey_opening
 from skimage.segmentation import find_boundaries
 import imageio.v3 as iio
@@ -165,16 +165,29 @@ def find_well_zips(input_dir: Path) -> list[tuple[str, Path]]:
 # Zip extraction / compression helpers
 # ---------------------------------------------------------------------------
 
-def extract_zip(zip_path: Path, dest_dir: Path) -> None:
+def extract_zip(
+    zip_path: Path,
+    dest_dir: Path,
+    members_to_extract: "set[str] | None" = None,
+) -> int:
     """
     Extract image members of *zip_path* flat into *dest_dir*.
+
+    When *members_to_extract* is provided, only those base filenames are
+    extracted. This allows zip-mode processing to pull only the channel files
+    required by discovered image groups instead of unpacking every image.
+
     CSV files and other non-image files inside the zip are skipped so
     that outputs from a previous run packaged back into the input zip
     cannot interfere with the current run or end up re-zipped in output.
+
+    Returns the number of image files extracted.
     """
     image_exts = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+    wanted = set(members_to_extract or [])
     dest_dir.mkdir(parents=True, exist_ok=True)
     skipped: list[str] = []
+    extracted = 0
     with zipfile.ZipFile(zip_path, "r") as zf:
         for member in zf.infolist():
             # Strip any directory structure inside the zip; extract flat.
@@ -187,15 +200,22 @@ def extract_zip(zip_path: Path, dest_dir: Path) -> None:
             if Path(member_name).suffix.lower() not in image_exts:
                 skipped.append(member_name)
                 continue
+            if wanted and member_name not in wanted:
+                continue
             target = dest_dir / member_name
             with zf.open(member) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
+            extracted += 1
     if skipped:
         log.debug(
             "Skipped %d non-image file(s) in %s: %s",
             len(skipped), zip_path.name, ", ".join(skipped),
         )
-    log.info("Extracted %s  ->  %s", zip_path.name, dest_dir)
+    if wanted:
+        log.info("Extracted %d selected image(s) from %s -> %s", extracted, zip_path.name, dest_dir)
+    else:
+        log.info("Extracted %s  ->  %s", zip_path.name, dest_dir)
+    return extracted
 
 
 def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
@@ -479,6 +499,7 @@ def process_image_group(
     tophat_radius_fluor: "list[int]",
     save_masks: bool,
     save_overlays: bool,
+    save_tophat_images: bool,
     schema: "list[str] | None" = None,
     sep: str = DEFAULT_SEP,
     smfish_tokens: "list[str] | None" = None,
@@ -519,7 +540,7 @@ def process_image_group(
 
     # Top-hat on nuclear channel.
     _t = time.perf_counter()
-    nir_corr = apply_tophat(nir_raw, tophat_radius_nir) if tophat_nir else nir_raw.copy()
+    nir_corr = apply_tophat(nir_raw, tophat_radius_nir) if tophat_nir else nir_raw
     log.info("  tophat_nir:  %.1f s  (radius %d, enabled=%s)",
              time.perf_counter() - _t, tophat_radius_nir, tophat_nir)
 
@@ -528,13 +549,13 @@ def process_image_group(
     for i, (fraw, do_th, radius) in enumerate(
             zip(fluor_raws, tophat_fluor, tophat_radius_fluor)):
         _t = time.perf_counter()
-        fc = apply_tophat(fraw, radius) if do_th else fraw.copy()
+        fc = apply_tophat(fraw, radius) if do_th else fraw
         fluor_tophat.append(fc)
         log.info("  tophat_%s:  %.1f s  (radius %d, enabled=%s)",
                  fluor_tokens[i].lower(), time.perf_counter() - _t, radius, do_th)
 
     smfish_set = set(smfish_tokens or [])
-    fluor_corr = [img.copy() for img in fluor_tophat]
+    fluor_corr = list(fluor_tophat)
     for i, tok in enumerate(fluor_tokens):
         if tok in smfish_set:
             _t = time.perf_counter()
@@ -562,16 +583,17 @@ def process_image_group(
     base_name = stem.replace(nuclear_token, "")
 
     _t = time.perf_counter()
-    th_nir_path = output_dir / f"{base_name}_tophat_nir.tif"
-    imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
-    for fc, tok in zip(fluor_tophat, fluor_tokens):
-        th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
-        imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
-    for i, tok in enumerate(fluor_tokens):
-        if tok in smfish_set:
-            smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
-            imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
-    log.info("  tophat tifs written")
+    if save_tophat_images:
+        th_nir_path = output_dir / f"{base_name}_tophat_nir.tif"
+        imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
+        for fc, tok in zip(fluor_tophat, fluor_tokens):
+            th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
+            imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
+        for i, tok in enumerate(fluor_tokens):
+            if tok in smfish_set:
+                smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
+                imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
+        log.info("  tophat tifs written")
     if save_masks:
         imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
     if save_overlays:
@@ -585,21 +607,31 @@ def process_image_group(
 
     _t = time.perf_counter()
     records: list[dict] = []
-    for nid in nuc_ids:
-        mask = labels == nid
+    idx = np.asarray(nuc_ids, dtype=np.int32)
+    area = ndi.sum(np.ones_like(labels, dtype=np.float32), labels=labels, index=idx)
+    fluor_stats: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]] = []
+    for fc, tok in zip(fluor_corr, fluor_tokens):
+        fluor_stats.append((
+            ndi.sum(fc, labels=labels, index=idx),
+            ndi.mean(fc, labels=labels, index=idx),
+            ndi.maximum(fc, labels=labels, index=idx),
+            ndi.minimum(fc, labels=labels, index=idx),
+            ndi.standard_deviation(fc, labels=labels, index=idx),
+            tok.lower(),
+        ))
+
+    for i, nid in enumerate(nuc_ids):
         rec: dict = {
             **meta,
             "nucleus_id": int(nid),
-            "area_px":    int(mask.sum()),
+            "area_px":    int(area[i]),
         }
-        for fc, tok in zip(fluor_corr, fluor_tokens):
-            px  = fc[mask]
-            pfx = tok.lower()
-            rec[f"{pfx}_total_intensity"] = float(px.sum())
-            rec[f"{pfx}_mean_intensity"]  = float(px.mean())
-            rec[f"{pfx}_max_intensity"]   = float(px.max())
-            rec[f"{pfx}_min_intensity"]   = float(px.min())
-            rec[f"{pfx}_std_intensity"]   = float(px.std())
+        for total, mean, maxv, minv, stdv, pfx in fluor_stats:
+            rec[f"{pfx}_total_intensity"] = float(total[i])
+            rec[f"{pfx}_mean_intensity"]  = float(mean[i])
+            rec[f"{pfx}_max_intensity"]   = float(maxv[i])
+            rec[f"{pfx}_min_intensity"]   = float(minv[i])
+            rec[f"{pfx}_std_intensity"]   = float(stdv[i])
         records.append(rec)
     log.info("  quantify:    %.1f s  (%d nuclei)", time.perf_counter() - _t, len(records))
 
@@ -608,6 +640,96 @@ def process_image_group(
 # ---------------------------------------------------------------------------
 # Directory scan
 # ---------------------------------------------------------------------------
+
+def find_image_groups_in_zip(
+    zip_path: Path,
+    nuclear_token: str,
+    fluor_tokens: "list[str]",
+    dest_dir: Path,
+    schema: "list[str] | None" = None,
+    sep: str = DEFAULT_SEP,
+) -> "tuple[list[tuple[Path, list[Path]]], set[str]]":
+    """
+    Discover complete image groups from filenames inside *zip_path*.
+
+    Returns:
+      - groups as paths rooted at *dest_dir* (where selected members are later extracted)
+      - set of base member names that must be extracted to satisfy those groups
+    """
+    if schema is None:
+        schema = parse_schema(DEFAULT_SCHEMA)
+
+    channel_idx: "int | None" = schema.index("channel") if "channel" in schema else None
+    image_exts = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+
+    by_name: set[str] = set()
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for member in zf.infolist():
+            base = Path(member.filename).name
+            if not base or base.startswith("."):
+                continue
+            if Path(base).suffix.lower() not in image_exts:
+                continue
+            if base in by_name:
+                log.warning(
+                    "Zip %s contains duplicate basename '%s'; using first occurrence.",
+                    zip_path.name,
+                    base,
+                )
+                continue
+            by_name.add(base)
+
+    def _derive_fluor_name(nuclear_name: str, fluor_token: str) -> str:
+        p = Path(nuclear_name)
+        if channel_idx is not None:
+            parts = p.stem.split(sep)
+            if channel_idx >= len(parts):
+                return ""
+            parts[channel_idx] = fluor_token
+            return sep.join(parts) + p.suffix
+        return p.name.replace(nuclear_token, fluor_token)
+
+    groups: list[tuple[Path, list[Path]]] = []
+    needed_members: set[str] = set()
+    incomplete: list[str] = []
+
+    for base in sorted(by_name):
+        p = Path(base)
+        if channel_idx is not None:
+            stem_parts = p.stem.split(sep)
+            if channel_idx >= len(stem_parts) or stem_parts[channel_idx] != nuclear_token:
+                continue
+        elif nuclear_token not in p.name:
+            continue
+
+        fluor_names = [_derive_fluor_name(base, tok) for tok in fluor_tokens]
+        if any(not fn for fn in fluor_names):
+            incomplete.append(base)
+            continue
+        missing = [fn for fn in fluor_names if fn not in by_name]
+        if missing:
+            incomplete.append(base)
+            for fn in missing:
+                log.warning("  missing fluor file in zip %s: %s", zip_path.name, fn)
+            continue
+
+        needed_members.add(base)
+        needed_members.update(fluor_names)
+        groups.append((dest_dir / base, [dest_dir / fn for fn in fluor_names]))
+
+    if incomplete:
+        log.warning(
+            "%d nuclear file(s) skipped in %s due to missing fluorescent channel(s).",
+            len(incomplete),
+            zip_path.name,
+        )
+
+    log.info(
+        "Found %d image group(s) in %s  (%d fluor channel(s): %s)",
+        len(groups), zip_path.name, len(fluor_tokens), ", ".join(fluor_tokens),
+    )
+    return groups, needed_members
+
 
 def find_image_groups(
     input_dir: Path,
@@ -633,6 +755,14 @@ def find_image_groups(
     extensions = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
     groups: "list[tuple[Path, list[Path]]]" = []
     incomplete: list[Path] = []
+    all_images = [
+        p for p in sorted(input_dir.rglob("*"))
+        if p.is_file()
+        and not p.name.startswith(".")
+        and not any(part.startswith(".") for part in p.parts)
+        and p.suffix.lower() in extensions
+    ]
+    all_set = set(all_images)
 
     channel_idx: "int | None" = (
         schema.index("channel") if "channel" in schema else None
@@ -649,13 +779,7 @@ def find_image_groups(
             nuclear_token, fluor_token
         )
 
-    for path in sorted(input_dir.rglob("*")):
-        if path.name.startswith("."):
-            continue
-        if any(part.startswith(".") for part in path.parts):
-            continue
-        if path.suffix.lower() not in extensions:
-            continue
+    for path in all_images:
 
         # Filter to nuclear channel files only.
         if channel_idx is not None:
@@ -670,7 +794,7 @@ def find_image_groups(
 
         # Build the expected path for each fluorescent channel.
         fluor_paths = [_derive_fluor_path(path, tok) for tok in fluor_tokens]
-        missing = [fp for fp in fluor_paths if not fp.exists()]
+        missing = [fp for fp in fluor_paths if fp not in all_set]
         if missing:
             incomplete.append(path)
             for fp in missing:
@@ -859,6 +983,7 @@ def _process_groups_in_worker(
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
     fov_threads = shared_kwargs.pop("_fov_threads", fov_threads)
+    fov_threads = max(1, min(fov_threads, len(groups), os.cpu_count() or 1))
     kwargs = {k: v for k, v in shared_kwargs.items() if not k.startswith("_")}
 
     all_records: list[dict] = []
@@ -912,7 +1037,8 @@ def process_well_zip_task(
     Top-level picklable task: full lifecycle for one zipped well.
 
     Runs inside a worker process (StarDist already loaded by _worker_init).
-    1. Extract zip to a temporary directory.
+    1. Discover complete image groups from zip member names, then extract only
+       required channel files to a temporary directory.
     2. Discover image groups (nuclear + all fluor channels) and process them.
     3. Write the per-well CSV.
     4. Compress output images to <output_dir>/<well>_out.zip.
@@ -937,13 +1063,25 @@ def process_well_zip_task(
         tmp_extract.mkdir(parents=True, exist_ok=True)
         tmp_images.mkdir(parents=True,  exist_ok=True)
 
-        extract_zip(zip_path, tmp_extract)
-
-        groups = find_image_groups(tmp_extract, nuclear_token, fluor_tokens,
-                                   schema=schema, sep=sep)
+        groups, needed_members = find_image_groups_in_zip(
+            zip_path,
+            nuclear_token,
+            fluor_tokens,
+            tmp_extract,
+            schema=schema,
+            sep=sep,
+        )
         if not groups:
-            log.warning("Well %s: no image groups found after extraction.", well_label)
+            log.warning("Well %s: no image groups found in %s.", well_label, zip_path.name)
             return [], []
+
+        n_extracted = extract_zip(zip_path, tmp_extract, members_to_extract=needed_members)
+        log.info(
+            "Well %s: extracted %d/%d required image file(s).",
+            well_label,
+            n_extracted,
+            len(needed_members),
+        )
 
         kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
         records, failed = _process_groups_in_worker(groups, kwargs, well_label)
@@ -1309,6 +1447,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Do not save label-mask TIFFs")
     p.add_argument("--no_save_overlays", action="store_true",
                    help="Do not save red-outline overlay PNGs")
+    p.add_argument("--no_save_tophat",   action="store_true",
+                   help="Do not save top-hat/smFISH intermediate TIFFs")
 
     p.add_argument("--tf_threads", type=int, default=0,
                    help=(
@@ -1458,6 +1598,7 @@ def main() -> None:
     log.info("Fluor channels : %s", ", ".join(args.fluor_tokens))
     log.info("Tophat fluor   : radius=%d, enabled=%s",
              args.tophat_radius_fluor, not args.no_tophat_fluor)
+    log.info("Save tophat    : %s", not args.no_save_tophat)
 
     # kwargs forwarded to every process_image_group call.
     shared_kwargs = dict(
@@ -1470,6 +1611,7 @@ def main() -> None:
         tophat_radius_fluor=tophat_radius_fluor,
         save_masks=not args.no_save_masks,
         save_overlays=not args.no_save_overlays,
+        save_tophat_images=not args.no_save_tophat,
         schema=schema,
         sep=sep,
         smfish_tokens=args.smfish_tokens,
