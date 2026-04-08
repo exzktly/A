@@ -112,8 +112,7 @@ class SmfishTab(tk.Frame):
 
         btn_row = tk.Frame(right, bg=BG_SIDE, pady=2, padx=10)
         btn_row.pack(fill=tk.X, side=tk.TOP)
-        ttk.Button(btn_row, text="Apply to Current", command=self._apply_to_current).pack(side=tk.LEFT, padx=(2, 0))
-        ttk.Button(btn_row, text="Apply Global Threshold", command=self._apply_to_all).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(btn_row, text="Apply Global Threshold", command=self._apply_to_all).pack(side=tk.LEFT, padx=(2, 0))
         ttk.Button(btn_row, text="Refresh", command=self._redraw).pack(side=tk.LEFT, padx=(6, 0))
         self._overlay_btn = ttk.Button(btn_row, text="Hide Overlays", command=self._toggle_overlays)
         self._overlay_btn.pack(side=tk.LEFT, padx=(6, 0))
@@ -503,62 +502,14 @@ class SmfishTab(tk.Frame):
     def _apply_to_all(self) -> None:
         threading.Thread(target=self._apply_to_all_worker, daemon=True).start()
 
-    def _apply_to_current(self) -> None:
-        if self._current_log_img is None or self._current_labels is None:
-            self._status_var.set("No image loaded to apply threshold.")
+    def _refresh_app_cache(self) -> None:
+        if self._app is None:
             return
-        out_dir = self._out_dir
-        channel = self._channel_var.get().strip().lower()
-        well = self._selected_well_token()
-        fov = self._fov_var.get().strip()
-        tp = self._tp_var.get().strip()
-        if out_dir is None or not channel or not well or not fov or not tp:
-            self._status_var.set("Select channel, and ensure exactly one well/FOV/timepoint is selected.")
-            return
-
-        thr = self._get_threshold()
-        labels = self._current_labels
-        log_img = self._current_log_img
-        col = f"{channel}_smfish_count"
-        counts: dict[str, int] = {}
-        hits = labels[(labels > 0) & (log_img > thr)].astype(np.int64, copy=False)
-        if hits.size:
-            hit_counts = np.bincount(hits)
-            for nid in np.nonzero(hit_counts)[0]:
-                counts[str(int(nid))] = int(hit_counts[nid])
-
-        sel_label = self._selected_well_label()
-        if self._app is not None and sel_label and sel_label in self._app._well_paths:
-            csv_path = self._app._well_paths[sel_label]
-        else:
-            csv_matches = list(out_dir.glob(f"*_{well}.csv"))
-            if not csv_matches:
-                self._status_var.set(f"No CSV found for well {well}.")
-                return
-            csv_path = csv_matches[0]
-        with csv_path.open("r", newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            rows = list(reader)
-            fieldnames = list(reader.fieldnames or [])
-        if col not in fieldnames:
-            fieldnames.append(col)
-
-        updated = 0
-        for row in rows:
-            row_well = self._norm_well_token((row.get("well") or well))
-            row_fov = self._norm_id((row.get("fov") or row.get("FOV") or ""))
-            row_tp = self._norm_id((row.get("timepoint") or row.get("tp") or row.get("time") or ""))
-            row_nid = (row.get("nucleus_id") or "").strip()
-            if row_well == self._norm_well_token(well) and row_fov == self._norm_id(fov) and row_tp == self._norm_id(tp):
-                row[col] = str(counts.get(row_nid, 0))
-                updated += 1
-
-        with csv_path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
-
-        self._status_var.set(f"Applied threshold to current image ({updated} rows updated).")
+        for label, path in self._app._well_paths.items():
+            if label in self._app._cache:
+                self._app._cache[label] = self._app._load_well_csv(path)
+        self._app._recalculate_threshold()
+        self._app._redraw()
 
     def _apply_to_all_worker(self) -> None:
         out_dir = self._out_dir
@@ -611,9 +562,9 @@ class SmfishTab(tk.Frame):
                 fieldnames.append(col)
 
             for row in rows:
-                r_well = (row.get("well") or well).strip().upper()
-                fov = (row.get("fov") or row.get("FOV") or "").strip()
-                tp = (row.get("timepoint") or row.get("tp") or row.get("time") or "").strip()
+                r_well = self._norm_well_token((row.get("well") or well))
+                fov = self._norm_id((row.get("fov") or row.get("FOV") or ""))
+                tp = self._norm_id((row.get("timepoint") or row.get("tp") or row.get("time") or ""))
                 nid = (row.get("nucleus_id") or "").strip()
                 key = (r_well, fov, tp, nid)
                 row[col] = str(counts.get(key, 0))
@@ -623,5 +574,6 @@ class SmfishTab(tk.Frame):
                 writer.writeheader()
                 writer.writerows(rows)
 
-        self.after(0, lambda: self._status_var.set("Apply to All complete."))
+        self.after(0, self._refresh_app_cache)
+        self.after(0, lambda: self._status_var.set("Apply to All complete. Line/Bar plots refreshed."))
         self.after(0, lambda: messagebox.showinfo("smFISH", "Apply to All finished.", parent=self))
