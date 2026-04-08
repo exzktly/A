@@ -14,6 +14,44 @@ DEFAULT_EXPORT_STYLE_PREFS = {
     "title_size": 14,
     "x_tick_angle": 0,
     "format": "png",
+    "legend_show": True,
+    "legend_font_size": 9,
+    "legend_loc": "best",
+    "line_width": 1.8,
+    "marker_size": 5.0,
+    "marker_edge_width": 0.8,
+    "grid_show": True,
+    "grid_alpha": 0.25,
+    "grid_style": "--",
+    "x_lim_min": "",
+    "x_lim_max": "",
+    "y_lim_min": "",
+    "y_lim_max": "",
+    "x_log": False,
+    "y_log": False,
+    "tick_major": True,
+    "tick_minor": False,
+    "tick_length": 4.0,
+    "tick_direction": "out",
+    "fig_size_preset": "Current",
+    "layout_tight": False,
+    "layout_constrained": False,
+    "export_profile": "Custom",
+}
+
+FIG_SIZE_PRESETS = {
+    "Current": None,
+    "Journal Single": (3.5, 2.6),
+    "Journal Double": (7.2, 4.4),
+    "Slide": (10.0, 5.625),
+    "Poster": (12.0, 8.0),
+}
+
+EXPORT_PROFILES = {
+    "Custom": {},
+    "Illustrator SVG": {"format": "svg", "layout_tight": True},
+    "High-res PNG": {"format": "png", "layout_tight": True},
+    "Print PDF": {"format": "pdf", "layout_tight": True},
 }
 
 
@@ -23,18 +61,84 @@ def _ensure_export_style_prefs(app) -> dict:
     return app._export_style_prefs
 
 
+def _to_float_or_none(value: str):
+    s = str(value).strip()
+    if not s:
+        return None
+    return float(s)
+
+
 def apply_export_style_prefs(fig, prefs: dict) -> None:
-    face = "none"
-    fig.set_facecolor(face)
+    fig.patch.set_alpha(0.0)
+
+    preset = prefs.get("fig_size_preset", "Current")
+    size = FIG_SIZE_PRESETS.get(preset)
+    if size:
+        fig.set_size_inches(*size, forward=True)
+
     for ax in fig.axes:
-        ax.set_facecolor(face)
+        ax.patch.set_alpha(0.0)
         ax.xaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
         ax.yaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
         ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)))
         ax.tick_params(axis="y", labelsize=int(prefs.get("tick_label_size", 10)))
         ax.title.set_fontsize(int(prefs.get("title_size", 14)))
+
         for tick in ax.get_xticklabels():
             tick.set_rotation(int(prefs.get("x_tick_angle", 0)))
+
+        for ln in ax.lines:
+            ln.set_linewidth(float(prefs.get("line_width", 1.8)))
+            ln.set_markersize(float(prefs.get("marker_size", 5.0)))
+            ln.set_markeredgewidth(float(prefs.get("marker_edge_width", 0.8)))
+
+        show_grid = bool(prefs.get("grid_show", True))
+        ax.grid(show_grid, alpha=float(prefs.get("grid_alpha", 0.25)), linestyle=str(prefs.get("grid_style", "--")))
+
+        xlo = _to_float_or_none(prefs.get("x_lim_min", ""))
+        xhi = _to_float_or_none(prefs.get("x_lim_max", ""))
+        ylo = _to_float_or_none(prefs.get("y_lim_min", ""))
+        yhi = _to_float_or_none(prefs.get("y_lim_max", ""))
+        if xlo is not None or xhi is not None:
+            cur = ax.get_xlim()
+            ax.set_xlim(xlo if xlo is not None else cur[0], xhi if xhi is not None else cur[1])
+        if ylo is not None or yhi is not None:
+            cur = ax.get_ylim()
+            ax.set_ylim(ylo if ylo is not None else cur[0], yhi if yhi is not None else cur[1])
+
+        ax.set_xscale("log" if bool(prefs.get("x_log", False)) else "linear")
+        ax.set_yscale("log" if bool(prefs.get("y_log", False)) else "linear")
+
+        if bool(prefs.get("tick_minor", False)):
+            ax.minorticks_on()
+        else:
+            ax.minorticks_off()
+        length = float(prefs.get("tick_length", 4.0))
+        direction = str(prefs.get("tick_direction", "out"))
+        if bool(prefs.get("tick_major", True)):
+            ax.tick_params(which="major", length=length, direction=direction)
+        else:
+            ax.tick_params(which="major", length=0)
+        if bool(prefs.get("tick_minor", False)):
+            ax.tick_params(which="minor", length=max(1.0, length * 0.6), direction=direction)
+
+        leg = ax.get_legend()
+        if leg is not None:
+            leg.set_visible(bool(prefs.get("legend_show", True)))
+            try:
+                leg.set_bbox_to_anchor(None)
+                leg._loc = str(prefs.get("legend_loc", "best"))
+            except Exception:
+                pass
+            for txt in leg.get_texts():
+                txt.set_fontsize(float(prefs.get("legend_font_size", 9)))
+
+    fig.set_constrained_layout(bool(prefs.get("layout_constrained", False)))
+    if bool(prefs.get("layout_tight", False)):
+        try:
+            fig.tight_layout()
+        except Exception:
+            pass
 
 
 def apply_export_style_to_current(app, fig, canvas=None) -> None:
@@ -54,66 +158,127 @@ class _ExportStyleSidebar(ttk.Frame):
         self._base_dir = Path(app._data_dir) if getattr(app, "_data_dir", None) else Path.cwd()
         self._prefs = _ensure_export_style_prefs(app)
 
-        self._axis = tk.IntVar(value=int(self._prefs["axis_label_size"]))
-        self._tick = tk.IntVar(value=int(self._prefs["tick_label_size"]))
-        self._title = tk.IntVar(value=int(self._prefs["title_size"]))
-        self._xang = tk.IntVar(value=int(self._prefs["x_tick_angle"]))
-        self._fmt = tk.StringVar(value=str(self._prefs["format"]))
-        self._default_name = default_name
+        self._vars: dict[str, tk.Variable] = {
+            "axis_label_size": tk.IntVar(value=int(self._prefs["axis_label_size"])),
+            "tick_label_size": tk.IntVar(value=int(self._prefs["tick_label_size"])),
+            "title_size": tk.IntVar(value=int(self._prefs["title_size"])),
+            "x_tick_angle": tk.IntVar(value=int(self._prefs["x_tick_angle"])),
+            "format": tk.StringVar(value=str(self._prefs["format"])),
+            "legend_show": tk.BooleanVar(value=bool(self._prefs["legend_show"])),
+            "legend_font_size": tk.DoubleVar(value=float(self._prefs["legend_font_size"])),
+            "legend_loc": tk.StringVar(value=str(self._prefs["legend_loc"])),
+            "line_width": tk.DoubleVar(value=float(self._prefs["line_width"])),
+            "marker_size": tk.DoubleVar(value=float(self._prefs["marker_size"])),
+            "marker_edge_width": tk.DoubleVar(value=float(self._prefs["marker_edge_width"])),
+            "grid_show": tk.BooleanVar(value=bool(self._prefs["grid_show"])),
+            "grid_alpha": tk.DoubleVar(value=float(self._prefs["grid_alpha"])),
+            "grid_style": tk.StringVar(value=str(self._prefs["grid_style"])),
+            "x_lim_min": tk.StringVar(value=str(self._prefs["x_lim_min"])),
+            "x_lim_max": tk.StringVar(value=str(self._prefs["x_lim_max"])),
+            "y_lim_min": tk.StringVar(value=str(self._prefs["y_lim_min"])),
+            "y_lim_max": tk.StringVar(value=str(self._prefs["y_lim_max"])),
+            "x_log": tk.BooleanVar(value=bool(self._prefs["x_log"])),
+            "y_log": tk.BooleanVar(value=bool(self._prefs["y_log"])),
+            "tick_major": tk.BooleanVar(value=bool(self._prefs["tick_major"])),
+            "tick_minor": tk.BooleanVar(value=bool(self._prefs["tick_minor"])),
+            "tick_length": tk.DoubleVar(value=float(self._prefs["tick_length"])),
+            "tick_direction": tk.StringVar(value=str(self._prefs["tick_direction"])),
+            "fig_size_preset": tk.StringVar(value=str(self._prefs["fig_size_preset"])),
+            "layout_tight": tk.BooleanVar(value=bool(self._prefs["layout_tight"])),
+            "layout_constrained": tk.BooleanVar(value=bool(self._prefs["layout_constrained"])),
+            "export_profile": tk.StringVar(value=str(self._prefs["export_profile"])),
+        }
 
         self._build_ui()
         self._bind_auto_apply()
 
     def _build_ui(self) -> None:
-        ttk.Label(self, text="Export Style", style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Button(self, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").grid(row=0, column=2, sticky="e")
+        ttk.Label(self, text="Export Style", style="Title.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Button(self, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").grid(row=0, column=3, sticky="e")
 
-        row = 1
-        for label, var in (
-            ("Axis", self._axis),
-            ("Ticks", self._tick),
-            ("Title", self._title),
-            ("X°", self._xang),
-            ("Fmt", self._fmt),
-        ):
-            ttk.Label(self, text=label, width=6).grid(row=row, column=0, sticky="w", pady=1)
-            if label == "Fmt":
-                w = ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], state="readonly", textvariable=var, width=9)
-            elif isinstance(var, tk.IntVar):
-                lim = 90 if label == "X°" else 96
-                w = ttk.Spinbox(self, from_=0 if label == "X°" else 1, to=lim, textvariable=var, width=10)
-            else:
-                w = ttk.Entry(self, textvariable=var, width=12)
-            w.grid(row=row, column=1, columnspan=2, sticky="ew", pady=1)
-            row += 1
+        r = 1
+        def add(label, widget):
+            nonlocal r
+            ttk.Label(self, text=label, width=8).grid(row=r, column=0, sticky="w", pady=1)
+            widget.grid(row=r, column=1, columnspan=3, sticky="ew", pady=1)
+            r += 1
+
+        add("Profile", ttk.Combobox(self, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14))
+        add("Format", ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10))
+        add("Axis", ttk.Spinbox(self, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=10))
+        add("Ticks", ttk.Spinbox(self, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=10))
+        add("Title", ttk.Spinbox(self, from_=1, to=128, textvariable=self._vars["title_size"], width=10))
+        add("X°", ttk.Spinbox(self, from_=0, to=90, textvariable=self._vars["x_tick_angle"], width=10))
+
+        add("Legend", ttk.Checkbutton(self, variable=self._vars["legend_show"]))
+        add("Leg size", ttk.Spinbox(self, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=10))
+        add("Leg loc", ttk.Combobox(self, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=14))
+
+        add("Line w", ttk.Spinbox(self, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=10))
+        add("Mkr sz", ttk.Spinbox(self, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=10))
+        add("Mkr edge", ttk.Spinbox(self, from_=0.0, to=5.0, increment=0.1, textvariable=self._vars["marker_edge_width"], width=10))
+
+        add("Grid", ttk.Checkbutton(self, variable=self._vars["grid_show"]))
+        add("Grid α", ttk.Spinbox(self, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=10))
+        add("Grid ls", ttk.Combobox(self, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=10))
+
+        limrow = ttk.Frame(self)
+        ttk.Entry(limrow, textvariable=self._vars["x_lim_min"], width=6).pack(side=tk.LEFT)
+        ttk.Label(limrow, text="…").pack(side=tk.LEFT, padx=2)
+        ttk.Entry(limrow, textvariable=self._vars["x_lim_max"], width=6).pack(side=tk.LEFT)
+        add("X lim", limrow)
+
+        limrow2 = ttk.Frame(self)
+        ttk.Entry(limrow2, textvariable=self._vars["y_lim_min"], width=6).pack(side=tk.LEFT)
+        ttk.Label(limrow2, text="…").pack(side=tk.LEFT, padx=2)
+        ttk.Entry(limrow2, textvariable=self._vars["y_lim_max"], width=6).pack(side=tk.LEFT)
+        add("Y lim", limrow2)
+
+        row_scale = ttk.Frame(self)
+        ttk.Checkbutton(row_scale, text="X log", variable=self._vars["x_log"]).pack(side=tk.LEFT)
+        ttk.Checkbutton(row_scale, text="Y log", variable=self._vars["y_log"]).pack(side=tk.LEFT, padx=6)
+        add("Scale", row_scale)
+
+        row_tick = ttk.Frame(self)
+        ttk.Checkbutton(row_tick, text="Major", variable=self._vars["tick_major"]).pack(side=tk.LEFT)
+        ttk.Checkbutton(row_tick, text="Minor", variable=self._vars["tick_minor"]).pack(side=tk.LEFT, padx=6)
+        add("Tick vis", row_tick)
+        add("Tick len", ttk.Spinbox(self, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=10))
+        add("Tick dir", ttk.Combobox(self, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=10))
+
+        add("Fig size", ttk.Combobox(self, values=list(FIG_SIZE_PRESETS.keys()), textvariable=self._vars["fig_size_preset"], state="readonly", width=14))
+        lay = ttk.Frame(self)
+        ttk.Checkbutton(lay, text="Tight", variable=self._vars["layout_tight"]).pack(side=tk.LEFT)
+        ttk.Checkbutton(lay, text="Constrained", variable=self._vars["layout_constrained"]).pack(side=tk.LEFT, padx=6)
+        add("Layout", lay)
 
         btns = ttk.Frame(self)
-        btns.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        btns.grid(row=r, column=0, columnspan=4, sticky="ew", pady=(8, 0))
         ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT)
 
-        self.columnconfigure(1, weight=1)
+        for c in (1, 2, 3):
+            self.columnconfigure(c, weight=1)
 
     def _bind_auto_apply(self) -> None:
-        tracked = (self._axis, self._tick, self._title, self._xang, self._fmt)
-        for var in tracked:
+        for var in self._vars.values():
             var.trace_add("write", lambda *_args: self._on_fields_changed())
+
+    def _persist(self) -> None:
+        # Apply profile overrides first
+        profile = self._vars["export_profile"].get()
+        for k, v in EXPORT_PROFILES.get(profile, {}).items():
+            if k in self._vars:
+                self._vars[k].set(v)
+
+        for k, var in self._vars.items():
+            self._prefs[k] = var.get()
 
     def _on_fields_changed(self) -> None:
         try:
             self._persist()
             apply_export_style_to_current(self._app, self._fig, self._canvas)
         except Exception:
-            # Ignore transient invalid edits while users type.
             pass
-
-    def _persist(self) -> None:
-        self._prefs.update(
-            axis_label_size=int(self._axis.get()),
-            tick_label_size=int(self._tick.get()),
-            title_size=int(self._title.get()),
-            x_tick_angle=int(self._xang.get()),
-            format=self._fmt.get(),
-        )
 
     def _export(self) -> None:
         try:
@@ -175,8 +340,6 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=No
         if sb is None or not sb.winfo_exists():
             sb = _ExportStyleSidebar(app, parent, fig, canvas, default_name=default_name)
             app._export_style_sidebars[key] = sb
-        # Ensure there is physical room for the right sidebar by making the
-        # plot canvas occupy the left side of the same parent container.
         if canvas_widget is not None and canvas_widget.winfo_manager() == "pack":
             try:
                 pinfo = dict(canvas_widget.pack_info())
@@ -184,7 +347,6 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=No
                 pinfo["side"] = tk.LEFT
                 canvas_widget.pack(**pinfo)
             except Exception:
-                # Fall back to original layout if repack fails.
                 pass
         if not sb.winfo_ismapped():
             sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 8), pady=(8, 8))
