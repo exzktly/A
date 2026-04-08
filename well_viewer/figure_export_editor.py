@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import colorchooser, filedialog, messagebox
 
 import tkinter as tk
 from tkinter import ttk
@@ -74,18 +74,17 @@ class _ExportStyleSidebar(ttk.Frame):
         self._bar = tk.StringVar(value=str(self._prefs["bar_face_color"]))
         self._xang = tk.IntVar(value=int(self._prefs["x_tick_angle"]))
         self._fmt = tk.StringVar(value=str(self._prefs["format"]))
-        self._name = tk.StringVar(value=default_name)
-        self._out = tk.StringVar(value=str(self._base_dir))
+        self._default_name = default_name
 
         self._build_ui()
 
     def _build_ui(self) -> None:
         ttk.Label(self, text="Export Style", style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Button(self, text="Hide", command=lambda: self.pack_forget()).grid(row=0, column=2, sticky="e")
+        ttk.Button(self, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").grid(row=0, column=2, sticky="e")
 
         row = 1
         for label, var in (
-            ("BG", self._bg),
+            ("Canvas", self._bg),
             ("Axis", self._axis),
             ("Ticks", self._tick),
             ("Title", self._title),
@@ -95,29 +94,40 @@ class _ExportStyleSidebar(ttk.Frame):
             ("Fmt", self._fmt),
         ):
             ttk.Label(self, text=label, width=6).grid(row=row, column=0, sticky="w", pady=1)
-            if label == "Fmt":
+            if label == "Canvas":
+                w = ttk.Frame(self)
+                ttk.Entry(w, textvariable=var, width=10).pack(side=tk.LEFT)
+                ttk.Button(w, text="◌", width=2, style="ActionSecondary.TButton",
+                           command=lambda v=var: v.set("transparent")).pack(side=tk.LEFT, padx=(2, 0))
+                ttk.Button(w, text="✎", width=2, style="ActionSecondary.TButton",
+                           command=lambda v=var: self._pick_color(v)).pack(side=tk.LEFT, padx=(2, 0))
+            elif label == "Fmt":
                 w = ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], state="readonly", textvariable=var, width=9)
             elif isinstance(var, tk.IntVar):
                 lim = 90 if label == "X°" else 96
                 w = ttk.Spinbox(self, from_=0 if label == "X°" else 1, to=lim, textvariable=var, width=10)
+            elif label in ("Line", "Bars"):
+                w = ttk.Frame(self)
+                ttk.Entry(w, textvariable=var, width=10).pack(side=tk.LEFT)
+                ttk.Button(w, text="✎", width=2, style="ActionSecondary.TButton",
+                           command=lambda v=var: self._pick_color(v)).pack(side=tk.LEFT, padx=(2, 0))
             else:
                 w = ttk.Entry(self, textvariable=var, width=12)
             w.grid(row=row, column=1, columnspan=2, sticky="ew", pady=1)
             row += 1
 
-        ttk.Label(self, text="Name", width=6).grid(row=row, column=0, sticky="w", pady=(4, 1))
-        ttk.Entry(self, textvariable=self._name, width=20).grid(row=row, column=1, columnspan=2, sticky="ew", pady=(4, 1))
-        row += 1
-        ttk.Label(self, text="Dir", width=6).grid(row=row, column=0, sticky="w", pady=1)
-        ttk.Entry(self, textvariable=self._out, width=20).grid(row=row, column=1, columnspan=2, sticky="ew", pady=1)
-        row += 1
-
         btns = ttk.Frame(self)
-        btns.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(6, 0))
-        ttk.Button(btns, text="Apply", command=self._apply).pack(side=tk.LEFT)
-        ttk.Button(btns, text="Export", command=self._export).pack(side=tk.LEFT, padx=4)
+        btns.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Button(btns, text="Apply", command=self._apply, style="ActionSecondary.TButton").pack(side=tk.LEFT)
+        ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT, padx=4)
 
         self.columnconfigure(1, weight=1)
+
+    @staticmethod
+    def _pick_color(var: tk.StringVar) -> None:
+        picked = colorchooser.askcolor(color=var.get())[1]
+        if picked:
+            var.set(picked)
 
     def _persist(self) -> None:
         self._prefs.update(
@@ -139,11 +149,20 @@ class _ExportStyleSidebar(ttk.Frame):
         try:
             self._persist()
             fmt = (self._prefs.get("format") or "png").lower()
-            name = (self._name.get() or self._default_name).strip() or self._default_name
-            if not name.lower().endswith(f".{fmt}"):
-                name = f"{Path(name).stem}.{fmt}"
-            out_path = Path(self._out.get() or str(self._base_dir)) / name
-            out_path.parent.mkdir(parents=True, exist_ok=True)
+            initialfile = self._default_name
+            if not initialfile.lower().endswith(f".{fmt}"):
+                initialfile = f"{Path(initialfile).stem}.{fmt}"
+            out = filedialog.asksaveasfilename(
+                parent=self,
+                title="Save figure",
+                defaultextension=f".{fmt}",
+                filetypes=[("Image", f"*.{fmt}"), ("All files", "*.*")],
+                initialdir=str(self._base_dir),
+                initialfile=initialfile,
+            )
+            if not out:
+                return
+            out_path = Path(out)
             face = _normalize_facecolor(self._prefs.get("background_color"))
             kw = {"format": fmt, "bbox_inches": "tight", "transparent": face == "none"}
             if face != "none":
