@@ -230,6 +230,7 @@ WELL_COLORS = [
     WELL_COLOR_1, WELL_COLOR_2, WELL_COLOR_3, CLR_SUCCESS, WELL_COLOR_4,
     WELL_COLOR_5, WELL_COLOR_6, WELL_COLOR_7, WELL_COLOR_8, WELL_COLOR_9,
 ]
+NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
 def make_scrollable_canvas(
@@ -5741,7 +5742,7 @@ class WellViewerApp(tk.Frame):
         ax_frac.set_ylim(-0.05, 1.05)
 
         if not bar_selected and not active_rsets:
-            self._draw_bar_empty_state(ax_mean, ax_frac, "Select wells on the left panel")
+            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG)
             return
 
         tp_data = self._resolve_bar_timepoint()
