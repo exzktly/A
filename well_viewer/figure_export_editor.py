@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
 import tkinter as tk
 from tkinter import ttk
 from ui.theme import FM_BOLD, FM_TINY
 
 DEFAULT_EXPORT_STYLE_PREFS = {
-    "axis_label_size": 12,
-    "tick_label_size": 10,
-    "title_size": 14,
+    "axis_label_size": 22,
+    "tick_label_size": 22,
+    "title_size": 22,
     "x_tick_angle": 0,
     "format": "png",
     "axis_target": "All",
     "legend_show": True,
-    "legend_font_size": 9,
+    "legend_font_size": 12,
     "legend_loc": "best",
     "line_width": 1.8,
     "marker_size": 5.0,
@@ -45,6 +45,12 @@ EXPORT_PROFILES = {
     "Illustrator SVG": {"format": "svg", "layout_tight": True},
     "High-res PNG": {"format": "png", "layout_tight": True},
     "Print PDF": {"format": "pdf", "layout_tight": True},
+    "Helvetica 22": {
+        "axis_label_size": 22,
+        "tick_label_size": 22,
+        "title_size": 22,
+        "legend_font_size": 22,
+    },
 }
 
 
@@ -52,6 +58,17 @@ def _ensure_export_style_prefs(app) -> dict:
     if not hasattr(app, "_export_style_prefs"):
         app._export_style_prefs = dict(DEFAULT_EXPORT_STYLE_PREFS)
     return app._export_style_prefs
+
+
+def _ensure_custom_export_profiles(app) -> dict:
+    if not hasattr(app, "_export_style_custom_profiles"):
+        app._export_style_custom_profiles = {}
+    return app._export_style_custom_profiles
+
+
+def _get_all_profile_names(app) -> list[str]:
+    custom = _ensure_custom_export_profiles(app)
+    return [*EXPORT_PROFILES.keys(), *custom.keys()]
 
 
 def _to_float_or_none(value: str):
@@ -62,6 +79,10 @@ def _to_float_or_none(value: str):
 
 
 def apply_export_style_prefs(fig, prefs: dict) -> None:
+    for ax in fig.axes:
+        if not hasattr(ax, "_fixed_axes_position"):
+            ax._fixed_axes_position = ax.get_position().frozen()
+
     fig.patch.set_alpha(1.0)
 
     axis_target = str(prefs.get("axis_target", "All"))
@@ -69,11 +90,23 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
 
     for idx, ax in enumerate(fig.axes, start=1):
         ax.patch.set_alpha(1.0)
+        ax.xaxis.label.set_color("black")
+        ax.yaxis.label.set_color("black")
         ax.xaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
         ax.yaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
-        ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)))
-        ax.tick_params(axis="y", labelsize=int(prefs.get("tick_label_size", 10)))
+        ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)), colors="black")
+        ax.tick_params(axis="y", labelsize=int(prefs.get("tick_label_size", 10)), colors="black")
         ax.title.set_fontsize(int(prefs.get("title_size", 14)))
+        ax.title.set_color("black")
+
+        for tick in [*ax.get_xticklabels(), *ax.get_yticklabels()]:
+            tick.set_color("black")
+            tick.set_fontfamily("Helvetica")
+            tick.set_fontsize(int(prefs.get("tick_label_size", 10)))
+
+        ax.xaxis.label.set_fontfamily("Helvetica")
+        ax.yaxis.label.set_fontfamily("Helvetica")
+        ax.title.set_fontfamily("Helvetica")
 
         for tick in ax.get_xticklabels():
             tick.set_rotation(int(prefs.get("x_tick_angle", 0)))
@@ -129,6 +162,12 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
                         pass
             for txt in leg.get_texts():
                 txt.set_fontsize(float(prefs.get("legend_font_size", 9)))
+                txt.set_color("black")
+                txt.set_fontfamily("Helvetica")
+
+        fixed_pos = getattr(ax, "_fixed_axes_position", None)
+        if fixed_pos is not None:
+            ax.set_position(fixed_pos)
 
     use_constrained = bool(prefs.get("layout_constrained", False))
     use_tight = bool(prefs.get("layout_tight", False))
@@ -207,7 +246,7 @@ class _ExportStyleSidebar(ttk.Frame):
         hdr = ttk.Frame(self)
         hdr.pack(fill=tk.X)
         ttk.Label(hdr, text="Export Style", style="Title.TLabel", font=FM_BOLD).pack(side=tk.LEFT)
-        ttk.Button(hdr, text="Hide", command=lambda: self.pack_forget(), style="ActionSecondary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(hdr, text="◂", width=3, command=lambda: self.pack_forget(), style="ActionSecondary.TButton").pack(side=tk.RIGHT)
 
         wrap = ttk.Frame(self)
         wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
@@ -228,7 +267,15 @@ class _ExportStyleSidebar(ttk.Frame):
             widget.grid(row=r, column=1, columnspan=3, sticky="ew", pady=1)
             r += 1
 
-        add("Profile", ttk.Combobox(body, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=9, font=FM_TINY))
+        self._profile_combo = ttk.Combobox(
+            body,
+            values=_get_all_profile_names(self._app),
+            textvariable=self._vars["export_profile"],
+            state="readonly",
+            width=14,
+            font=FM_TINY,
+        )
+        add("Profile", self._profile_combo)
         add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=7, font=FM_TINY))
         add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=7, font=FM_TINY))
         add("Axis", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=7))
@@ -279,6 +326,7 @@ class _ExportStyleSidebar(ttk.Frame):
         btns = ttk.Frame(body)
         btns.grid(row=r, column=0, columnspan=4, sticky="ew", pady=(8, 0))
         ttk.Button(btns, text="Reset", command=self._reset_defaults, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btns, text="Save Preset", command=self._save_preset, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT)
 
         for c in (1, 2, 3):
@@ -294,6 +342,9 @@ class _ExportStyleSidebar(ttk.Frame):
             return
         profile = self._vars["export_profile"].get()
         overrides = EXPORT_PROFILES.get(profile, {})
+        if not overrides:
+            custom_profiles = _ensure_custom_export_profiles(self._app)
+            overrides = custom_profiles.get(profile, {})
         if not overrides:
             return
         self._updating = True
@@ -327,6 +378,26 @@ class _ExportStyleSidebar(ttk.Frame):
         finally:
             self._updating = False
         self._on_fields_changed()
+
+    def _save_preset(self) -> None:
+        try:
+            self._persist()
+            name = simpledialog.askstring("Save preset", "Preset name:", parent=self)
+            if not name:
+                return
+            preset_name = name.strip()
+            if not preset_name:
+                return
+            if preset_name in EXPORT_PROFILES:
+                messagebox.showwarning("Preset exists", "Cannot overwrite built-in preset name.", parent=self)
+                return
+            custom_profiles = _ensure_custom_export_profiles(self._app)
+            custom_profiles[preset_name] = dict(self._prefs)
+            self._profile_combo.configure(values=_get_all_profile_names(self._app))
+            self._vars["export_profile"].set(preset_name)
+            self._app._set_status(f"Saved export preset: {preset_name}")
+        except Exception as exc:
+            messagebox.showerror("Save preset failed", str(exc), parent=self)
 
     def _export(self) -> None:
         try:
