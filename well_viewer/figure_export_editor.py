@@ -9,6 +9,7 @@ import socket
 import threading
 import webbrowser
 from pathlib import Path
+from tkinter import messagebox
 
 
 def _find_free_port() -> int:
@@ -65,8 +66,14 @@ def launch_dash_export_editor(app, fig, default_name: str, *, plot_bg: str) -> _
     try:
         from dash import Dash, Input, Output, State, dcc, html, no_update
     except Exception as exc:
+        msg = (
+            "Dash export wizard is unavailable because the 'dash' package is not installed.\n\n"
+            "Falling back to the classic Save Figure dialog.\n"
+            f"Details: {exc}"
+        )
         try:
-            app._set_status(f"Dash editor unavailable ({exc}); using classic save dialog.")
+            app._set_status(msg.replace("\n", " "))
+            messagebox.showwarning("Dash export wizard unavailable", msg, parent=app)
         except Exception:
             pass
         return None
