@@ -1,15 +1,19 @@
-"""Plotly-based figure export editor for matplotlib figures."""
+"""In-app export editor for matplotlib figures."""
 
 from __future__ import annotations
 
-import copy
-import tempfile
-import webbrowser
 from pathlib import Path
 from tkinter import colorchooser, messagebox
 
 import tkinter as tk
 from tkinter import ttk
+
+
+def _normalize_facecolor(bg_value: str | None):
+    v = (bg_value or "").strip().lower()
+    if (not v) or (v == "transparent"):
+        return "none"
+    return bg_value
 
 
 def _apply_export_style(
@@ -23,9 +27,10 @@ def _apply_export_style(
     bar_face_color: str,
     x_tick_angle: int,
 ) -> None:
-    fig.set_facecolor(background_color)
+    face = _normalize_facecolor(background_color)
+    fig.set_facecolor(face)
     for ax in fig.axes:
-        ax.set_facecolor(background_color)
+        ax.set_facecolor(face)
         ax.xaxis.label.set_fontsize(axis_label_size)
         ax.yaxis.label.set_fontsize(axis_label_size)
         ax.tick_params(axis="x", labelsize=tick_label_size)
@@ -42,16 +47,17 @@ def _apply_export_style(
             patch.set_facecolor(bar_face_color)
 
 
-class _PlotlyExportEditorSession:
+class _ExportEditorSession:
     def __init__(self, window: tk.Toplevel) -> None:
         self.window = window
 
 
-class _PlotlyExportEditorDialog(tk.Toplevel):
-    def __init__(self, app, fig, default_name: str, plot_bg: str):
+class _ExportEditorDialog(tk.Toplevel):
+    def __init__(self, app, fig, canvas, default_name: str, plot_bg: str):
         super().__init__(app)
         self._app = app
-        self._source_fig = copy.deepcopy(fig)
+        self._fig = fig
+        self._canvas = canvas
         self._default_name = default_name
         self._base_dir = Path(app._data_dir) if getattr(app, "_data_dir", None) else Path.cwd()
 
@@ -59,7 +65,7 @@ class _PlotlyExportEditorDialog(tk.Toplevel):
         self.configure(padx=12, pady=12)
         self.resizable(False, False)
 
-        self._bg_var = tk.StringVar(value=plot_bg)
+        self._bg_var = tk.StringVar(value="transparent")
         self._axis_var = tk.IntVar(value=12)
         self._tick_var = tk.IntVar(value=10)
         self._title_var = tk.IntVar(value=14)
@@ -69,7 +75,7 @@ class _PlotlyExportEditorDialog(tk.Toplevel):
         self._xangle_var = tk.IntVar(value=0)
         self._name_var = tk.StringVar(value=default_name)
         self._dir_var = tk.StringVar(value=str(self._base_dir))
-        self._status_var = tk.StringVar(value="Edit settings, then preview or export.")
+        self._status_var = tk.StringVar(value="Apply updates to the tab figure, then export.")
 
         self._build_ui()
 
@@ -84,7 +90,7 @@ class _PlotlyExportEditorDialog(tk.Toplevel):
 
     def _build_ui(self) -> None:
         self.columnconfigure(1, weight=1)
-        self._add_row(0, "Background", ttk.Entry(self, textvariable=self._bg_var, width=20))
+        self._add_row(0, "Background (or 'transparent')", ttk.Entry(self, textvariable=self._bg_var, width=20))
         self._add_row(1, "Axis label size", ttk.Spinbox(self, from_=1, to=72, textvariable=self._axis_var, width=8))
         self._add_row(2, "Tick label size", ttk.Spinbox(self, from_=1, to=72, textvariable=self._tick_var, width=8))
         self._add_row(3, "Title size", ttk.Spinbox(self, from_=1, to=96, textvariable=self._title_var, width=8))
@@ -106,17 +112,16 @@ class _PlotlyExportEditorDialog(tk.Toplevel):
 
         btn_row = ttk.Frame(self)
         btn_row.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(10, 4))
-        ttk.Button(btn_row, text="Preview in Plotly", command=self._preview_plotly).pack(side=tk.LEFT)
+        ttk.Button(btn_row, text="Apply to Figure", command=self._apply_live).pack(side=tk.LEFT)
         ttk.Button(btn_row, text="Export", command=self._export).pack(side=tk.LEFT, padx=8)
         ttk.Button(btn_row, text="Close", command=self.destroy).pack(side=tk.LEFT)
 
         ttk.Label(self, textvariable=self._status_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-    def _styled_copy(self):
-        work_fig = copy.deepcopy(self._source_fig)
+    def _apply_live(self) -> None:
         _apply_export_style(
-            work_fig,
-            background_color=self._bg_var.get() or "white",
+            self._fig,
+            background_color=self._bg_var.get(),
             axis_label_size=int(self._axis_var.get()),
             tick_label_size=int(self._tick_var.get()),
             title_size=int(self._title_var.get()),
@@ -124,21 +129,9 @@ class _PlotlyExportEditorDialog(tk.Toplevel):
             bar_face_color=self._bar_color_var.get() or "#1f77b4",
             x_tick_angle=int(self._xangle_var.get()),
         )
-        return work_fig
-
-    def _preview_plotly(self) -> None:
-        try:
-            import plotly.io as pio
-            from plotly.tools import mpl_to_plotly
-
-            pfig = mpl_to_plotly(self._styled_copy())
-            html = pio.to_html(pfig, include_plotlyjs="cdn", full_html=True)
-            tmp = Path(tempfile.gettempdir()) / "well_viewer_export_preview.html"
-            tmp.write_text(html, encoding="utf-8")
-            webbrowser.open(tmp.as_uri())
-            self._status_var.set(f"Opened preview: {tmp}")
-        except Exception as exc:
-            messagebox.showerror("Plotly preview failed", str(exc), parent=self)
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+        self._status_var.set("Applied styling to figure in current tab.")
 
     def _export(self) -> None:
         try:
@@ -148,26 +141,29 @@ class _PlotlyExportEditorDialog(tk.Toplevel):
                 out_name = f"{Path(out_name).stem}.{fmt}"
             out_path = Path(self._dir_var.get() or str(self._base_dir)) / out_name
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            kw = {"format": fmt, "bbox_inches": "tight", "facecolor": self._bg_var.get() or "white"}
+            face = _normalize_facecolor(self._bg_var.get())
+            kw = {"format": fmt, "bbox_inches": "tight", "transparent": face == "none"}
+            if face != "none":
+                kw["facecolor"] = face
             if fmt == "png":
                 kw["dpi"] = 300
-            self._styled_copy().savefig(str(out_path), **kw)
+            self._fig.savefig(str(out_path), **kw)
             self._status_var.set(f"Saved: {out_path}")
             self._app._set_status(f"Figure saved → {out_path.name}")
         except Exception as exc:
             messagebox.showerror("Export failed", str(exc), parent=self)
 
 
-def launch_dash_export_editor(app, fig, default_name: str, *, plot_bg: str) -> _PlotlyExportEditorSession | None:
-    """Launch the Plotly-based export editor dialog.
+def launch_dash_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> _ExportEditorSession | None:
+    """Launch in-app export editor dialog.
 
-    Kept function name for backwards compatibility with existing orchestration calls.
+    Function name kept for backward compatibility with existing call sites.
     """
     try:
-        dlg = _PlotlyExportEditorDialog(app, fig, default_name=default_name, plot_bg=plot_bg)
+        dlg = _ExportEditorDialog(app, fig, canvas=canvas, default_name=default_name, plot_bg=plot_bg)
         dlg.transient(app)
         dlg.grab_set()
-        return _PlotlyExportEditorSession(window=dlg)
+        return _ExportEditorSession(window=dlg)
     except Exception as exc:
         messagebox.showwarning("Export editor unavailable", str(exc), parent=app)
         return None

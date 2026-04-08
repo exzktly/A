@@ -90,8 +90,8 @@ def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
         _mpl.rcParams["ps.fonttype"] = orig_ps
 
 
-def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str) -> None:
-    session = launch_dash_export_editor(app, fig, default_name, plot_bg=plot_bg)
+def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> None:
+    session = launch_dash_export_editor(app, fig, default_name, plot_bg=plot_bg, canvas=canvas)
     if session is not None:
         app._set_status("Export editor opened.")
         return
@@ -99,19 +99,25 @@ def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str) -> None
 
 
 def save_line_figure(app, *, plot_bg: str) -> None:
-    _launch_editor_or_save(app, app._line_fig, "line_graphs.png", plot_bg=plot_bg)
+    _launch_editor_or_save(app, app._line_fig, "line_graphs.png", plot_bg=plot_bg, canvas=getattr(app, "_line_canvas", None))
 
 
 def save_bar_figure(app, *, plot_bg: str) -> None:
     tp = app._bar_tp_var.get().replace(".", "_")
-    _launch_editor_or_save(app, app._bar_fig, f"bar_t{tp}.png", plot_bg=plot_bg)
+    _launch_editor_or_save(app, app._bar_fig, f"bar_t{tp}.png", plot_bg=plot_bg, canvas=getattr(app, "_bar_canvas", None))
 
 
 def save_scatter_figure(app, *, plot_bg: str) -> None:
     ch_x = app._scatter_ch_x_var.get()
     ch_y = app._scatter_ch_y_var.get()
     tp = app._scatter_tp_var.get().replace(".", "_")
-    _launch_editor_or_save(app, app._scatter_fig, f"scatter_{ch_x}_vs_{ch_y}_t{tp}.png", plot_bg=plot_bg)
+    _launch_editor_or_save(
+        app,
+        app._scatter_fig,
+        f"scatter_{ch_x}_vs_{ch_y}_t{tp}.png",
+        plot_bg=plot_bg,
+        canvas=getattr(app, "_scatter_canvas", None),
+    )
 
 
 def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
@@ -132,4 +138,10 @@ def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
     stat_x_safe = stat_x.replace(" ", "_").lower()
     stat_y_safe = stat_y.replace(" ", "_").lower()
 
-    _launch_editor_or_save(app, app._scatter_agg_fig, f"scatter_agg_{stat_x_safe}_vs_{stat_y_safe}_{tp_range}.png", plot_bg=plot_bg)
+    _launch_editor_or_save(
+        app,
+        app._scatter_agg_fig,
+        f"scatter_agg_{stat_x_safe}_vs_{stat_y_safe}_{tp_range}.png",
+        plot_bg=plot_bg,
+        canvas=getattr(app, "_scatter_agg_canvas", None),
+    )
