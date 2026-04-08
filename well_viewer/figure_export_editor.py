@@ -14,6 +14,7 @@ DEFAULT_EXPORT_STYLE_PREFS = {
     "title_size": 14,
     "x_tick_angle": 0,
     "format": "png",
+    "axis_target": "All",
     "legend_show": True,
     "legend_font_size": 9,
     "legend_loc": "best",
@@ -69,15 +70,18 @@ def _to_float_or_none(value: str):
 
 
 def apply_export_style_prefs(fig, prefs: dict) -> None:
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(1.0)
 
     preset = prefs.get("fig_size_preset", "Current")
     size = FIG_SIZE_PRESETS.get(preset)
     if size:
         fig.set_size_inches(*size, forward=True)
 
-    for ax in fig.axes:
-        ax.patch.set_alpha(0.0)
+    axis_target = str(prefs.get("axis_target", "All"))
+    target_idx = None if axis_target == "All" else int(axis_target)
+
+    for idx, ax in enumerate(fig.axes, start=1):
+        ax.patch.set_alpha(1.0)
         ax.xaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
         ax.yaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
         ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)))
@@ -95,19 +99,19 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
         show_grid = bool(prefs.get("grid_show", True))
         ax.grid(show_grid, alpha=float(prefs.get("grid_alpha", 0.25)), linestyle=str(prefs.get("grid_style", "--")))
 
-        xlo = _to_float_or_none(prefs.get("x_lim_min", ""))
-        xhi = _to_float_or_none(prefs.get("x_lim_max", ""))
-        ylo = _to_float_or_none(prefs.get("y_lim_min", ""))
-        yhi = _to_float_or_none(prefs.get("y_lim_max", ""))
-        if xlo is not None or xhi is not None:
-            cur = ax.get_xlim()
-            ax.set_xlim(xlo if xlo is not None else cur[0], xhi if xhi is not None else cur[1])
-        if ylo is not None or yhi is not None:
-            cur = ax.get_ylim()
-            ax.set_ylim(ylo if ylo is not None else cur[0], yhi if yhi is not None else cur[1])
-
-        ax.set_xscale("log" if bool(prefs.get("x_log", False)) else "linear")
-        ax.set_yscale("log" if bool(prefs.get("y_log", False)) else "linear")
+        if target_idx is None or idx == target_idx:
+            xlo = _to_float_or_none(prefs.get("x_lim_min", ""))
+            xhi = _to_float_or_none(prefs.get("x_lim_max", ""))
+            ylo = _to_float_or_none(prefs.get("y_lim_min", ""))
+            yhi = _to_float_or_none(prefs.get("y_lim_max", ""))
+            if xlo is not None or xhi is not None:
+                cur = ax.get_xlim()
+                ax.set_xlim(xlo if xlo is not None else cur[0], xhi if xhi is not None else cur[1])
+            if ylo is not None or yhi is not None:
+                cur = ax.get_ylim()
+                ax.set_ylim(ylo if ylo is not None else cur[0], yhi if yhi is not None else cur[1])
+            ax.set_xscale("log" if bool(prefs.get("x_log", False)) else "linear")
+            ax.set_yscale("log" if bool(prefs.get("y_log", False)) else "linear")
 
         if bool(prefs.get("tick_minor", False)):
             ax.minorticks_on()
@@ -163,6 +167,7 @@ class _ExportStyleSidebar(ttk.Frame):
         self._default_name = default_name
         self._base_dir = Path(app._data_dir) if getattr(app, "_data_dir", None) else Path.cwd()
         self._prefs = _ensure_export_style_prefs(app)
+        self._updating = False
 
         self._vars: dict[str, tk.Variable] = {
             "axis_label_size": tk.IntVar(value=int(self._prefs["axis_label_size"])),
@@ -170,6 +175,7 @@ class _ExportStyleSidebar(ttk.Frame):
             "title_size": tk.IntVar(value=int(self._prefs["title_size"])),
             "x_tick_angle": tk.IntVar(value=int(self._prefs["x_tick_angle"])),
             "format": tk.StringVar(value=str(self._prefs["format"])),
+            "axis_target": tk.StringVar(value=str(self._prefs.get("axis_target", "All"))),
             "legend_show": tk.BooleanVar(value=bool(self._prefs["legend_show"])),
             "legend_font_size": tk.DoubleVar(value=float(self._prefs["legend_font_size"])),
             "legend_loc": tk.StringVar(value=str(self._prefs["legend_loc"])),
@@ -211,6 +217,7 @@ class _ExportStyleSidebar(ttk.Frame):
 
         add("Profile", ttk.Combobox(self, values=list(EXPORT_PROFILES.keys()), textvariable=self._vars["export_profile"], state="readonly", width=14))
         add("Format", ttk.Combobox(self, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=10))
+        add("Axis #", ttk.Combobox(self, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=10))
         add("Axis", ttk.Spinbox(self, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=10))
         add("Ticks", ttk.Spinbox(self, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=10))
         add("Title", ttk.Spinbox(self, from_=1, to=128, textvariable=self._vars["title_size"], width=10))
@@ -260,6 +267,7 @@ class _ExportStyleSidebar(ttk.Frame):
 
         btns = ttk.Frame(self)
         btns.grid(row=r, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+        ttk.Button(btns, text="Reset", command=self._reset_defaults, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT)
 
         for c in (1, 2, 3):
@@ -268,23 +276,46 @@ class _ExportStyleSidebar(ttk.Frame):
     def _bind_auto_apply(self) -> None:
         for var in self._vars.values():
             var.trace_add("write", lambda *_args: self._on_fields_changed())
+        self._vars["export_profile"].trace_add("write", lambda *_args: self._on_profile_selected())
+
+    def _on_profile_selected(self) -> None:
+        if self._updating:
+            return
+        profile = self._vars["export_profile"].get()
+        overrides = EXPORT_PROFILES.get(profile, {})
+        if not overrides:
+            return
+        self._updating = True
+        try:
+            for k, v in overrides.items():
+                if k in self._vars:
+                    self._vars[k].set(v)
+        finally:
+            self._updating = False
 
     def _persist(self) -> None:
-        # Apply profile overrides first
-        profile = self._vars["export_profile"].get()
-        for k, v in EXPORT_PROFILES.get(profile, {}).items():
-            if k in self._vars:
-                self._vars[k].set(v)
-
         for k, var in self._vars.items():
             self._prefs[k] = var.get()
 
     def _on_fields_changed(self) -> None:
+        if self._updating:
+            return
         try:
             self._persist()
             apply_export_style_to_current(self._app, self._fig, self._canvas)
         except Exception:
             pass
+
+    def _reset_defaults(self) -> None:
+        self._updating = True
+        try:
+            defaults = dict(DEFAULT_EXPORT_STYLE_PREFS)
+            for k, var in self._vars.items():
+                if k in defaults:
+                    var.set(defaults[k])
+        finally:
+            self._updating = False
+        self._on_fields_changed()
 
     def _export(self) -> None:
         try:
