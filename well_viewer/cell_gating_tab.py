@@ -48,6 +48,10 @@ class CellGatingTab(tk.Frame):
         self._ax: Optional[any] = None
         self._axes_stack: list[tuple] = []  # For zoom history
         self._gating_controls_frame: Optional[tk.Frame] = None
+        self._plot_canvas: Optional[tk.Canvas] = None
+        self._plot_inner: Optional[tk.Frame] = None
+        self._plot_canvas_window: Optional[int] = None
+        self._plot_scrollbar: Optional[tk.Scrollbar] = None
 
         self._build_ui()
 
@@ -110,12 +114,34 @@ class CellGatingTab(tk.Frame):
 
         self._gating_controls_frame = scrollable_frame
 
-        # ── Bottom: CDF plot ───────────────────────────────────────────
+        # ── Bottom: CDF plot (scrollable) ──────────────────────────────
         plot_frame = tk.Frame(main_frame, bg=BG_APP)
         plot_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
+        plot_scroll_frame = tk.Frame(plot_frame, bg=BG_APP)
+        plot_scroll_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._plot_canvas = tk.Canvas(plot_scroll_frame, bg=BG_APP, highlightthickness=0, bd=0)
+        self._plot_scrollbar = tk.Scrollbar(plot_scroll_frame, orient=tk.VERTICAL, command=self._plot_canvas.yview)
+        self._plot_canvas.configure(yscrollcommand=self._plot_scrollbar.set)
+
+        self._plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._plot_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._plot_inner = tk.Frame(self._plot_canvas, bg=BG_APP)
+        self._plot_canvas_window = self._plot_canvas.create_window((0, 0), window=self._plot_inner, anchor="nw")
+
+        self._plot_inner.bind(
+            "<Configure>",
+            lambda _e: self._plot_canvas.configure(scrollregion=self._plot_canvas.bbox("all"))
+        )
+        self._plot_canvas.bind(
+            "<Configure>",
+            lambda e: self._plot_canvas.itemconfigure(self._plot_canvas_window, width=e.width)
+        )
+
         self._figure = Figure(figsize=(8, 5), dpi=100, facecolor=BG_APP)
-        self._canvas = FigureCanvasTkAgg(self._figure, master=plot_frame)
+        self._canvas = FigureCanvasTkAgg(self._figure, master=self._plot_inner)
         self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # Toolbar
@@ -279,10 +305,16 @@ class CellGatingTab(tk.Frame):
         # Determine number of plots needed (cell area + channels)
         n_plots = 1 + len(self._fluor_data)  # 1 for cell area, rest for channels
 
-        # Create subplots
+        # Create subplots (2 columns max) and scale figure height so labels do not overlap.
+        n_cols = 1 if n_plots == 1 else 2
+        n_rows = (n_plots + n_cols - 1) // n_cols
+        plot_height_per_row = 3.8
+        fig_height = max(5.0, n_rows * plot_height_per_row)
+        self._figure.set_size_inches(8.0, fig_height, forward=True)
+
         axes = []
         for i in range(n_plots):
-            ax = self._figure.add_subplot(2, (n_plots + 1) // 2, i + 1, facecolor=BG_PANEL)
+            ax = self._figure.add_subplot(n_rows, n_cols, i + 1, facecolor=BG_PANEL)
             axes.append(ax)
 
         # Plot cell area CDF
@@ -334,8 +366,17 @@ class CellGatingTab(tk.Frame):
             limits = [(ax.get_xlim(), ax.get_ylim()) for ax in axes]
             self._axes_stack.append(limits)
 
-        self._figure.tight_layout()
+        self._figure.tight_layout(pad=1.3)
         self._canvas.draw()
+
+        # Ensure the embedded widget matches figure pixel size so the frame can scroll.
+        figure_widget = self._canvas.get_tk_widget()
+        dpi = self._figure.get_dpi()
+        fig_h_px = max(1, int(self._figure.get_figheight() * dpi))
+        figure_widget.configure(height=fig_h_px)
+        figure_widget.update_idletasks()
+        if self._plot_canvas is not None:
+            self._plot_canvas.configure(scrollregion=self._plot_canvas.bbox("all"))
 
     def _on_gating_change(self, _e=None) -> None:
         """Handle FluorGating threshold change (when focus leaves field)."""
