@@ -95,6 +95,9 @@ def build_scatter_agg_tab(app, parent: tk.Frame) -> None:
     _make_secondary_button(
         scatter_agg_ctrl, text="Save Figure…", command=app._save_scatter_agg_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
+    _make_secondary_button(
+        scatter_agg_ctrl, text="▸", command=lambda: app._open_export_style_panel("scatter_agg"),
+    ).pack(side=tk.RIGHT, padx=(0, 2))
 
     # ── Matplotlib figure ──────────────────────────────────────────────────
     app._scatter_agg_fig = Figure(figsize=(8, 6), dpi=100, facecolor=PLOT_BG)

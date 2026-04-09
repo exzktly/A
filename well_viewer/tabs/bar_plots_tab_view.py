@@ -80,6 +80,9 @@ def build_bar_plots_tab(app, parent: tk.Frame) -> None:
     _make_secondary_button(
         bar_ctrl, text="Save Figure…", command=app._save_bar_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
+    _make_secondary_button(
+        bar_ctrl, text="▸", command=lambda: app._open_export_style_panel("bar"),
+    ).pack(side=tk.RIGHT, padx=(0, 2))
 
     # Toggle controls: Beeswarm, Violin, smoothing slider, Log Y, Reset Order
     tk.Frame(bar_ctrl, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(10, 10))

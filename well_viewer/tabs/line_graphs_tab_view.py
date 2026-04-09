@@ -66,6 +66,9 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     _make_secondary_button(
         line_ctrl, text="Save Figure…", command=app._save_line_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
+    _make_secondary_button(
+        line_ctrl, text="▸", command=lambda: app._open_export_style_panel("line"),
+    ).pack(side=tk.RIGHT, padx=(0, 2))
 
     # ── Matplotlib figure ──────────────────────────────────────────────────
     app._line_fig = Figure(figsize=(7, 9), dpi=100, facecolor=PLOT_BG)

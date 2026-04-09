@@ -6192,6 +6192,24 @@ class WellViewerApp(tk.Frame):
         """Save the current Bar Plots figure at high resolution."""
         _plot_save_bar_figure_orchestrator(self, plot_bg=PLOT_BG)
 
+    def _open_export_style_panel(self, plot_key: str) -> None:
+        """Open the reusable export-style sidebar for a specific plot."""
+        from well_viewer.figure_export_editor import launch_export_editor
+
+        mapping = {
+            "line": (getattr(self, "_line_fig", None), getattr(self, "_line_canvas", None), "line_graphs.png"),
+            "bar": (getattr(self, "_bar_fig", None), getattr(self, "_bar_canvas", None), "bar_plots.png"),
+            "scatter_cells": (getattr(self, "_scatter_fig", None), getattr(self, "_scatter_canvas", None), "scatter_cells.png"),
+            "scatter_agg": (getattr(self, "_scatter_agg_fig", None), getattr(self, "_scatter_agg_canvas", None), "scatter_agg.png"),
+        }
+        fig, canvas, default_name = mapping.get(plot_key, (None, None, "figure.png"))
+        if fig is None:
+            self._set_status("Export style panel unavailable for this figure.")
+            return
+        session = launch_export_editor(self, fig, default_name, plot_bg=PLOT_BG, canvas=canvas)
+        if session is not None:
+            self._set_status("Export style panel opened.")
+
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
     def _col_for_scatter_entry(self, entry: str) -> str:
