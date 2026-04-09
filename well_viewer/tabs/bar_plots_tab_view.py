@@ -119,17 +119,36 @@ def build_bar_plots_tab(app, parent: tk.Frame) -> None:
                                           command=app._bar_reset_order)
     app._bar_reset_order_btn.pack(side=tk.LEFT)
 
-    # ── Matplotlib figure ──────────────────────────────────────────────────
-    app._bar_fig = Figure(figsize=(5, 6), dpi=100, facecolor=PLOT_BG)
+    # ── Matplotlib figure (scrollable host) ───────────────────────────────
+    app._bar_fig = Figure(figsize=(6.2, 8.4), dpi=100, facecolor=PLOT_BG)
     app._ax_bar_mean = app._bar_fig.add_subplot(2, 1, 1)
     app._ax_bar_frac = app._bar_fig.add_subplot(2, 1, 2)
-    app._bar_fig.subplots_adjust(hspace=0.6, top=0.93, bottom=0.14, left=0.15, right=0.97)
+    app._bar_fig.subplots_adjust(hspace=0.65, top=0.95, bottom=0.14, left=0.15, right=0.97)
 
-    app._bar_canvas = FigureCanvasTkAgg(app._bar_fig, master=bar_right)
+    bar_plot_frame = tk.Frame(bar_right, bg=BG_APP)
+    bar_plot_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 0))
+
+    app._bar_scroll_canvas = tk.Canvas(bar_plot_frame, bg=BG_APP, highlightthickness=0, bd=0)
+    app._bar_scrollbar = tk.Scrollbar(bar_plot_frame, orient=tk.VERTICAL, command=app._bar_scroll_canvas.yview)
+    app._bar_scroll_canvas.configure(yscrollcommand=app._bar_scrollbar.set)
+    app._bar_scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    app._bar_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    app._bar_plot_inner = tk.Frame(app._bar_scroll_canvas, bg=BG_APP)
+    app._bar_scroll_window = app._bar_scroll_canvas.create_window((0, 0), window=app._bar_plot_inner, anchor="nw")
+    app._bar_plot_inner.bind("<Configure>", lambda _e: app._bar_scroll_canvas.configure(scrollregion=app._bar_scroll_canvas.bbox("all")))
+    app._bar_scroll_canvas.bind("<Configure>", lambda e: app._bar_scroll_canvas.itemconfigure(app._bar_scroll_window, width=e.width))
+
+    app._bar_canvas = FigureCanvasTkAgg(app._bar_fig, master=app._bar_plot_inner)
     bar_nav = NavigationToolbar2Tk(app._bar_canvas, bar_right)
     bar_nav.config(bg=BG_APP)
     bar_nav.update()
-    app._bar_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 0))
+    app._bar_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    _bar_widget = app._bar_canvas.get_tk_widget()
+    _bar_widget.configure(height=int(app._bar_fig.get_figheight() * app._bar_fig.get_dpi()))
+    _bar_widget.update_idletasks()
+    app._bar_scroll_canvas.configure(scrollregion=app._bar_scroll_canvas.bbox("all"))
 
     # ── Y-axis limit controls ──────────────────────────────────────────────
     # In their own row below the plots so they are always visible.
