@@ -158,6 +158,7 @@ class ScatterCellViewer(tk.Toplevel):
         # in the correct fluor token when loading input images.
         self._nuclear_token = str(row.get("channel") or "").strip()
         self._debug(f"csv.channel={self._nuclear_token!r}")
+        self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")
 
         self._cell_bounds = self._get_cell_bounds(nuclear_id)
         if not self._cell_bounds:
@@ -220,19 +221,17 @@ class ScatterCellViewer(tk.Toplevel):
 
             nuclear_token = getattr(self, "_nuclear_token", "")
             stem = _Path(self.filename).stem
-            if nuclear_token:
-                base = _re.sub(_re.escape(nuclear_token), "", stem, count=1, flags=_re.IGNORECASE)
-            else:
-                base = stem
+            bases = self._build_output_base_candidates(stem=stem, nuclear_token=nuclear_token)
 
             if image_type == "mask":
-                candidates = [base + "_labels.tif", base + "_labels.tiff", base + "_labels.png"]
+                suffixes = ("_labels.tif", "_labels.tiff", "_labels.png")
             elif image_type == "overlay":
-                candidates = [base + "_overlay.png", base + "_overlay.jpg", base + "_overlay.jpeg", base + "_overlay.tif"]
+                suffixes = ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif")
             else:
                 return None, f"unknown image_type {image_type!r}"
+            candidates = [base + suffix for base in bases for suffix in suffixes]
             self._debug(
-                f"output lookup type={image_type}, nuclear_token={nuclear_token!r}, stem={stem!r}, base={base!r}, candidates={candidates!r}"
+                f"output lookup type={image_type}, nuclear_token={nuclear_token!r}, stem={stem!r}, bases={bases!r}, candidates={candidates!r}"
             )
 
             well_token = _extract_well_token(self.well_label)
@@ -242,7 +241,7 @@ class ScatterCellViewer(tk.Toplevel):
             data_dir = self.app._data_dir
             in_dir = self.app._in_dir
             zips: list = []
-            if in_dir and data_dir and data_dir.is_dir():
+            if data_dir and data_dir.is_dir():
                 zips = _find_out_well_zips_in_dir(data_dir, well_token)
                 zips += _find_plain_well_zips_in_dir(data_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
@@ -277,6 +276,37 @@ class ScatterCellViewer(tk.Toplevel):
         except Exception as e:
             self._debug(f"_load_output_image_by_filename exception for {image_type}: {e!r}")
             return None, f"exception: {e}"
+
+    def _build_output_base_candidates(self, stem: str, nuclear_token: str) -> list[str]:
+        """Build robust base-name candidates used for output mask/overlay lookup.
+
+        The output writer drops the nuclear channel token from the stem, but real
+        datasets may vary in delimiter/case behavior. We therefore probe a short
+        list of normalized possibilities.
+        """
+        import re as _re
+
+        candidates: list[str] = [stem]
+        token = (nuclear_token or "").strip()
+        if token:
+            escaped = _re.escape(token)
+            patterns = (
+                rf"(?i)([_\-.]){escaped}(?=[_\-.]|$)",
+                rf"(?i){escaped}([_\-.])",
+                rf"(?i){escaped}",
+            )
+            for pat in patterns:
+                candidates.append(_re.sub(pat, "", stem, count=1))
+                candidates.append(_re.sub(pat, "", stem))
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for c in candidates:
+            c = _re.sub(r"[_\-.]{2,}", "_", c).strip("_-. ")
+            if c and c not in seen:
+                seen.add(c)
+                normalized.append(c)
+        return normalized or [stem]
 
     def _get_cell_bounds(self, nuclear_id: int) -> Optional[Tuple[int, int, int, int]]:
         """Get cell pixel boundaries from mask file.
