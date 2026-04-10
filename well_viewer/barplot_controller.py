@@ -143,6 +143,14 @@ def render_bar_items(
 ) -> None:
     """Draw mean/fraction bar panels from precomputed items."""
     n = len(items)
+    if len(xlabels) != n:
+        if use_groups:
+            xlabels = [str(display) for _key, display, *_ in items]
+        else:
+            xlabels = [str(label) for label, *_ in items]
+    else:
+        xlabels = [str(lbl) for lbl in xlabels]
+
     if use_groups:
         bar_w = min(0.65, 5.0 / max(n, 1))
         for i, (_key, _display, gm, g_err_m, gf, g_err_f, has, color) in enumerate(items):
