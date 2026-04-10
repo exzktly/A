@@ -43,6 +43,7 @@ class ScatterCellViewer(tk.Toplevel):
         self._current_channel = None
         self._current_lut: Tuple[float, float] = (0.0, 100.0)
         self._channel_luts: dict[str, Tuple[float, float]] = {}  # channel → (lo, hi)
+        self._debug_lines: list[str] = []
 
         # Build UI
         self._build_ui()
@@ -105,18 +106,49 @@ class ScatterCellViewer(tk.Toplevel):
             side=tk.LEFT, padx=2
         )
 
+        # Diagnostics output
+        diag_frame = tk.LabelFrame(self, text="Diagnostics", padx=5, pady=5)
+        diag_frame.pack(fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
+
+        self._debug_text = tk.Text(diag_frame, height=10, wrap=tk.WORD, font=("TkFixedFont", 8))
+        self._debug_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._debug_text.config(state=tk.DISABLED)
+
+        diag_scroll = tk.Scrollbar(diag_frame, command=self._debug_text.yview)
+        diag_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._debug_text.config(yscrollcommand=diag_scroll.set)
+
+    def _debug(self, message: str) -> None:
+        """Append a diagnostic line and mirror it in the diagnostics text box."""
+        line = str(message)
+        self._debug_lines.append(line)
+        if hasattr(self, "_debug_text"):
+            self._debug_text.config(state=tk.NORMAL)
+            self._debug_text.insert(tk.END, line + "\n")
+            self._debug_text.see(tk.END)
+            self._debug_text.config(state=tk.DISABLED)
+
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask."""
         self._channel_luts = {}
+        self._debug_lines = []
+        if hasattr(self, "_debug_text"):
+            self._debug_text.config(state=tk.NORMAL)
+            self._debug_text.delete("1.0", tk.END)
+            self._debug_text.config(state=tk.DISABLED)
+        self._debug(f"well_label={self.well_label!r}, row_idx={self.row_idx}, filename={self.filename!r}, nuclear_id={self.nuclear_id!r}")
         try:
             nuclear_id = int(float(self.nuclear_id))
         except (ValueError, TypeError):
             self._img_label.config(text="Invalid nuclear_id")
+            self._debug("Failed to parse nuclear_id as int.")
             return
+        self._debug(f"parsed_nuclear_id={nuclear_id}")
 
         rows = self.app._get_rows(self.well_label)
         if self.row_idx >= len(rows):
             self._img_label.config(text="Invalid row index")
+            self._debug(f"row_idx out of bounds: row_idx={self.row_idx}, rows={len(rows)}")
             return
 
         row = rows[self.row_idx]
@@ -125,11 +157,14 @@ class ScatterCellViewer(tk.Toplevel):
         # that appears in self.filename (e.g. "NIR", "DAPI").  Used to swap
         # in the correct fluor token when loading input images.
         self._nuclear_token = str(row.get("channel") or "").strip()
+        self._debug(f"csv.channel={self._nuclear_token!r}")
 
         self._cell_bounds = self._get_cell_bounds(nuclear_id)
         if not self._cell_bounds:
             self._img_label.config(text=f"Cell {nuclear_id} not found in mask")
+            self._debug("No bounds found for requested nuclear_id.")
             return
+        self._debug(f"cell_bounds={self._cell_bounds}")
 
         # Load and crop fluorescence images for all channels
         for ch in sorted(self.app._fluor_channels):
@@ -159,6 +194,7 @@ class ScatterCellViewer(tk.Toplevel):
             self._on_channel_changed()
         else:
             self._img_label.config(text="No images could be loaded")
+            self._debug("No channels were successfully loaded.")
 
     def _load_output_image_by_filename(self, image_type: str):
         """Load a mask or overlay from the output zip by constructing the expected
@@ -171,6 +207,7 @@ class ScatterCellViewer(tk.Toplevel):
         Returns (array, path_str).
         """
         try:
+            import re as _re
             import zipfile
             from pathlib import Path as _Path
             from well_viewer.runtime_app import (
@@ -183,7 +220,10 @@ class ScatterCellViewer(tk.Toplevel):
 
             nuclear_token = getattr(self, "_nuclear_token", "")
             stem = _Path(self.filename).stem
-            base = stem.replace(nuclear_token, "") if nuclear_token else stem
+            if nuclear_token:
+                base = _re.sub(_re.escape(nuclear_token), "", stem, count=1, flags=_re.IGNORECASE)
+            else:
+                base = stem
 
             if image_type == "mask":
                 candidates = [base + "_labels.tif", base + "_labels.tiff", base + "_labels.png"]
@@ -191,6 +231,9 @@ class ScatterCellViewer(tk.Toplevel):
                 candidates = [base + "_overlay.png", base + "_overlay.jpg", base + "_overlay.jpeg", base + "_overlay.tif"]
             else:
                 return None, f"unknown image_type {image_type!r}"
+            self._debug(
+                f"output lookup type={image_type}, nuclear_token={nuclear_token!r}, stem={stem!r}, base={base!r}, candidates={candidates!r}"
+            )
 
             well_token = _extract_well_token(self.well_label)
             if well_token is None:
@@ -204,28 +247,35 @@ class ScatterCellViewer(tk.Toplevel):
                 zips += _find_plain_well_zips_in_dir(data_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
                 zips = _find_well_zips_in_dir(data_dir, well_token)
+            self._debug(f"output zip search well_token={well_token!r}, zips={[str(z) for z in zips]!r}")
 
             candidate_lowers = [c.lower() for c in candidates]
             for zip_path in zips:
+                self._debug(f"scan zip for {image_type}: {zip_path}")
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.namelist():
                         if _Path(member).name.lower() in candidate_lowers:
                             ref = _ImgRef(zip_path=zip_path, zip_member=member)
                             arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                            self._debug(f"loaded {image_type} from zip: {zip_path}::{member}")
                             return arr, f"{zip_path}::{member}"
 
             # Fallback: raw files on disk
             search_dirs = [d for d in (data_dir, in_dir) if d and d.is_dir()]
+            self._debug(f"output disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
                 for candidate in candidates:
                     for img_path in d.rglob(candidate):
                         ref = _ImgRef(disk_path=img_path)
                         arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                        self._debug(f"loaded {image_type} from disk: {img_path}")
                         return arr, str(img_path)
 
+            self._debug(f"{image_type} not found. candidates={candidates!r}")
             return None, f"not found: {candidates[0]!r}"
 
         except Exception as e:
+            self._debug(f"_load_output_image_by_filename exception for {image_type}: {e!r}")
             return None, f"exception: {e}"
 
     def _get_cell_bounds(self, nuclear_id: int) -> Optional[Tuple[int, int, int, int]]:
@@ -236,37 +286,53 @@ class ScatterCellViewer(tk.Toplevel):
         try:
             import numpy as np
 
-            mask_arr, _ = self._load_output_image_by_filename("mask")
+            mask_arr, mask_path = self._load_output_image_by_filename("mask")
             if mask_arr is None:
+                self._debug(f"mask unavailable: {mask_path}")
                 return None
 
             mask_arr = np.asarray(mask_arr)
+            self._debug(
+                f"mask loaded: path={mask_path}, shape={tuple(mask_arr.shape)}, dtype={mask_arr.dtype}, min={mask_arr.min()}, max={mask_arr.max()}"
+            )
             cell_pixels = np.where(mask_arr == nuclear_id)
 
             if len(cell_pixels[0]) == 0:
+                try:
+                    uniq = np.unique(mask_arr)
+                    sample = uniq[:25].tolist()
+                    self._debug(
+                        f"nuclear_id={nuclear_id} not in mask. unique_count={len(uniq)}, sample_unique={sample}"
+                    )
+                except Exception:
+                    self._debug(f"nuclear_id={nuclear_id} not in mask. failed to compute unique labels.")
                 return None
 
             y_min, y_max = int(cell_pixels[0].min()), int(cell_pixels[0].max()) + 1
             x_min, x_max = int(cell_pixels[1].min()), int(cell_pixels[1].max()) + 1
             return (y_min, x_min, y_max, x_max)
 
-        except Exception:
+        except Exception as e:
+            self._debug(f"_get_cell_bounds exception: {e!r}")
             return None
 
     def _load_and_crop_channel(self, channel: str) -> Optional:
         """Load and crop image for a channel."""
         try:
             if channel in ("mask", "overlay"):
-                arr, _ = self._load_output_image_by_filename(channel)
+                arr, src = self._load_output_image_by_filename(channel)
+                self._debug(f"channel={channel} loaded_from={src}")
             else:
                 arr = self._load_input_channel_by_filename(channel)
             if arr is None or not self._cell_bounds:
+                self._debug(f"channel={channel} unavailable or missing bounds.")
                 return None
 
             y_min, x_min, y_max, x_max = self._cell_bounds
             return arr[y_min:y_max, x_min:x_max]
 
-        except Exception:
+        except Exception as e:
+            self._debug(f"_load_and_crop_channel exception for {channel}: {e!r}")
             return None
 
     def _load_and_crop_nuclear(self) -> Optional:
@@ -282,10 +348,12 @@ class ScatterCellViewer(tk.Toplevel):
             )
 
             if not self._cell_bounds:
+                self._debug("skip nuclear image load: no cell bounds.")
                 return None
 
             well_token = _extract_well_token(self.well_label)
             if well_token is None:
+                self._debug(f"could not parse well token from {self.well_label!r} for nuclear image load")
                 return None
 
             in_dir = self.app._in_dir
@@ -296,6 +364,7 @@ class ScatterCellViewer(tk.Toplevel):
                 zips = _find_plain_well_zips_in_dir(in_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
                 zips = _find_well_zips_in_dir(data_dir, well_token)
+            self._debug(f"nuclear image zip search target={self.filename!r}, zips={[str(z) for z in zips]!r}")
 
             target_lower = self.filename.lower()
             for zip_path in zips:
@@ -307,21 +376,26 @@ class ScatterCellViewer(tk.Toplevel):
                                 greyscale=True,
                             )
                             if arr is not None:
+                                self._debug(f"loaded nuclear image from zip: {zip_path}::{member}")
                                 y_min, x_min, y_max, x_max = self._cell_bounds
                                 return arr[y_min:y_max, x_min:x_max]
 
             # Fallback: disk
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
+            self._debug(f"nuclear image disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
                 for img_path in d.rglob(self.filename):
                     arr = open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
                     if arr is not None:
+                        self._debug(f"loaded nuclear image from disk: {img_path}")
                         y_min, x_min, y_max, x_max = self._cell_bounds
                         return arr[y_min:y_max, x_min:x_max]
 
+            self._debug(f"nuclear image not found for filename={self.filename!r}")
             return None
 
-        except Exception:
+        except Exception as e:
+            self._debug(f"_load_and_crop_nuclear exception: {e!r}")
             return None
 
     def _load_input_channel_by_filename(self, channel_token: str) -> Optional:
@@ -343,6 +417,7 @@ class ScatterCellViewer(tk.Toplevel):
 
             nuclear_token = getattr(self, "_nuclear_token", "")
             if not nuclear_token:
+                self._debug(f"channel={channel_token}: missing nuclear token from CSV row.")
                 return None
 
             # Replace the nuclear token in the filename (case-insensitive, first occurrence)
@@ -354,10 +429,13 @@ class ScatterCellViewer(tk.Toplevel):
                 flags=_re.IGNORECASE,
             )
             if target_name == self.filename:
+                self._debug(f"channel={channel_token}: token replacement produced unchanged name ({target_name!r}).")
                 return None
+            self._debug(f"channel={channel_token}: input filename target={target_name!r} from source={self.filename!r}")
 
             well_token = _extract_well_token(self.well_label)
             if well_token is None:
+                self._debug(f"channel={channel_token}: could not parse well token from {self.well_label!r}")
                 return None
 
             in_dir = self.app._in_dir
@@ -368,6 +446,7 @@ class ScatterCellViewer(tk.Toplevel):
                 zips = _find_plain_well_zips_in_dir(in_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
                 zips = _find_well_zips_in_dir(data_dir, well_token)
+            self._debug(f"channel={channel_token}: zip search zips={[str(z) for z in zips]!r}")
 
             target_lower = target_name.lower()
             for zip_path in zips:
@@ -375,17 +454,22 @@ class ScatterCellViewer(tk.Toplevel):
                     for member in zf.namelist():
                         if _Path(member).name.lower() == target_lower:
                             ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{member}")
                             return open_imgref_as_array(ref=ref, greyscale=True)
 
             # Fallback: raw files on disk
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
+            self._debug(f"channel={channel_token}: disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
                 for img_path in d.rglob(target_name):
+                    self._debug(f"channel={channel_token}: loaded from disk {img_path}")
                     return open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
 
+            self._debug(f"channel={channel_token}: not found target_name={target_name!r}")
             return None
 
-        except Exception:
+        except Exception as e:
+            self._debug(f"_load_input_channel_by_filename exception for {channel_token}: {e!r}")
             return None
 
     def _on_channel_changed(self) -> None:

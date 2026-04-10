@@ -5885,7 +5885,8 @@ class WellViewerApp(tk.Frame):
                     continue
                 gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
                 n_w = sum(1 for w in rset.wells if w in self._well_paths)
-                display = f"{rset.name} (n={n_w})" if n_w != 1 else rset.name
+                base_lbl = self._replicate_display_label(rset)
+                display = f"{base_lbl} (n={n_w})" if n_w != 1 else base_lbl
                 ordered.append(
                     (
                         rset.name,
@@ -5945,6 +5946,28 @@ class WellViewerApp(tk.Frame):
         """Return the custom display label for *lbl* if defined, else its token."""
         tok = _extract_well_token(lbl) or lbl
         return self._well_labels.get(tok, tok)
+
+    def _replicate_display_label(self, rset: "ReplicateSet") -> str:
+        """Human-friendly x-axis label for a replicate set.
+
+        If the replicate set name appears auto-generated (e.g. ``"1"``,
+        ``"Replicate 2"``, ``"R3"``), use member well labels so the x-axis
+        remains interpretable.
+        """
+        name = str(getattr(rset, "name", "") or "").strip()
+        if not name:
+            name = "Replicate"
+
+        generic_name = bool(re.match(r"^(?:\d+|r\s*\d+|rep(?:licate)?\s*\d+)$", name, re.I))
+        if not generic_name:
+            return name
+
+        wells = [self._well_display_label(w) for w in rset.wells if w in self._well_paths]
+        if not wells:
+            return name
+        if len(wells) <= 3:
+            return ",".join(wells)
+        return f"{','.join(wells[:3])} +{len(wells)-3}"
 
     def _rep_sets_loaded(self) -> "List[ReplicateSet]":
         """All ReplicateSets that have at least one loaded well (ignores hidden)."""
@@ -6132,8 +6155,12 @@ class WellViewerApp(tk.Frame):
 
         use_groups, items, _ = self._collect_bar_items(target_t)
         if use_groups:
-            xlabels = [name for name, *_ in items]
-            draw_items = [(name, name, gm, g_err_m, gf, g_err_f, has, color) for name, gm, g_err_m, gf, g_err_f, has, color in items]
+            rep_by_name = {r.name: r for r in self._rep_sets_active()}
+            xlabels = [self._replicate_display_label(rep_by_name[name]) if name in rep_by_name else name for name, *_ in items]
+            draw_items = [
+                (name, xlbl, gm, g_err_m, gf, g_err_f, has, color)
+                for (name, gm, g_err_m, gf, g_err_f, has, color), xlbl in zip(items, xlabels)
+            ]
         else:
             draw_items = items
             xlabels = [self._well_display_label(lbl) for lbl, *_ in items]
