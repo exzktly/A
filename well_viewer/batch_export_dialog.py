@@ -1282,9 +1282,8 @@ class BarBatchExportDialog(BatchExportDialog):
             combined: List[dict] = []
             for w in valid:
                 combined.extend(self._app._get_rows(w))
-            n_w = len(valid)
             members.append((
-                f"{rset.name} (n={n_w})" if n_w != 1 else rset.name,
+                self._app._replicate_display_label(rset),
                 combined))
         for w in grp.solo_wells:
             if w not in self._app._well_paths:

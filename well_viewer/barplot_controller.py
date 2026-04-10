@@ -84,8 +84,7 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
         for idx, rset in enumerate(active_rsets):
             color = well_colors[idx % len(well_colors)]
             gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-            n_w = sum(1 for w in rset.wells if w in app._well_paths)
-            label = f"{rset.name} (n={n_w})" if n_w != 1 else rset.name
+            label = app._replicate_display_label(rset)
             items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color))
         return True, items, band_lbl
 

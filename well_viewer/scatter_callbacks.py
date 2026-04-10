@@ -278,42 +278,29 @@ class ScatterCellViewer(tk.Toplevel):
             return None, f"exception: {e}"
 
     def _build_output_base_candidates(self, stem: str, nuclear_token: str) -> list[str]:
-        """Build robust base-name candidates used for output mask/overlay lookup.
+        """Build output base-name candidates using process_microscopy_v2 schema.
 
-        The output writer drops the nuclear channel token from the stem, but real
-        datasets may vary in delimiter/case behavior. We therefore probe a short
-        list of normalized possibilities.
+        process_microscopy_v2 writes masks/overlays as:
+            base_name = nuclear_stem.replace(nuclear_token, "")
+            <base_name>_labels.tif
         """
-        import re as _re
-
-        candidates: list[str] = [stem]
         token = (nuclear_token or "").strip()
-        if token:
-            escaped = _re.escape(token)
-            patterns = (
-                rf"(?i)([_\-.]){escaped}(?=[_\-.]|$)",
-                rf"(?i){escaped}([_\-.])",
-                rf"(?i){escaped}",
-            )
-            for pat in patterns:
-                candidates.append(_re.sub(pat, "", stem, count=1))
-                candidates.append(_re.sub(pat, "", stem))
+        base_name = stem.replace(token, "") if token else stem
+        candidates = [base_name, stem]
 
-        # Include variants where a leading well token may be zero-padded in one
-        # file set but not the other (e.g. A5 vs A05).
         augmented: list[str] = []
         for c in candidates:
-            augmented.append(c)
-            augmented.extend(self._well_token_variants(c))
+            if c:
+                augmented.append(c)
+                augmented.extend(self._well_token_variants(c))
 
-        normalized: list[str] = []
+        ordered: list[str] = []
         seen: set[str] = set()
         for c in augmented:
-            c = _re.sub(r"[_\-.]{2,}", "_", c).strip("_-. ")
             if c and c not in seen:
                 seen.add(c)
-                normalized.append(c)
-        return normalized or [stem]
+                ordered.append(c)
+        return ordered or [stem]
 
     def _well_token_variants(self, name: str) -> list[str]:
         """Return alternate names with leading well token padded/unpadded."""

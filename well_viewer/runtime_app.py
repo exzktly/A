@@ -5884,9 +5884,8 @@ class WellViewerApp(tk.Frame):
                 if not rset:
                     continue
                 gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
-                n_w = sum(1 for w in rset.wells if w in self._well_paths)
                 base_lbl = self._replicate_display_label(rset)
-                display = f"{base_lbl} (n={n_w})" if n_w != 1 else base_lbl
+                display = base_lbl
                 ordered.append(
                     (
                         rset.name,
