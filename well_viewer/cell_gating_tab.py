@@ -23,6 +23,7 @@ from ui.theme import (
     TXT_SEC,
     WARN,
 )
+from ui.theme import get_color
 
 try:
     import numpy as _np
@@ -300,7 +301,15 @@ class CellGatingTab(tk.Frame):
         if not self._cell_areas and not self._fluor_data:
             return
 
-        self._figure.clear()
+        bg_app = get_color("BG_APP")
+        bg_panel = get_color("BG_PANEL")
+        txt_pri = get_color("TXT_PRI")
+        txt_mut = get_color("TXT_MUT")
+        accent = get_color("ACCENT")
+        warn = get_color("WARN")
+
+        self._figure.clf()
+        self._figure.set_facecolor(bg_app)
 
         # Determine number of plots needed (cell area + channels)
         n_plots = 1 + len(self._fluor_data)  # 1 for cell area, rest for channels
@@ -314,30 +323,30 @@ class CellGatingTab(tk.Frame):
 
         axes = []
         for i in range(n_plots):
-            ax = self._figure.add_subplot(n_rows, n_cols, i + 1, facecolor=BG_PANEL)
+            ax = self._figure.add_subplot(n_rows, n_cols, i + 1, facecolor=bg_panel)
             axes.append(ax)
 
         # Plot cell area CDF
         if self._cell_areas:
             areas = _np.array(sorted(self._cell_areas))
             cdf = _np.arange(1, len(areas) + 1) / len(areas)
-            axes[0].plot(areas, cdf, linewidth=2, color=ACCENT, alpha=0.8)
-            axes[0].fill_between(areas, cdf, alpha=0.2, color=ACCENT)
-            axes[0].set_xlabel("Cell Area (pixels)", color=TXT_PRI, fontsize=9)
-            axes[0].set_ylabel("Cumulative Probability", color=TXT_PRI, fontsize=9)
-            axes[0].set_title("Cell Area Distribution", color=TXT_PRI, fontsize=10, fontweight="bold")
-            axes[0].grid(True, alpha=0.2, color=TXT_MUT)
-            axes[0].tick_params(colors=TXT_MUT, labelsize=8)
+            axes[0].plot(areas, cdf, linewidth=2, color=accent, alpha=0.8)
+            axes[0].fill_between(areas, cdf, alpha=0.2, color=accent)
+            axes[0].set_xlabel("Cell Area (pixels)", color=txt_pri, fontsize=9)
+            axes[0].set_ylabel("Cumulative Probability", color=txt_pri, fontsize=9)
+            axes[0].set_title("Cell Area Distribution", color=txt_pri, fontsize=10, fontweight="bold")
+            axes[0].grid(True, alpha=0.2, color=txt_mut)
+            axes[0].tick_params(colors=txt_mut, labelsize=8)
 
             # Add cell area threshold line
             try:
                 cell_area_threshold = float(self._cell_area_threshold.get())
-                axes[0].axvline(x=cell_area_threshold, color=WARN, linestyle="--", linewidth=2, alpha=0.7)
+                axes[0].axvline(x=cell_area_threshold, color=warn, linestyle="--", linewidth=2, alpha=0.7)
             except ValueError:
                 pass
 
         # Plot CDFs for each fluorescence channel
-        colors = [ACCENT, "#FF9500", "#FF3B30", "#34C759"]  # Predefined colors
+        colors = [accent, "#FF9500", "#FF3B30", "#34C759"]  # Predefined colors
         for idx, (channel, values) in enumerate(sorted(self._fluor_data.items()), 1):
             if idx < len(axes):
                 ax = axes[idx]
@@ -346,16 +355,16 @@ class CellGatingTab(tk.Frame):
                 cdf = _np.arange(1, len(vals) + 1) / len(vals)
                 ax.plot(vals, cdf, linewidth=2, color=color, alpha=0.8)
                 ax.fill_between(vals, cdf, alpha=0.2, color=color)
-                ax.set_xlabel(f"{channel.upper()} Intensity", color=TXT_PRI, fontsize=9)
-                ax.set_ylabel("Cumulative Probability", color=TXT_PRI, fontsize=9)
-                ax.set_title(f"{channel.upper()} Distribution", color=TXT_PRI, fontsize=10, fontweight="bold")
-                ax.grid(True, alpha=0.2, color=TXT_MUT)
-                ax.tick_params(colors=TXT_MUT, labelsize=8)
+                ax.set_xlabel(f"{channel.upper()} Intensity", color=txt_pri, fontsize=9)
+                ax.set_ylabel("Cumulative Probability", color=txt_pri, fontsize=9)
+                ax.set_title(f"{channel.upper()} Distribution", color=txt_pri, fontsize=10, fontweight="bold")
+                ax.grid(True, alpha=0.2, color=txt_mut)
+                ax.tick_params(colors=txt_mut, labelsize=8)
 
                 # Add FluorGating threshold line for this channel
                 try:
                     fluor_gate = float(self._fluor_gates[channel].get())
-                    ax.axvline(x=fluor_gate, color=WARN, linestyle="--", linewidth=2, alpha=0.7)
+                    ax.axvline(x=fluor_gate, color=warn, linestyle="--", linewidth=2, alpha=0.7)
                 except (ValueError, KeyError):
                     pass
 
@@ -387,6 +396,7 @@ class CellGatingTab(tk.Frame):
             for channel in self._fluor_gates:
                 float(self._fluor_gates[channel].get())
             # Redraw the CDF with new thresholds
+            self._axes_stack = []
             self._plot_cdf()
             # Redraw the app to reflect the new thresholds
             self._app._redraw()
@@ -443,3 +453,14 @@ class CellGatingTab(tk.Frame):
             except ValueError:
                 return 50.0
         return 50.0
+
+    def update_theme_colors_rebuild(self, old_theme: str, new_theme: str) -> None:
+        """Recolor CDF panel and redraw plots when runtime theme changes."""
+        bg_app = get_color("BG_APP")
+        self.configure(bg=bg_app)
+        if self._figure is not None:
+            self._figure.set_facecolor(bg_app)
+        if self._canvas is not None:
+            self._canvas.get_tk_widget().configure(bg=bg_app)
+        if self._cell_areas or self._fluor_data:
+            self._plot_cdf()
