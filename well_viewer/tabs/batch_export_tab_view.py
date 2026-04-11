@@ -41,7 +41,7 @@ def build_batch_export_tab(app, parent: tk.Frame) -> None:
     tk.Label(wrap, text="Batch Export", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(anchor="w")
     tk.Label(
         wrap,
-        text="Configure line/bar batch jobs inline and export CSV outputs from this tab.",
+        text="Configure and run inline line/bar batch export workflows from this tab.",
         font=FM_TINY,
         fg=TXT_MUT,
         bg=BG_APP,
@@ -60,18 +60,6 @@ def build_batch_export_tab(app, parent: tk.Frame) -> None:
         text="Bar Batch Builder",
         command=lambda: app._open_bar_batch_export(),
         style="ActionIndigo.TButton",
-    ).pack(side=tk.LEFT)
-
-    export_row = tk.Frame(wrap, bg=BG_APP)
-    export_row.pack(fill=tk.X, pady=(0, 8))
-    _make_action_button(
-        export_row, text="Export Line Graph CSV", command=app._export_plot_data, style="ActionSuccess.TButton"
-    ).pack(side=tk.LEFT, padx=(0, 6))
-    _make_action_button(
-        export_row, text="Export Bar Plot CSV", command=app._export_bar_plot_data, style="ActionSuccess.TButton"
-    ).pack(side=tk.LEFT, padx=(0, 6))
-    _make_action_button(
-        export_row, text="Export Raw Data CSV", command=app._export_raw_data_csv, style="ActionSuccess.TButton"
     ).pack(side=tk.LEFT)
 
     host = tk.Frame(wrap, bg=BG_APP)
