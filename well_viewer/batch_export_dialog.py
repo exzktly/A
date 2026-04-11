@@ -58,6 +58,7 @@ from well_viewer.runtime_app import (
     ttk,
 )
 from well_viewer.batch_models import BarGroup
+from well_viewer.barplot_controller import render_bar_items as _bar_render_items
 from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -1256,7 +1257,7 @@ class BarBatchExportDialog(BatchExportDialog):
         use_sem: bool,
         band_lbl: str,
     ) -> "Figure":
-        """One bar per group member at *target_t*."""
+        """One bar per group member at *target_t* using shared bar renderer."""
         from matplotlib.figure import Figure as _Figure
 
         fig = _Figure(figsize=(8, 7), dpi=300, facecolor=PLOT_BG)
@@ -1294,54 +1295,37 @@ class BarBatchExportDialog(BatchExportDialog):
         if not members:
             return fig
 
-        xs    = list(range(len(members)))
-        bar_w = min(0.65, 5.0 / max(len(members), 1))
-
         _cell_area_threshold = self._app._get_cell_area_threshold()
         _fluor_gates = self._app._get_all_fluor_gates()
+        draw_items: List[tuple] = []
+        xlabels: List[str] = []
         for i, (name, rows) in enumerate(members):
             color = WELL_COLORS[i % len(WELL_COLORS)]
             pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates)
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+            xlabels.append(name)
             if matched:
-                _, m, s, f, *_ = matched[0]
-                if not math.isnan(m):
-                    ax_mean.bar(i, m, width=bar_w, color=color,
-                                alpha=0.85, zorder=3, linewidth=0)
-                    if s > 0:
-                        ax_mean.errorbar(i, m, yerr=s, fmt="none",
-                                         ecolor=CLR_ERR_BAR, elinewidth=1.4,
-                                         capsize=4, zorder=4)
-                else:
-                    ax_mean.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER,
-                                linewidth=1, edgecolor=CLR_DISABLED_WELL,
-                                linestyle="--", zorder=3)
-                if not math.isnan(f):
-                    ax_frac.bar(i, f, width=bar_w, color=color,
-                                alpha=0.85, zorder=3, linewidth=0)
-                else:
-                    ax_frac.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER,
-                                linewidth=1, edgecolor=CLR_DISABLED_WELL,
-                                linestyle="--", zorder=3)
+                _t, m, s, f, *extra = matched[0]
+                frac_spread = float(extra[0]) if extra else 0.0
+                has_data = not math.isnan(m)
+                draw_items.append((name, name, m, s, f, frac_spread, has_data, color))
             else:
-                for ax in (ax_mean, ax_frac):
-                    ax.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER,
-                           linewidth=1, edgecolor=CLR_DISABLED_WELL,
-                           linestyle="--", zorder=3)
+                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color))
 
-        ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--",
-                        alpha=0.7, zorder=1)
-        ax_frac.axhline(0.5, color=BORDER, lw=0.8, ls="--",
-                        alpha=0.5, zorder=1)
-        xlabels = [name for name, _ in members]
-        for ax in (ax_mean, ax_frac):
-            ax.set_xticks(xs)
-            ax.set_xticklabels(
-                xlabels,
-                rotation=45 if len(members) > 6 else 0,
-                ha="right" if len(members) > 6 else "center",
-                fontsize=7)
-            ax.set_xlim(-0.6, len(members) - 0.4)
+        _bar_render_items(
+            ax_mean=ax_mean,
+            ax_frac=ax_frac,
+            use_groups=True,
+            items=draw_items,
+            xlabels=xlabels,
+            threshold=threshold,
+            well_colors=WELL_COLORS,
+            warn_color=WARN,
+            border_color=BORDER,
+            placeholder_color=CLR_PLACEHOLDER,
+            disabled_well_color=CLR_DISABLED_WELL,
+            err_bar_color=CLR_ERR_BAR,
+        )
 
         return fig
 
