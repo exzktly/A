@@ -116,7 +116,7 @@ class SmfishTab(tk.Frame):
         ttk.Button(btn_row, text="Refresh", command=self._redraw).pack(side=tk.LEFT, padx=(6, 0))
         self._overlay_btn = ttk.Button(btn_row, text="Hide Overlays", command=self._toggle_overlays)
         self._overlay_btn.pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(btn_row, text="CDF", command=self._open_cdf_popup).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(btn_row, text="This Frame CDF", command=self._open_cdf_popup).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(right, textvariable=self._status_var, bg=BG_SIDE, fg=TXT_MUT, font=FM_TINY,
                  justify=tk.LEFT, anchor="w").pack(fill=tk.X, padx=10, pady=(0, 6))
 
@@ -512,6 +512,8 @@ class SmfishTab(tk.Frame):
         self._app._redraw()
 
     def _apply_to_all_worker(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         out_dir = self._out_dir
         channel = self._channel_var.get().strip().lower()
         if out_dir is None or not channel:
@@ -521,9 +523,8 @@ class SmfishTab(tk.Frame):
         col = f"{channel}_smfish_count"
         counts: dict[tuple[str, str, str, str], int] = {}
 
-        wells = sorted(self._well_to_zip.items())
-        for i, (well, zip_path) in enumerate(wells, start=1):
-            self.after(0, lambda i=i, n=len(wells), w=well: self._status_var.set(f"Processing {w} ({i}/{n})..."))
+        def _process_well(well: str, zip_path: Path) -> dict[tuple[str, str, str, str], int]:
+            per_well_counts: dict[tuple[str, str, str, str], int] = {}
             g, _ov, mask, _th, smfish = scan_zip_members(
                 zip_path=zip_path,
                 fluor_lower=channel,
@@ -547,7 +548,37 @@ class SmfishTab(tk.Frame):
                 if hits.size:
                     hit_counts = np.bincount(hits)
                     for nid in np.nonzero(hit_counts)[0]:
-                        counts[(well, key[0], key[1], str(int(nid)))] = int(hit_counts[nid])
+                        per_well_counts[(well, key[0], key[1], str(int(nid)))] = int(hit_counts[nid])
+            return per_well_counts
+
+        wells = sorted(self._well_to_zip.items())
+        if wells:
+            max_workers = min(8, len(wells))
+            self.after(
+                0,
+                lambda n=len(wells), workers=max_workers: self._status_var.set(
+                    f"Applying global threshold across {n} wells using {workers} workers..."
+                ),
+            )
+            completed = 0
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_well = {
+                    executor.submit(_process_well, well, zip_path): well
+                    for well, zip_path in wells
+                }
+                for future in as_completed(future_to_well):
+                    well = future_to_well[future]
+                    completed += 1
+                    try:
+                        counts.update(future.result())
+                    except Exception as e:
+                        logger.exception("smFISH global threshold failed for %s: %s", well, e)
+                    self.after(
+                        0,
+                        lambda c=completed, n=len(wells), w=well: self._status_var.set(
+                            f"Processed {w} ({c}/{n})..."
+                        ),
+                    )
 
         for well in sorted(self._well_to_zip):
             csv_matches = list(out_dir.glob(f"*_{well}.csv"))
