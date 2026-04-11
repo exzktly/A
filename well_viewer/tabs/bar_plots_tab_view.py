@@ -28,7 +28,7 @@ def build_bar_plots_tab(app, parent: tk.Frame) -> None:
 
     Creates and wires:
     - Channel / Metric / Timepoint selectors (Metric shares ``app._metric_var``)
-    - Export CSV / Save Figure buttons
+    - Export CSV + export-style panel buttons
     - Beeswarm, Violin, Log Y, Reset Order toggles and smoothing slider
     - Matplotlib figure with 2 subplots: mean, fraction
     - Y-axis limit controls
@@ -76,9 +76,6 @@ def build_bar_plots_tab(app, parent: tk.Frame) -> None:
     _make_action_button(
         bar_ctrl, text="Export CSV", command=app._export_bar_plot_data,
         style="ActionSuccess.TButton",
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    _make_secondary_button(
-        bar_ctrl, text="Save Figure…", command=app._save_bar_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
     _make_secondary_button(
         bar_ctrl, text="▸", command=lambda: app._open_export_style_panel("bar"),

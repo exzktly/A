@@ -33,7 +33,7 @@ def build_scatter_agg_tab(app, parent: tk.Frame) -> None:
       NOTE: This tab intentionally uses a multi-select checkbox dropdown rather
       than a single Combobox because it aggregates *across* timepoints, whereas
       the Cells scatter and Bar Plots tabs show one timepoint at a time.
-    - Export CSV / Save Figure buttons
+    - Export CSV + export-style panel buttons
     - Matplotlib figure with one scatter subplot
     """
     # ── Controls bar ───────────────────────────────────────────────────────
@@ -91,9 +91,6 @@ def build_scatter_agg_tab(app, parent: tk.Frame) -> None:
     _make_action_button(
         scatter_agg_ctrl, text="Export CSV", command=app._export_scatter_agg_data,
         style="ActionSuccess.TButton",
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    _make_secondary_button(
-        scatter_agg_ctrl, text="Save Figure…", command=app._save_scatter_agg_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
     _make_secondary_button(
         scatter_agg_ctrl, text="▸", command=lambda: app._open_export_style_panel("scatter_agg"),

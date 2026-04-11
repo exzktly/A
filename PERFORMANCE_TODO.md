@@ -63,3 +63,9 @@ Purpose: track performance remediation work so another AI can resume safely if i
   - `_refresh_sidebar_map_now`
   - `_redraw_scatter`
   - `_update_bar_tp_menu`
+
+## Follow-up UI tasks (2026-04-11)
+
+- [x] Move export-style sidebar field labels above controls to prevent clipping.
+- [x] Remove top-level tab buttons labeled "Save Figure…" (Line, Bar, Scatter Cells, Scatter Aggregate).
+- [x] Fix export-style sidebar button-row background so it matches export panel background.

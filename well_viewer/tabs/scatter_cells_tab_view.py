@@ -26,7 +26,7 @@ def build_scatter_cells_tab(app, parent: tk.Frame) -> None:
     - X-axis channel selector (``app._scatter_ch_x_var``)
     - Y-axis channel selector (``app._scatter_ch_y_var``)
     - Timepoint selector (single-select ``app._scatter_tp_var``)
-    - Export CSV / Save Figure buttons
+    - Export CSV + export-style panel buttons
     - Matplotlib figure with one scatter subplot
     """
     # ── Controls bar ───────────────────────────────────────────────────────
@@ -65,9 +65,6 @@ def build_scatter_cells_tab(app, parent: tk.Frame) -> None:
     _make_action_button(
         scatter_ctrl, text="Export CSV", command=app._export_scatter_data,
         style="ActionSuccess.TButton",
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    _make_secondary_button(
-        scatter_ctrl, text="Save Figure…", command=app._save_scatter_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
     _make_secondary_button(
         scatter_ctrl, text="▸", command=lambda: app._open_export_style_panel("scatter_cells"),

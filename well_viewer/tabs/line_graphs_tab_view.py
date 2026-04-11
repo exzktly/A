@@ -29,7 +29,7 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     Creates and wires:
     - Channel selector (shares ``app._chan_var``)
     - Metric selector (hidden until a smFISH channel is active)
-    - Export CSV / Save Figure buttons
+    - Export CSV + export-style panel buttons
     - Matplotlib figure with 3 subplots: mean, fraction, CDF
     - CDF x-axis limit controls
     """
@@ -62,9 +62,6 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     _make_action_button(
         line_ctrl, text="Export CSV", command=app._export_plot_data,
         style="ActionSuccess.TButton",
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    _make_secondary_button(
-        line_ctrl, text="Save Figure…", command=app._save_line_figure,
     ).pack(side=tk.RIGHT, padx=(4, 0))
     _make_secondary_button(
         line_ctrl, text="▸", command=lambda: app._open_export_style_panel("line"),
