@@ -19,7 +19,7 @@ from matplotlib.figure import Figure
 from skimage.segmentation import find_boundaries
 from tifffile import imread
 
-from ui.theme import ACCENT, BG_APP, BG_PANEL, BG_SIDE, BORDER, FM_BOLD, FM_TINY, TXT_MUT, TXT_PRI
+from ui.theme import ACCENT, BG_APP, BG_PANEL, BG_SIDE, FM_BOLD, FM_TINY, TXT_MUT, TXT_PRI, get_color
 from well_viewer.preview_controller import classify_member, read_member_bytes, scan_zip_members
 from well_viewer.viewer_state import make_schema_extractor
 
@@ -76,6 +76,11 @@ class SmfishTab(tk.Frame):
         self._lut_max_var = tk.StringVar(value="")
         self._status_var = tk.StringVar(value="Select a single well from the global picker.")
 
+        panel_bg = get_color("BG_PANEL")
+        txt_pri = get_color("TXT_PRI")
+        border = get_color("BORDER")
+        accent = get_color("ACCENT")
+
         ctrl = tk.Frame(right, bg=BG_SIDE, pady=6, padx=10)
         ctrl.pack(fill=tk.X, side=tk.TOP)
         tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
@@ -91,22 +96,22 @@ class SmfishTab(tk.Frame):
         self._tp_cb.pack(side=tk.LEFT, padx=(0, 10))
         self._tp_cb.bind("<<ComboboxSelected>>", self._on_selection_change)
         tk.Label(ctrl, text="smFISH_Thresh:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
-        thr = tk.Entry(ctrl, textvariable=self._threshold_var, bg=BG_PANEL, fg=TXT_PRI,
-                       relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
-                       highlightcolor=ACCENT)
+        thr = tk.Entry(ctrl, textvariable=self._threshold_var, bg=panel_bg, fg=txt_pri,
+                       relief=tk.FLAT, highlightthickness=1, highlightbackground=border,
+                       highlightcolor=accent)
         thr.pack(side=tk.LEFT, padx=(0, 8))
         thr.bind("<Return>", lambda _e: self._redraw())
         thr.bind("<FocusOut>", lambda _e: self._redraw())
         tk.Label(ctrl, text="LUT Min:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(4, 6))
-        lut_min = tk.Entry(ctrl, textvariable=self._lut_min_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
-                           relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
-                           highlightcolor=ACCENT)
+        lut_min = tk.Entry(ctrl, textvariable=self._lut_min_var, width=8, bg=panel_bg, fg=txt_pri,
+                           relief=tk.FLAT, highlightthickness=1, highlightbackground=border,
+                           highlightcolor=accent)
         lut_min.pack(side=tk.LEFT, padx=(0, 6))
         lut_min.bind("<Return>", lambda _e: self._redraw())
         tk.Label(ctrl, text="LUT Max:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
-        lut_max = tk.Entry(ctrl, textvariable=self._lut_max_var, width=8, bg=BG_PANEL, fg=TXT_PRI,
-                           relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
-                           highlightcolor=ACCENT)
+        lut_max = tk.Entry(ctrl, textvariable=self._lut_max_var, width=8, bg=panel_bg, fg=txt_pri,
+                           relief=tk.FLAT, highlightthickness=1, highlightbackground=border,
+                           highlightcolor=accent)
         lut_max.pack(side=tk.LEFT, padx=(0, 8))
         lut_max.bind("<Return>", lambda _e: self._redraw())
 
