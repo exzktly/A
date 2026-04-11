@@ -1346,8 +1346,15 @@ class WellViewerApp(tk.Frame):
         self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
         self._review_csv_lookup_context: Dict[str, str] = {}
         self._review_image_zoom: float = 1.0
+        self._review_image_pan_x: float = 0.0
+        self._review_image_pan_y: float = 0.0
+        self._review_image_dragging: bool = False
+        self._review_image_drag_moved: bool = False
+        self._review_image_drag_last_xy: Tuple[int, int] = (0, 0)
         self._review_image_base_pil = None
         self._review_image_is_tif: bool = False
+        self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
+        self._review_image_last_fluor_arr = None
 
         self._build_ui()
         self._apply_theme()
@@ -3879,6 +3886,12 @@ class WellViewerApp(tk.Frame):
         ch_upper = channel.upper()
         if hasattr(self, "_mon_lut_chan_lbl"):
             self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+        if hasattr(self, "_review_lut_chan_lbl"):
+            self._review_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+        saved_review_lut = self._review_image_lut_by_channel.get(channel)
+        if saved_review_lut and hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{saved_review_lut[0]:.0f}")
+            self._review_lut_max_var.set(f"{saved_review_lut[1]:.0f}")
         if hasattr(self, "_cdf_chan_lbl"):
             self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
@@ -4110,14 +4123,70 @@ class WellViewerApp(tk.Frame):
                 continue
             incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
-        self._draw_review_image(fluor_arr, mask_arr, include_by_nid)
+        self._draw_review_image(fluor_arr, mask_arr, include_by_nid, fit_lut=True)
 
-    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool]) -> None:
-        arr = _np.asarray(fluor_arr, dtype=_np.float32)
-        m = _np.asarray(mask_arr)
-        lo, hi = float(arr.min()), float(arr.max())
+    def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
+        chan = str(self._active_channel or "").lower()
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            try:
+                lo = float(self._review_lut_min_var.get().strip())
+                hi = float(self._review_lut_max_var.get().strip())
+                if hi > lo:
+                    self._review_image_lut_by_channel[chan] = (lo, hi)
+                    return lo, hi
+            except Exception:
+                pass
+        saved = self._review_image_lut_by_channel.get(chan)
+        if saved is not None and saved[1] > saved[0]:
+            return saved
+        lo = float(arr.min())
+        hi = float(arr.max())
         if hi <= lo:
             hi = lo + 1.0
+        self._review_image_lut_by_channel[chan] = (lo, hi)
+        return lo, hi
+
+    def _review_image_auto_lut(self) -> None:
+        arr = getattr(self, "_review_image_last_fluor_arr", None)
+        if arr is None or not _NP_AVAILABLE:
+            return
+        arr_np = _np.asarray(arr, dtype=_np.float32)
+        lo = float(arr_np.min())
+        hi = float(arr_np.max())
+        if hi <= lo:
+            hi = lo + 1.0
+        self._review_image_lut_by_channel[str(self._active_channel or "").lower()] = (lo, hi)
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{lo:.0f}")
+            self._review_lut_max_var.set(f"{hi:.0f}")
+        self._refresh_review_image()
+
+    def _review_image_commit_lut(self) -> None:
+        arr = getattr(self, "_review_image_last_fluor_arr", None)
+        if arr is None:
+            return
+        lo, hi = self._review_image_resolve_lut(_np.asarray(arr, dtype=_np.float32))
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{lo:.0f}")
+            self._review_lut_max_var.set(f"{hi:.0f}")
+        self._refresh_review_image()
+
+    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool], *, fit_lut: bool = False) -> None:
+        arr = _np.asarray(fluor_arr, dtype=_np.float32)
+        self._review_image_last_fluor_arr = arr
+        m = _np.asarray(mask_arr)
+        if fit_lut:
+            lo, hi = float(arr.min()), float(arr.max())
+            if hi <= lo:
+                hi = lo + 1.0
+            self._review_image_lut_by_channel[str(self._active_channel or "").lower()] = (lo, hi)
+        else:
+            lo, hi = self._review_image_resolve_lut(arr)
+        if hasattr(self, "_review_lut_chan_lbl"):
+            self._review_lut_chan_lbl.config(text=f"{self._active_channel.upper()} LUT min:")
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{lo:.0f}")
+            self._review_lut_max_var.set(f"{hi:.0f}")
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
         rgb = _np.dstack([base, base, base])
 
@@ -4144,11 +4213,18 @@ class WellViewerApp(tk.Frame):
         img = _PILImage.fromarray(rgb, mode="RGB")
         self._review_image_base_pil = img
         self._review_image_zoom = 1.0
+        self._review_image_pan_x = 0.0
+        self._review_image_pan_y = 0.0
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
         self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
-        self._review_image_label.bind("<Button-1>", self._on_review_image_click)
+        self._review_image_label.bind("<MouseWheel>", self._on_review_image_wheel)
+        self._review_image_label.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
+        self._review_image_label.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
+        self._review_image_label.bind("<ButtonPress-1>", self._on_review_image_press)
+        self._review_image_label.bind("<B1-Motion>", self._on_review_image_drag)
+        self._review_image_label.bind("<ButtonRelease-1>", self._on_review_image_release)
         suffix = f"  ·  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
         self._review_image_status.config(
             text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.{suffix}"
@@ -4168,7 +4244,13 @@ class WellViewerApp(tk.Frame):
         self._review_image_photo = _PILImageTk.PhotoImage(shown)
         self._review_image_label.configure(image=self._review_image_photo)
         self._review_image_scale = scale
-        self._review_image_canvas.coords(self._review_image_window, max(8, (cw - nw) // 2), max(8, (ch - nh) // 2))
+        base_x = max(8, (cw - nw) // 2)
+        base_y = max(8, (ch - nh) // 2)
+        self._review_image_canvas.coords(
+            self._review_image_window,
+            base_x + float(getattr(self, "_review_image_pan_x", 0.0)),
+            base_y + float(getattr(self, "_review_image_pan_y", 0.0)),
+        )
 
     def _review_image_zoom_step(self, direction: int) -> None:
         steps = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
@@ -4180,12 +4262,43 @@ class WellViewerApp(tk.Frame):
 
     def _review_image_zoom_fit(self) -> None:
         self._review_image_zoom = 1.0
+        self._review_image_pan_x = 0.0
+        self._review_image_pan_y = 0.0
         self._render_review_image_display()
 
     def _on_review_image_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        if not getattr(self, "_review_image_is_tif", False):
+        direction = +1 if getattr(event, "delta", 0) > 0 else -1
+        if getattr(event, "num", None) == 4:
+            direction = +1
+        elif getattr(event, "num", None) == 5:
+            direction = -1
+        self._review_image_zoom_step(direction)
+
+    def _on_review_image_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        self._review_image_dragging = True
+        self._review_image_drag_moved = False
+        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+
+    def _on_review_image_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        if not getattr(self, "_review_image_dragging", False):
             return
-        self._review_image_zoom_step(+1 if event.delta > 0 else -1)
+        lx, ly = self._review_image_drag_last_xy
+        dx = int(event.x_root) - lx
+        dy = int(event.y_root) - ly
+        if dx or dy:
+            self._review_image_drag_moved = True
+        self._review_image_pan_x = float(getattr(self, "_review_image_pan_x", 0.0) + dx)
+        self._review_image_pan_y = float(getattr(self, "_review_image_pan_y", 0.0) + dy)
+        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+        self._render_review_image_display()
+
+    def _on_review_image_release(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        was_dragging = getattr(self, "_review_image_dragging", False)
+        moved = getattr(self, "_review_image_drag_moved", False)
+        self._review_image_dragging = False
+        self._review_image_drag_moved = False
+        if was_dragging and not moved:
+            self._on_review_image_click(event)
 
     def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         mask_arr = getattr(self._review_image_label, "_mask_arr", None)

@@ -223,6 +223,39 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         self._review_image_status = tk.Label(inner, text="", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, anchor="w")
         self._review_image_status.pack(fill=tk.X, padx=8, pady=2)
 
+        lut_row = tk.Frame(inner, bg=BG_SIDE, pady=2, padx=8)
+        lut_row.pack(fill=tk.X)
+        self._review_lut_chan_lbl = tk.Label(
+            lut_row,
+            text=f"{self._active_channel.upper()} LUT min:",
+            font=FM_TINY,
+            fg=TXT_MUT,
+            bg=BG_SIDE,
+        )
+        self._review_lut_chan_lbl.pack(side=tk.LEFT)
+        self._review_lut_min_var = tk.StringVar(value="auto")
+        self._review_lut_max_var = tk.StringVar(value="auto")
+        for var, padx in ((self._review_lut_min_var, (3, 8)), (self._review_lut_max_var, (3, 12))):
+            prefix = "max:" if var is self._review_lut_max_var else ""
+            if prefix:
+                tk.Label(lut_row, text=prefix, font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
+            entry = tk.Entry(
+                lut_row,
+                textvariable=var,
+                width=7,
+                font=FM_TINY,
+                fg=ACCENT,
+                bg=BG_PANEL,
+                relief=tk.FLAT,
+                highlightthickness=1,
+                highlightcolor=ACCENT,
+                highlightbackground=BORDER,
+            )
+            entry.pack(side=tk.LEFT, padx=padx)
+            entry.bind("<Return>", lambda _e: self._review_image_commit_lut())
+            entry.bind("<FocusOut>", lambda _e: self._review_image_commit_lut())
+        btn_secondary(lut_row, "Auto LUT", self._review_image_auto_lut, padx=8).pack(side=tk.LEFT)
+
         self._review_image_canvas = tk.Canvas(inner, bg=BG_APP, highlightthickness=0)
         self._review_image_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self._review_image_label = tk.Label(self._review_image_canvas, bg=BG_APP, bd=0, cursor="hand2")
@@ -231,5 +264,8 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         self._review_image_canvas.bind("<MouseWheel>", self._on_review_image_wheel)
         self._review_image_canvas.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
         self._review_image_canvas.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
+        self._review_image_canvas.bind("<ButtonPress-1>", self._on_review_image_press)
+        self._review_image_canvas.bind("<B1-Motion>", self._on_review_image_drag)
+        self._review_image_canvas.bind("<ButtonRelease-1>", self._on_review_image_release)
 
         self._review_image_tooltip = _Tooltip(inner)
