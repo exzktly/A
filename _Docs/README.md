@@ -57,8 +57,43 @@ This repository is organized around package-owned runtime modules under `well_vi
 - Image preview: optional TIFF/PIL/numpy paths are handled in preview helpers with runtime checks.
 - Optional/runtime-heavy imports are isolated behind lazy/delegated paths where possible to keep lightweight import/CLI checks robust.
 
+## Views and tabs (UI builder modules)
+
+All widget-construction code has been extracted from `runtime_app.py` into dedicated files.
+
+### `well_viewer/views/`
+
+Each file exposes one or more `build_*(app, parent)` / `*_refresh(app)` functions:
+
+| File | Contents |
+|------|----------|
+| `centre_view.py` | Notebook orchestrator — creates tab frames, delegates to `tabs/` |
+| `preview_panel_view.py` | Preview panel controls, montage canvas, LUT/top-hat controls |
+| `status_view.py` | Bottom status/log strip; `_GUILogHandler` logging handler |
+| `grouping_view.py` | Replicate-set cards (`rep_panel_refresh`), group cards (`grp_panel_refresh`), group-def panel (`build_group_def_panel`) |
+| `stats_view.py` | Statistics tab UI |
+| `preview_view.py` | Preview picker (FOV selector panel) |
+| `widgets.py` | `_Tooltip` floating hover label |
+| `image_panel_view.py` | `_ImagePanel` canvas + LUT; `_label_to_rgb` colormap |
+| `well_label_widget.py` | `WellLabel` cross-platform button-label; `build_plate_grid` 8×12 grid |
+| `sidebar_view.py` | Main well-picker sidebar (`build_sidebar`) |
+| `bar_group_panel_view.py` | Bar-plot group panel + all card-builder helpers |
+| `replicate_panel_view.py` | Sample Definitions left panel (`build_replicate_panel`) |
+| `label_editor_view.py` | WELL LABELS editor (`build_label_editor`, `label_panel_refresh`) |
+
+### `well_viewer/tabs/`
+
+| File | Tab |
+|------|-----|
+| `line_graphs_tab_view.py` | Line Graphs |
+| `bar_plots_tab_view.py` | Bar Plots |
+| `scatter_cells_tab_view.py` | Scatter Plot: Cells |
+| `scatter_agg_tab_view.py` | Scatter Plot: Aggregate |
+| `batch_export_tab_view.py` | Batch Export |
+| `review_csv_tab_view.py` | Review CSV |
+
 ## Ongoing direction
 
 The target architecture is package-only runtime ownership via `well_viewer/*`.
 
-As of PR24, subsystem logic already lives in dedicated controller/orchestrator modules; next work focuses on extracting remaining UI-builder/callback families so app composition stays in package modules rather than the legacy monolith file.
+UI-builder/callback extraction from `runtime_app.py` is complete: every panel builder, card-list refresher, and tab constructor now lives in a dedicated `views/` or `tabs/` file. `WellViewerApp` methods are thin one-line delegators. Runtime logic (data loading, plot redraw, group mutations) continues to live in the controller/orchestrator modules.

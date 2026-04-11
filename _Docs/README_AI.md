@@ -97,10 +97,17 @@ The project no longer uses `well_viewer3.py` as a runtime shim. Runtime ownershi
 **`well_viewer/views/` — UI builder modules (one `build_*(app, parent)` function each):**
 - `centre_view.py` — Thin orchestrator; creates each notebook tab frame and delegates to `tabs/` builders or `app._build_*` methods.
 - `preview_panel_view.py` — Preview panel controls, montage canvas, LUT/top-hat controls.
-- `status_view.py` — Bottom status/log strip.
-- `grouping_view.py` — Replicate/group card-list UI.
+- `status_view.py` — Bottom status/log strip (`build_bottom`) + `_GUILogHandler` logging widget handler.
+- `grouping_view.py` — Replicate-set card list (`rep_panel_refresh`), group card list (`grp_panel_refresh`), and group-definition panel builder (`build_group_def_panel`).
 - `stats_view.py` — Statistics tab UI (results panel + group editor).
 - `preview_view.py` — Preview picker UI (FOV selector panel).
+- `widgets.py` — Shared small widgets: `_Tooltip` (floating hover label).
+- `image_panel_view.py` — `_ImagePanel` canvas panel with LUT controls; `_label_to_rgb` colormap helper.
+- `well_label_widget.py` — `WellLabel` (cross-platform `tk.Label` subclass emulating `tk.Button`); `build_plate_grid` (8×12 header + well-cell grid builder).
+- `sidebar_view.py` — Main well-picker sidebar (`build_sidebar`): WELLS header, row/col quick-select, plate-map, All/None, count and hint labels.
+- `bar_group_panel_view.py` — Bar-plot group panel (`build_bar_group_panel`) and all card-builder helpers: `build_bar_perwell_strip`, `rebuild_groups_ui_now`, `update_bar_group_count_label`, `build_bar_group_row`, `build_bar_group_header`, `build_bar_group_chip_rows`, `build_bar_group_action_row`.
+- `replicate_panel_view.py` — Sample Definitions left panel (`build_replicate_panel`): header, quick-replicate dropdowns, plate-map, scrollable card list.
+- `label_editor_view.py` — Sample Definitions centre panel (`build_label_editor`, `label_panel_refresh`): WELL LABELS editor with per-well entry rows.
 
 **`well_viewer/tabs/` — One builder per plot/workflow tab:**
 
@@ -111,6 +118,7 @@ The project no longer uses `well_viewer3.py` as a runtime shim. Runtime ownershi
 | `scatter_cells_tab_view.py` | Scatter Plot: Cells | `_scatter_fig`, `_scatter_canvas`, `_ax_scatter` |
 | `scatter_agg_tab_view.py` | Scatter Plot: Aggregate | `_scatter_agg_fig`, `_scatter_agg_canvas`, `_ax_scatter_agg` |
 | `batch_export_tab_view.py` | Batch Export | *(buttons only, no figure)* |
+| `review_csv_tab_view.py` | Review CSV | `_review_csv_table`, `_review_well_var`, `_review_fov_cb`, `_review_tp_cb` |
 
 Each exposes `build_{name}_tab(app, parent: tk.Frame) -> None`.  
 `tabs/__init__.py` provides shared helpers `_make_action_button` and `_make_secondary_button`.
@@ -173,6 +181,7 @@ Each exposes `build_{name}_tab(app, parent: tk.Frame) -> None`.
   - Scatter Plot: Cells → `scatter_cells_tab_view.py`
   - Scatter Plot: Aggregate → `scatter_agg_tab_view.py`
   - Batch Export → `batch_export_tab_view.py`
+  - Review CSV → `review_csv_tab_view.py`
 - All tab builders follow the same layout pattern:
   `ctrl_bar` (controls) → `figure + canvas + toolbar` → optional `axis_controls`
 - Shared button helpers (`_make_action_button`, `_make_secondary_button`) live in `well_viewer/tabs/__init__.py`.
