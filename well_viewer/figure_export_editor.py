@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, simpledialog
 import tkinter as tk
 from tkinter import ttk
 from ui.theme import FM_BOLD, FM_TINY
+from well_viewer.ui_helpers import bind_mousewheel_scroll
 
 DEFAULT_EXPORT_STYLE_PREFS = {
     "axis_label_size": 22,
@@ -245,29 +246,32 @@ class _ExportStyleSidebar(ttk.Frame):
         self._bind_auto_apply()
 
     def _build_ui(self) -> None:
-        hdr = ttk.Frame(self)
+        panel_bg = ttk.Style(self).lookup("Card.TFrame", "background") or "#2B2B2B"
+
+        hdr = ttk.Frame(self, style="Card.TFrame")
         hdr.pack(fill=tk.X)
         ttk.Label(hdr, text="Export Style", style="Title.TLabel", font=FM_BOLD).pack(side=tk.LEFT)
         ttk.Button(hdr, text="◂", width=3, command=lambda: self.pack_forget(), style="ActionSecondary.TButton").pack(side=tk.RIGHT)
 
-        wrap = ttk.Frame(self)
+        wrap = ttk.Frame(self, style="Card.TFrame")
         wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-        canvas = tk.Canvas(wrap, width=200, height=430, highlightthickness=0, bd=0)
+        canvas = tk.Canvas(wrap, width=200, height=430, highlightthickness=0, bd=0, bg=panel_bg)
         vs = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
-        body = ttk.Frame(canvas)
+        body = ttk.Frame(canvas, style="Card.TFrame")
         body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         win_id = canvas.create_window((0, 0), window=body, anchor="nw")
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
         canvas.configure(yscrollcommand=vs.set)
+        bind_mousewheel_scroll(canvas)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vs.pack(side=tk.RIGHT, fill=tk.Y)
 
         r = 0
         def add(label, widget):
             nonlocal r
-            ttk.Label(body, text=label, width=5, font=FM_TINY).grid(row=r, column=0, sticky="w", pady=1)
-            widget.grid(row=r, column=1, columnspan=3, sticky="ew", pady=1)
-            r += 1
+            ttk.Label(body, text=label, font=FM_TINY).grid(row=r, column=0, columnspan=4, sticky="w", pady=(4, 0))
+            widget.grid(row=r + 1, column=0, columnspan=4, sticky="ew", pady=(1, 2))
+            r += 2
 
         self._profile_combo = ttk.Combobox(
             body,
@@ -325,7 +329,7 @@ class _ExportStyleSidebar(ttk.Frame):
         ttk.Checkbutton(lay, text="Constrained", variable=self._vars["layout_constrained"]).pack(side=tk.LEFT, padx=6)
         add("Layout", lay)
 
-        btns = ttk.Frame(body)
+        btns = ttk.Frame(body, style="Card.TFrame")
         btns.grid(row=r, column=0, columnspan=4, sticky="ew", pady=(8, 0))
         ttk.Button(btns, text="Reset", command=self._reset_defaults, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btns, text="Save Preset", command=self._save_preset, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))

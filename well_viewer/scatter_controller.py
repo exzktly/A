@@ -234,6 +234,7 @@ def redraw_scatter(
     app._ax_scatter.clear()
 
     if not selected_wells and not active_rsets:
+        app._scatter_interaction_cache = {"points": []}
         app._ax_scatter.text(
             0.5,
             0.5,
@@ -261,6 +262,7 @@ def redraw_scatter(
     )
 
     # Plot each group/well as separate scatter series
+    interaction_points: List[Tuple[float, float, Tuple[str, str, str, int]]] = []
     for label, data in scatter_data.items():
         app._ax_scatter.scatter(
             data['x'],
@@ -276,6 +278,9 @@ def redraw_scatter(
         if not hasattr(app, '_scatter_metadata'):
             app._scatter_metadata = {}
         app._scatter_metadata[label] = data['metadata']
+        interaction_points.extend(
+            (x, y, meta) for x, y, meta in zip(data['x'], data['y'], data['metadata'])
+        )
 
     # Format axes — derive readable label from column name
     def _col_label(col: str) -> str:
@@ -295,6 +300,12 @@ def redraw_scatter(
         app._ax_scatter.legend(loc='best', fontsize=8)
 
     # Redraw canvas
+    app._scatter_interaction_cache = {
+        "points": interaction_points,
+        "timepoint_h": timepoint_h,
+        "col_x": col_x,
+        "col_y": col_y,
+    }
     app._scatter_canvas.draw()
 
 

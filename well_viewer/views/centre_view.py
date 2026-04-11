@@ -52,6 +52,7 @@ class CustomNotebook(tk.Frame):
 
         self._tabs = {}              # {text: frame}
         self._tab_buttons = {}       # {text: label widget}
+        self._separators = []        # list[tk.Frame]
         self._current_text = None
         self._callbacks = []
 
@@ -79,6 +80,22 @@ class CustomNotebook(tk.Frame):
         """Add a thin vertical separator in the tab bar"""
         sep = tk.Frame(self.header, bg=BORDER, width=1, height=25)
         sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=5)
+        self._separators.append(sep)
+
+    def refresh_theme_colors(self, *, bg_side: str, bg_app: str, border: str, txt_pri: str) -> None:
+        """Refresh notebook chrome colors after a runtime theme switch."""
+        self.configure(bg=bg_app)
+        self.header.configure(bg=bg_side)
+        self.content.configure(bg=bg_app)
+        for sep in self._separators:
+            sep.configure(bg=border)
+        for text, btn in self._tab_buttons.items():
+            is_active = (text == self._current_text)
+            btn.configure(
+                bg=bg_app if is_active else bg_side,
+                fg=txt_pri,
+                relief=tk.SUNKEN if is_active else tk.FLAT,
+            )
 
     def select_by_text(self, text):
         """Show the tab with the given text"""

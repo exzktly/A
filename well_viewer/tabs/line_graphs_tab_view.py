@@ -8,6 +8,7 @@ from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
+from well_viewer.ui_helpers import bind_mousewheel_scroll
 from well_viewer.runtime_app import (
     ACCENT,
     BG_APP,
@@ -29,7 +30,7 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     Creates and wires:
     - Channel selector (shares ``app._chan_var``)
     - Metric selector (hidden until a smFISH channel is active)
-    - Export CSV / Save Figure buttons
+    - Export CSV + export-style panel buttons
     - Matplotlib figure with 3 subplots: mean, fraction, CDF
     - CDF x-axis limit controls
     """
@@ -64,9 +65,6 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
         style="ActionSuccess.TButton",
     ).pack(side=tk.RIGHT, padx=(4, 0))
     _make_secondary_button(
-        line_ctrl, text="Save Figure…", command=app._save_line_figure,
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    _make_secondary_button(
         line_ctrl, text="▸", command=lambda: app._open_export_style_panel("line"),
     ).pack(side=tk.RIGHT, padx=(0, 2))
 
@@ -83,6 +81,7 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     app._line_scroll_canvas = tk.Canvas(line_plot_frame, bg=BG_APP, highlightthickness=0, bd=0)
     app._line_scrollbar = tk.Scrollbar(line_plot_frame, orient=tk.VERTICAL, command=app._line_scroll_canvas.yview)
     app._line_scroll_canvas.configure(yscrollcommand=app._line_scrollbar.set)
+    bind_mousewheel_scroll(app._line_scroll_canvas)
     app._line_scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     app._line_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
