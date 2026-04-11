@@ -69,3 +69,5 @@ Purpose: track performance remediation work so another AI can resume safely if i
 - [x] Move export-style sidebar field labels above controls to prevent clipping.
 - [x] Remove top-level tab buttons labeled "Save Figure…" (Line, Bar, Scatter Cells, Scatter Aggregate).
 - [x] Fix export-style sidebar button-row background so it matches export panel background.
+- [x] Make export-style sidebar mousewheel/trackpad-scrollable.
+- [x] Add reusable canvas mousewheel bindings and apply to major custom scroll canvases (line/bar/export sidebar).

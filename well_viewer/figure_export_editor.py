@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, simpledialog
 import tkinter as tk
 from tkinter import ttk
 from ui.theme import FM_BOLD, FM_TINY
+from well_viewer.ui_helpers import bind_mousewheel_scroll
 
 DEFAULT_EXPORT_STYLE_PREFS = {
     "axis_label_size": 22,
@@ -261,6 +262,7 @@ class _ExportStyleSidebar(ttk.Frame):
         win_id = canvas.create_window((0, 0), window=body, anchor="nw")
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
         canvas.configure(yscrollcommand=vs.set)
+        bind_mousewheel_scroll(canvas)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vs.pack(side=tk.RIGHT, fill=tk.Y)
 

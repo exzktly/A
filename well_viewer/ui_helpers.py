@@ -42,6 +42,22 @@ def tok_at_event(event: tk.Event, btn_dict: dict) -> Optional[str]:
     return None
 
 
+def bind_mousewheel_scroll(canvas: tk.Canvas) -> None:
+    """Enable wheel/trackpad vertical scrolling for a Tk canvas."""
+
+    def _on_mousewheel(event):
+        delta = getattr(event, "delta", 0)
+        if delta == 0:
+            return
+        # Windows usually sends ±120; macOS trackpads often send small deltas.
+        steps = int(-delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+        canvas.yview_scroll(steps, "units")
+
+    canvas.bind("<MouseWheel>", _on_mousewheel)
+    canvas.bind("<Button-4>", lambda _e: canvas.yview_scroll(-1, "units"))  # Linux up
+    canvas.bind("<Button-5>", lambda _e: canvas.yview_scroll(1, "units"))   # Linux down
+
+
 def make_scrollable_canvas(
     parent: tk.Widget,
     *,
@@ -61,6 +77,7 @@ def make_scrollable_canvas(
 
     inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(win, width=e.width))
+    bind_mousewheel_scroll(canvas)
     return canvas, inner
 
 

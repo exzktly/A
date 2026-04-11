@@ -8,6 +8,7 @@ from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
+from well_viewer.ui_helpers import bind_mousewheel_scroll
 from well_viewer.runtime_app import (
     ACCENT,
     BG_APP,
@@ -128,6 +129,7 @@ def build_bar_plots_tab(app, parent: tk.Frame) -> None:
     app._bar_scroll_canvas = tk.Canvas(bar_plot_frame, bg=BG_APP, highlightthickness=0, bd=0)
     app._bar_scrollbar = tk.Scrollbar(bar_plot_frame, orient=tk.VERTICAL, command=app._bar_scroll_canvas.yview)
     app._bar_scroll_canvas.configure(yscrollcommand=app._bar_scrollbar.set)
+    bind_mousewheel_scroll(app._bar_scroll_canvas)
     app._bar_scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     app._bar_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
