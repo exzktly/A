@@ -15,9 +15,15 @@ def on_review_image_click(app, event, logger) -> None:
     if nid <= 0:
         return
     app._review_image_selected_nucleus = nid
+    fov = app._preview_fov_var.get().strip()
+    tp = app._review_image_tp_var.get().strip()
+    if getattr(app, "_review_image_include_edit_mode", False):
+        app._set_review_cell_included(fov, tp, str(nid), "0")
+        app._set_status(f"Set Included=0 for nucleus {nid} at FOV {fov}, TP {tp}.")
+        return
     app._select_review_csv_row_for_cell(
-        app._preview_fov_var.get().strip(),
-        app._review_image_tp_var.get().strip(),
+        fov,
+        tp,
         str(nid),
     )
 
@@ -67,8 +73,9 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
         app._set_status(
             f"No exact Review CSV row match for nucleus {nucleus_id} at FOV {fov}, TP {tp}; showing fallback rows."
         )
-    if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
-        app._notebook.select_by_text("Review CSV")
+    app._set_status(
+        f"Queued Review CSV selection for nucleus {nucleus_id} at FOV {fov}, TP {tp}."
+    )
 
 
 def on_review_csv_row_double_click(app, event) -> None:
@@ -101,5 +108,7 @@ def on_review_csv_row_double_click(app, event) -> None:
         except Exception:
             app._review_image_selected_nucleus = None
     app._refresh_review_image()
+    if hasattr(app, "_zoom_review_image_to_selected_nucleus"):
+        app._zoom_review_image_to_selected_nucleus()
     if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
         app._notebook.select_by_text("Review Image")

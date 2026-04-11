@@ -1347,6 +1347,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_tp_var = tk.StringVar(value="—")
         self._review_image_selected_nucleus: Optional[int] = None
         self._review_image_nucleus_to_iid: Dict[int, str] = {}
+        self._review_image_include_edit_mode: bool = False
         self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
         self._review_csv_lookup_context: Dict[str, str] = {}
         self._review_image_zoom: float = 1.0
@@ -4242,6 +4243,9 @@ class WellViewerApp(tk.Frame):
         self._review_image_label.bind("<ButtonPress-1>", self._on_review_image_press)
         self._review_image_label.bind("<B1-Motion>", self._on_review_image_drag)
         self._review_image_label.bind("<ButtonRelease-1>", self._on_review_image_release)
+        self._review_image_label.config(
+            cursor=("pirate" if getattr(self, "_review_image_include_edit_mode", False) else "hand2")
+        )
         suffix = f"  ·  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
         self._review_image_status.config(
             text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.{suffix}"
@@ -4342,25 +4346,56 @@ class WellViewerApp(tk.Frame):
     def _select_review_csv_row_for_cell(self, fov: str, tp: str, nucleus_id: str) -> None:
         _select_review_csv_row_for_cell_controller(self, fov, tp, nucleus_id, _logger)
 
+    def _set_review_image_include_mode(self, enabled: bool) -> None:
+        self._review_image_include_edit_mode = bool(enabled)
+        if hasattr(self, "_review_image_label"):
+            self._review_image_label.config(cursor=("pirate" if enabled else "hand2"))
+        if enabled:
+            self._set_status("Review Image Include edit mode ON: click a cell to set Included=0.")
+        else:
+            self._set_status("Review Image Include edit mode OFF.")
+
     def _toggle_selected_review_cell(self) -> None:
-        if self._review_image_selected_nucleus is None or self._preview_selected_well is None:
+        self._set_review_image_include_mode(not getattr(self, "_review_image_include_edit_mode", False))
+
+    def _set_review_cell_included(self, fov: str, tp: str, nid: str, included: str) -> None:
+        if self._preview_selected_well is None:
             return
-        fov = self._preview_fov_var.get().strip()
-        tp = self._review_image_tp_var.get().strip()
-        nid = str(self._review_image_selected_nucleus)
-        key = (self._preview_selected_well, fov, tp, nid)
-        current = self._review_included_overrides.get(key)
-        if current is None:
-            rows = self._review_load_rows(self._preview_selected_well)
-            current = "1"
-            for row in rows:
-                rf, rt, rn = self._review_row_keys(row)
-                if rf == fov and rt == tp and rn == nid:
-                    current = str(row.get("Included", "1")).strip() or "1"
-                    break
-        self._review_included_overrides[key] = "0" if current != "0" else "1"
+        fov_n, tp_n, nid_n = self._review_row_keys({"fov": fov, "tp": tp, "nucleus_id": nid})
+        if not (fov_n and tp_n and nid_n):
+            return
+        key = (self._preview_selected_well, fov_n, tp_n, nid_n)
+        self._review_included_overrides[key] = str(included).strip() or "1"
         self._refresh_review_csv_rows()
         self._refresh_review_image()
+
+    def _zoom_review_image_to_selected_nucleus(self, zoom: float = 3.0) -> None:
+        if not hasattr(self, "_review_image_label") or not hasattr(self, "_review_image_canvas"):
+            return
+        nid = self._review_image_selected_nucleus
+        mask_arr = getattr(self._review_image_label, "_mask_arr", None)
+        if nid is None or mask_arr is None:
+            return
+        ys, xs = _np.where(mask_arr == int(nid))
+        if len(xs) == 0 or len(ys) == 0:
+            return
+        cx = float(xs.mean())
+        cy = float(ys.mean())
+        self._review_image_zoom = float(max(1.0, zoom))
+        img = self._review_image_base_pil
+        if img is None:
+            return
+        iw, ih = img.size
+        cw = max(1, int(self._review_image_canvas.winfo_width() - 16))
+        ch = max(1, int(self._review_image_canvas.winfo_height() - 16))
+        fit = min(cw / max(iw, 1), ch / max(ih, 1))
+        scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
+        nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+        base_x = max(8, (cw - nw) // 2)
+        base_y = max(8, (ch - nh) // 2)
+        self._review_image_pan_x = (cw / 2.0) - base_x - (cx * scale)
+        self._review_image_pan_y = (ch / 2.0) - base_y - (cy * scale)
+        self._render_review_image_display()
 
     def _on_review_csv_row_double_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         _on_review_csv_row_double_click_controller(self, event)
