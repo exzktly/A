@@ -84,9 +84,16 @@ class BatchExportPanel(tk.Frame):
     Right : Output settings + Run.
     """
 
-    def __init__(self, app: "WellViewerApp", parent: tk.Widget) -> None:
+    def __init__(
+        self,
+        app: "WellViewerApp",
+        parent: tk.Widget,
+        *,
+        use_sidebar_groups: bool = False,
+    ) -> None:
         super().__init__(parent, bg=BG_APP)
         self._app = app
+        self._use_sidebar_groups = bool(use_sidebar_groups)
 
         default_out = str(app._data_dir) if app._data_dir else ""
         self._out_dir_var = tk.StringVar(value=default_out)
@@ -99,16 +106,22 @@ class BatchExportPanel(tk.Frame):
         self._groups: List["BarGroup"] = self._groups_from_rep_sets()
 
         self._build_ui()
-        self._refresh_group_list()
+        if not self._use_sidebar_groups:
+            self._refresh_group_list()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         tk.Frame(self, bg=BORDER, height=1).pack(side=tk.TOP, fill=tk.X)
 
-        # Body: left = group editor, right = output + run
+        # Body: left = group editor, right = output + run (or right-only when
+        # group editing is delegated to the app sidebar).
         body = tk.Frame(self, bg=BG_APP)
         body.pack(fill=tk.BOTH, expand=True)
+
+        if self._use_sidebar_groups:
+            self._build_output_panel(body)
+            return
 
         # ── Left: group editor ────────────────────────────────────────────────
         left = tk.Frame(body, bg=BG_SIDE, width=520)
@@ -245,6 +258,7 @@ class BatchExportPanel(tk.Frame):
                               "  \u2022 One figure with one line per group member\n"
                               "    (ReplicateSet = mean of its wells, Solo well = raw)\n"
                               "  \u2022 One CSV with per-member time-series data\n\n"
+                              f"{'Groups come from Sample Definitions in the left sidebar.' if self._use_sidebar_groups else 'Groups are defined in the left panel.'}\n"
                               "No statistics are computed across group members.\n"
                               "SD/SEM is only computed within a ReplicateSet."),
                         font=FM_TINY, fg=TXT_SEC, bg=BG_APP,
@@ -750,12 +764,22 @@ class BatchExportPanel(tk.Frame):
 
     # ── Export execution ──────────────────────────────────────────────────────
 
+    def _groups_for_export(self) -> "List[BarGroup]":
+        if self._use_sidebar_groups:
+            return copy.deepcopy(self._app._bar_groups)
+        return list(self._groups)
+
     def _run_batch(self) -> None:
         """Export each group: CSV + combined figure (one line per member)."""
-        groups_with_data = [g for g in self._groups
+        groups_with_data = [g for g in self._groups_for_export()
                             if any(w in self._app._well_paths for w in g.wells)]
         if not groups_with_data:
-            messagebox.showwarning("No groups", "Define at least one non-empty group.",
+            msg = (
+                "Define at least one non-empty group in Sample Definitions."
+                if self._use_sidebar_groups
+                else "Define at least one non-empty group."
+            )
+            messagebox.showwarning("No groups", msg,
                                    parent=self)
             return
         out_dir = self._resolve_out_dir()
@@ -1043,8 +1067,14 @@ class BarBatchExportPanel(BatchExportPanel):
       _build_output_panel, _run_batch
     """
 
-    def __init__(self, app: "WellViewerApp", parent: tk.Widget) -> None:
-        super().__init__(app, parent)
+    def __init__(
+        self,
+        app: "WellViewerApp",
+        parent: tk.Widget,
+        *,
+        use_sidebar_groups: bool = False,
+    ) -> None:
+        super().__init__(app, parent, use_sidebar_groups=use_sidebar_groups)
 
     # ── Right panel ────────────────────────────────────────────────────────────
 
@@ -1131,7 +1161,7 @@ class BarBatchExportPanel(BatchExportPanel):
                         text=("Each group \u00d7 timepoint produces:\n"
                               "  \u2022 One bar figure (one bar per replicate set or well)\n"
                               "  \u2022 One CSV row per member at that timepoint\n\n"
-                              "Groups are defined in the left panel.\n"
+                              f"{'Groups come from Sample Definitions in the left sidebar.' if self._use_sidebar_groups else 'Groups are defined in the left panel.'}\n"
                               "SD/SEM is computed within each ReplicateSet only."),
                         font=FM_TINY, fg=TXT_SEC, bg=BG_APP,
                         justify=tk.LEFT, anchor="w")
@@ -1158,10 +1188,15 @@ class BarBatchExportPanel(BatchExportPanel):
 
     def _run_batch(self) -> None:
         """Export: for each group, one bar figure + CSV per selected timepoint."""
-        groups_with_data = _groups_with_loaded_wells(self._groups, self._app._well_paths)
+        groups_with_data = _groups_with_loaded_wells(self._groups_for_export(), self._app._well_paths)
         if not groups_with_data:
+            msg = (
+                "Define at least one non-empty group in Sample Definitions."
+                if self._use_sidebar_groups
+                else "Define at least one non-empty group."
+            )
             messagebox.showwarning("No groups",
-                                   "Define at least one non-empty group.",
+                                   msg,
                                    parent=self)
             return
 
