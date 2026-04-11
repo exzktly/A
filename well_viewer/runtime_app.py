@@ -1299,6 +1299,10 @@ class WellViewerApp(tk.Frame):
         self._preview_fluor:   Dict[Tuple[str,str], _ImgRef] = {}
         self._preview_overlay: Dict[Tuple[str,str], _ImgRef] = {}
         self._preview_mask:    Dict[Tuple[str,str], _ImgRef] = {}
+        self._review_image_tp_var = tk.StringVar(value="—")
+        self._review_image_selected_nucleus: Optional[int] = None
+        self._review_image_nucleus_to_iid: Dict[int, str] = {}
+        self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
 
         self._build_ui()
         self._apply_theme()
@@ -3034,6 +3038,11 @@ class WellViewerApp(tk.Frame):
 
         _build_right_panel_view(self, parent)
 
+    def _build_review_image_panel(self, parent: tk.Frame) -> None:
+        from well_viewer.views.preview_panel_view import build_review_image_panel as _build_review_image_panel_view
+
+        _build_review_image_panel_view(self, parent)
+
     def _update_tophat_controls(self, preloaded: Optional[bool] = None) -> None:
         """Sync the top-hat row UI to the actual preload state.
 
@@ -3790,10 +3799,10 @@ class WellViewerApp(tk.Frame):
             self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
             self._bar_ylim_chan_lbl.config(text=f"{ch_upper} y:")
-        # Reload preview images for the new channel if Preview tab is active.
+        # Reload preview images for channel-sensitive tabs.
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
-            if tab == "Movie Montage":
+            if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
 
     def _on_metric_selected(self) -> None:
@@ -3870,20 +3879,32 @@ class WellViewerApp(tk.Frame):
         if well_label is None:
             if hasattr(self, "_preview_well_lbl"):
                 self._preview_well_lbl.config(text="No well selected")
+            if hasattr(self, "_review_image_well_lbl"):
+                self._review_image_well_lbl.config(text="No well selected")
             if hasattr(self, "_fov_menu"):
                 self._fov_menu["values"] = ["—"]
                 self._preview_fov_var.set("—")
+            if hasattr(self, "_review_image_fov_menu"):
+                self._review_image_fov_menu["values"] = ["—"]
+            if hasattr(self, "_review_image_tp_menu"):
+                self._review_image_tp_menu["values"] = ["—"]
+                self._review_image_tp_var.set("—")
             self._preview_fluor = self._preview_overlay = self._preview_mask = {}
             if hasattr(self, "_montage_inner"):
                 for w in self._montage_inner.winfo_children():
                     w.destroy()
                 self._montage_photos.clear()
                 self._montage_status.config(text="Select a well in the left panel.")
+            if hasattr(self, "_review_image_status"):
+                self._review_image_status.config(text="Select a well in the left panel.")
             return
 
         if hasattr(self, "_preview_well_lbl"):
             tok = _extract_well_token(well_label) or well_label
             self._preview_well_lbl.config(text=tok)
+        if hasattr(self, "_review_image_well_lbl"):
+            tok = _extract_well_token(well_label) or well_label
+            self._review_image_well_lbl.config(text=tok)
 
         fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
             self._data_dir, well_label,
@@ -3920,11 +3941,170 @@ class WellViewerApp(tk.Frame):
             self._fov_menu["values"] = all_fovs
             cur = self._preview_fov_var.get()
             self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
+        if hasattr(self, "_review_image_fov_menu"):
+            self._review_image_fov_menu["values"] = all_fovs
 
         self._refresh_preview_montage()
+        self._refresh_review_image()
 
     def _on_preview_sel_change(self, _e=None) -> None:
         self._refresh_preview_montage()
+
+    def _review_row_keys(self, row: dict) -> Tuple[str, str, str]:
+        return (
+            str(row.get("fov", row.get("FOV", ""))).strip(),
+            str(row.get("timepoint", row.get("tp", row.get("time", "")))).strip(),
+            str(row.get("nucleus_id", row.get("nucleus id", ""))).strip(),
+        )
+
+    def _refresh_review_image(self) -> None:
+        if not hasattr(self, "_review_image_label"):
+            return
+        well = self._preview_selected_well
+        if well is None:
+            return
+        fov = self._preview_fov_var.get().strip()
+        if not fov or fov == "—":
+            self._review_image_status.config(text="No FOV selected.")
+            return
+        tp_values = sorted({tp for (f, tp) in self._preview_fluor.keys() if f == fov})
+        self._review_image_tp_menu["values"] = tp_values or ["—"]
+        if tp_values and self._review_image_tp_var.get() not in tp_values:
+            self._review_image_tp_var.set(tp_values[0])
+        tp = self._review_image_tp_var.get().strip()
+        if not tp or tp == "—":
+            self._review_image_status.config(text="No timepoint selected.")
+            return
+        fluor_ref = self._preview_fluor.get((fov, tp)) or getattr(self, "_preview_tophat_fluor", {}).get((fov, tp))
+        mask_ref = self._preview_mask.get((fov, tp))
+        if fluor_ref is None or mask_ref is None:
+            self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
+            return
+
+        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
+        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
+        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
+            self._review_image_status.config(text="Could not render review image (numpy/PIL unavailable).")
+            return
+
+        rows = self._review_load_rows(well)
+        include_by_nid: Dict[int, bool] = {}
+        row_iid_by_nid: Dict[int, str] = {}
+        for row in rows:
+            row_fov, row_tp, row_nid = self._review_row_keys(row)
+            if row_fov != fov or row_tp != tp or not row_nid:
+                continue
+            try:
+                nid = int(float(row_nid))
+            except Exception:
+                continue
+            incl = str(row.get("Included", row.get("included", "1"))).strip()
+            include_by_nid[nid] = (incl != "0")
+        self._review_image_nucleus_to_iid = row_iid_by_nid
+        self._draw_review_image(fluor_arr, mask_arr, include_by_nid)
+
+    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool]) -> None:
+        arr = _np.asarray(fluor_arr, dtype=_np.float32)
+        m = _np.asarray(mask_arr)
+        lo, hi = float(arr.min()), float(arr.max())
+        if hi <= lo:
+            hi = lo + 1.0
+        base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
+        rgb = _np.dstack([base, base, base])
+
+        padded = _np.pad(m, 1, mode="constant", constant_values=0)
+        center = padded[1:-1, 1:-1]
+        boundary = (center > 0) & (
+            (center != padded[:-2, 1:-1]) |
+            (center != padded[2:, 1:-1]) |
+            (center != padded[1:-1, :-2]) |
+            (center != padded[1:-1, 2:])
+        )
+        include_mask = _np.zeros(center.shape, dtype=bool)
+        for nid, included in include_by_nid.items():
+            if included:
+                include_mask |= (center == nid)
+        draw_boundary = boundary & include_mask
+        rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
+
+        img = _PILImage.fromarray(rgb, mode="RGB")
+        self._review_image_scale = 1.0
+        self._review_image_photo = _PILImageTk.PhotoImage(img)
+        self._review_image_label.configure(image=self._review_image_photo)
+        self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
+        self._review_image_label.bind("<Motion>", self._on_review_image_hover)
+        self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
+        self._review_image_label.bind("<Button-1>", self._on_review_image_click)
+        self._review_image_status.config(text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.")
+
+    def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        mask_arr = getattr(self._review_image_label, "_mask_arr", None)
+        if mask_arr is None:
+            return
+        x, y = int(event.x), int(event.y)
+        if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
+            self._review_image_tooltip.hide()
+            return
+        nid = int(mask_arr[y, x])
+        if nid <= 0:
+            self._review_image_tooltip.hide()
+            return
+        self._review_image_tooltip.show(
+            f"nucleus id: {nid}",
+            self._review_image_label.winfo_rootx() + event.x,
+            self._review_image_label.winfo_rooty() + event.y,
+        )
+
+    def _on_review_image_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        mask_arr = getattr(self._review_image_label, "_mask_arr", None)
+        if mask_arr is None:
+            return
+        x, y = int(event.x), int(event.y)
+        if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
+            return
+        nid = int(mask_arr[y, x])
+        if nid <= 0:
+            return
+        self._review_image_selected_nucleus = nid
+        self._select_review_csv_row_for_cell(self._preview_fov_var.get().strip(), self._review_image_tp_var.get().strip(), str(nid))
+
+    def _select_review_csv_row_for_cell(self, fov: str, tp: str, nucleus_id: str) -> None:
+        if not hasattr(self, "_review_fov_var"):
+            return
+        self._review_fov_var.set(fov)
+        self._review_tp_var.set(tp)
+        self._refresh_review_csv_rows()
+        table = self._review_csv_table
+        for iid in table.get_children():
+            vals = table.item(iid, "values")
+            cols = table["columns"]
+            row = {c: vals[i] for i, c in enumerate(cols)}
+            rf, rt, rn = self._review_row_keys(row)
+            if rf == fov and rt == tp and rn == nucleus_id:
+                table.selection_set(iid)
+                table.focus(iid)
+                table.see(iid)
+                break
+
+    def _toggle_selected_review_cell(self) -> None:
+        if self._review_image_selected_nucleus is None or self._preview_selected_well is None:
+            return
+        fov = self._preview_fov_var.get().strip()
+        tp = self._review_image_tp_var.get().strip()
+        nid = str(self._review_image_selected_nucleus)
+        key = (self._preview_selected_well, fov, tp, nid)
+        current = self._review_included_overrides.get(key)
+        if current is None:
+            rows = self._review_load_rows(self._preview_selected_well)
+            current = "1"
+            for row in rows:
+                rf, rt, rn = self._review_row_keys(row)
+                if rf == fov and rt == tp and rn == nid:
+                    current = str(row.get("Included", row.get("included", "1"))).strip() or "1"
+                    break
+        self._review_included_overrides[key] = "0" if current != "0" else "1"
+        self._refresh_review_csv_rows()
+        self._refresh_review_image()
 
     # ── Export ────────────────────────────────────────────────────────────────
 
@@ -3983,6 +4163,12 @@ class WellViewerApp(tk.Frame):
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
+
+        elif tab == "Review Image":
+            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._refresh_preview_picker()
+            self._update_preview(self._preview_selected_well)
+            self._refresh_review_image()
 
         elif tab == "Sample Definitions":
             self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
@@ -4137,6 +4323,15 @@ class WellViewerApp(tk.Frame):
             tok = self._extract_well_token(label) or label
             for row in rows:
                 row.setdefault("well", tok)
+                fov, tp, nid = self._review_row_keys(row)
+                if fov and tp and nid:
+                    key = (label, fov, tp, nid)
+                    override = self._review_included_overrides.get(key)
+                    if override is not None:
+                        if "Included" in row:
+                            row["Included"] = override
+                        elif "included" in row:
+                            row["included"] = override
             return rows
         except Exception:
             return []

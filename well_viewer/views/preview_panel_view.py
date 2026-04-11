@@ -178,4 +178,51 @@ def build_right_panel(self, parent: tk.Frame) -> None:
                                    lambda e: self._montage_zoom_step(-1))  # Linux scroll down
     
     # ── Inline preview montage ────────────────────────────────────────────────
-    
+
+
+def build_review_image_panel(self, parent: tk.Frame) -> None:
+        inner = tk.Frame(parent, bg=BG_SIDE)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        ctrl = tk.Frame(inner, bg=BG_SIDE, pady=6, padx=10)
+        ctrl.pack(fill=tk.X)
+        self._review_image_well_lbl = tk.Label(
+            ctrl, text="No well selected", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE
+        )
+        self._review_image_well_lbl.pack(side=tk.LEFT)
+
+        tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
+        self._review_image_chan_cb = ttk.Combobox(
+            ctrl, textvariable=self._chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
+        )
+        self._review_image_chan_cb.pack(side=tk.LEFT, padx=(0, 10))
+        self._review_image_chan_cb.bind("<<ComboboxSelected>>", lambda _e: self._set_active_channel(self._chan_var.get().lower()))
+
+        tk.Label(ctrl, text="FOV:", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
+        self._review_image_fov_menu = ttk.Combobox(
+            ctrl, textvariable=self._preview_fov_var, values=["—"], state="readonly", width=8, font=FM_TINY
+        )
+        self._review_image_fov_menu.pack(side=tk.LEFT, padx=(0, 10))
+        self._review_image_fov_menu.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_image())
+
+        tk.Label(ctrl, text="Timepoint:", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
+        self._review_image_tp_var = tk.StringVar(value="—")
+        self._review_image_tp_menu = ttk.Combobox(
+            ctrl, textvariable=self._review_image_tp_var, values=["—"], state="readonly", width=10, font=FM_TINY
+        )
+        self._review_image_tp_menu.pack(side=tk.LEFT)
+        self._review_image_tp_menu.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_image())
+
+        btn_secondary(ctrl, "Toggle Included", self._toggle_selected_review_cell, padx=8).pack(side=tk.RIGHT)
+
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X)
+
+        self._review_image_status = tk.Label(inner, text="", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, anchor="w")
+        self._review_image_status.pack(fill=tk.X, padx=8, pady=2)
+
+        self._review_image_canvas = tk.Canvas(inner, bg=BG_APP, highlightthickness=0)
+        self._review_image_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self._review_image_label = tk.Label(self._review_image_canvas, bg=BG_APP, bd=0, cursor="hand2")
+        self._review_image_canvas.create_window((8, 8), window=self._review_image_label, anchor="nw")
+
+        self._review_image_tooltip = _Tooltip(inner)
