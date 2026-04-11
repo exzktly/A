@@ -66,6 +66,7 @@ from well_viewer.barplot_controller import apply_bar_ylims as _bar_apply_ylims
 from well_viewer.barplot_controller import collect_bar_items as _bar_collect_items
 from well_viewer.barplot_controller import ordered_bar_keys as _bar_ordered_keys
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
+from well_viewer import debug_flags as _debug_flags
 from well_viewer.preview_controller import classify_member as _preview_classify_member
 from well_viewer.preview_controller import open_imgref_as_array as _preview_open_imgref_as_array
 from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
@@ -5839,6 +5840,9 @@ class WellViewerApp(tk.Frame):
             plot_wells = [k for k in ordered_keys if k in self._well_paths]
             plot_colors = [WELL_COLORS[i % len(WELL_COLORS)] for i in range(len(plot_wells))]
             plot_labels = [self._well_display_label(w) for w in plot_wells]
+        if _debug_flags.BAR_DEBUG:
+            mode = "violin" if self._bar_violin.get() else "beeswarm"
+            print(f"DEBUG runtime_app: per-cell mode={mode} wells={plot_wells!r} labels={plot_labels!r}")
         if plot_wells:
             if self._bar_violin.get():
                 self._draw_violin(ax_mean, ax_frac, plot_wells, plot_colors, plot_labels, target_t, tp_str, threshold)
@@ -5884,9 +5888,8 @@ class WellViewerApp(tk.Frame):
                 if not rset:
                     continue
                 gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
-                n_w = sum(1 for w in rset.wells if w in self._well_paths)
                 base_lbl = self._replicate_display_label(rset)
-                display = f"{base_lbl} (n={n_w})" if n_w != 1 else base_lbl
+                display = base_lbl
                 ordered.append(
                     (
                         rset.name,
@@ -5905,7 +5908,7 @@ class WellViewerApp(tk.Frame):
             key_to_item = {lbl: (lbl, m, s, f, has) for lbl, m, s, f, has in items}
             ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
             draw_items = [key_to_item[k] for k in ordered_keys]
-            xlabels = [self._well_display_label(lbl) for lbl, *_ in draw_items]
+            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in draw_items]
 
         _bar_render_items(
             ax_mean=ax_mean,
@@ -5947,6 +5950,13 @@ class WellViewerApp(tk.Frame):
         tok = _extract_well_token(lbl) or lbl
         return self._well_labels.get(tok, tok)
 
+    def _bar_well_display_label(self, lbl: str) -> str:
+        """Bar-plot-safe well label that avoids numeric-only tick text."""
+        disp = str(self._well_display_label(lbl))
+        if re.match(r"^\s*\d+\s*$", disp):
+            return _extract_well_token(lbl) or disp
+        return disp
+
     def _replicate_display_label(self, rset: "ReplicateSet") -> str:
         """Human-friendly x-axis label for a replicate set.
 
@@ -5958,7 +5968,13 @@ class WellViewerApp(tk.Frame):
         if not name:
             name = "Replicate"
 
-        generic_name = bool(re.match(r"^(?:\d+|r\s*\d+|rep(?:licate)?\s*\d+)$", name, re.I))
+        generic_name = bool(
+            re.match(
+                r"^(?:\d+|r\s*\d+|rep(?:licate)?\s*\d+|group\s*\d+|set\s*\d+|batch\s*\d+)$",
+                name,
+                re.I,
+            )
+        )
         if not generic_name:
             return name
 
@@ -6163,7 +6179,7 @@ class WellViewerApp(tk.Frame):
             ]
         else:
             draw_items = items
-            xlabels = [self._well_display_label(lbl) for lbl, *_ in items]
+            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
 
         _bar_render_items(
             ax_mean=ax_mean,

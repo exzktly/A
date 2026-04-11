@@ -130,7 +130,9 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
             if ylo is not None or yhi is not None:
                 cur = ax.get_ylim()
                 ax.set_ylim(ylo if ylo is not None else cur[0], yhi if yhi is not None else cur[1])
-            ax.set_xscale("log" if bool(prefs.get("x_log", False)) else "linear")
+            # Keep categorical bar-plot x tick labels intact.
+            if not getattr(ax, "_categorical_xaxis", False):
+                ax.set_xscale("log" if bool(prefs.get("x_log", False)) else "linear")
             ax.set_yscale("log" if bool(prefs.get("y_log", False)) else "linear")
 
         if bool(prefs.get("tick_minor", False)):

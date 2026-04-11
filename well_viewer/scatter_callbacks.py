@@ -278,35 +278,66 @@ class ScatterCellViewer(tk.Toplevel):
             return None, f"exception: {e}"
 
     def _build_output_base_candidates(self, stem: str, nuclear_token: str) -> list[str]:
-        """Build robust base-name candidates used for output mask/overlay lookup.
+        """Build output base-name candidates using process_microscopy_v2 schema.
 
-        The output writer drops the nuclear channel token from the stem, but real
-        datasets may vary in delimiter/case behavior. We therefore probe a short
-        list of normalized possibilities.
+        process_microscopy_v2 writes masks/overlays as:
+            base_name = nuclear_stem.replace(nuclear_token, "")
+            <base_name>_labels.tif
         """
-        import re as _re
-
-        candidates: list[str] = [stem]
         token = (nuclear_token or "").strip()
-        if token:
-            escaped = _re.escape(token)
-            patterns = (
-                rf"(?i)([_\-.]){escaped}(?=[_\-.]|$)",
-                rf"(?i){escaped}([_\-.])",
-                rf"(?i){escaped}",
-            )
-            for pat in patterns:
-                candidates.append(_re.sub(pat, "", stem, count=1))
-                candidates.append(_re.sub(pat, "", stem))
+        base_name = stem.replace(token, "") if token else stem
+        candidates = [base_name, stem]
 
-        normalized: list[str] = []
-        seen: set[str] = set()
+        augmented: list[str] = []
         for c in candidates:
-            c = _re.sub(r"[_\-.]{2,}", "_", c).strip("_-. ")
+            if c:
+                augmented.append(c)
+                augmented.extend(self._well_token_variants(c))
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for c in augmented:
             if c and c not in seen:
                 seen.add(c)
-                normalized.append(c)
-        return normalized or [stem]
+                ordered.append(c)
+        return ordered or [stem]
+
+    def _well_token_variants(self, name: str) -> list[str]:
+        """Return alternate names with leading well token padded/unpadded."""
+        import re as _re
+
+        m = _re.match(r"^([A-Ha-h])(\d{1,2})(.*)$", name)
+        if not m:
+            return []
+        row = m.group(1).upper()
+        col = int(m.group(2))
+        rest = m.group(3)
+        variants = [
+            f"{row}{col}{rest}",
+            f"{row}{col:02d}{rest}",
+        ]
+        out: list[str] = []
+        seen: set[str] = set()
+        for v in variants:
+            if v != name and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out
+
+    def _filename_variants(self, filename: str) -> list[str]:
+        """Return filename variants that differ only by well-token padding."""
+        from pathlib import Path as _Path
+
+        p = _Path(filename)
+        stem_variants = [p.stem, *self._well_token_variants(p.stem)]
+        variants: list[str] = []
+        seen: set[str] = set()
+        for stem in stem_variants:
+            candidate = f"{stem}{p.suffix}"
+            if candidate not in seen:
+                seen.add(candidate)
+                variants.append(candidate)
+        return variants
 
     def _get_cell_bounds(self, nuclear_id: int) -> Optional[Tuple[int, int, int, int]]:
         """Get cell pixel boundaries from mask file.
@@ -396,11 +427,13 @@ class ScatterCellViewer(tk.Toplevel):
                 zips = _find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"nuclear image zip search target={self.filename!r}, zips={[str(z) for z in zips]!r}")
 
-            target_lower = self.filename.lower()
+            target_names = self._filename_variants(self.filename)
+            self._debug(f"nuclear image filename candidates={target_names!r}")
+            target_lowers = {name.lower() for name in target_names}
             for zip_path in zips:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.namelist():
-                        if _Path(member).name.lower() == target_lower:
+                        if _Path(member).name.lower() in target_lowers:
                             arr = open_imgref_as_array(
                                 ref=_ImgRef(zip_path=zip_path, zip_member=member),
                                 greyscale=True,
@@ -414,12 +447,13 @@ class ScatterCellViewer(tk.Toplevel):
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             self._debug(f"nuclear image disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
-                for img_path in d.rglob(self.filename):
-                    arr = open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
-                    if arr is not None:
-                        self._debug(f"loaded nuclear image from disk: {img_path}")
-                        y_min, x_min, y_max, x_max = self._cell_bounds
-                        return arr[y_min:y_max, x_min:x_max]
+                for target_name in target_names:
+                    for img_path in d.rglob(target_name):
+                        arr = open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+                        if arr is not None:
+                            self._debug(f"loaded nuclear image from disk: {img_path}")
+                            y_min, x_min, y_max, x_max = self._cell_bounds
+                            return arr[y_min:y_max, x_min:x_max]
 
             self._debug(f"nuclear image not found for filename={self.filename!r}")
             return None
@@ -478,11 +512,13 @@ class ScatterCellViewer(tk.Toplevel):
                 zips = _find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"channel={channel_token}: zip search zips={[str(z) for z in zips]!r}")
 
-            target_lower = target_name.lower()
+            target_names = self._filename_variants(target_name)
+            self._debug(f"channel={channel_token}: filename candidates={target_names!r}")
+            target_lowers = {name.lower() for name in target_names}
             for zip_path in zips:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.namelist():
-                        if _Path(member).name.lower() == target_lower:
+                        if _Path(member).name.lower() in target_lowers:
                             ref = _ImgRef(zip_path=zip_path, zip_member=member)
                             self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{member}")
                             return open_imgref_as_array(ref=ref, greyscale=True)
@@ -491,9 +527,10 @@ class ScatterCellViewer(tk.Toplevel):
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             self._debug(f"channel={channel_token}: disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
-                for img_path in d.rglob(target_name):
-                    self._debug(f"channel={channel_token}: loaded from disk {img_path}")
-                    return open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+                for candidate_name in target_names:
+                    for img_path in d.rglob(candidate_name):
+                        self._debug(f"channel={channel_token}: loaded from disk {img_path}")
+                        return open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
 
             self._debug(f"channel={channel_token}: not found target_name={target_name!r}")
             return None

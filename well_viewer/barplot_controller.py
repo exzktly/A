@@ -7,6 +7,13 @@ import re
 from typing import Callable, List, Optional, Tuple
 
 from .batch_models import BarGroup, ReplicateSet
+from . import debug_flags
+
+
+def _bar_debug(msg: str) -> None:
+    """Emit opt-in bar-plot diagnostics for draw-time label debugging."""
+    if debug_flags.BAR_DEBUG:
+        print(f"DEBUG barplot_controller: {msg}")
 
 
 def bar_groups_to_dict(
@@ -84,8 +91,7 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
         for idx, rset in enumerate(active_rsets):
             color = well_colors[idx % len(well_colors)]
             gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-            n_w = sum(1 for w in rset.wells if w in app._well_paths)
-            label = f"{rset.name} (n={n_w})" if n_w != 1 else rset.name
+            label = app._replicate_display_label(rset)
             items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color))
         return True, items, band_lbl
 
@@ -143,6 +149,22 @@ def render_bar_items(
 ) -> None:
     """Draw mean/fraction bar panels from precomputed items."""
     n = len(items)
+    if len(xlabels) != n:
+        if use_groups:
+            xlabels = [str(display) for _key, display, *_ in items]
+        else:
+            xlabels = [str(label) for label, *_ in items]
+    else:
+        xlabels = [str(lbl) for lbl in xlabels]
+
+    if use_groups:
+        keys = [str(key) for key, *_ in items]
+    else:
+        keys = [str(label) for label, *_ in items]
+    _bar_debug(
+        f"render_bar_items use_groups={use_groups} n={n} keys={keys!r} xlabels={xlabels!r}"
+    )
+
     if use_groups:
         bar_w = min(0.65, 5.0 / max(n, 1))
         for i, (_key, _display, gm, g_err_m, gf, g_err_f, has, color) in enumerate(items):
@@ -190,6 +212,8 @@ def render_bar_items(
             fontsize=7,
         )
         ax.set_xlim(-0.6, n - 0.4)
+        # Mark categorical x-axis so downstream styling does not reset tick formatters.
+        setattr(ax, "_categorical_xaxis", True)
 
 
 def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
