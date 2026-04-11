@@ -4057,7 +4057,7 @@ class WellViewerApp(tk.Frame):
                 nid = int(float(row_nid))
             except Exception:
                 continue
-            incl = str(row.get("Included", row.get("included", "1"))).strip()
+            incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
         self._draw_review_image(fluor_arr, mask_arr, include_by_nid)
 
@@ -4175,7 +4175,7 @@ class WellViewerApp(tk.Frame):
             for row in rows:
                 rf, rt, rn = self._review_row_keys(row)
                 if rf == fov and rt == tp and rn == nid:
-                    current = str(row.get("Included", row.get("included", "1"))).strip() or "1"
+                    current = str(row.get("Included", "1")).strip() or "1"
                     break
         self._review_included_overrides[key] = "0" if current != "0" else "1"
         self._refresh_review_csv_rows()
@@ -4432,19 +4432,16 @@ class WellViewerApp(tk.Frame):
                 row.setdefault("well", tok)
                 if "Included" not in row:
                     # Canonical review flag column; defaults to included.
-                    # Preserve lowercase legacy field if present.
-                    if "included" in row and str(row.get("included", "")).strip():
-                        row["Included"] = str(row.get("included", "")).strip()
-                    else:
-                        row["Included"] = "1"
+                    # Promote legacy lowercase field if present.
+                    row["Included"] = str(row.get("included", "")).strip() or "1"
+                if "included" in row:
+                    row.pop("included", None)
                 fov, tp, nid = self._review_row_keys(row)
                 if fov and tp and nid:
                     key = (label, fov, tp, nid)
                     override = self._review_included_overrides.get(key)
                     if override is not None:
                         row["Included"] = override
-                        if "included" in row:
-                            row["included"] = override
             return rows
         except Exception:
             return []
