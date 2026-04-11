@@ -4069,10 +4069,20 @@ class WellViewerApp(tk.Frame):
                 return f"{float(s):g}"
             except Exception:
                 return s
+        def _pick(*names: str) -> object:
+            for name in names:
+                if name in row:
+                    return row.get(name, "")
+            lowered = {str(k).lower(): v for k, v in row.items()}
+            for name in names:
+                key = name.lower()
+                if key in lowered:
+                    return lowered[key]
+            return ""
         return (
-            _norm(row.get("fov", row.get("FOV", ""))),
-            _norm(row.get("timepoint", row.get("tp", row.get("time", "")))),
-            str(row.get("nucleus_id", row.get("nucleus id", ""))).strip(),
+            _norm(_pick("fov", "FOV")),
+            _norm(_pick("timepoint", "tp", "time")),
+            _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
 
     def _refresh_review_image(self) -> None:
