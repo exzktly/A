@@ -1360,6 +1360,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_is_tif: bool = False
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
         self._review_image_last_fluor_arr = None
+        self._review_image_preserve_view_on_refresh: bool = False
 
         self._build_ui()
         self._apply_theme()
@@ -3907,16 +3908,10 @@ class WellViewerApp(tk.Frame):
         # Reload preview images for channel-sensitive tabs.
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
-            prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
-            prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
-            prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
+            if tab == "Review Image":
+                self._review_image_preserve_view_on_refresh = True
             if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
-            if tab == "Review Image" and getattr(self, "_review_image_base_pil", None) is not None:
-                self._review_image_zoom = prev_zoom
-                self._review_image_pan_x = prev_pan_x
-                self._review_image_pan_y = prev_pan_y
-                self._render_review_image_display()
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
@@ -4149,7 +4144,15 @@ class WellViewerApp(tk.Frame):
                 continue
             incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
-        self._draw_review_image(fluor_arr, mask_arr, include_by_nid, fit_lut=True)
+        preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
+        self._review_image_preserve_view_on_refresh = False
+        self._draw_review_image(
+            fluor_arr,
+            mask_arr,
+            include_by_nid,
+            fit_lut=True,
+            preserve_view=preserve_view,
+        )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
         chan = str(self._active_channel or "").lower()
@@ -4197,7 +4200,15 @@ class WellViewerApp(tk.Frame):
             self._review_lut_max_var.set(f"{hi:.0f}")
         self._refresh_review_image()
 
-    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool], *, fit_lut: bool = False) -> None:
+    def _draw_review_image(
+        self,
+        fluor_arr,
+        mask_arr,
+        include_by_nid: Dict[int, bool],
+        *,
+        fit_lut: bool = False,
+        preserve_view: bool = False,
+    ) -> None:
         arr = _np.asarray(fluor_arr, dtype=_np.float32)
         self._review_image_last_fluor_arr = arr
         m = _np.asarray(mask_arr)
@@ -4238,9 +4249,10 @@ class WellViewerApp(tk.Frame):
 
         img = _PILImage.fromarray(rgb, mode="RGB")
         self._review_image_base_pil = img
-        self._review_image_zoom = 1.0
-        self._review_image_pan_x = 0.0
-        self._review_image_pan_y = 0.0
+        if not preserve_view:
+            self._review_image_zoom = 1.0
+            self._review_image_pan_x = 0.0
+            self._review_image_pan_y = 0.0
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
@@ -4466,10 +4478,13 @@ class WellViewerApp(tk.Frame):
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
         tab = self._notebook.tab(self._notebook.select(), "text")
+        prev_tab = getattr(self, "_last_tab_name", None)
+        prev_selected = set(getattr(self, "_selected_wells", set()))
 
         self._sidebar_main_frame.pack_forget()
         self._sidebar_preview_frame.pack_forget()
         self._sidebar_sample_frame.pack_forget()
+        self._sidebar_groups_frame.pack_forget()
         self._sidebar_stats_frame.pack_forget()
 
         if tab == "Movie Montage":
@@ -4497,6 +4512,14 @@ class WellViewerApp(tk.Frame):
 
         elif tab == "Batch Export":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
+                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
+            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
+                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            # Reuse existing grouping editors to keep Batch Export aligned with
+            # the line/bar grouped-plot selection model.
+            self._sidebar_sample_frame.pack(fill=tk.X)
+            self._sidebar_groups_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
@@ -4543,6 +4566,43 @@ class WellViewerApp(tk.Frame):
                 self._redraw_scatter_agg()
             else:
                 self._redraw()
+
+        self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
+        self._last_tab_name = tab
+
+    def _run_tab_switch_smoke_checks(
+        self,
+        prev_tab: Optional[str],
+        tab: str,
+        prev_selected: set,
+    ) -> None:
+        """Debug guardrails for Line/Bar/Batch sidebar continuity."""
+        watched = {"Line Graphs", "Bar Plots", "Batch Export"}
+        if tab not in watched:
+            return
+
+        # Batch Export should share the same in-memory selection/group objects
+        # used by line/bar/scatter render paths.
+        expected_ids = (
+            id(self._selected_wells),
+            id(self._rep_sets),
+            id(self._bar_groups),
+        )
+        if not hasattr(self, "_selection_model_identity"):
+            self._selection_model_identity = expected_ids
+        elif self._selection_model_identity != expected_ids:
+            _logger.warning(
+                "Selection model identity changed across tab switch: "
+                "_selected_wells/_rep_sets/_bar_groups should be shared."
+            )
+
+        # UI smoke check: switching among Line/Bar/Batch must not mutate the
+        # current per-well selection by itself.
+        if prev_tab in watched and prev_selected != self._selected_wells:
+            _logger.warning(
+                "Tab switch altered selected wells unexpectedly: %s -> %s",
+                prev_tab, tab,
+            )
 
     def _show_line_sidebar(self) -> None:
         """No-op: the unified well picker is always visible for plot tabs."""
