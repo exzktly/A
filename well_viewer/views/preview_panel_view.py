@@ -213,6 +213,9 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         self._review_image_tp_menu.pack(side=tk.LEFT)
         self._review_image_tp_menu.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_image())
 
+        btn_card(ctrl, "−", lambda: self._review_image_zoom_step(-1), width=2).pack(side=tk.RIGHT, padx=(6, 2))
+        btn_card(ctrl, "+", lambda: self._review_image_zoom_step(+1), width=2).pack(side=tk.RIGHT, padx=(2, 6))
+        btn_secondary(ctrl, "Fit", self._review_image_zoom_fit, padx=8).pack(side=tk.RIGHT)
         btn_secondary(ctrl, "Toggle Included", self._toggle_selected_review_cell, padx=8).pack(side=tk.RIGHT)
 
         tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X)
@@ -223,6 +226,7 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         self._review_image_canvas = tk.Canvas(inner, bg=BG_APP, highlightthickness=0)
         self._review_image_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self._review_image_label = tk.Label(self._review_image_canvas, bg=BG_APP, bd=0, cursor="hand2")
-        self._review_image_canvas.create_window((8, 8), window=self._review_image_label, anchor="nw")
+        self._review_image_window = self._review_image_canvas.create_window((8, 8), window=self._review_image_label, anchor="nw")
+        self._review_image_canvas.bind("<Configure>", lambda _e: self._render_review_image_display())
 
         self._review_image_tooltip = _Tooltip(inner)

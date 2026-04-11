@@ -1326,6 +1326,8 @@ class WellViewerApp(tk.Frame):
         self._review_image_selected_nucleus: Optional[int] = None
         self._review_image_nucleus_to_iid: Dict[int, str] = {}
         self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
+        self._review_image_zoom: float = 1.0
+        self._review_image_base_pil = None
 
         self._build_ui()
         self._apply_theme()
@@ -4083,9 +4085,9 @@ class WellViewerApp(tk.Frame):
             rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
 
         img = _PILImage.fromarray(rgb, mode="RGB")
-        self._review_image_scale = 1.0
-        self._review_image_photo = _PILImageTk.PhotoImage(img)
-        self._review_image_label.configure(image=self._review_image_photo)
+        self._review_image_base_pil = img
+        self._review_image_zoom = 1.0
+        self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
         self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
@@ -4095,11 +4097,40 @@ class WellViewerApp(tk.Frame):
             text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.{suffix}"
         )
 
+    def _render_review_image_display(self) -> None:
+        if not hasattr(self, "_review_image_label") or self._review_image_base_pil is None:
+            return
+        img = self._review_image_base_pil
+        iw, ih = img.size
+        cw = max(1, int(getattr(self, "_review_image_canvas").winfo_width() - 16))
+        ch = max(1, int(getattr(self, "_review_image_canvas").winfo_height() - 16))
+        fit = min(cw / max(iw, 1), ch / max(ih, 1))
+        scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
+        nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+        shown = img.resize((nw, nh), _PILImage.NEAREST)
+        self._review_image_photo = _PILImageTk.PhotoImage(shown)
+        self._review_image_label.configure(image=self._review_image_photo)
+        self._review_image_scale = scale
+        self._review_image_canvas.coords(self._review_image_window, max(8, (cw - nw) // 2), max(8, (ch - nh) // 2))
+
+    def _review_image_zoom_step(self, direction: int) -> None:
+        steps = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
+        cur = getattr(self, "_review_image_zoom", 1.0)
+        idx = min(range(len(steps)), key=lambda i: abs(steps[i] - cur))
+        idx = max(0, min(len(steps) - 1, idx + direction))
+        self._review_image_zoom = steps[idx]
+        self._render_review_image_display()
+
+    def _review_image_zoom_fit(self) -> None:
+        self._review_image_zoom = 1.0
+        self._render_review_image_display()
+
     def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         mask_arr = getattr(self._review_image_label, "_mask_arr", None)
         if mask_arr is None:
             return
-        x, y = int(event.x), int(event.y)
+        scale = float(getattr(self, "_review_image_scale", 1.0) or 1.0)
+        x, y = int(event.x / scale), int(event.y / scale)
         if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
             self._review_image_tooltip.hide()
             return
@@ -4117,7 +4148,8 @@ class WellViewerApp(tk.Frame):
         mask_arr = getattr(self._review_image_label, "_mask_arr", None)
         if mask_arr is None:
             return
-        x, y = int(event.x), int(event.y)
+        scale = float(getattr(self, "_review_image_scale", 1.0) or 1.0)
+        x, y = int(event.x / scale), int(event.y / scale)
         if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
             return
         nid = int(mask_arr[y, x])
@@ -4148,11 +4180,15 @@ class WellViewerApp(tk.Frame):
                 table.selection_set(iid)
                 table.focus(iid)
                 table.see(iid)
+                self._set_status(f"Matched Review CSV row for nucleus {nucleus_id} at FOV {fov}, TP {tp}.")
                 break
         else:
             _logger.warning(
                 "Review CSV exact row match not found. target=(%s,%s,%s) candidates_shown=%d sample=%s",
                 fov, tp, nucleus_id, len(debug_candidates), debug_candidates[:10],
+            )
+            self._set_status(
+                f"No exact Review CSV row match for nucleus {nucleus_id} at FOV {fov}, TP {tp}; showing fallback rows."
             )
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Review CSV")
@@ -4427,6 +4463,9 @@ class WellViewerApp(tk.Frame):
             filtered = list(rows)
             self._review_csv_msg.set(
                 "No exact Well/FOV/Timepoint match. Showing all selected rows instead."
+            )
+            self._set_status(
+                f"Review CSV fallback active: no exact match for FOV={fov_sel}, TP={tp_sel}; showing {len(filtered)} row(s)."
             )
 
         cols = list(filtered[0].keys())
