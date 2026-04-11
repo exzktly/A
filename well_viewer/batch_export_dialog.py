@@ -929,56 +929,115 @@ class BatchExportDialog(tk.Toplevel):
         any_ts = any_cdf = False
         all_fluor_vals: List[float] = []
 
-        # Build member list: (label, all_rows_combined, display_name)
+        # Build member list aligned with runtime line-plot semantics:
+        # replicate sets use _compute_rep_stats at each timepoint; solo wells
+        # use aggregate_with_threshold directly on their rows.
         members: List[tuple] = []
         for rset in grp.members:
             valid = [w for w in rset.wells if w in self._app._well_paths]
             if not valid:
                 continue
-            combined: List[dict] = []
-            for w in valid:
-                combined.extend(self._app._get_rows(w))
-            members.append((rset.name, combined,
-                             f"{rset.name} (n={len(valid)} well{'s' if len(valid)!=1 else ''})"))
+            members.append(("replicate", rset, valid, self._app._replicate_display_label(rset)))
         for w in grp.solo_wells:
             if w not in self._app._well_paths:
                 continue
             tok = _extract_well_token(w) or w
-            members.append((tok, self._app._get_rows(w), tok))
+            members.append(("well", w, [w], tok))
 
         _val_col = self._app._active_val_col
         _cell_area_threshold = self._app._get_cell_area_threshold()
         _fluor_gates = self._app._get_all_fluor_gates()
-        for mi, (_, rows, display_name) in enumerate(members):
+        for mi, (member_type, member_key, valid_wells, display_name) in enumerate(members):
             color = WELL_COLORS[mi % len(WELL_COLORS)]
-            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem,
-                                           val_col=_val_col, cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates)
-            fluor_vals = sorted(_all_fluor_values(rows, val_col=_val_col))
-            all_fluor_vals.extend(fluor_vals)
+            if member_type == "replicate":
+                rset = member_key
+                all_tps: set[float] = set()
+                fluor_vals_raw: List[float] = []
+                for lbl in valid_wells:
+                    rows = self._app._get_rows(lbl)
+                    for t, *_ in aggregate_with_threshold(
+                        rows,
+                        threshold,
+                        use_sem=False,
+                        val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
+                        fluor_gates=_fluor_gates,
+                    ):
+                        all_tps.add(t)
+                    fluor_vals_raw.extend(
+                        _all_fluor_values(rows, val_col=_val_col)
+                    )
+                agg_times: List[float] = []
+                agg_means: List[float] = []
+                agg_errs: List[float] = []
+                agg_fracs: List[float] = []
+                for t in sorted(all_tps):
+                    gm, gerr, gf, _ = self._app._compute_rep_stats(rset, t, threshold, use_sem)
+                    if not math.isnan(gm):
+                        agg_times.append(t)
+                        agg_means.append(gm)
+                        agg_errs.append(gerr)
+                        agg_fracs.append(gf)
 
-            if pts:
-                times, means, spreads, fracs, *_ = zip(*pts)
-                vm = [(t, m, s) for t, m, s in zip(times, means, spreads)
-                      if not math.isnan(m)]
-                if vm:
-                    vt, vmm, vs = zip(*vm)
-                    ax_mean.plot(vt, vmm, color=color, lw=2, marker="o",
+                if agg_times:
+                    ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o",
                                  markersize=4, label=display_name, zorder=3)
                     ax_mean.fill_between(
-                        vt, [m-s for m,s in zip(vmm,vs)],
-                        [m+s for m,s in zip(vmm,vs)],
-                        color=color, alpha=0.15, zorder=2)
-                vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
-                if vf:
-                    vt2, vf2 = zip(*vf)
-                    ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
-                                 markersize=3, label=display_name, zorder=3)
-                    ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
-                any_ts = True
+                        agg_times,
+                        [m - e for m, e in zip(agg_means, agg_errs)],
+                        [m + e for m, e in zip(agg_means, agg_errs)],
+                        color=color,
+                        alpha=0.15,
+                        zorder=2,
+                    )
+                    vf = [(t, f) for t, f in zip(agg_times, agg_fracs) if not math.isnan(f)]
+                    if vf:
+                        vt2, vf2 = zip(*vf)
+                        ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
+                                     markersize=3, label=display_name, zorder=3)
+                        ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
+                    any_ts = True
 
+                fluor_vals = sorted(fluor_vals_raw)
+            else:
+                rows = self._app._get_rows(member_key)
+                pts = aggregate_with_threshold(
+                    rows,
+                    threshold,
+                    use_sem=use_sem,
+                    val_col=_val_col,
+                    cell_area_threshold=_cell_area_threshold,
+                    fluor_gates=_fluor_gates,
+                )
+                if pts:
+                    times, means, spreads, fracs, *_ = zip(*pts)
+                    vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
+                    if vm:
+                        vt, vmm, vs = zip(*vm)
+                        ax_mean.plot(vt, vmm, color=color, lw=2, marker="o",
+                                     markersize=4, label=display_name, zorder=3)
+                        ax_mean.fill_between(
+                            vt,
+                            [m - s for m, s in zip(vmm, vs)],
+                            [m + s for m, s in zip(vmm, vs)],
+                            color=color,
+                            alpha=0.15,
+                            zorder=2,
+                        )
+                    vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
+                    if vf:
+                        vt2, vf2 = zip(*vf)
+                        ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
+                                     markersize=3, label=display_name, zorder=3)
+                        ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
+                    any_ts = True
+
+                fluor_vals = sorted(_all_fluor_values(rows, val_col=_val_col))
+
+            all_fluor_vals.extend(fluor_vals)
             if fluor_vals:
                 n = len(fluor_vals)
-                ax_cdf.plot(fluor_vals, [(k+1)/n for k in range(n)],
+                ax_cdf.plot(fluor_vals, [(k + 1) / n for k in range(n)],
                             color=color, lw=1.8,
                             label=f"{display_name} (n={n:,})", zorder=3)
                 any_cdf = True
