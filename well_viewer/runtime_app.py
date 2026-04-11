@@ -1329,6 +1329,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_selected_nucleus: Optional[int] = None
         self._review_image_nucleus_to_iid: Dict[int, str] = {}
         self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
+        self._review_csv_lookup_context: Dict[str, str] = {}
         self._review_image_zoom: float = 1.0
         self._review_image_base_pil = None
 
@@ -4394,8 +4395,13 @@ class WellViewerApp(tk.Frame):
             self._review_csv_msg.set(
                 "No exact Well/FOV/Timepoint match. Showing all selected rows instead."
             )
+            ctx = getattr(self, "_review_csv_lookup_context", {}) or {}
+            ctx_txt = (
+                f" well={ctx.get('well','')} fov={ctx.get('fov','')} tp={ctx.get('tp','')} nucleus_id={ctx.get('nucleus_id','')}"
+                if ctx else ""
+            )
             self._set_status(
-                f"Review CSV fallback active: no exact match for FOV={fov_sel}, TP={tp_sel}; showing {len(filtered)} row(s)."
+                f"Review CSV fallback active: no exact match for FOV={fov_sel}, TP={tp_sel}; showing {len(filtered)} row(s).{ctx_txt}"
             )
 
         cols = list(filtered[0].keys())

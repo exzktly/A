@@ -25,6 +25,19 @@ def on_review_image_click(app, event, logger) -> None:
 def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logger) -> None:
     if not hasattr(app, "_review_fov_var"):
         return
+    app._review_csv_lookup_context = {
+        "well": str(app._preview_selected_well or ""),
+        "fov": str(fov),
+        "tp": str(tp),
+        "nucleus_id": str(nucleus_id),
+    }
+    app._set_status(
+        "Review CSV lookup request: "
+        f"well={app._review_csv_lookup_context['well']}  "
+        f"fov={app._review_csv_lookup_context['fov']}  "
+        f"tp={app._review_csv_lookup_context['tp']}  "
+        f"nucleus_id={app._review_csv_lookup_context['nucleus_id']}"
+    )
     logger.info(
         "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
         app._preview_selected_well, fov, tp, nucleus_id,
