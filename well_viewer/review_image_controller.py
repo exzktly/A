@@ -31,11 +31,12 @@ def on_review_image_click(app, event, logger) -> None:
 def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logger) -> None:
     if not hasattr(app, "_review_fov_var"):
         return
+    fov_n, tp_n, nucleus_n = app._review_row_keys({"fov": fov, "tp": tp, "nucleus_id": nucleus_id})
     app._review_csv_lookup_context = {
         "well": str(app._preview_selected_well or ""),
-        "fov": str(fov),
-        "tp": str(tp),
-        "nucleus_id": str(nucleus_id),
+        "fov": str(fov_n),
+        "tp": str(tp_n),
+        "nucleus_id": str(nucleus_n),
     }
     app._set_status(
         "Review CSV lookup request: "
@@ -48,8 +49,10 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
         "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
         app._preview_selected_well, fov, tp, nucleus_id,
     )
-    app._review_fov_var.set(fov)
-    app._review_tp_var.set(tp)
+    app._review_fov_var.set(fov_n)
+    app._review_tp_var.set(tp_n)
+    if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
+        app._notebook.select_by_text("Review CSV")
     app._refresh_review_csv_rows()
     table = app._review_csv_table
     debug_candidates = []
@@ -59,23 +62,20 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
         row = {c: vals[i] for i, c in enumerate(cols)}
         rf, rt, rn = app._review_row_keys(row)
         debug_candidates.append((rf, rt, rn))
-        if rf == fov and rt == tp and rn == nucleus_id:
+        if rf == fov_n and rt == tp_n and rn == nucleus_n:
             table.selection_set(iid)
             table.focus(iid)
             table.see(iid)
-            app._set_status(f"Matched Review CSV row for nucleus {nucleus_id} at FOV {fov}, TP {tp}.")
-            break
+            app._set_status(f"Matched Review CSV row for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}.")
+            return
     else:
         logger.warning(
             "Review CSV exact row match not found. target=(%s,%s,%s) candidates_shown=%d sample=%s",
-            fov, tp, nucleus_id, len(debug_candidates), debug_candidates[:10],
+            fov_n, tp_n, nucleus_n, len(debug_candidates), debug_candidates[:10],
         )
         app._set_status(
-            f"No exact Review CSV row match for nucleus {nucleus_id} at FOV {fov}, TP {tp}; showing fallback rows."
+            f"No exact Review CSV row match for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}; showing fallback rows."
         )
-    app._set_status(
-        f"Queued Review CSV selection for nucleus {nucleus_id} at FOV {fov}, TP {tp}."
-    )
 
 
 def on_review_csv_row_double_click(app, event) -> None:
