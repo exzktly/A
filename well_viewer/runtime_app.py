@@ -4179,12 +4179,10 @@ class WellViewerApp(tk.Frame):
         self._review_csv_msg.set(f"Showing {len(filtered):,} row(s).")
 
     def _review_load_rows(self, label: str) -> List[dict]:
-        csv_path = self._well_paths.get(label)
-        if csv_path is None or not csv_path.exists():
-            return []
         try:
-            with csv_path.open("r", newline="", encoding="utf-8") as fh:
-                rows = list(csv.DictReader(fh))
+            # Use cached/parsed rows so Review CSV reflects runtime-added columns
+            # (e.g. Included) and latest gating-driven inclusion updates.
+            rows = [dict(row) for row in self._get_rows(label)]
             tok = self._extract_well_token(label) or label
             for row in rows:
                 row.setdefault("well", tok)
