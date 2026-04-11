@@ -206,6 +206,10 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._build_right_panel(tab_preview)
     app._build_preview_picker(app._sidebar_preview_frame)
 
+    tab_review_image = tk.Frame(app._notebook, bg=BG_SIDE)
+    app._notebook.add(tab_review_image, text="Review Image")
+    app._build_review_image_panel(tab_review_image)
+
     tab_stats = tk.Frame(app._notebook, bg=BG_APP)
     app._notebook.add(tab_stats, text="Statistics")
     app._build_stats_tab(tab_stats)
