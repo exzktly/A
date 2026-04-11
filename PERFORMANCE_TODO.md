@@ -72,3 +72,5 @@ Purpose: track performance remediation work so another AI can resume safely if i
 - [x] Make export-style sidebar mousewheel/trackpad-scrollable.
 - [x] Add reusable canvas mousewheel bindings and apply to major custom scroll canvases (line/bar/export sidebar).
 - [x] Fix theme-switch stale colors for custom notebook separators and well picker (apply immediately on theme change).
+- [x] Make wheel/trackpad scrolling follow the panel under the cursor (not just scrollbar hover).
+- [x] Fix top dataset bar theme refresh (background + separator + label colors).

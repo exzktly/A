@@ -1364,6 +1364,7 @@ class WellViewerApp(tk.Frame):
         # Topbar
         top = tk.Frame(self, bg=BG_APP, pady=8, padx=14)
         top.pack(side=tk.TOP, fill=tk.X)
+        self._top_bar = top
         self._dir_label = tk.Label(top, text="No data loaded", font=FM_UI, fg=TXT_MUT, bg=BG_APP)
         self._dir_label.pack(side=tk.LEFT)
 
@@ -1371,7 +1372,8 @@ class WellViewerApp(tk.Frame):
         ttk.Button(top, text="Open…", command=self._browse,
                    style="PrimaryDark.TButton").pack(side=tk.RIGHT, padx=(6, 0))
 
-        tk.Frame(self, bg=BORDER, height=1).pack(fill=tk.X)
+        self._top_sep = tk.Frame(self, bg=BORDER, height=1)
+        self._top_sep.pack(fill=tk.X)
 
         # Status + log — MUST be packed side=BOTTOM before the expanding
         # paned window so it claims its space first.
@@ -3384,6 +3386,14 @@ class WellViewerApp(tk.Frame):
                 border=get_color("BORDER"),
                 txt_pri=get_color("TXT_PRI"),
             )
+
+        # Refresh top dataset bar colors explicitly (dataset path label + separator).
+        if hasattr(self, "_top_bar"):
+            self._top_bar.configure(bg=get_color("BG_APP"))
+        if hasattr(self, "_dir_label"):
+            self._dir_label.configure(bg=get_color("BG_APP"), fg=get_color("TXT_MUT"))
+        if hasattr(self, "_top_sep"):
+            self._top_sep.configure(bg=get_color("BORDER"))
 
         # Refresh well-picker colors immediately so theme changes are visible
         # without waiting for another tab change interaction.
