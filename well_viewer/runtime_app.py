@@ -4129,20 +4129,31 @@ class WellViewerApp(tk.Frame):
     def _select_review_csv_row_for_cell(self, fov: str, tp: str, nucleus_id: str) -> None:
         if not hasattr(self, "_review_fov_var"):
             return
+        _logger.info(
+            "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
+            self._preview_selected_well, fov, tp, nucleus_id,
+        )
         self._review_fov_var.set(fov)
         self._review_tp_var.set(tp)
         self._refresh_review_csv_rows()
         table = self._review_csv_table
+        debug_candidates = []
         for iid in table.get_children():
             vals = table.item(iid, "values")
             cols = table["columns"]
             row = {c: vals[i] for i, c in enumerate(cols)}
             rf, rt, rn = self._review_row_keys(row)
+            debug_candidates.append((rf, rt, rn))
             if rf == fov and rt == tp and rn == nucleus_id:
                 table.selection_set(iid)
                 table.focus(iid)
                 table.see(iid)
                 break
+        else:
+            _logger.warning(
+                "Review CSV exact row match not found. target=(%s,%s,%s) candidates_shown=%d sample=%s",
+                fov, tp, nucleus_id, len(debug_candidates), debug_candidates[:10],
+            )
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Review CSV")
 
@@ -4402,9 +4413,21 @@ class WellViewerApp(tk.Frame):
             filtered.append(row)
 
         if not filtered:
-            table["columns"] = ()
-            self._review_csv_msg.set("No rows match the selected Well/FOV/Timepoint.")
-            return
+            _logger.warning(
+                "No Review CSV rows matched filters: selected_wells=%s fov=%s tp=%s total_rows=%d",
+                sorted(self._selected_wells, key=self._parse_rc),
+                fov_sel, tp_sel, len(rows),
+            )
+            if not rows:
+                table["columns"] = ()
+                self._review_csv_msg.set("No rows are available for the selected well(s).")
+                return
+            # Fallback: if the filters are mismatched for any reason, still
+            # show all loaded rows from selected well(s) instead of an empty table.
+            filtered = list(rows)
+            self._review_csv_msg.set(
+                "No exact Well/FOV/Timepoint match. Showing all selected rows instead."
+            )
 
         cols = list(filtered[0].keys())
         table["columns"] = cols
