@@ -274,7 +274,13 @@ class BatchExportPanel(tk.Frame):
 
         run_row = tk.Frame(parent, bg=BG_APP, pady=12, padx=12)
         run_row.pack(fill=tk.X)
-        self._run_btn = btn_primary(run_row, "▶  Run Batch Export", self._run_batch, padx=16, pady=6)
+        self._run_btn = ttk.Button(
+            run_row,
+            text="▶  Run Batch Export",
+            command=self._run_batch,
+            style="TButton",
+            padding=(16, 6),
+        )
         self._run_btn.pack(side=tk.LEFT)
         self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
                                   fg=TXT_MUT, bg=BG_APP)
@@ -851,6 +857,7 @@ class BatchExportPanel(tk.Frame):
             messagebox.showwarning("No groups", msg,
                                    parent=self)
             return
+        self._log_sample_definitions_snapshot(groups_with_data)
         out_dir = self._resolve_out_dir()
         if out_dir is None:
             return
@@ -953,6 +960,19 @@ class BatchExportPanel(tk.Frame):
             run_job_fn=_run_group,
             success_text=f"\u2713 {len(groups_with_data)} group(s) \u2192 {out_dir.name}/",
             status_text=f"Batch export: {len(groups_with_data)} group(s) \u2192 {out_dir}",
+        )
+
+    def _log_sample_definitions_snapshot(self, groups_for_export: "List[BarGroup]") -> None:
+        rep_sets = getattr(self._app, "_rep_sets", [])
+        bar_groups = getattr(self._app, "_bar_groups", [])
+        rep_summary = [f"{r.name}={len(r.wells)}w" for r in rep_sets]
+        grp_summary = [f"{g.name}={len(g.wells)}w" for g in bar_groups]
+        export_summary = [f"{g.name}={len(g.wells)}w" for g in groups_for_export]
+        _logger.info(
+            "Run Batch Export clicked | rep_sets=%s | bar_groups=%s | groups_for_export=%s",
+            rep_summary,
+            grp_summary,
+            export_summary,
         )
 
     def _render_group_figure(
@@ -1239,7 +1259,13 @@ class BarBatchExportPanel(BatchExportPanel):
 
         run_row = tk.Frame(parent, bg=BG_APP, pady=8, padx=12)
         run_row.pack(fill=tk.X)
-        self._run_btn = btn_primary(run_row, "▶  Run Batch Export", self._run_batch, padx=16, pady=6)
+        self._run_btn = ttk.Button(
+            run_row,
+            text="▶  Run Batch Export",
+            command=self._run_batch,
+            style="TButton",
+            padding=(16, 6),
+        )
         self._run_btn.pack(side=tk.LEFT)
         self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
                                   fg=TXT_MUT, bg=BG_APP)
@@ -1264,6 +1290,7 @@ class BarBatchExportPanel(BatchExportPanel):
                                    msg,
                                    parent=self)
             return
+        self._log_sample_definitions_snapshot(groups_with_data)
 
         selected_tps = _selected_listbox_values(self._tp_lb)
         if not selected_tps:

@@ -46,6 +46,7 @@ def redraw_line_plots(
     active_rsets = app._rep_sets_active()
     if not selected and not active_rsets:
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
+            ax.set_title("")
             ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
             ax.set_axis_off()
         app._line_canvas.draw_idle()
