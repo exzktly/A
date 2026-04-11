@@ -24,6 +24,8 @@ def get_all_timepoints(app) -> List[float]:
     for label in app._well_paths:
         rows = app._get_rows(label)
         for row in rows:
+            if not app._row_is_included(row):
+                continue
             try:
                 tp = float(row.get("timepoint_hours", float('nan')))
                 if not (tp != tp):  # Skip NaN
@@ -90,6 +92,8 @@ def collect_scatter_data(
 
                 rows = app._get_rows(well_label)
                 for row_idx, row in enumerate(rows):
+                    if not app._row_is_included(row):
+                        continue
                     # Filter by timepoint
                     try:
                         tp = float(row.get("timepoint_hours", float('nan')))
@@ -154,6 +158,8 @@ def collect_scatter_data(
 
             rows = app._get_rows(well_label)
             for row_idx, row in enumerate(rows):
+                if not app._row_is_included(row):
+                    continue
                 # Filter by timepoint
                 try:
                     tp = float(row.get("timepoint_hours", float('nan')))

@@ -136,6 +136,8 @@ def export_raw_data_csv(app) -> None:
 
     for label in sorted(app._well_paths):
         for row in app._get_rows(label):
+            if not app._row_is_included(row):
+                continue
             # Apply cell gating thresholds
             try:
                 area = float(row.get("area_px", float('nan')))
