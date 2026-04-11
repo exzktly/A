@@ -75,10 +75,6 @@ class CustomNotebook(tk.Frame):
         btn.bind("<Button-1>", lambda e: self.select_by_text(text))
         self._tab_buttons[text] = btn
 
-        # Select first tab automatically
-        if self._current_text is None:
-            self.select_by_text(text)
-
     def add_separator(self):
         """Add a thin vertical separator in the tab bar"""
         sep = tk.Frame(self.header, bg=BORDER, width=1, height=25)
@@ -215,3 +211,6 @@ def build_centre(app, parent: tk.Frame) -> None:
     build_batch_export_tab(app, tab_batch)
 
     app._notebook.add(tab_groups, text="Sample Definitions")
+
+    # Select the first tab after all tabs are built
+    app._notebook.select_by_text("Line Graphs")
