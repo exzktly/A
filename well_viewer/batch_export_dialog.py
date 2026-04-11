@@ -548,7 +548,7 @@ class BatchExportPanel(tk.Frame):
                 groups.append(grp)
             return groups
         # Legacy fallback
-            return copy.deepcopy(self._app._bar_groups)
+        return copy.deepcopy(self._app._bar_groups)
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
