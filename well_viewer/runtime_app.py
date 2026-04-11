@@ -3348,7 +3348,7 @@ class WellViewerApp(tk.Frame):
 
         Refreshes all UI components to use the new theme colors.
         """
-        from ui.theme import rebuild_widget_colors
+        from ui.theme import rebuild_widget_colors, get_color
 
         new_theme = theme_name or self._theme_name
         old_theme = self._theme_name
@@ -3375,6 +3375,21 @@ class WellViewerApp(tk.Frame):
 
         # Re-map tk widget colors after any panel rebuilds performed above.
         rebuild_widget_colors(self, old_theme, new_theme)
+
+        # Refresh custom notebook chrome (header/separators/active-tab highlight).
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "refresh_theme_colors"):
+            self._notebook.refresh_theme_colors(
+                bg_side=get_color("BG_SIDE"),
+                bg_app=get_color("BG_APP"),
+                border=get_color("BORDER"),
+                txt_pri=get_color("TXT_PRI"),
+            )
+
+        # Refresh well-picker colors immediately so theme changes are visible
+        # without waiting for another tab change interaction.
+        if hasattr(self, "_sidebar_btns"):
+            self._sidebar_map_refresh_pending = False
+            self._refresh_sidebar_map_now()
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
