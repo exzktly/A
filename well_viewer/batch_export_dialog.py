@@ -96,8 +96,12 @@ class BatchExportPanel(tk.Frame):
         self._use_sidebar_groups = bool(use_sidebar_groups)
 
         default_out = str(app._data_dir) if app._data_dir else ""
+        export_prefs = getattr(app, "_export_style_prefs", {}) or {}
+        default_fmt = str(export_prefs.get("format", "png")).lower()
+        if default_fmt not in {"png", "svg", "eps", "pdf"}:
+            default_fmt = "png"
         self._out_dir_var = tk.StringVar(value=default_out)
-        self._fmt_var     = tk.StringVar(value="png")
+        self._fmt_var     = tk.StringVar(value=default_fmt)
         self._active_grp  = -1   # index of selected export group
 
         # Initialise groups from rep-sets (one group per set).
@@ -745,6 +749,12 @@ class BatchExportPanel(tk.Frame):
     def _save_figure(self, fig, fig_path: Path, fmt: str) -> None:
         import matplotlib as _mpl
         import matplotlib.pyplot as _plt
+        from well_viewer.figure_export_editor import (
+            _ensure_export_style_prefs,
+            apply_export_style_prefs,
+        )
+
+        apply_export_style_prefs(fig, _ensure_export_style_prefs(self._app))
 
         orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
         orig_ps = _mpl.rcParams.get("ps.fonttype", 3)
