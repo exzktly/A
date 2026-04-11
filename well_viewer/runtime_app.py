@@ -507,8 +507,9 @@ def load_well_csv(path: Path) -> List[dict]:
                 row["Included"] = 1
             coerced: dict = {}
             for k, v in row.items():
-                if k in _STRING_COLS:
-                    if k == "fov" and str(v).strip() in {"", "-1"}:
+                key_norm = str(k).strip().lower()
+                if key_norm in _STRING_COLS:
+                    if key_norm == "fov" and str(v).strip() in {"", "-1"}:
                         coerced[k] = "1"
                     else:
                         coerced[k] = v
