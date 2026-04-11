@@ -3777,6 +3777,8 @@ class WellViewerApp(tk.Frame):
 
     def _set_active_channel(self, channel: str) -> None:
         """Switch the active fluorescent channel and redraw all plots."""
+        if not channel or channel == "—":
+            return
         if channel == self._active_channel:
             return
         self._active_channel = channel
@@ -3830,15 +3832,20 @@ class WellViewerApp(tk.Frame):
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
         labels = [ch.upper() for ch in self._fluor_channels]
+        if not labels:
+            labels = ["—"]
         # Update all channel selector instances
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_preview"):
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_preview", "_review_image_chan_cb"):
             if hasattr(self, attr):
                 getattr(self, attr).config(values=labels)
         active_label = self._active_channel.upper()
-        if active_label in labels:
+        if active_label in labels and active_label != "—":
             self._chan_var.set(active_label)
-        elif labels:
+        elif labels and labels[0] != "—":
             self._chan_var.set(labels[0])
+            self._set_active_channel(labels[0].lower())
+        else:
+            self._chan_var.set("—")
 
     def _toggle_sem(self) -> None:
         self._invalidate_stats_cache()
