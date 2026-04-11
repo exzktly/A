@@ -57,8 +57,6 @@ class CustomNotebook(tk.Frame):
 
     def add(self, frame, text):
         """Add a tab with the given text and frame (mimics ttk.Notebook.add)"""
-        # Parent the frame to content area, but don't show it yet
-        frame.configure(parent=self.content)
         self._tabs[text] = frame
 
         # Create tab button in header
