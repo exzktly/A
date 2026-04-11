@@ -398,6 +398,8 @@ class CellGatingTab(tk.Frame):
             # Redraw the CDF with new thresholds
             self._axes_stack = []
             self._plot_cdf()
+            # Persist gating state into row-level Included column
+            self._app._apply_cell_gating_to_included()
             # Redraw the app to reflect the new thresholds
             self._app._redraw()
         except ValueError:

@@ -487,11 +487,21 @@ def parse_timepoint_hours(tp: str) -> Optional[float]:
 # Columns kept as strings (not coerced to float)
 _STRING_COLS = {"filename", "experiment", "channel", "well", "fov", "timepoint"}
 
+def row_is_included(row: dict) -> bool:
+    """Return True when CSV row is marked as included (Included == 1)."""
+    raw = row.get("Included", 1)
+    try:
+        return int(float(raw)) == 1
+    except (TypeError, ValueError):
+        return False
+
 
 def load_well_csv(path: Path) -> List[dict]:
     rows: List[dict] = []
     with path.open(newline="") as fh:
         for row in csv.DictReader(fh):
+            if "Included" not in row:
+                row["Included"] = 1
             coerced: dict = {}
             for k, v in row.items():
                 if k in _STRING_COLS:
@@ -623,6 +633,8 @@ def aggregate_with_threshold(
     ordinals = _ordinal_timepoints(rows, tp_col)
 
     for row in rows:
+        if not row_is_included(row):
+            continue
         # Step 1: Filter by cell area threshold (applies to all rows)
         try:
             area = float(row.get("area_px", 0))
@@ -692,6 +704,7 @@ def aggregate_with_threshold(
 
 def _all_fluor_values(rows: List[dict], val_col: str = "gfp_mean_intensity") -> List[float]:
     return [float(row[val_col]) for row in rows
+            if row_is_included(row)
             if val_col in row and math.isfinite(float(row[val_col]))
             if isinstance(row[val_col], (int, float)) and not isinstance(row[val_col], bool)]
 
@@ -716,6 +729,8 @@ def _all_fluor_values_filtered(
 
     result = []
     for row in rows:
+        if not row_is_included(row):
+            continue
         # Filter by cell area threshold
         try:
             area = float(row.get("area_px", 0))
@@ -1348,6 +1363,42 @@ class WellViewerApp(tk.Frame):
         for channel in self._fluor_channels:
             gates[channel] = self._get_fluor_gate(channel)
         return gates
+
+    def _row_is_included(self, row: dict) -> bool:
+        """Instance wrapper so controllers can consistently check Included."""
+        return row_is_included(row)
+
+    def _apply_cell_gating_to_included(self) -> None:
+        """Write cell-gating result into each cached row's Included field (1/0)."""
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+
+        for label in self._well_paths:
+            rows = self._get_rows(label)
+            for row in rows:
+                include = 1
+                try:
+                    area = float(row.get("area_px", 0))
+                    if area <= cell_area_threshold:
+                        include = 0
+                except (ValueError, TypeError):
+                    include = 0
+
+                if include:
+                    for channel, gate_threshold in fluor_gates.items():
+                        col = f"{channel}_mean_intensity"
+                        try:
+                            fluor = float(row.get(col, float("nan")))
+                            if fluor != fluor or fluor <= gate_threshold:
+                                include = 0
+                                break
+                        except (ValueError, TypeError):
+                            include = 0
+                            break
+
+                row["Included"] = include
+
+        self._invalidate_stats_cache()
 
     def _get_thresh_frac_on(self, channel: Optional[str] = None) -> float:
         """Get ThreshFracOn threshold. Uses active channel if not specified."""
@@ -4371,6 +4422,8 @@ class WellViewerApp(tk.Frame):
             vals: List[float] = []
             n_total = n_above = 0
             for row in rows:
+                if not row_is_included(row):
+                    continue
                 raw_t = row.get("timepoint_hours")
                 try:
                     t = float(raw_t)
@@ -4477,6 +4530,8 @@ class WellViewerApp(tk.Frame):
             frac_val: Optional[float] = None
             n_above = n_total = 0
             for row in rows:
+                if not row_is_included(row):
+                    continue
                 raw = row.get("timepoint_hours")
                 t: Optional[float] = (raw if isinstance(raw, float)
                                       and not math.isnan(raw)
