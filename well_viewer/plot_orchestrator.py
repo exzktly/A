@@ -51,9 +51,12 @@ def redraw(
         if tab == "Bar Plots":
             app._update_bar_tp_menu()
             app._redraw_bars()
-        elif tab == "Scatter":
+        elif tab == "Scatter Plot: Cells":
             app._update_scatter_menus()
             app._redraw_scatter()
+        elif tab == "Scatter Plot: Aggregate":
+            app._update_scatter_menus()
+            app._redraw_scatter_agg()
 
 
 def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:

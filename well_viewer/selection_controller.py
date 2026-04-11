@@ -194,10 +194,10 @@ def select_none(app) -> None:
     if app._rep_sets:
         loaded = app._rep_sets_loaded()
         app._rep_hidden = set(range(len(loaded)))
-    else:
-        app._selected_wells.clear()
-        app._last_sel = None
-        app._prev_sel = set()
+    # Always clear individual well selection, regardless of whether rep sets exist
+    app._selected_wells.clear()
+    app._last_sel = None
+    app._prev_sel = set()
     app._refresh_sidebar_map()
     app._redraw()
     app._redraw_bars()
