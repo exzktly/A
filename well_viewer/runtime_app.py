@@ -1360,6 +1360,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_is_tif: bool = False
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
         self._review_image_last_fluor_arr = None
+        self._review_image_preserve_view_on_refresh: bool = False
 
         self._build_ui()
         self._apply_theme()
@@ -3907,16 +3908,10 @@ class WellViewerApp(tk.Frame):
         # Reload preview images for channel-sensitive tabs.
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
-            prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
-            prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
-            prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
+            if tab == "Review Image":
+                self._review_image_preserve_view_on_refresh = True
             if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
-            if tab == "Review Image" and getattr(self, "_review_image_base_pil", None) is not None:
-                self._review_image_zoom = prev_zoom
-                self._review_image_pan_x = prev_pan_x
-                self._review_image_pan_y = prev_pan_y
-                self._render_review_image_display()
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
@@ -4149,7 +4144,15 @@ class WellViewerApp(tk.Frame):
                 continue
             incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
-        self._draw_review_image(fluor_arr, mask_arr, include_by_nid, fit_lut=True)
+        preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
+        self._review_image_preserve_view_on_refresh = False
+        self._draw_review_image(
+            fluor_arr,
+            mask_arr,
+            include_by_nid,
+            fit_lut=True,
+            preserve_view=preserve_view,
+        )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
         chan = str(self._active_channel or "").lower()
@@ -4197,7 +4200,15 @@ class WellViewerApp(tk.Frame):
             self._review_lut_max_var.set(f"{hi:.0f}")
         self._refresh_review_image()
 
-    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool], *, fit_lut: bool = False) -> None:
+    def _draw_review_image(
+        self,
+        fluor_arr,
+        mask_arr,
+        include_by_nid: Dict[int, bool],
+        *,
+        fit_lut: bool = False,
+        preserve_view: bool = False,
+    ) -> None:
         arr = _np.asarray(fluor_arr, dtype=_np.float32)
         self._review_image_last_fluor_arr = arr
         m = _np.asarray(mask_arr)
@@ -4238,9 +4249,10 @@ class WellViewerApp(tk.Frame):
 
         img = _PILImage.fromarray(rgb, mode="RGB")
         self._review_image_base_pil = img
-        self._review_image_zoom = 1.0
-        self._review_image_pan_x = 0.0
-        self._review_image_pan_y = 0.0
+        if not preserve_view:
+            self._review_image_zoom = 1.0
+            self._review_image_pan_x = 0.0
+            self._review_image_pan_y = 0.0
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
