@@ -96,8 +96,8 @@ class CustomNotebook(tk.Frame):
             old_btn = self._tab_buttons[self._current_text]
             old_btn.configure(bg=BG_SIDE, relief=tk.FLAT)
 
-        # Show new tab
-        self._tabs[text].pack(fill=tk.BOTH, expand=True)
+        # Show new tab (pack it into the content area)
+        self._tabs[text].pack(in_=self.content, fill=tk.BOTH, expand=True)
         self._current_text = text
 
         # Highlight new button
