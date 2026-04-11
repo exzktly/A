@@ -212,6 +212,8 @@ def render_bar_items(
             fontsize=7,
         )
         ax.set_xlim(-0.6, n - 0.4)
+        # Mark categorical x-axis so downstream styling does not reset tick formatters.
+        setattr(ax, "_categorical_xaxis", True)
 
 
 def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
