@@ -40,6 +40,7 @@ class ScatterCellViewer(tk.Toplevel):
 
         self._cell_bounds: Optional[Tuple[int, int, int, int]] = None  # (y_min, x_min, y_max, x_max)
         self._cell_images: dict[str, Optional] = {}  # channel → cropped array
+        self._cell_outline_mask = None  # bool array (cropped) for selected cell boundary overlay
         self._current_channel = None
         self._current_lut: Tuple[float, float] = (0.0, 100.0)
         self._channel_luts: dict[str, Tuple[float, float]] = {}  # channel → (lo, hi)
@@ -131,6 +132,7 @@ class ScatterCellViewer(tk.Toplevel):
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask."""
         self._channel_luts = {}
+        self._cell_outline_mask = None
         self._debug_lines = []
         if hasattr(self, "_debug_text"):
             self._debug_text.config(state=tk.NORMAL)
@@ -160,12 +162,25 @@ class ScatterCellViewer(tk.Toplevel):
         self._debug(f"csv.channel={self._nuclear_token!r}")
         self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")
 
-        self._cell_bounds = self._get_cell_bounds(nuclear_id)
+        mask_arr, mask_path = self._load_output_image_by_filename("mask")
+        self._cell_bounds = self._get_cell_bounds(mask_arr, nuclear_id, padding_px=25)
         if not self._cell_bounds:
             self._img_label.config(text=f"Cell {nuclear_id} not found in mask")
             self._debug("No bounds found for requested nuclear_id.")
             return
         self._debug(f"cell_bounds={self._cell_bounds}")
+        self._debug(f"mask_path_for_bounds={mask_path}")
+
+        try:
+            import numpy as np
+
+            y_min, x_min, y_max, x_max = self._cell_bounds
+            mask_crop = np.asarray(mask_arr)[y_min:y_max, x_min:x_max]
+            cell_mask = mask_crop == nuclear_id
+            self._cell_outline_mask = self._compute_outline_mask(cell_mask)
+        except Exception as e:
+            self._cell_outline_mask = None
+            self._debug(f"failed to compute cell outline mask: {e!r}")
 
         # Load and crop fluorescence images for all channels
         for ch in sorted(self.app._fluor_channels):
@@ -339,7 +354,7 @@ class ScatterCellViewer(tk.Toplevel):
                 variants.append(candidate)
         return variants
 
-    def _get_cell_bounds(self, nuclear_id: int) -> Optional[Tuple[int, int, int, int]]:
+    def _get_cell_bounds(self, mask_arr, nuclear_id: int, padding_px: int = 0) -> Optional[Tuple[int, int, int, int]]:
         """Get cell pixel boundaries from mask file.
 
         Returns (y_min, x_min, y_max, x_max) or None if not found.
@@ -347,14 +362,13 @@ class ScatterCellViewer(tk.Toplevel):
         try:
             import numpy as np
 
-            mask_arr, mask_path = self._load_output_image_by_filename("mask")
             if mask_arr is None:
-                self._debug(f"mask unavailable: {mask_path}")
+                self._debug("mask unavailable.")
                 return None
 
             mask_arr = np.asarray(mask_arr)
             self._debug(
-                f"mask loaded: path={mask_path}, shape={tuple(mask_arr.shape)}, dtype={mask_arr.dtype}, min={mask_arr.min()}, max={mask_arr.max()}"
+                f"mask loaded: shape={tuple(mask_arr.shape)}, dtype={mask_arr.dtype}, min={mask_arr.min()}, max={mask_arr.max()}"
             )
             cell_pixels = np.where(mask_arr == nuclear_id)
 
@@ -371,11 +385,41 @@ class ScatterCellViewer(tk.Toplevel):
 
             y_min, y_max = int(cell_pixels[0].min()), int(cell_pixels[0].max()) + 1
             x_min, x_max = int(cell_pixels[1].min()), int(cell_pixels[1].max()) + 1
+
+            if padding_px > 0:
+                y_min = max(0, y_min - padding_px)
+                x_min = max(0, x_min - padding_px)
+                y_max = min(mask_arr.shape[0], y_max + padding_px)
+                x_max = min(mask_arr.shape[1], x_max + padding_px)
             return (y_min, x_min, y_max, x_max)
 
         except Exception as e:
             self._debug(f"_get_cell_bounds exception: {e!r}")
             return None
+
+    def _compute_outline_mask(self, cell_mask):
+        """Compute 1px boundary mask for a binary cell mask."""
+        import numpy as np
+
+        if cell_mask is None:
+            return None
+
+        cell_mask = np.asarray(cell_mask, dtype=bool)
+        if cell_mask.size == 0:
+            return None
+
+        up = np.roll(cell_mask, 1, axis=0)
+        down = np.roll(cell_mask, -1, axis=0)
+        left = np.roll(cell_mask, 1, axis=1)
+        right = np.roll(cell_mask, -1, axis=1)
+
+        up[0, :] = False
+        down[-1, :] = False
+        left[:, 0] = False
+        right[:, -1] = False
+
+        interior = cell_mask & up & down & left & right
+        return cell_mask & ~interior
 
     def _load_and_crop_channel(self, channel: str) -> Optional:
         """Load and crop image for a channel."""
@@ -628,7 +672,14 @@ class ScatterCellViewer(tk.Toplevel):
         label_height = max(label_height, 300)
 
         lo, hi = self._current_lut
-        photo = self._make_magnified_thumb(arr, label_width, label_height, lo, hi)
+        photo = self._make_magnified_thumb(
+            arr,
+            label_width,
+            label_height,
+            lo,
+            hi,
+            outline_mask=self._cell_outline_mask,
+        )
 
         if photo is not None:
             self._img_label.config(image=photo, text="")
@@ -636,7 +687,7 @@ class ScatterCellViewer(tk.Toplevel):
         else:
             self._img_label.config(text="Failed to render image")
 
-    def _make_magnified_thumb(self, arr, sz_w: int, sz_h: int, lo, hi):
+    def _make_magnified_thumb(self, arr, sz_w: int, sz_h: int, lo, hi, outline_mask=None):
         """Render a greyscale array as a magnified thumbnail that scales UP to fit."""
         try:
             import numpy as np
@@ -650,7 +701,14 @@ class ScatterCellViewer(tk.Toplevel):
                 ahi = alo + 1.0
 
             disp = ((np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(np.uint8)
-            img = _PILImage.fromarray(disp, mode="L").convert("RGB")
+            rgb = np.stack([disp, disp, disp], axis=-1)
+
+            if outline_mask is not None:
+                outline = np.asarray(outline_mask, dtype=bool)
+                if outline.shape == disp.shape:
+                    rgb[outline] = np.array([255, 0, 0], dtype=np.uint8)
+
+            img = _PILImage.fromarray(rgb, mode="RGB")
 
             iw, ih = img.size
             scale = min(sz_w / iw, sz_h / ih)

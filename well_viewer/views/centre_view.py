@@ -40,9 +40,12 @@ class CustomNotebook(tk.Frame):
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
+        self._bg_side = BG_SIDE
+        self._bg_app = BG_APP
+        self._txt_pri = TXT_PRI
 
         # Header with tab buttons
-        self.header = tk.Frame(self, bg=BG_SIDE, height=35)
+        self.header = tk.Frame(self, bg=self._bg_side, height=35)
         self.header.pack(fill=tk.X, padx=0, pady=0)
         self.header.pack_propagate(False)
 
@@ -65,8 +68,8 @@ class CustomNotebook(tk.Frame):
             self.header,
             text=text,
             font=(FM_TINY[0], FM_TINY[1]),
-            fg=TXT_PRI,
-            bg=BG_SIDE,
+            fg=self._txt_pri,
+            bg=self._bg_side,
             padx=12,
             pady=6,
             relief=tk.FLAT,
@@ -84,6 +87,9 @@ class CustomNotebook(tk.Frame):
 
     def refresh_theme_colors(self, *, bg_side: str, bg_app: str, border: str, txt_pri: str) -> None:
         """Refresh notebook chrome colors after a runtime theme switch."""
+        self._bg_side = bg_side
+        self._bg_app = bg_app
+        self._txt_pri = txt_pri
         self.configure(bg=bg_app)
         self.header.configure(bg=bg_side)
         self.content.configure(bg=bg_app)
@@ -107,7 +113,7 @@ class CustomNotebook(tk.Frame):
             self._tabs[self._current_text].pack_forget()
             # Unhighlight old button
             old_btn = self._tab_buttons[self._current_text]
-            old_btn.configure(bg=BG_SIDE, relief=tk.FLAT)
+            old_btn.configure(bg=self._bg_side, fg=self._txt_pri, relief=tk.FLAT)
 
         # Show new tab (pack it into the content area)
         self._tabs[text].pack(in_=self.content, fill=tk.BOTH, expand=True)
@@ -115,7 +121,7 @@ class CustomNotebook(tk.Frame):
 
         # Highlight new button
         new_btn = self._tab_buttons[text]
-        new_btn.configure(bg=BG_APP, relief=tk.SUNKEN)
+        new_btn.configure(bg=self._bg_app, fg=self._txt_pri, relief=tk.SUNKEN)
 
         # Trigger callbacks
         for cb in self._callbacks:
