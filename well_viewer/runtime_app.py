@@ -5904,7 +5904,7 @@ class WellViewerApp(tk.Frame):
             key_to_item = {lbl: (lbl, m, s, f, has) for lbl, m, s, f, has in items}
             ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
             draw_items = [key_to_item[k] for k in ordered_keys]
-            xlabels = [self._well_display_label(lbl) for lbl, *_ in draw_items]
+            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in draw_items]
 
         _bar_render_items(
             ax_mean=ax_mean,
@@ -5946,6 +5946,13 @@ class WellViewerApp(tk.Frame):
         tok = _extract_well_token(lbl) or lbl
         return self._well_labels.get(tok, tok)
 
+    def _bar_well_display_label(self, lbl: str) -> str:
+        """Bar-plot-safe well label that avoids numeric-only tick text."""
+        disp = str(self._well_display_label(lbl))
+        if re.match(r"^\s*\d+\s*$", disp):
+            return _extract_well_token(lbl) or disp
+        return disp
+
     def _replicate_display_label(self, rset: "ReplicateSet") -> str:
         """Human-friendly x-axis label for a replicate set.
 
@@ -5957,7 +5964,13 @@ class WellViewerApp(tk.Frame):
         if not name:
             name = "Replicate"
 
-        generic_name = bool(re.match(r"^(?:\d+|r\s*\d+|rep(?:licate)?\s*\d+)$", name, re.I))
+        generic_name = bool(
+            re.match(
+                r"^(?:\d+|r\s*\d+|rep(?:licate)?\s*\d+|group\s*\d+|set\s*\d+|batch\s*\d+)$",
+                name,
+                re.I,
+            )
+        )
         if not generic_name:
             return name
 
@@ -6162,7 +6175,7 @@ class WellViewerApp(tk.Frame):
             ]
         else:
             draw_items = items
-            xlabels = [self._well_display_label(lbl) for lbl, *_ in items]
+            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
 
         _bar_render_items(
             ax_mean=ax_mean,
