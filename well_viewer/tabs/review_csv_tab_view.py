@@ -40,6 +40,7 @@ def build_review_csv_tab(app, parent: tk.Frame) -> None:
     ys = ttk.Scrollbar(table_wrap, orient=tk.VERTICAL, command=app._review_csv_table.yview)
     xs = ttk.Scrollbar(table_wrap, orient=tk.HORIZONTAL, command=app._review_csv_table.xview)
     app._review_csv_table.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+    app._review_csv_table.bind("<Double-1>", app._on_review_csv_row_double_click)
     app._review_csv_table.grid(row=0, column=0, sticky="nsew")
     ys.grid(row=0, column=1, sticky="ns")
     xs.grid(row=1, column=0, sticky="ew")

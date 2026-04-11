@@ -4026,6 +4026,10 @@ class WellViewerApp(tk.Frame):
                 include_mask |= (center == nid)
         draw_boundary = boundary & include_mask
         rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
+        sel_nid = self._review_image_selected_nucleus
+        if sel_nid is not None:
+            sel_boundary = draw_boundary & (center == int(sel_nid))
+            rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
 
         img = _PILImage.fromarray(rgb, mode="RGB")
         self._review_image_scale = 1.0
@@ -4035,7 +4039,10 @@ class WellViewerApp(tk.Frame):
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
         self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
         self._review_image_label.bind("<Button-1>", self._on_review_image_click)
-        self._review_image_status.config(text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.")
+        suffix = f"  ·  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
+        self._review_image_status.config(
+            text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.{suffix}"
+        )
 
     def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         mask_arr = getattr(self._review_image_label, "_mask_arr", None)
@@ -4105,6 +4112,39 @@ class WellViewerApp(tk.Frame):
         self._review_included_overrides[key] = "0" if current != "0" else "1"
         self._refresh_review_csv_rows()
         self._refresh_review_image()
+
+    def _on_review_csv_row_double_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        if not hasattr(self, "_review_csv_table"):
+            return
+        table = self._review_csv_table
+        iid = table.identify_row(event.y) or table.focus()
+        if not iid:
+            return
+        values = table.item(iid, "values")
+        cols = table["columns"]
+        row = {c: values[i] for i, c in enumerate(cols)}
+        fov, tp, nid = self._review_row_keys(row)
+        well_tok = str(row.get("well", "")).strip()
+        label = self._tok_to_label.get(well_tok, None)
+        if label is None and self._selected_wells:
+            label = sorted(self._selected_wells, key=self._parse_rc)[0]
+        if label is None:
+            return
+
+        self._preview_selected_well = label
+        self._update_preview(label)
+        if fov:
+            self._preview_fov_var.set(fov)
+        if tp and hasattr(self, "_review_image_tp_var"):
+            self._review_image_tp_var.set(tp)
+        if nid:
+            try:
+                self._review_image_selected_nucleus = int(float(nid))
+            except Exception:
+                self._review_image_selected_nucleus = None
+        self._refresh_review_image()
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Review Image")
 
     # ── Export ────────────────────────────────────────────────────────────────
 
