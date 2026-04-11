@@ -610,7 +610,9 @@ def process_image_group(
     idx = np.asarray(nuc_ids, dtype=np.int32)
     area = ndi.sum(np.ones_like(labels, dtype=np.float32), labels=labels, index=idx)
     fluor_stats: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]] = []
-    for fc, tok in zip(fluor_corr, fluor_tokens):
+    # Quantification is always computed from top-hat corrected fluorescence
+    # images. smFISH LoG outputs are only produced as optional intermediates.
+    for fc, tok in zip(fluor_tophat, fluor_tokens):
         fluor_stats.append((
             ndi.sum(fc, labels=labels, index=idx),
             ndi.mean(fc, labels=labels, index=idx),
