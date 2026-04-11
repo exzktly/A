@@ -4462,10 +4462,13 @@ class WellViewerApp(tk.Frame):
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
         tab = self._notebook.tab(self._notebook.select(), "text")
+        prev_tab = getattr(self, "_last_tab_name", None)
+        prev_selected = set(getattr(self, "_selected_wells", set()))
 
         self._sidebar_main_frame.pack_forget()
         self._sidebar_preview_frame.pack_forget()
         self._sidebar_sample_frame.pack_forget()
+        self._sidebar_groups_frame.pack_forget()
         self._sidebar_stats_frame.pack_forget()
 
         if tab == "Movie Montage":
@@ -4493,7 +4496,17 @@ class WellViewerApp(tk.Frame):
 
         elif tab == "Batch Export":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
+                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
+            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
+                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            # Reuse existing grouping editors to keep Batch Export aligned with
+            # the line/bar grouped-plot selection model.
+            self._sidebar_sample_frame.pack(fill=tk.X)
+            self._sidebar_groups_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_sidebar_map()
+            self._rep_panel_refresh()
+            self._bar_rebuild_groups_ui()
 
         elif tab == "Review CSV":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
@@ -4536,6 +4549,43 @@ class WellViewerApp(tk.Frame):
                 self._redraw_scatter_agg()
             else:
                 self._redraw()
+
+        self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
+        self._last_tab_name = tab
+
+    def _run_tab_switch_smoke_checks(
+        self,
+        prev_tab: Optional[str],
+        tab: str,
+        prev_selected: set,
+    ) -> None:
+        """Debug guardrails for Line/Bar/Batch sidebar continuity."""
+        watched = {"Line Graphs", "Bar Plots", "Batch Export"}
+        if tab not in watched:
+            return
+
+        # Batch Export should share the same in-memory selection/group objects
+        # used by line/bar/scatter render paths.
+        expected_ids = (
+            id(self._selected_wells),
+            id(self._rep_sets),
+            id(self._bar_groups),
+        )
+        if not hasattr(self, "_selection_model_identity"):
+            self._selection_model_identity = expected_ids
+        elif self._selection_model_identity != expected_ids:
+            _logger.warning(
+                "Selection model identity changed across tab switch: "
+                "_selected_wells/_rep_sets/_bar_groups should be shared."
+            )
+
+        # UI smoke check: switching among Line/Bar/Batch must not mutate the
+        # current per-well selection by itself.
+        if prev_tab in watched and prev_selected != self._selected_wells:
+            _logger.warning(
+                "Tab switch altered selected wells unexpectedly: %s -> %s",
+                prev_tab, tab,
+            )
 
     def _show_line_sidebar(self) -> None:
         """No-op: the unified well picker is always visible for plot tabs."""
