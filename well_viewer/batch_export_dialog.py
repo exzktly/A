@@ -274,12 +274,7 @@ class BatchExportPanel(tk.Frame):
 
         run_row = tk.Frame(parent, bg=BG_APP, pady=12, padx=12)
         run_row.pack(fill=tk.X)
-        self._run_btn = tk.Button(run_row, text="▶  Run Batch Export",
-                                  command=self._run_batch,
-                                  font=FM_BOLD, fg=CLR_WHITE, bg=CLR_SUCCESS,
-                                  activebackground=CLR_SUCCESS_DARK,
-                                  relief=tk.FLAT, padx=16, pady=6,
-                                  cursor="hand2", bd=0)
+        self._run_btn = btn_primary(run_row, "▶  Run Batch Export", self._run_batch, padx=16, pady=6)
         self._run_btn.pack(side=tk.LEFT)
         self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
                                   fg=TXT_MUT, bg=BG_APP)
@@ -835,7 +830,12 @@ class BatchExportPanel(tk.Frame):
 
     def _groups_for_export(self) -> "List[BarGroup]":
         if self._use_sidebar_groups:
-            return copy.deepcopy(self._app._bar_groups)
+            sidebar_groups = copy.deepcopy(getattr(self._app, "_bar_groups", []))
+            if sidebar_groups and any(g.wells for g in sidebar_groups):
+                return sidebar_groups
+            # Fallback for Sample Definitions states that only define
+            # ReplicateSets without explicit bar-group cards.
+            return self._groups_from_rep_sets()
         return list(self._groups)
 
     def _run_batch(self) -> None:
@@ -1239,12 +1239,7 @@ class BarBatchExportPanel(BatchExportPanel):
 
         run_row = tk.Frame(parent, bg=BG_APP, pady=8, padx=12)
         run_row.pack(fill=tk.X)
-        self._run_btn = tk.Button(run_row, text="▶  Run Batch Export",
-                                  command=self._run_batch,
-                                  font=FM_BOLD, fg=CLR_WHITE, bg=CLR_SUCCESS,
-                                  activebackground=CLR_SUCCESS_DARK,
-                                  relief=tk.FLAT, padx=16, pady=6,
-                                  cursor="hand2", bd=0)
+        self._run_btn = btn_primary(run_row, "▶  Run Batch Export", self._run_batch, padx=16, pady=6)
         self._run_btn.pack(side=tk.LEFT)
         self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
                                   fg=TXT_MUT, bg=BG_APP)
