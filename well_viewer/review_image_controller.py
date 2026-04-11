@@ -49,10 +49,10 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
         "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
         app._preview_selected_well, fov, tp, nucleus_id,
     )
-    app._review_fov_var.set(fov_n)
-    app._review_tp_var.set(tp_n)
     if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
         app._notebook.select_by_text("Review CSV")
+    app._review_fov_var.set(fov_n)
+    app._review_tp_var.set(tp_n)
     app._refresh_review_csv_rows()
     table = app._review_csv_table
     debug_candidates = []
@@ -96,6 +96,8 @@ def on_review_csv_row_double_click(app, event) -> None:
     if label is None:
         return
 
+    if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
+        app._notebook.select_by_text("Review Image")
     app._preview_selected_well = label
     app._update_preview(label)
     if fov:
@@ -110,5 +112,3 @@ def on_review_csv_row_double_click(app, event) -> None:
     app._refresh_review_image()
     if hasattr(app, "_zoom_review_image_to_selected_nucleus"):
         app._zoom_review_image_to_selected_nucleus()
-    if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
-        app._notebook.select_by_text("Review Image")

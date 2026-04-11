@@ -4366,8 +4366,15 @@ class WellViewerApp(tk.Frame):
             return
         key = (self._preview_selected_well, fov_n, tp_n, nid_n)
         self._review_included_overrides[key] = str(included).strip() or "1"
+        prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
+        prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
+        prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
         self._refresh_review_csv_rows()
         self._refresh_review_image()
+        self._review_image_zoom = prev_zoom
+        self._review_image_pan_x = prev_pan_x
+        self._review_image_pan_y = prev_pan_y
+        self._render_review_image_display()
 
     def _zoom_review_image_to_selected_nucleus(self, zoom: float = 3.0) -> None:
         if not hasattr(self, "_review_image_label") or not hasattr(self, "_review_image_canvas"):
