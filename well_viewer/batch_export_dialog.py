@@ -59,6 +59,13 @@ from well_viewer.runtime_app import (
 )
 from well_viewer.batch_models import BarGroup
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
+from well_viewer.figure_export_editor import (
+    EXPORT_PROFILES,
+    _ensure_custom_export_profiles,
+    _ensure_export_style_prefs,
+    _get_all_profile_names,
+    apply_export_style_prefs,
+)
 from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -118,6 +125,9 @@ class BatchExportDialog(tk.Toplevel):
         default_out = str(app._data_dir) if app._data_dir else ""
         self._out_dir_var = tk.StringVar(value=default_out)
         self._fmt_var     = tk.StringVar(value="png")
+        self._preset_var  = tk.StringVar(
+            value=str(_ensure_export_style_prefs(app).get("export_profile", "Custom"))
+        )
         self._active_grp  = -1   # index of selected export group
 
         # Initialise groups from rep-sets (one group per set).
@@ -264,6 +274,21 @@ class BatchExportDialog(tk.Toplevel):
                                   font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
         self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
         fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
+
+        preset_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
+        preset_row.pack(fill=tk.X)
+        tk.Label(preset_row, text="Preset:", font=FM_BOLD,
+                 fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
+        self._preset_cb = ttk.Combobox(
+            preset_row,
+            textvariable=self._preset_var,
+            values=_get_all_profile_names(self._app),
+            state="readonly",
+            width=24,
+            font=FM_TINY,
+        )
+        self._preset_cb.pack(side=tk.LEFT)
+        self._preset_cb.bind("<<ComboboxSelected>>", self._on_preset_change)
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
 
@@ -706,6 +731,21 @@ class BatchExportDialog(tk.Toplevel):
                  "eps": "vector — text editable", "pdf": "vector"}
         self._fmt_hint.config(text=hints.get(self._fmt_var.get(), ""))
 
+    def _on_preset_change(self, _e=None) -> None:
+        profile = (self._preset_var.get() or "").strip() or "Custom"
+        _ensure_export_style_prefs(self._app)["export_profile"] = profile
+
+    def _resolved_export_prefs(self, fmt: str) -> dict:
+        prefs = dict(_ensure_export_style_prefs(self._app))
+        profile = (self._preset_var.get() or "").strip() or "Custom"
+        overrides = EXPORT_PROFILES.get(profile, {})
+        if not overrides:
+            overrides = _ensure_custom_export_profiles(self._app).get(profile, {})
+        prefs.update(overrides)
+        prefs["export_profile"] = profile
+        prefs["format"] = fmt
+        return prefs
+
     def _resolve_out_dir(self) -> Optional[Path]:
         val = self._out_dir_var.get().strip()
         if val:
@@ -762,6 +802,7 @@ class BatchExportDialog(tk.Toplevel):
         orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
         orig_ps = _mpl.rcParams.get("ps.fonttype", 3)
         try:
+            apply_export_style_prefs(fig, self._resolved_export_prefs(fmt))
             if fmt == "svg":
                 _mpl.rcParams["svg.fonttype"] = "none"
             elif fmt == "eps":
@@ -1107,6 +1148,21 @@ class BarBatchExportDialog(BatchExportDialog):
                                   font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
         self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
         fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
+
+        preset_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
+        preset_row.pack(fill=tk.X)
+        tk.Label(preset_row, text="Preset:", font=FM_BOLD,
+                 fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
+        self._preset_cb = ttk.Combobox(
+            preset_row,
+            textvariable=self._preset_var,
+            values=_get_all_profile_names(self._app),
+            state="readonly",
+            width=24,
+            font=FM_TINY,
+        )
+        self._preset_cb.pack(side=tk.LEFT)
+        self._preset_cb.bind("<<ComboboxSelected>>", self._on_preset_change)
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
 
