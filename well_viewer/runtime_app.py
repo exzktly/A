@@ -3958,9 +3958,17 @@ class WellViewerApp(tk.Frame):
         self._refresh_preview_montage()
 
     def _review_row_keys(self, row: dict) -> Tuple[str, str, str]:
+        def _norm(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            try:
+                return f"{float(s):g}"
+            except Exception:
+                return s
         return (
-            str(row.get("fov", row.get("FOV", ""))).strip(),
-            str(row.get("timepoint", row.get("tp", row.get("time", "")))).strip(),
+            _norm(row.get("fov", row.get("FOV", ""))),
+            _norm(row.get("timepoint", row.get("tp", row.get("time", "")))),
             str(row.get("nucleus_id", row.get("nucleus id", ""))).strip(),
         )
 
@@ -3970,7 +3978,16 @@ class WellViewerApp(tk.Frame):
         well = self._preview_selected_well
         if well is None:
             return
-        fov = self._preview_fov_var.get().strip()
+        def _norm(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            try:
+                return f"{float(s):g}"
+            except Exception:
+                return s
+
+        fov = _norm(self._preview_fov_var.get())
         if not fov or fov == "—":
             self._review_image_status.config(text="No FOV selected.")
             return
@@ -3978,7 +3995,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_tp_menu["values"] = tp_values or ["—"]
         if tp_values and self._review_image_tp_var.get() not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
-        tp = self._review_image_tp_var.get().strip()
+        tp = _norm(self._review_image_tp_var.get())
         if not tp or tp == "—":
             self._review_image_status.config(text="No timepoint selected.")
             return
@@ -3994,9 +4011,11 @@ class WellViewerApp(tk.Frame):
             self._review_image_status.config(text="Could not render review image (numpy/PIL unavailable).")
             return
 
+        center = _np.asarray(mask_arr)
+        include_by_nid: Dict[int, bool] = {
+            int(nid): True for nid in _np.unique(center) if int(nid) > 0
+        }
         rows = self._review_load_rows(well)
-        include_by_nid: Dict[int, bool] = {}
-        row_iid_by_nid: Dict[int, str] = {}
         for row in rows:
             row_fov, row_tp, row_nid = self._review_row_keys(row)
             if row_fov != fov or row_tp != tp or not row_nid:
@@ -4007,7 +4026,6 @@ class WellViewerApp(tk.Frame):
                 continue
             incl = str(row.get("Included", row.get("included", "1"))).strip()
             include_by_nid[nid] = (incl != "0")
-        self._review_image_nucleus_to_iid = row_iid_by_nid
         self._draw_review_image(fluor_arr, mask_arr, include_by_nid)
 
     def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool]) -> None:
@@ -4019,7 +4037,8 @@ class WellViewerApp(tk.Frame):
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
         rgb = _np.dstack([base, base, base])
 
-        padded = _np.pad(m, 1, mode="constant", constant_values=0)
+        center_int = _np.rint(m).astype(_np.int32, copy=False)
+        padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
         center = padded[1:-1, 1:-1]
         boundary = (center > 0) & (
             (center != padded[:-2, 1:-1]) |
@@ -4099,6 +4118,8 @@ class WellViewerApp(tk.Frame):
                 table.focus(iid)
                 table.see(iid)
                 break
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Review CSV")
 
     def _toggle_selected_review_cell(self) -> None:
         if self._review_image_selected_nucleus is None or self._preview_selected_well is None:
