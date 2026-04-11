@@ -100,8 +100,10 @@ class BatchExportPanel(tk.Frame):
         default_fmt = str(export_prefs.get("format", "png")).lower()
         if default_fmt not in {"png", "svg", "eps", "pdf"}:
             default_fmt = "png"
+        default_profile = str(export_prefs.get("export_profile", "Custom"))
         self._out_dir_var = tk.StringVar(value=default_out)
         self._fmt_var     = tk.StringVar(value=default_fmt)
+        self._export_profile_var = tk.StringVar(value=default_profile)
         self._active_grp  = -1   # index of selected export group
 
         # Initialise groups from rep-sets (one group per set).
@@ -254,6 +256,7 @@ class BatchExportPanel(tk.Frame):
                                   font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
         self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
         fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
+        self._build_export_profile_row(parent)
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
 
@@ -697,6 +700,53 @@ class BatchExportPanel(tk.Frame):
                  "eps": "vector — text editable", "pdf": "vector"}
         self._fmt_hint.config(text=hints.get(self._fmt_var.get(), ""))
 
+    def _build_export_profile_row(self, parent: tk.Frame) -> None:
+        row = tk.Frame(parent, bg=BG_APP, padx=12, pady=2)
+        row.pack(fill=tk.X)
+        tk.Label(row, text="Style Preset:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
+        self._profile_combo = ttk.Combobox(
+            row,
+            textvariable=self._export_profile_var,
+            values=self._export_profile_names(),
+            state="readonly",
+            width=20,
+            font=FM_TINY,
+        )
+        self._profile_combo.pack(side=tk.LEFT)
+        self._profile_combo.bind("<<ComboboxSelected>>", self._on_export_profile_selected)
+        if self._export_profile_var.get() not in self._export_profile_names():
+            self._export_profile_var.set("Custom")
+        self._apply_export_profile_to_prefs(self._export_profile_var.get())
+
+    def _export_profile_names(self) -> "List[str]":
+        from well_viewer.figure_export_editor import _get_all_profile_names
+
+        names = _get_all_profile_names(self._app)
+        return names or ["Custom"]
+
+    def _apply_export_profile_to_prefs(self, profile_name: str) -> None:
+        from well_viewer.figure_export_editor import (
+            EXPORT_PROFILES,
+            _ensure_custom_export_profiles,
+            _ensure_export_style_prefs,
+        )
+
+        name = str(profile_name or "Custom")
+        prefs = _ensure_export_style_prefs(self._app)
+        custom_profiles = _ensure_custom_export_profiles(self._app)
+        overrides = EXPORT_PROFILES.get(name) or custom_profiles.get(name) or {}
+        prefs["export_profile"] = name
+        for key, value in overrides.items():
+            prefs[key] = value
+        fmt = str(prefs.get("format", self._fmt_var.get() or "png")).lower()
+        if fmt in {"png", "svg", "eps", "pdf"}:
+            self._fmt_var.set(fmt)
+            if hasattr(self, "_fmt_hint"):
+                self._on_fmt_change()
+
+    def _on_export_profile_selected(self, _e=None) -> None:
+        self._apply_export_profile_to_prefs(self._export_profile_var.get())
+
     def _resolve_out_dir(self) -> Optional[Path]:
         val = self._out_dir_var.get().strip()
         if val:
@@ -1118,6 +1168,7 @@ class BarBatchExportPanel(BatchExportPanel):
                                   font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
         self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
         fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
+        self._build_export_profile_row(parent)
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
 
