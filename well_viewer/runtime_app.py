@@ -543,6 +543,28 @@ def detect_smfish_channels(rows: List[dict]) -> List[str]:
     return sorted(channels)
 
 
+def detect_review_image_channels(rows: List[dict], fluor_channels: List[str]) -> List[str]:
+    """
+    Return channel prefixes suitable for Review Image.
+
+    Includes standard fluorescence channels plus nuclear-like intensity channels
+    (e.g. dapi/nuclear/nuc/nir/hoechst) even if they are not in the primary
+    fluor metrics set.
+    """
+    chans = set(fluor_channels)
+    if not rows:
+        return sorted(chans)
+    nuclear_tokens = ("nuclear", "nuc", "dapi", "hoechst", "nir")
+    for col in rows[0].keys():
+        lower = str(col).lower()
+        if not lower.endswith("_intensity") and not lower.endswith("_mean_intensity"):
+            continue
+        prefix = lower.split("_", 1)[0]
+        if any(tok in prefix for tok in nuclear_tokens):
+            chans.add(prefix)
+    return sorted(chans)
+
+
 # (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
 # n_above : cells above threshold at this timepoint  → denominator for plot 1
 # n_total : all cells at this timepoint              → denominator for plot 2
@@ -1244,6 +1266,7 @@ class WellViewerApp(tk.Frame):
 
         # Active fluorescent channel (set when CSVs are loaded)
         self._fluor_channels: List[str] = []          # e.g. ["gfp", "mcherry"]
+        self._review_image_channels: List[str] = []
         self._smfish_channels: set[str] = set()       # channels with smfish_count data
         self._active_channel: str       = "gfp"       # column prefix (overwritten on CSV load)
         self._active_metric: str        = "mean_intensity"  # "mean_intensity" or "smfish_count"
@@ -3728,13 +3751,14 @@ class WellViewerApp(tk.Frame):
         )
         detected = detect_fluor_channels(all_rows_sample)
         detected_smfish = detect_smfish_channels(all_rows_sample)
-        if detected and detected != self._fluor_channels:
+        if detected:
             self._fluor_channels = detected
             # Keep the active channel if it is still present; otherwise
             # default to the first detected channel.
             if self._active_channel not in detected:
                 self._active_channel = detected[0]
-            self._update_channel_selector()
+        self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels)
+        self._update_channel_selector()
 
         # Update smFISH channels and reset metric if needed
         self._smfish_channels = set(detected_smfish)
@@ -3831,13 +3855,14 @@ class WellViewerApp(tk.Frame):
 
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
-        labels = [ch.upper() for ch in self._fluor_channels]
-        if not labels:
-            labels = ["—"]
-        # Update all channel selector instances
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_preview", "_review_image_chan_cb"):
+        labels = [ch.upper() for ch in self._fluor_channels] or ["—"]
+        review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
+        # Update channel selector instances
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_preview"):
             if hasattr(self, attr):
                 getattr(self, attr).config(values=labels)
+        if hasattr(self, "_review_image_chan_cb"):
+            self._review_image_chan_cb.config(values=review_labels)
         active_label = self._active_channel.upper()
         if active_label in labels and active_label != "—":
             self._chan_var.set(active_label)
@@ -4355,12 +4380,21 @@ class WellViewerApp(tk.Frame):
             for label in sels:
                 rows.extend(self._review_load_rows(label))
 
-        fov_sel = self._review_fov_var.get().strip() if hasattr(self, "_review_fov_var") else ""
-        tp_sel = self._review_tp_var.get().strip() if hasattr(self, "_review_tp_var") else ""
+        def _norm(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            try:
+                return f"{float(s):g}"
+            except Exception:
+                return s
+
+        fov_sel = _norm(self._review_fov_var.get()) if hasattr(self, "_review_fov_var") else ""
+        tp_sel = _norm(self._review_tp_var.get()) if hasattr(self, "_review_tp_var") else ""
         filtered = []
         for row in rows:
-            row_fov = str(row.get("fov", row.get("FOV", ""))).strip()
-            row_tp = str(row.get("timepoint", row.get("tp", row.get("time", "")))).strip()
+            row_fov = _norm(row.get("fov", row.get("FOV", "")))
+            row_tp = _norm(row.get("timepoint", row.get("tp", row.get("time", ""))))
             if fov_sel and row_fov != fov_sel:
                 continue
             if tp_sel and row_tp != tp_sel:
