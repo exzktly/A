@@ -508,7 +508,10 @@ def load_well_csv(path: Path) -> List[dict]:
             coerced: dict = {}
             for k, v in row.items():
                 if k in _STRING_COLS:
-                    coerced[k] = v
+                    if k == "fov" and str(v).strip() in {"", "-1"}:
+                        coerced[k] = "1"
+                    else:
+                        coerced[k] = v
                 else:
                     try:
                         coerced[k] = float(v)
