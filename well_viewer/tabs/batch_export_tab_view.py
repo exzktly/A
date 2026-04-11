@@ -1,40 +1,82 @@
-"""Batch Export tab builder extracted from centre_view."""
+"""Inline Batch Export tab content builders."""
 
 from __future__ import annotations
 
 import tkinter as tk
 
-from well_viewer.runtime_app import (
-    BG_APP,
-    FM_BOLD,
-    FM_TINY,
-    TXT_MUT,
-    TXT_SEC,
-)
+from well_viewer.runtime_app import BG_APP, FM_BOLD, FM_TINY, TXT_MUT, TXT_SEC
 from well_viewer.tabs import _make_action_button
+from well_viewer.batch_export_dialog import BatchExportPanel, BarBatchExportPanel
+
+
+def _show_batch_mode(app, mode: str) -> None:
+    state = getattr(app, "_batch_export_inline_state", None)
+    if not state:
+        return
+
+    if mode not in ("line", "bar"):
+        mode = "line"
+
+    host = state["host"]
+    panels = state["panels"]
+    if mode not in panels:
+        panel_cls = BatchExportPanel if mode == "line" else BarBatchExportPanel
+        panel = panel_cls(app, host)
+        panel.pack(fill=tk.BOTH, expand=True)
+        panels[mode] = panel
+    for key, panel in panels.items():
+        if key == mode:
+            panel.pack(fill=tk.BOTH, expand=True)
+        else:
+            panel.pack_forget()
+
+    state["mode"] = mode
 
 
 def build_batch_export_tab(app, parent: tk.Frame) -> None:
-    """Fill *parent* with the Batch Export action buttons.
+    """Render inline line/bar batch export builders inside the tab body."""
+    wrap = tk.Frame(parent, bg=BG_APP, padx=12, pady=12)
+    wrap.pack(fill=tk.BOTH, expand=True)
 
-    The controls here launch batch export workflows only; no figure is
-    created in this tab.
-    """
-    batch_wrap = tk.Frame(parent, bg=BG_APP, padx=16, pady=16)
-    batch_wrap.pack(fill=tk.BOTH, expand=True)
-    tk.Label(batch_wrap, text="Batch Export", font=FM_BOLD,
-             fg=TXT_SEC, bg=BG_APP).pack(anchor="w", pady=(0, 8))
-    tk.Label(batch_wrap,
-             text="Run line and bar batch-export workflows from one place.",
-             font=FM_TINY, fg=TXT_MUT, bg=BG_APP).pack(anchor="w", pady=(0, 12))
+    tk.Label(wrap, text="Batch Export", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(anchor="w")
+    tk.Label(
+        wrap,
+        text="Configure line/bar batch jobs inline and export CSV outputs from this tab.",
+        font=FM_TINY,
+        fg=TXT_MUT,
+        bg=BG_APP,
+    ).pack(anchor="w", pady=(2, 10))
 
-    actions = tk.Frame(batch_wrap, bg=BG_APP)
-    actions.pack(anchor="w")
+    switch_row = tk.Frame(wrap, bg=BG_APP)
+    switch_row.pack(fill=tk.X, pady=(0, 8))
     _make_action_button(
-        actions, text="Line Graph Batch Export",
-        command=app._open_batch_export, style="ActionIndigo.TButton",
-    ).pack(anchor="w", pady=(0, 6))
+        switch_row,
+        text="Line Batch Builder",
+        command=lambda: app._open_batch_export(),
+        style="ActionIndigo.TButton",
+    ).pack(side=tk.LEFT, padx=(0, 6))
     _make_action_button(
-        actions, text="Bar Plot Batch Export",
-        command=app._open_bar_batch_export, style="ActionIndigo.TButton",
-    ).pack(anchor="w", pady=(0, 6))
+        switch_row,
+        text="Bar Batch Builder",
+        command=lambda: app._open_bar_batch_export(),
+        style="ActionIndigo.TButton",
+    ).pack(side=tk.LEFT)
+
+    export_row = tk.Frame(wrap, bg=BG_APP)
+    export_row.pack(fill=tk.X, pady=(0, 8))
+    _make_action_button(
+        export_row, text="Export Line Graph CSV", command=app._export_plot_data, style="ActionSuccess.TButton"
+    ).pack(side=tk.LEFT, padx=(0, 6))
+    _make_action_button(
+        export_row, text="Export Bar Plot CSV", command=app._export_bar_plot_data, style="ActionSuccess.TButton"
+    ).pack(side=tk.LEFT, padx=(0, 6))
+    _make_action_button(
+        export_row, text="Export Raw Data CSV", command=app._export_raw_data_csv, style="ActionSuccess.TButton"
+    ).pack(side=tk.LEFT)
+
+    host = tk.Frame(wrap, bg=BG_APP)
+    host.pack(fill=tk.BOTH, expand=True)
+
+    app._batch_export_inline_state = {"host": host, "panels": {}, "mode": "line"}
+    app._batch_export_set_mode = lambda mode="line": _show_batch_mode(app, mode)
+    app._batch_export_set_mode("line")

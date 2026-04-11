@@ -64,29 +64,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-def open_line_batch_export(app, dialog_cls) -> None:
-    """Open line-plot batch export dialog with tab-routing guardrails."""
-    if not app._well_paths:
-        messagebox.showwarning("No data", "Load data before opening Batch Export.")
-        return
-    if hasattr(app, "_notebook"):
-        for i in range(app._notebook.index("end")):
-            if app._notebook.tab(i, "text") == "Sample Definitions":
-                app._notebook.select(i)
-                app._on_tab_change()
-                break
-    dialog_cls(app)
-
-
-def open_bar_batch_export(app, dialog_cls) -> None:
-    """Open bar-plot batch export dialog with basic loaded-data guardrails."""
-    if not app._well_paths:
-        messagebox.showwarning("No data", "Load data before opening Bar Batch Export.")
-        return
-    dialog_cls(app)
-
-
-class BatchExportDialog(tk.Toplevel):
+class BatchExportPanel(tk.Frame):
     """
     Batch export dialog — defines export groups and runs the export.
 
@@ -106,14 +84,9 @@ class BatchExportDialog(tk.Toplevel):
     Right : Output settings + Run.
     """
 
-    def __init__(self, app: "WellViewerApp") -> None:
-        super().__init__(app)
+    def __init__(self, app: "WellViewerApp", parent: tk.Widget) -> None:
+        super().__init__(parent, bg=BG_APP)
         self._app = app
-        self.title("Batch Export")
-        self.configure(bg=BG_APP)
-        self.geometry("1100x680")
-        self.resizable(True, True)
-        self.grab_set()
 
         default_out = str(app._data_dir) if app._data_dir else ""
         self._out_dir_var = tk.StringVar(value=default_out)
@@ -1058,7 +1031,7 @@ class BatchExportDialog(tk.Toplevel):
         return fig
 
 
-class BarBatchExportDialog(BatchExportDialog):
+class BarBatchExportPanel(BatchExportPanel):
     """
     Bar-plot batch export — same group editor as the line-graph BatchExportDialog,
     with an added timepoint selector on the right panel.
@@ -1067,13 +1040,11 @@ class BarBatchExportDialog(BatchExportDialog):
       _build_group_editor, all CRUD methods, quick setup, save/load, drag handlers.
 
     Overrides:
-      title, geometry, _build_output_panel, _run_batch
+      _build_output_panel, _run_batch
     """
 
-    def __init__(self, app: "WellViewerApp") -> None:
-        super().__init__(app)
-        self.title("Bar Plot Batch Export")
-        self.geometry("1100x720")
+    def __init__(self, app: "WellViewerApp", parent: tk.Widget) -> None:
+        super().__init__(app, parent)
 
     # ── Right panel ────────────────────────────────────────────────────────────
 
@@ -1387,6 +1358,11 @@ class BarBatchExportDialog(BatchExportDialog):
         )
 
         return fig
+
+
+# Backwards-compatible aliases while call sites migrate away from dialog naming.
+BatchExportDialog = BatchExportPanel
+BarBatchExportDialog = BarBatchExportPanel
 
 
 # ---------------------------------------------------------------------------
