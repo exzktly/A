@@ -1332,6 +1332,7 @@ class WellViewerApp(tk.Frame):
         self._review_csv_lookup_context: Dict[str, str] = {}
         self._review_image_zoom: float = 1.0
         self._review_image_base_pil = None
+        self._review_image_is_tif: bool = False
 
         self._build_ui()
         self._apply_theme()
@@ -4035,6 +4036,7 @@ class WellViewerApp(tk.Frame):
         if fluor_ref is None or mask_ref is None:
             self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
             return
+        self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
 
         fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
         mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
@@ -4128,6 +4130,11 @@ class WellViewerApp(tk.Frame):
     def _review_image_zoom_fit(self) -> None:
         self._review_image_zoom = 1.0
         self._render_review_image_display()
+
+    def _on_review_image_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        if not getattr(self, "_review_image_is_tif", False):
+            return
+        self._review_image_zoom_step(+1 if event.delta > 0 else -1)
 
     def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         mask_arr = getattr(self._review_image_label, "_mask_arr", None)
@@ -4423,14 +4430,20 @@ class WellViewerApp(tk.Frame):
             tok = self._extract_well_token(label) or label
             for row in rows:
                 row.setdefault("well", tok)
+                if "Included" not in row:
+                    # Canonical review flag column; defaults to included.
+                    # Preserve lowercase legacy field if present.
+                    if "included" in row and str(row.get("included", "")).strip():
+                        row["Included"] = str(row.get("included", "")).strip()
+                    else:
+                        row["Included"] = "1"
                 fov, tp, nid = self._review_row_keys(row)
                 if fov and tp and nid:
                     key = (label, fov, tp, nid)
                     override = self._review_included_overrides.get(key)
                     if override is not None:
-                        if "Included" in row:
-                            row["Included"] = override
-                        elif "included" in row:
+                        row["Included"] = override
+                        if "included" in row:
                             row["included"] = override
             return rows
         except Exception:

@@ -228,5 +228,8 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         self._review_image_label = tk.Label(self._review_image_canvas, bg=BG_APP, bd=0, cursor="hand2")
         self._review_image_window = self._review_image_canvas.create_window((8, 8), window=self._review_image_label, anchor="nw")
         self._review_image_canvas.bind("<Configure>", lambda _e: self._render_review_image_display())
+        self._review_image_canvas.bind("<MouseWheel>", self._on_review_image_wheel)
+        self._review_image_canvas.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
+        self._review_image_canvas.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
 
         self._review_image_tooltip = _Tooltip(inner)
