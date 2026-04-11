@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from typing import Callable, List, Optional, Tuple
 
 from .batch_models import BarGroup, ReplicateSet
+
+
+def _bar_debug(msg: str) -> None:
+    """Emit opt-in bar-plot diagnostics for draw-time label debugging."""
+    if str(os.getenv("WV_BAR_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        print(f"DEBUG barplot_controller: {msg}")
 
 
 def bar_groups_to_dict(
@@ -149,6 +156,14 @@ def render_bar_items(
             xlabels = [str(label) for label, *_ in items]
     else:
         xlabels = [str(lbl) for lbl in xlabels]
+
+    if use_groups:
+        keys = [str(key) for key, *_ in items]
+    else:
+        keys = [str(label) for label, *_ in items]
+    _bar_debug(
+        f"render_bar_items use_groups={use_groups} n={n} keys={keys!r} xlabels={xlabels!r}"
+    )
 
     if use_groups:
         bar_w = min(0.65, 5.0 / max(n, 1))
