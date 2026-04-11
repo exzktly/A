@@ -1437,6 +1437,9 @@ class WellViewerApp(tk.Frame):
                 row["Included"] = include
 
         self._invalidate_stats_cache()
+        # Keep Review CSV table in sync whenever Included is recomputed.
+        if hasattr(self, "_refresh_review_csv_rows"):
+            self._refresh_review_csv_rows()
 
     def _get_thresh_frac_on(self, channel: Optional[str] = None) -> float:
         """Get ThreshFracOn threshold. Uses active channel if not specified."""
