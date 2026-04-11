@@ -3907,8 +3907,16 @@ class WellViewerApp(tk.Frame):
         # Reload preview images for channel-sensitive tabs.
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
+            prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
+            prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
+            prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
             if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
+            if tab == "Review Image" and getattr(self, "_review_image_base_pil", None) is not None:
+                self._review_image_zoom = prev_zoom
+                self._review_image_pan_x = prev_pan_x
+                self._review_image_pan_y = prev_pan_y
+                self._render_review_image_display()
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
