@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import math
-import os
 import re
 from typing import Callable, List, Optional, Tuple
 
 from .batch_models import BarGroup, ReplicateSet
+from . import debug_flags
 
 
 def _bar_debug(msg: str) -> None:
     """Emit opt-in bar-plot diagnostics for draw-time label debugging."""
-    if str(os.getenv("WV_BAR_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+    if debug_flags.BAR_DEBUG:
         print(f"DEBUG barplot_controller: {msg}")
 
 

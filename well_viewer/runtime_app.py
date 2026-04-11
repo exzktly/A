@@ -42,7 +42,6 @@ import io
 import logging
 import json
 import math
-import os
 import re
 import shutil
 import statistics
@@ -67,6 +66,7 @@ from well_viewer.barplot_controller import apply_bar_ylims as _bar_apply_ylims
 from well_viewer.barplot_controller import collect_bar_items as _bar_collect_items
 from well_viewer.barplot_controller import ordered_bar_keys as _bar_ordered_keys
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
+from well_viewer import debug_flags as _debug_flags
 from well_viewer.preview_controller import classify_member as _preview_classify_member
 from well_viewer.preview_controller import open_imgref_as_array as _preview_open_imgref_as_array
 from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
@@ -5840,7 +5840,7 @@ class WellViewerApp(tk.Frame):
             plot_wells = [k for k in ordered_keys if k in self._well_paths]
             plot_colors = [WELL_COLORS[i % len(WELL_COLORS)] for i in range(len(plot_wells))]
             plot_labels = [self._well_display_label(w) for w in plot_wells]
-        if str(os.getenv("WV_BAR_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        if _debug_flags.BAR_DEBUG:
             mode = "violin" if self._bar_violin.get() else "beeswarm"
             print(f"DEBUG runtime_app: per-cell mode={mode} wells={plot_wells!r} labels={plot_labels!r}")
         if plot_wells:
