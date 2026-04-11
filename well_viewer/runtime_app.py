@@ -4442,9 +4442,13 @@ class WellViewerApp(tk.Frame):
     # ── Batch export ──────────────────────────────────────────────────────────
 
     def _open_batch_export(self) -> None:
-        from well_viewer.batch_export_dialog import BatchExportDialog, open_line_batch_export
-
-        open_line_batch_export(self, BatchExportDialog)
+        if not self._well_paths:
+            messagebox.showwarning("No data", "Load data before opening Batch Export.")
+            return
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_batch_export_set_mode"):
+            self._batch_export_set_mode("line")
 
     # ── Montage ───────────────────────────────────────────────────────────────
 
@@ -4517,8 +4521,9 @@ class WellViewerApp(tk.Frame):
             self._sidebar_sample_frame.pack(fill=tk.X)
             self._sidebar_groups_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_sidebar_map()
-            self._rep_panel_refresh()
-            self._bar_rebuild_groups_ui()
+            if hasattr(self, "_batch_export_set_mode"):
+                mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
+                self._batch_export_set_mode(mode)
 
         elif tab == "Review CSV":
             self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
@@ -5621,10 +5626,14 @@ class WellViewerApp(tk.Frame):
         _export_bar_plot_data(self)
 
     def _open_bar_batch_export(self) -> None:
-        """Open the bar-plot batch export dialog."""
-        from well_viewer.batch_export_dialog import BarBatchExportDialog, open_bar_batch_export
-
-        open_bar_batch_export(self, BarBatchExportDialog)
+        """Switch Batch Export tab to the inline bar-plot export builder."""
+        if not self._well_paths:
+            messagebox.showwarning("No data", "Load data before opening Bar Batch Export.")
+            return
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_batch_export_set_mode"):
+            self._batch_export_set_mode("bar")
 
     # ── Save current figure ───────────────────────────────────────────────────
 
