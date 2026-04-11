@@ -291,230 +291,8 @@ def ask_name_dialog(parent: tk.Widget, title: str = "Name",
     )
 
 
-class WellLabel(tk.Label):
-    """
-    tk.Label subclass that emulates the tk.Button API used by all plate-map
-    wells throughout the app.
-
-    Motivation: on macOS, tk.Button uses native Aqua rendering and completely
-    ignores the `bg` option — making all colour-coding invisible.  tk.Label
-    respects `bg` on every platform.
-
-    Emulated Button features:
-      • state=NORMAL / DISABLED  — controls cursor and whether click/drag fire
-      • activebackground         — applied on <Enter>, reversed on <Leave>
-      • activeforeground         — applied on <Enter>, reversed on <Leave>
-      • command                  — called on <Button-1> when not disabled
-      • relief                   — passed straight through (Label supports it)
-
-    All other kwargs are forwarded to tk.Label unchanged.
-    The standard Tk drag event bindings (<ButtonPress-1>, <B1-Motion>,
-    <ButtonRelease-1>) work identically on Labels, so no drag code changes.
-    """
-
-    def __init__(self, parent: tk.Widget, **kw):
-        self._cmd          = kw.pop("command",           None)
-        self._active_bg    = kw.pop("activebackground",  None)
-        self._active_fg    = kw.pop("activeforeground",  None)
-        state              = kw.pop("state",             tk.NORMAL)
-        self._disabled     = (state == tk.DISABLED)
-        self._normal_bg    = kw.get("bg",  "")
-        self._normal_fg    = kw.get("fg",  "")
-        super().__init__(parent, **kw)
-        self._hover        = False
-        self.bind("<Button-1>",      self._on_click)
-        self.bind("<Enter>",         self._on_enter)
-        self.bind("<Leave>",         self._on_leave)
-
-    # ------------------------------------------------------------------
-    def _on_click(self, _event) -> None:
-        if not self._disabled and self._cmd:
-            self._cmd()
-
-    def _on_enter(self, _event) -> None:
-        if self._disabled:
-            return
-        self._hover = True
-        kw: dict = {}
-        if self._active_bg:
-            kw["bg"] = self._active_bg
-        if self._active_fg:
-            kw["fg"] = self._active_fg
-        if kw:
-            tk.Label.config(self, **kw)
-
-    def _on_leave(self, _event) -> None:
-        self._hover = False
-        kw: dict = {}
-        if self._active_bg:
-            kw["bg"] = self._normal_bg
-        if self._active_fg:
-            kw["fg"] = self._normal_fg
-        if kw:
-            tk.Label.config(self, **kw)
-
-    # ------------------------------------------------------------------
-    def config(self, **kw) -> None:  # type: ignore[override]
-        if "command" in kw:
-            self._cmd = kw.pop("command")
-        if "activebackground" in kw:
-            self._active_bg = kw.pop("activebackground")
-        if "activeforeground" in kw:
-            self._active_fg = kw.pop("activeforeground")
-        if "state" in kw:
-            state = kw.pop("state")
-            self._disabled = (state == tk.DISABLED)
-            # Mirror cursor if not explicitly overridden
-            if "cursor" not in kw:
-                kw["cursor"] = "arrow" if self._disabled else "hand2"
-        if "bg" in kw:
-            self._normal_bg = kw["bg"]
-            if self._hover and self._active_bg:
-                pass   # leave hover colour in place; will revert on Leave
-        if "fg" in kw:
-            self._normal_fg = kw["fg"]
-        # Store original activebackground if not already stored, for theme updates
-        if not hasattr(self, "_active_bg_orig"):
-            self._active_bg_orig = self._active_bg
-        tk.Label.config(self, **kw)
-
-    def update_theme_colors(self, color_map: dict) -> None:
-        """Update cached colors based on color_map during theme changes.
-
-        Args:
-            color_map: Dictionary mapping old colors to new colors
-        """
-        # Update normal bg color if it's in the map
-        if self._normal_bg in color_map:
-            old_bg = self._normal_bg
-            new_bg = color_map[old_bg]
-            self._normal_bg = new_bg
-            # Update display if not in hover state
-            if not self._hover:
-                tk.Label.config(self, bg=new_bg)
-            # Otherwise it will be updated when _on_leave is called
-
-        # Update normal fg color if it's in the map
-        if self._normal_fg in color_map:
-            old_fg = self._normal_fg
-            new_fg = color_map[old_fg]
-            self._normal_fg = new_fg
-            # Update display if not in hover state
-            if not self._hover:
-                tk.Label.config(self, fg=new_fg)
-
-        # Update active background color if it's in the map
-        if self._active_bg and self._active_bg in color_map:
-            self._active_bg = color_map[self._active_bg]
-
-        # Update active foreground color if it's in the map
-        if self._active_fg and self._active_fg in color_map:
-            self._active_fg = color_map[self._active_fg]
-
-    def update_theme_colors_rebuild(self, old_theme: str, new_theme: str) -> None:
-        """Update cached colors using semantic theme rebuild approach.
-
-        This handles the case where multiple colors share same hex value,
-        causing dictionary collisions.
-
-        Args:
-            old_theme: Previous theme name ("Dark" or "Light")
-            new_theme: New theme name ("Dark" or "Light")
-        """
-        from ui.theme import THEMES
-
-        old_theme_dict = THEMES.get(old_theme, {})
-        new_theme_dict = THEMES.get(new_theme, {})
-
-        # Create reverse mapping for old theme: hex → color name
-        old_hex_to_name = {v: k for k, v in old_theme_dict.items()}
-
-        # Update normal background
-        if self._normal_bg in old_hex_to_name:
-            color_name = old_hex_to_name[self._normal_bg]
-            new_bg = new_theme_dict.get(color_name)
-            if new_bg:
-                self._normal_bg = new_bg
-                if not self._hover:
-                    tk.Label.config(self, bg=new_bg)
-
-        # Update normal foreground
-        if self._normal_fg in old_hex_to_name:
-            color_name = old_hex_to_name[self._normal_fg]
-            new_fg = new_theme_dict.get(color_name)
-            if new_fg:
-                self._normal_fg = new_fg
-                if not self._hover:
-                    tk.Label.config(self, fg=new_fg)
-
-        # Update active background
-        if self._active_bg and self._active_bg in old_hex_to_name:
-            color_name = old_hex_to_name[self._active_bg]
-            new_active_bg = new_theme_dict.get(color_name)
-            if new_active_bg:
-                self._active_bg = new_active_bg
-
-        # Update active foreground
-        if self._active_fg and self._active_fg in old_hex_to_name:
-            color_name = old_hex_to_name[self._active_fg]
-            new_active_fg = new_theme_dict.get(color_name)
-            if new_active_fg:
-                self._active_fg = new_active_fg
-
-    configure = config   # Tk alias
-
-
-def build_plate_grid(
-    parent: tk.Widget,
-    btn_store: Dict[str, "WellLabel"],
-    *,
-    row_start: int = 1,
-    font: tuple = None,
-    btn_width: int = 0,
-    btn_height: int = 1,
-    col_header_row: int = 0,
-) -> None:
-    """
-    Build an 8×12 plate-map header + WellLabel grid inside *parent*.
-
-    WellLabel is used instead of tk.Button because macOS Aqua rendering
-    ignores tk.Button background colours entirely.  WellLabel (a tk.Label
-    subclass) respects bg on all platforms while emulating the Button API
-    (state, activebackground, command) so all call sites are unchanged.
-    """
-    if font is None:
-        font = FM_TINY
-    # Column headers
-    tk.Label(parent, text="", bg=BG_SIDE,
-             font=font).grid(row=col_header_row, column=0)
-    for ci, col in enumerate(_PLATE_COLS):
-        tk.Label(parent, text=str(int(col)), font=font,
-                 fg=TXT_MUT, bg=BG_SIDE,
-                 ).grid(row=col_header_row, column=ci + 1)
-
-    # Row labels + well cells
-    for ri, row_ltr in enumerate(_PLATE_ROWS):
-        tk.Label(parent, text=row_ltr, font=font,
-                 fg=TXT_MUT, bg=BG_SIDE,
-                 anchor="e").grid(row=ri + row_start, column=0, padx=(2, 1))
-        for ci, col in enumerate(_PLATE_COLS):
-            tok = f"{row_ltr}{col}"
-            kw: dict = dict(font=font,
-                            relief=tk.FLAT,
-                            bg=BG_CELL, fg=TXT_MUT,
-                            state=tk.DISABLED, cursor="arrow",
-                            anchor="center", padx=1, pady=2)
-            if btn_width:
-                kw["width"] = btn_width
-            lbl = WellLabel(parent, text=tok, **kw)
-            lbl.grid(row=ri + row_start, column=ci + 1, padx=0, pady=1,
-                     sticky="ew")
-            btn_store[tok] = lbl
-
-    # Row-label column fixed; well columns equal-width via uniform group.
-    parent.columnconfigure(0, weight=0)
-    for col_idx in range(1, len(_PLATE_COLS) + 1):
-        parent.columnconfigure(col_idx, weight=1, uniform="well_col")
+# Canonical definitions live in well_viewer/views/well_label_widget.py
+from well_viewer.views.well_label_widget import WellLabel, build_plate_grid
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
@@ -1346,315 +1124,29 @@ def find_well_images_and_masks(
             dict(sorted(mask.items())), dict(sorted(tophat_fluor.items())))
 
 # =============================================================================
-# Categorical label colourmap
+# Categorical label colourmap  (canonical: well_viewer/views/image_panel_view.py)
 # =============================================================================
 
-_LABEL_PALETTE = None
-
-
-def _label_to_rgb(arr: "_np.ndarray") -> "_np.ndarray":
-    global _LABEL_PALETTE
-    if _LABEL_PALETTE is None:
-        _LABEL_PALETTE = _np.array([
-            [255,255,255], [31,119,180], [255,127,14], [44,160,44], [214,39,40],
-            [148,103,189], [140,86,75],  [227,119,194],[127,127,127],[188,189,34],
-            [23,190,207],  [57,220,205], [255,187,51], [166,206,227],[178,223,138],
-            [251,154,153], [253,191,111],[202,178,214],[106,61,154], [177,89,40],
-        ], dtype=_np.uint8)
-    h, w  = arr.shape[:2]
-    rgb   = _np.zeros((h, w, 3), dtype=_np.uint8)
-    for uid in _np.unique(arr):
-        rgb[arr == uid] = _LABEL_PALETTE[int(uid) % len(_LABEL_PALETTE)]
-    return rgb
+from well_viewer.views.image_panel_view import _label_to_rgb
 
 # =============================================================================
 # Tooltip
 # =============================================================================
 
-class _Tooltip:
-    """Floating label that stays within screen bounds."""
-
-    def __init__(self, widget: tk.Widget) -> None:
-        self._w   = widget
-        self._win: Optional[tk.Toplevel] = None
-        self._lbl: Optional[tk.Label]   = None
-
-    def show(self, text: str, sx: int, sy: int) -> None:
-        if self._win is None:
-            self._win = tk.Toplevel(self._w)
-            self._win.wm_overrideredirect(True)
-            self._win.wm_attributes("-topmost", True)
-            self._lbl = tk.Label(self._win, text=text, font=FM_TINY,
-                                 background=TOOLTIP_BG, foreground=TOOLTIP_FG,
-                                 padx=6, pady=3, relief=tk.FLAT, bd=1)
-            self._lbl.pack()
-        else:
-            self._lbl.config(text=text)   # type: ignore[union-attr]
-        self._win.update_idletasks()
-        tw = self._win.winfo_width()
-        th = self._win.winfo_height()
-        sw = self._win.winfo_screenwidth()
-        sh = self._win.winfo_screenheight()
-        OFF = 16
-        tx = sx + OFF if sx + OFF + tw <= sw else sx - tw - OFF
-        ty = sy + OFF if sy + OFF + th <= sh else sy - th - OFF
-        self._win.wm_geometry(f"+{max(0,tx)}+{max(0,ty)}")
-
-    def hide(self) -> None:
-        if self._win:
-            self._win.destroy()
-        self._win = None
-        self._lbl = None
+# Canonical definition lives in well_viewer/views/widgets.py
+from well_viewer.views.widgets import _Tooltip
 
 # =============================================================================
-# Reusable image panel
+# Reusable image panel  (canonical: well_viewer/views/image_panel_view.py)
 # =============================================================================
 
-class _ImagePanel:
-    """
-    Toggleable panel showing one image at a time.
-    Features:
-      • Pixel-intensity tooltip on canvas mouseover
-      • Full-path tooltip on filename label mouseover
-      • Optional LUT min/max editor with Auto button (for fluorescence panel)
-    """
-
-    def __init__(self, parent: tk.Frame, title: str, tooltip: _Tooltip,
-                 show_lut: bool = False) -> None:
-        self._tooltip    = tooltip
-        self._photo:     Optional[object]  = None
-        self._raw_arr:   Optional[object]  = None
-        self._img_x0     = 0
-        self._img_y0     = 0
-        self._img_scale  = 1.0
-        self._full_path  = ""
-        self._colourmap: Optional[str] = None
-        self._show_lut   = show_lut
-        self._lut_min    = 0.0
-        self._lut_max    = 65535.0
-
-        # Header
-        hdr = tk.Frame(parent, bg=BG_SIDE)
-        hdr.pack(fill=tk.X, padx=10, pady=(6, 2))
-        tk.Label(hdr, text=title, font=FM_BOLD, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-        self._toggle_btn = _btn_secondary(hdr, "Hide", self._toggle, padx=8)
-        self._toggle_btn.pack(side=tk.RIGHT)
-
-        # Filename label with path tooltip
-        self._file_lbl = tk.Label(parent, text="", font=FM_TINY, fg=TXT_MUT,
-                                  bg=BG_SIDE, wraplength=310, justify=tk.LEFT,
-                                  cursor="question_arrow")
-        self._file_lbl.pack(fill=tk.X, padx=10)
-        self._path_tip = _Tooltip(self._file_lbl)
-        self._file_lbl.bind("<Enter>",  self._path_enter)
-        self._file_lbl.bind("<Motion>", self._path_motion)
-        self._file_lbl.bind("<Leave>",  lambda _e: self._path_tip.hide())
-
-        # Collapsible body
-        self._body = tk.Frame(parent, bg=BG_SIDE)
-        self._body.pack(fill=tk.BOTH, expand=True)
-
-        # LUT editor
-        if show_lut:
-            row = tk.Frame(self._body, bg=BG_SIDE)
-            row.pack(fill=tk.X, padx=10, pady=(2, 0))
-            tk.Label(row, text="LUT min", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-            self._lut_min_var = tk.StringVar(value="0")
-            self._lut_max_var = tk.StringVar(value="65535")
-            for var, side in ((self._lut_min_var, "LEFT"), (self._lut_max_var, "LEFT")):
-                e = tk.Entry(row, textvariable=var, font=FM_TINY, width=7,
-                             justify="center", fg=ACCENT, bg=BG_PANEL,
-                             insertbackground=ACCENT, relief=tk.FLAT,
-                             highlightthickness=1, highlightcolor=ACCENT,
-                             highlightbackground=BORDER)
-                e.pack(side=getattr(tk, side), padx=(3, 8))
-                e.bind("<Return>",   self._lut_commit)
-                e.bind("<FocusOut>", self._lut_commit)
-                if var is self._lut_min_var:
-                    tk.Label(row, text="max", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-            tk.Button(row, text="Auto", command=self._lut_auto, font=FM_TINY,
-                      bg=BG_CELL, fg=TXT_SEC, activebackground=BG_HOVER,
-                      relief=tk.FLAT, padx=6, pady=1, cursor="hand2").pack(side=tk.LEFT)
-
-        self._canvas = tk.Canvas(self._body, bg=PLOT_BG,
-                                 highlightthickness=1, highlightbackground=BORDER)
-        self._canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=(2, 8))
-        self._canvas.bind("<Configure>", lambda _e: self._render())
-        self._canvas.bind("<Motion>",    self._canvas_motion)
-        self._canvas.bind("<Leave>",     lambda _e: self._tooltip.hide())
-
-    # ── path tooltip ──────────────────────────────────────────────────────────
-    def _path_enter(self, _e=None) -> None:
-        if self._full_path:
-            sx = self._file_lbl.winfo_rootx()
-            sy = self._file_lbl.winfo_rooty() + self._file_lbl.winfo_height()
-            self._path_tip.show(self._full_path, sx, sy)
-
-    def _path_motion(self, e) -> None:
-        if self._full_path:
-            sx = self._file_lbl.winfo_rootx() + e.x
-            sy = self._file_lbl.winfo_rooty() + e.y
-            self._path_tip.show(self._full_path, sx, sy)
-
-    # ── toggle ────────────────────────────────────────────────────────────────
-    def _toggle(self) -> None:
-        if self._body.winfo_ismapped():
-            self._body.pack_forget()
-            self._toggle_btn.config(text="Show")
-        else:
-            self._body.pack(fill=tk.BOTH, expand=True)
-            self._toggle_btn.config(text="Hide")
-
-    # ── LUT ───────────────────────────────────────────────────────────────────
-    def _lut_commit(self, _e=None) -> None:
-        if not self._show_lut:
-            return
-        try:
-            lo = float(self._lut_min_var.get())
-        except ValueError:
-            lo = self._lut_min
-        try:
-            hi = float(self._lut_max_var.get())
-        except ValueError:
-            hi = self._lut_max
-        if hi <= lo:
-            hi = lo + 1.0
-        self._lut_min = lo
-        self._lut_max = hi
-        self._lut_min_var.set(f"{lo:.0f}")
-        self._lut_max_var.set(f"{hi:.0f}")
-        self._render()
-
-    def _lut_auto(self) -> None:
-        if self._raw_arr is None or not _NP_AVAILABLE:
-            return
-        arr = _np.asarray(self._raw_arr, dtype=_np.float32)
-        lo, hi = float(arr.min()), float(arr.max())
-        if hi <= lo:
-            hi = lo + 1.0
-        self._lut_min = lo
-        self._lut_max = hi
-        if self._show_lut:
-            self._lut_min_var.set(f"{lo:.0f}")
-            self._lut_max_var.set(f"{hi:.0f}")
-        self._render()
-
-    # ── public API ────────────────────────────────────────────────────────────
-    def render_arr(self, arr: "_np.ndarray", filename: str,
-                   full_path: str = "", colourmap: Optional[str] = None) -> None:
-        self._file_lbl.config(text=filename)
-        self._full_path = full_path or filename
-        self._raw_arr   = arr
-        self._colourmap = colourmap
-        if self._show_lut:   # auto-range on first load
-            lo, hi = float(arr.min()), float(arr.max())
-            if hi <= lo: hi = lo + 1.0
-            self._lut_min = lo
-            self._lut_max = hi
-            self._lut_min_var.set(f"{lo:.0f}")
-            self._lut_max_var.set(f"{hi:.0f}")
-        self._render()
-
-    def show_message(self, text: str, colour: str = TXT_MUT) -> None:
-        self._canvas.delete("all")
-        self._photo   = None
-        self._raw_arr = None
-        self._file_lbl.config(text="")
-        self._full_path = ""
-        cw = self._canvas.winfo_width() or 300
-        ch = self._canvas.winfo_height() or 200
-        self._canvas.create_text(cw//2, ch//2, text=text, fill=colour,
-                                 font=FM_UI, justify=tk.CENTER)
-
-    def clear(self, message: str = "") -> None:
-        self._raw_arr = None
-        self._photo   = None
-        self._canvas.delete("all")
-        self._file_lbl.config(text="")
-        self._full_path = ""
-        if message:
-            self.show_message(message)
-
-    # ── rendering ─────────────────────────────────────────────────────────────
-    def _render(self) -> None:
-        if not _PIL_AVAILABLE or not _NP_AVAILABLE or self._raw_arr is None:
-            return
-        canvas = self._canvas
-        canvas.delete("all")
-        self._photo = None
-        cw = canvas.winfo_width()  or 300
-        ch = canvas.winfo_height() or 200
-        try:
-            arr = _np.asarray(self._raw_arr, dtype=_np.float32)
-            if self._colourmap == "label":
-                rgb_arr = _label_to_rgb(arr.astype(_np.int32))
-                img = _PILImage.fromarray(rgb_arr, mode="RGB")
-            else:
-                lo = self._lut_min if self._show_lut else float(arr.min())
-                hi = self._lut_max if self._show_lut else float(arr.max())
-                if hi <= lo: hi = lo + 1.0
-                display = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
-                img = _PILImage.fromarray(display, mode="L").convert("RGB")
-            iw, ih = img.size
-            scale = min(cw / iw, ch / ih, 1.0)
-            nw, nh = max(1, int(iw*scale)), max(1, int(ih*scale))
-            img = img.resize((nw, nh), _PILImage.LANCZOS)
-            self._img_scale = scale
-            self._img_x0    = (cw - nw) // 2
-            self._img_y0    = (ch - nh) // 2
-            self._photo     = _PILImageTk.PhotoImage(img)
-            canvas.create_image(cw//2, ch//2, anchor=tk.CENTER, image=self._photo)
-        except Exception as exc:
-            canvas.create_text(cw//2, ch//2, text=f"Render error:\n{exc}",
-                               fill=WELL_COLOR_2, font=FM_TINY, justify=tk.CENTER)
-
-    def _canvas_motion(self, e) -> None:
-        if self._raw_arr is None or self._img_scale <= 0:
-            self._tooltip.hide()
-            return
-        ix = (e.x - self._img_x0) / self._img_scale
-        iy = (e.y - self._img_y0) / self._img_scale
-        arr = _np.asarray(self._raw_arr)
-        h, w = arr.shape[:2]
-        if not (0 <= ix < w and 0 <= iy < h):
-            self._tooltip.hide()
-            return
-        px, py = int(ix), int(iy)
-        val    = arr[py, px]
-        vstr   = ("  ".join(f"{v:.0f}" for v in val)
-                  if hasattr(val, "__len__") else f"{float(val):.1f}")
-        sx = e.widget.winfo_rootx() + e.x
-        sy = e.widget.winfo_rooty() + e.y
-        self._tooltip.show(f"x={px}  y={py}   value: {vstr}", sx, sy)
+from well_viewer.views.image_panel_view import _ImagePanel
 
 # =============================================================================
-# GUI log handler
+# GUI log handler  (canonical: well_viewer/views/status_view.py)
 # =============================================================================
 
-class _GUILogHandler(logging.Handler):
-    """Routes logging records into a tk.Text widget on the main thread."""
-
-    def __init__(self, widget: tk.Text) -> None:
-        super().__init__()
-        self._w = widget
-        widget.tag_configure("ERROR",   foreground=CLR_DANGER, font=FM_TINY)
-        widget.tag_configure("WARNING", foreground=CLR_WARN_DARK, font=FM_TINY)
-        widget.tag_configure("INFO",    foreground=TXT_SEC,   font=FM_TINY)
-        widget.tag_configure("DEBUG",   foreground=TXT_MUT,   font=FM_TINY)
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record) + "\n"
-            tag = record.levelname if record.levelname in ("ERROR","WARNING","INFO","DEBUG") else "INFO"
-            self._w.after(0, self._append, msg, tag)
-        except Exception:
-            self.handleError(record)
-
-    def _append(self, msg: str, tag: str) -> None:
-        self._w.configure(state=tk.NORMAL)
-        self._w.insert(tk.END, msg, tag)
-        self._w.see(tk.END)
-        self._w.configure(state=tk.DISABLED)
+from well_viewer.views.status_view import _GUILogHandler
 
 # =============================================================================
 # Montage popout window
@@ -1921,87 +1413,8 @@ class WellViewerApp(tk.Frame):
         self._build_centre(centre)
 
     def _build_sidebar(self, parent: tk.Frame) -> None:
-        """Build the 8×12 plate-map well selector in the sidebar."""
-        tk.Label(parent, text="WELLS", font=FM_BOLD, fg=TXT_MUT,
-                 bg=BG_SIDE, pady=6).pack(fill=tk.X, padx=10)
-
-        # ── Row / Col quick-select buttons ────────────────────────────────────
-        # Two rows of compact buttons: one per row letter (A-H), one per column.
-        rc_frame = tk.Frame(parent, bg=BG_SIDE)
-        rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-        self._sidebar_rc_frame = rc_frame
-
-        # Row quick-select — grid so buttons scale to available width like the
-        # plate map.  uniform="rc_row" forces all 8 columns to equal widths.
-        row_frame = tk.Frame(rc_frame, bg=BG_SIDE)
-        row_frame.pack(fill=tk.X)
-        tk.Label(row_frame, text="Row:", font=FM_TINY, fg=TXT_MUT,
-                 bg=BG_SIDE, anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 2))
-        for ci, r in enumerate(_PLATE_ROWS):
-            ttk.Button(
-                row_frame,
-                text=r,
-                style="QuickSelect.TButton",
-                command=lambda row=r: self._select_row(row),
-                cursor="hand2",
-            ).grid(row=0, column=ci + 1, sticky="ew", padx=1)
-        row_frame.columnconfigure(0, weight=0)
-        for ci in range(1, len(_PLATE_ROWS) + 1):
-            row_frame.columnconfigure(ci, weight=1, uniform="rc_row")
-
-        # Col quick-select — same approach; 12 columns need uniform= to keep
-        # equal widths on macOS where Tk uses pixel units for button width.
-        col_frame = tk.Frame(rc_frame, bg=BG_SIDE)
-        col_frame.pack(fill=tk.X, pady=(2, 0))
-        tk.Label(col_frame, text="Col:", font=FM_TINY, fg=TXT_MUT,
-                 bg=BG_SIDE, anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 2))
-        for ci, c in enumerate(_PLATE_COLS):
-            ttk.Button(
-                col_frame,
-                text=c.lstrip("0") or "0",
-                style="QuickSelect.TButton",
-                command=lambda col=c: self._select_col(col),
-                cursor="hand2",
-            ).grid(row=0, column=ci + 1, sticky="ew", padx=1)
-        col_frame.columnconfigure(0, weight=0)
-        for ci in range(1, len(_PLATE_COLS) + 1):
-            col_frame.columnconfigure(ci, weight=1, uniform="rc_col")
-
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=6, pady=(4, 4))
-
-        # ── Plate map grid — same styling as the export panel ─────────────────
-        map_outer = tk.Frame(parent, bg=BG_SIDE)
-        map_outer.pack(fill=tk.X, padx=4)
-
-        self._sidebar_btns: Dict[str, tk.Button] = {}
-        self._sidebar_drag_adding   = True    # kept for _select_all/_none compat
-        self._sidebar_drag_visited: set = set()
-        self._sb_ds: dict = {"adding": True, "visited": set(), "rep_toggled": set()}
-        self._bg_ds: dict = {"adding": True, "visited": set(), "rep_toggled": set()}
-        build_plate_grid(map_outer, self._sidebar_btns)
-        _bind_drag(map_outer, self._sidebar_btns,
-                   self._sb_press, self._sb_drag, self._sb_release)
-
-        # ── All / None buttons ────────────────────────────────────────────────
-        br = tk.Frame(parent, bg=BG_SIDE)
-        br.pack(fill=tk.X, padx=6, pady=(4, 6))
-        self._sidebar_allnone_frame = br
-        for txt, cmd in (("All", self._select_all), ("None", self._select_none)):
-            ttk.Button(br, text=txt, command=cmd,
-                       style="PrimaryDark.TButton").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
-
-        # ── Selected well count label ─────────────────────────────────────────
-        self._sel_count_lbl = tk.Label(parent, text="", font=FM_TINY,
-                                       fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-        self._sel_count_lbl.pack(fill=tk.X, padx=10, pady=(0, 4))
-
-        # ── Group-mode hint: shown instead of well count when groups exist ────
-        self._line_group_hint = tk.Label(
-            parent,
-            text="",
-            font=FM_TINY, fg=ACCENT, bg=BG_SIDE,
-            anchor="w", wraplength=280, justify=tk.LEFT)
-        self._line_group_hint.pack(fill=tk.X, padx=10, pady=(0, 4))
+        from well_viewer.views.sidebar_view import build_sidebar as _build_sidebar_view
+        _build_sidebar_view(self, parent)
 
     def _build_centre(self, parent: tk.Frame) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
@@ -2404,70 +1817,8 @@ class WellViewerApp(tk.Frame):
     # ── Bar-plot grouping panel ───────────────────────────────────────────────
 
     def _build_bar_group_panel(self, parent: tk.Frame) -> None:
-        """
-        Left panel of the Bar Plots tab.
-
-        Reuses the export-panel design:
-          • Scrollable card list of named groups (+ Add / Rename / Delete)
-          • 8×12 plate map for drag-assignment of wells to the active group
-          • Each group becomes one bar in the bar plots (mean ± SD/SEM across
-            its member wells)
-
-        When no groups are defined the bar plot falls back to one bar per well
-        (the original per-well mode).
-        """
-        # Title row only — Add/Clear/Save/Load removed; groups are now
-        # managed exclusively via the bar-plot drag interactions.
-        hdr1 = tk.Frame(parent, bg=BG_SIDE, pady=3, padx=8)
-        hdr1.pack(fill=tk.X)
-        tk.Label(hdr1, text="PLATE MAP", font=FM_BOLD, fg=TXT_MUT,
-                 bg=BG_SIDE).pack(side=tk.LEFT)
-        tk.Label(hdr1, text="(right-drag to toggle visibility)",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(
-                 side=tk.LEFT, padx=(6, 0))
-
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-
-        # ── Plate map FIRST (top) ─────────────────────────────────────────────
-        tk.Label(parent,
-                 text="Left-drag: add wells to active replicate set  ·  "
-                      "Right-click/drag: toggle group bar-plot visibility",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, pady=3,
-                 anchor="w", wraplength=300).pack(fill=tk.X, padx=6)
-
-        self._bar_map_frame = tk.Frame(parent, bg=BG_SIDE)
-        self._bar_map_frame.pack(fill=tk.X, padx=4)
-
-        self._bar_map_btns: Dict[str, tk.Button] = {}
-        self._bar_drag_adding   = True
-        self._bar_drag_visited: set = set()
-        build_plate_grid(self._bar_map_frame, self._bar_map_btns)
-        _bind_drag(self._bar_map_frame, self._bar_map_btns,
-                   self._bg_press, self._bg_drag, self._bg_release)
-        # Right-click drag: rubber-band rectangle to toggle group visibility
-        _bind_drag(self._bar_map_frame, self._bar_map_btns,
-                   self._bg_vis_press, self._bg_vis_drag, self._bg_vis_release,
-                   button=3)
-
-        # Rubber-band state — drawn on a transparent canvas overlaid on the
-        # plate-map frame.  Using a Canvas avoids the Toplevel z-order and
-        # event-capture problems on Windows.
-        self._vis_rubber_win:    Optional[tk.Toplevel] = None
-        self._vis_rubber_rect:   Optional[int]         = None
-
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, pady=(4, 0))
-
-        # ── Scrollable group card list BELOW the plate map ────────────────────
-        sf = tk.Frame(parent, bg=BG_SIDE)
-        sf.pack(fill=tk.BOTH, expand=True)
-        self._bar_grp_canvas, self._bar_grp_inner = make_scrollable_canvas(
-            sf, bg=BG_SIDE)
-
-        # No-groups hint (shown at the bottom of the groups sidebar)
-        self._bar_grp_count_lbl = tk.Label(
-            parent, text="No groups defined",
-            font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-        self._bar_grp_count_lbl.pack(fill=tk.X, padx=6, pady=(0, 2))
+        from well_viewer.views.bar_group_panel_view import build_bar_group_panel as _v
+        _v(self, parent)
 
     def _build_groups_centre(self, parent: tk.Frame) -> None:
         """Centre panel for the Sample Definitions tab (label editor only)."""
@@ -2478,68 +1829,8 @@ class WellViewerApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_replicate_panel(self, parent: tk.Frame) -> None:
-        """Left panel: define named ReplicateSets from the global well pool."""
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="REPLICATE SETS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-        _btn_primary(hdr, "+ Add", self._rep_add).pack(side=tk.RIGHT)
-        _btn_secondary(hdr, "Clear All", self._rep_clear_all).pack(side=tk.RIGHT, padx=(0, 4))
-
-        # Second row: Quick Replicates dropdowns
-        hdr2r = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-        hdr2r.pack(fill=tk.X)
-
-        # Pair direction dropdown
-        tk.Label(hdr2r, text="Pair:", font=FM_TINY, fg=TXT_PRI,
-                 bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._rep_quick_pair_dir_var = tk.StringVar(value="Rows (A01+A02)")
-        pair_dir_cb = ttk.Combobox(
-            hdr2r,
-            textvariable=self._rep_quick_pair_dir_var,
-            values=["Rows (A01+A02)", "Columns (A01+B01)"],
-            state="readonly",
-            width=18)
-        pair_dir_cb.pack(side=tk.LEFT, padx=(0, 8))
-
-        # Iteration order dropdown
-        tk.Label(hdr2r, text="Order:", font=FM_TINY, fg=TXT_PRI,
-                 bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._rep_quick_iter_order_var = tk.StringVar(value="Across rows")
-        iter_order_cb = ttk.Combobox(
-            hdr2r,
-            textvariable=self._rep_quick_iter_order_var,
-            values=["Across rows", "Down columns"],
-            state="readonly",
-            width=14)
-        iter_order_cb.pack(side=tk.LEFT, padx=(0, 4))
-
-        # Apply button on separate row below dropdowns
-        btn_row = tk.Frame(parent, bg=BG_SIDE, pady=2, padx=8)
-        btn_row.pack(fill=tk.X)
-        _btn_primary(btn_row, "Apply Quick Replicates", self._rep_quick_pairs_from_dropdowns).pack(side=tk.LEFT)
-
-        tk.Label(parent,
-                 text="Select a set below, then drag wells on the map to add/remove.",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-                 wraplength=580, justify=tk.LEFT).pack(
-                 fill=tk.X, padx=8, pady=(4, 2))
-
-        # Plate map — shows all rep-set colours; drag edits the selected set
-        rep_map_outer = tk.Frame(parent, bg=BG_SIDE)
-        rep_map_outer.pack(fill=tk.X, padx=4)
-        self._rep_map_btns: Dict[str, tk.Button] = {}
-        build_plate_grid(rep_map_outer, self._rep_map_btns)
-        _bind_drag(rep_map_outer, self._rep_map_btns,
-                   self._rep_map_press, self._rep_map_drag, self._rep_map_release)
-
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, pady=(4, 0))
-
-        sf = tk.Frame(parent, bg=BG_APP)
-        sf.pack(fill=tk.BOTH, expand=True)
-        self._rep_canvas, self._rep_inner = make_scrollable_canvas(sf, bg=BG_APP)
+        from well_viewer.views.replicate_panel_view import build_replicate_panel as _v
+        _v(self, parent)
 
     # ── Replicate-panel plate map ─────────────────────────────────────────────
 
@@ -2836,189 +2127,12 @@ class WellViewerApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_group_def_panel(self, parent: tk.Frame) -> None:
-        """Right panel: combine ReplicateSets into BarGroups for plotting."""
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="GROUPS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-        _btn_primary(hdr, "+ Add", self._grp_add).pack(side=tk.RIGHT)
-        _btn_secondary(hdr, "Clear All", self._grp_clear_all).pack(side=tk.RIGHT, padx=(0, 4))
-
-        # Second row: Quick Groups dropdowns (full setup: replicates + groups)
-        hdr2g = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-        hdr2g.pack(fill=tk.X)
-
-        # Pair direction dropdown
-        tk.Label(hdr2g, text="Pair:", font=FM_TINY, fg=TXT_PRI,
-                 bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._bar_quick_pair_dir_var = tk.StringVar(value="Rows (A01+A02)")
-        pair_dir_cb_bar = ttk.Combobox(
-            hdr2g,
-            textvariable=self._bar_quick_pair_dir_var,
-            values=["Rows (A01+A02)", "Columns (A01+B01)"],
-            state="readonly",
-            width=18)
-        pair_dir_cb_bar.pack(side=tk.LEFT, padx=(0, 8))
-
-        # Iteration order dropdown
-        tk.Label(hdr2g, text="Order:", font=FM_TINY, fg=TXT_PRI,
-                 bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._bar_quick_iter_order_var = tk.StringVar(value="Across rows")
-        iter_order_cb_bar = ttk.Combobox(
-            hdr2g,
-            textvariable=self._bar_quick_iter_order_var,
-            values=["Across rows", "Down columns"],
-            state="readonly",
-            width=14)
-        iter_order_cb_bar.pack(side=tk.LEFT, padx=(0, 4))
-
-        # Apply button on separate row below dropdowns
-        btn_row_bar = tk.Frame(parent, bg=BG_SIDE, pady=2, padx=8)
-        btn_row_bar.pack(fill=tk.X)
-        _btn_primary(btn_row_bar, "Apply Quick Groups", self._bar_quick_groups_from_dropdowns).pack(side=tk.LEFT, padx=(0, 4))
-        _btn_secondary(btn_row_bar, "Save…", self._bar_save_groups).pack(side=tk.LEFT, padx=(0, 2))
-        _btn_secondary(btn_row_bar, "Load…", self._bar_load_groups).pack(side=tk.LEFT, padx=(0, 2))
-
-        tk.Label(parent,
-                 text="Each group produces one bar/line on the plot. "
-                      "Add replicate sets or individual wells to a group.",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-                 wraplength=280, justify=tk.LEFT).pack(
-                 fill=tk.X, padx=8, pady=(4, 2))
-
-        sf = tk.Frame(parent, bg=BG_APP)
-        sf.pack(fill=tk.BOTH, expand=True)
-        self._grp_canvas, self._grp_inner = make_scrollable_canvas(sf, bg=BG_APP)
+        from well_viewer.views.grouping_view import build_group_def_panel as _v
+        _v(self, parent)
 
     def _grp_panel_refresh(self) -> None:
-        """Rebuild the group card list."""
-        if not hasattr(self, "_grp_inner"):
-            return
-        for w in self._grp_inner.winfo_children():
-            w.destroy()
-
-        if not self._bar_groups:
-            tk.Label(self._grp_inner,
-                     text="No groups defined.\nClick + Add to create one.",
-                     font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-                     justify=tk.LEFT).pack(anchor="w", padx=8, pady=8)
-            return
-
-        for gi, grp in enumerate(self._bar_groups):
-            is_sel = (gi == self._bar_active_grp)
-            color  = WELL_COLORS[gi % len(WELL_COLORS)]
-            dot_c  = CLR_MUTED_DISABLED if grp.hidden else color
-            bg     = BG_HOVER if is_sel else BG_PANEL
-
-            card = tk.Frame(self._grp_inner, bg=bg,
-                            highlightthickness=1,
-                            highlightbackground=ACCENT if is_sel else BORDER)
-            card.pack(fill=tk.X, padx=4, pady=2)
-
-            hdr = tk.Frame(card, bg=bg)
-            hdr.pack(fill=tk.X, padx=6, pady=(4, 2))
-            tk.Label(hdr, text="●", font=FM_BOLD, fg=dot_c,
-                     bg=bg).pack(side=tk.LEFT, padx=(0, 4))
-            name_fg = TXT_MUT if grp.hidden else TXT_PRI
-            tk.Label(hdr, text=grp.name, font=FM_BOLD,
-                     fg=name_fg, bg=bg).pack(side=tk.LEFT)
-            if grp.hidden:
-                tk.Label(hdr, text="[hidden]", font=FM_TINY,
-                         fg=TXT_MUT, bg=bg).pack(side=tk.LEFT, padx=(4, 0))
-
-            n_sets  = len(grp.members)
-            n_wells = len(grp.wells)
-            tk.Label(hdr,
-                     text=f"  {n_sets} set{'s' if n_sets!=1 else ''}  ·  "
-                          f"{n_wells} well{'s' if n_wells!=1 else ''}",
-                     font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-
-            bf = tk.Frame(hdr, bg=bg)
-            bf.pack(side=tk.RIGHT)
-            vis_txt = "Show" if grp.hidden else "Hide"
-            vis_bg  = BG_CELL if grp.hidden else CLR_WARN_BG
-            vis_fg  = CLR_SUCCESS if grp.hidden else CLR_WARN_TEXT
-            tk.Button(bf, text=vis_txt,
-                      command=lambda i=gi: self._grp_toggle_visibility(i),
-                      font=FM_TINY, bg=vis_bg, fg=vis_fg,
-                      relief=tk.FLAT, padx=4, cursor="hand2",
-                      activebackground=BG_HOVER).pack(side=tk.LEFT, padx=1)
-            _btn_card(bf, "Rename", lambda i=gi: self._grp_rename(i)).pack(side=tk.LEFT, padx=1)
-            _btn_danger(bf, "✕", lambda i=gi: self._grp_delete(i)).pack(side=tk.LEFT, padx=1)
-
-            # Members: replicate sets
-            if grp.members or grp.solo_wells:
-                mem_frame = tk.Frame(card, bg=bg)
-                mem_frame.pack(fill=tk.X, padx=6, pady=(2, 2))
-                for rset in grp.members:
-                    mrow = tk.Frame(mem_frame, bg=bg)
-                    mrow.pack(fill=tk.X, pady=1)
-                    tk.Label(mrow, text=f"[{rset.name}]", font=FM_TINY,
-                             fg=dot_c, bg=bg, padx=2).pack(side=tk.LEFT)
-                    for w in rset.wells:
-                        tok = _extract_well_token(w) or w
-                        tk.Label(mrow, text=tok, font=FM_TINY,
-                                 bg=dot_c, fg=CLR_WHITE,
-                                 padx=3, pady=1).pack(side=tk.LEFT, padx=(0, 2))
-                    if is_sel:
-                        _btn_danger(mrow, "−", lambda g=gi, r=rset: self._grp_remove_member(g, r),
-                                    padx=3).pack(side=tk.LEFT, padx=(4, 0))
-                for w in grp.solo_wells:
-                    tok = _extract_well_token(w) or w
-                    srow = tk.Frame(mem_frame, bg=bg)
-                    srow.pack(fill=tk.X, pady=1)
-                    tk.Label(srow, text=f"[solo] {tok}", font=FM_TINY,
-                             fg=dot_c, bg=bg).pack(side=tk.LEFT)
-                    if is_sel:
-                        _btn_danger(srow, "−", lambda g=gi, wl=w: self._grp_remove_solo(g, wl),
-                                    padx=3).pack(side=tk.LEFT, padx=(4, 0))
-            else:
-                tk.Label(card, text="Empty — add replicate sets or wells below",
-                         font=FM_TINY, fg=TXT_MUT, bg=bg,
-                         padx=6).pack(anchor="w", padx=6, pady=(0, 2))
-
-            # Active group: add replicate sets and/or individual wells
-            if is_sel:
-                # Row 1 — add replicate sets
-                act_rep = tk.Frame(card, bg=bg)
-                act_rep.pack(fill=tk.X, padx=6, pady=(2, 0))
-                if self._rep_sets:
-                    tk.Label(act_rep, text="+ Set:", font=FM_TINY,
-                             fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-                    for rset in self._rep_sets:
-                        if rset not in grp.members:
-                            _btn_card(act_rep, rset.name,
-                                      lambda r=rset, g=gi: self._grp_add_member(g, r)
-                                      ).pack(side=tk.LEFT, padx=2)
-                else:
-                    tk.Label(act_rep,
-                             text="(No replicate sets — define them in the left panel)",
-                             font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-
-                # Row 2 — add individual wells not already in the group
-                assigned_wells = set(grp.wells)
-                unassigned = [lbl for lbl in sorted(
-                                  self._well_paths.keys(),
-                                  key=lambda l: self._parse_rc(l))
-                              if lbl not in assigned_wells]
-                if unassigned:
-                    act_well = tk.Frame(card, bg=bg)
-                    act_well.pack(fill=tk.X, padx=6, pady=(2, 4))
-                    tk.Label(act_well, text="+ Well:", font=FM_TINY,
-                             fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-                    for lbl in unassigned:
-                        tok = _extract_well_token(lbl) or lbl
-                        _btn_card(act_well, tok,
-                                  lambda wl=lbl, g=gi: self._grp_add_solo_well(g, wl)
-                                  ).pack(side=tk.LEFT, padx=2)
-                else:
-                    tk.Frame(card, bg=bg, height=4).pack()  # spacing
-
-            sel_cb = lambda _e, i=gi: self._grp_select(i)
-            for widget in [card, hdr, bf]:
-                widget.bind("<Button-1>", sel_cb)
+        from well_viewer.views.grouping_view import grp_panel_refresh as _v
+        _v(self)
 
     def _ask_name_dialog(self, default: str) -> Optional[str]:
         return ask_name_dialog(self, default=default)
@@ -3059,80 +2173,12 @@ class WellViewerApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_label_editor(self, parent: tk.Frame) -> None:
-        """Right panel: assign custom display labels to wells."""
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="WELL LABELS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-        _btn_secondary(hdr, "Clear All", self._labels_clear_all).pack(side=tk.RIGHT)
-
-        tk.Label(parent,
-                 text="Custom names used in figure legends and axis labels only. "
-                      "Leave blank to use the well token (e.g. A01).",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-                 wraplength=320, justify=tk.LEFT).pack(
-                 fill=tk.X, padx=8, pady=(4, 2))
-
-        # Scrollable list of name → entry rows
-        sf = tk.Frame(parent, bg=BG_APP)
-        sf.pack(fill=tk.BOTH, expand=True)
-        self._lbl_canvas, self._lbl_inner = make_scrollable_canvas(sf, bg=BG_APP)
+        from well_viewer.views.label_editor_view import build_label_editor as _v
+        _v(self, parent)
 
     def _label_panel_refresh(self) -> None:
-        """Rebuild the well-label entry rows."""
-        if not hasattr(self, "_lbl_inner"):
-            return
-        for w in self._lbl_inner.winfo_children():
-            w.destroy()
-
-        wells = sorted(self._well_paths.keys(),
-                       key=lambda l: self._parse_rc(l))
-        if not wells:
-            tk.Label(self._lbl_inner,
-                     text="No wells loaded yet.",
-                     font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-                     justify=tk.LEFT).pack(anchor="w", padx=8, pady=8)
-            return
-
-        # Header row
-        hdr_row = tk.Frame(self._lbl_inner, bg=BG_APP)
-        hdr_row.pack(fill=tk.X, padx=6, pady=(4, 2))
-        tk.Label(hdr_row, text="Well", font=FM_BOLD, fg=TXT_MUT,
-                 bg=BG_APP, width=6, anchor="w").pack(side=tk.LEFT)
-        tk.Label(hdr_row, text="Display label (blank = use well token)",
-                 font=FM_BOLD, fg=TXT_MUT, bg=BG_APP,
-                 anchor="w").pack(side=tk.LEFT, padx=(4, 0))
-
-        tk.Frame(self._lbl_inner, bg=BORDER, height=1).pack(
-            fill=tk.X, padx=6, pady=(0, 2))
-
-        for lbl in wells:
-            tok = _extract_well_token(lbl) or lbl
-            row = tk.Frame(self._lbl_inner, bg=BG_APP)
-            row.pack(fill=tk.X, padx=6, pady=1)
-
-            tk.Label(row, text=tok, font=FM_MONO, fg=TXT_SEC,
-                     bg=BG_APP, width=6, anchor="w").pack(side=tk.LEFT)
-
-            var = tk.StringVar(value=self._well_labels.get(tok, ""))
-            e = tk.Entry(row, textvariable=var, font=FM_TINY,
-                         fg=TXT_PRI, bg=BG_PANEL, relief=tk.FLAT,
-                         highlightthickness=1, highlightcolor=ACCENT,
-                         highlightbackground=BORDER, width=24)
-            e.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
-
-            def _on_change(t=tok, v=var):
-                val = v.get().strip()
-                if val:
-                    self._well_labels[t] = val
-                else:
-                    self._well_labels.pop(t, None)
-                # Invalidate stats cache so legend labels refresh on next draw
-                self._invalidate_stats_cache()
-
-            var.trace_add("write", lambda *_, t=tok, v=var: _on_change(t, v))
+        from well_viewer.views.label_editor_view import label_panel_refresh as _v
+        _v(self)
 
     def _labels_clear_all(self) -> None:
         if self._well_labels:
@@ -3162,22 +2208,8 @@ class WellViewerApp(tk.Frame):
         self._rep_refresh_map()
 
     def _build_bar_perwell_strip(self, parent: tk.Frame) -> None:
-        """
-        Thin bar-specific sidebar strip shown only when Bar Plots tab is active.
-        Contains the All/None per-well selection buttons that are irrelevant
-        when the Groups tab or Batch Export is active.
-        """
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-        lbl = tk.Label(parent,
-                       text="Per-well selection (fallback when no groups)",
-                       font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-        lbl.pack(fill=tk.X, padx=6, pady=(3, 1))
-        bar_br = tk.Frame(parent, bg=BG_SIDE)
-        bar_br.pack(fill=tk.X, padx=6, pady=(0, 4))
-        ttk.Button(bar_br, text="All", command=self._bar_select_all,
-                   style="PrimaryDark.TButton").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
-        ttk.Button(bar_br, text="None", command=self._bar_select_none,
-                   style="PrimaryDark.TButton").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        from well_viewer.views.bar_group_panel_view import build_bar_perwell_strip as _v
+        _v(self, parent)
 
     # ── Group card list rebuild ───────────────────────────────────────────────
 
@@ -3195,246 +2227,28 @@ class WellViewerApp(tk.Frame):
         self.after(0, self._bar_rebuild_groups_ui_now)
 
     def _bar_rebuild_groups_ui_now(self) -> None:
-        """
-        Synchronous card-list rebuild + plate-map recolour — no plot redraws.
-
-        Call _bar_rebuild_groups() instead when plot data has actually changed.
-        """
-        self._grp_ui_pending = False
-        for w in self._bar_grp_inner.winfo_children():
-            w.destroy()
-
-        for idx, grp in enumerate(self._bar_groups):
-            self._build_bar_group_row(idx, grp)
-        self._update_bar_group_count_label()
-
-        self._bar_refresh_map()
+        from well_viewer.views.bar_group_panel_view import rebuild_groups_ui_now as _v
+        _v(self)
 
     def _update_bar_group_count_label(self) -> None:
-        n_grps = len(self._bar_groups)
-        n_vis = sum(1 for g in self._bar_groups if not g.hidden)
-        n_hid = n_grps - n_vis
-        if not hasattr(self, "_bar_grp_count_lbl"):
-            return
-        if n_grps == 0:
-            txt = "No groups defined"
-        elif n_hid == 0:
-            txt = f"{n_grps} group(s)  ·  all visible in bar plot"
-        else:
-            txt = f"{n_vis}/{n_grps} visible in bar plot  ·  {n_hid} hidden"
-        self._bar_grp_count_lbl.config(text=txt)
+        from well_viewer.views.bar_group_panel_view import update_bar_group_count_label as _v
+        _v(self)
 
     def _build_bar_group_row(self, idx: int, grp: "BarGroup") -> None:
-        is_active = idx == self._bar_active_grp
-        bg = BG_HOVER if is_active else BG_PANEL
-        row = tk.Frame(
-            self._bar_grp_inner,
-            bg=bg,
-            highlightthickness=1,
-            highlightbackground=ACCENT if is_active else BORDER,
-        )
-        row.pack(fill=tk.X, padx=4, pady=2)
+        from well_viewer.views.bar_group_panel_view import build_bar_group_row as _v
+        _v(self, idx, grp)
 
-        header, bind_widgets = self._build_bar_group_header(row, idx, grp, bg)
-        chip_widgets = self._build_bar_group_chip_rows(row, idx, grp, bg, is_active)
-        action_widgets = self._build_bar_group_action_row(row, idx, bg, is_active)
-        select_cb = lambda _e, i=idx: self._bar_select_group(i)
-        for widget in bind_widgets + chip_widgets + action_widgets:
-            widget.bind("<Button-1>", select_cb)
-
-    def _build_bar_group_header(self, row, idx: int, grp: "BarGroup", bg: str) -> tuple[tk.Frame, list]:
-        hdr = tk.Frame(row, bg=bg)
-        hdr.pack(fill=tk.X, padx=6, pady=(4, 2))
-        color = WELL_COLORS[idx % len(WELL_COLORS)]
-        dot_color = CLR_MUTED_DISABLED if grp.hidden else color
-        name_fg = TXT_MUT if grp.hidden else TXT_PRI
-        dot_lbl = tk.Label(hdr, text="●", font=FM_BOLD, fg=dot_color, bg=bg)
-        dot_lbl.pack(side=tk.LEFT, padx=(0, 4))
-        name_lbl = tk.Label(hdr, text=grp.name, font=FM_BOLD, fg=name_fg, bg=bg)
-        name_lbl.pack(side=tk.LEFT)
-        hid_lbl = None
-        if grp.hidden:
-            hid_lbl = tk.Label(hdr, text="[hidden]", font=FM_TINY, fg=TXT_MUT, bg=bg)
-            hid_lbl.pack(side=tk.LEFT, padx=(4, 0))
-
-        n_rep = len(grp.replicates) if grp.replicates else len(grp.wells)
-        n_well = len(grp.wells)
-        count_lbl = tk.Label(
-            hdr,
-            text=f"({n_rep} replicate set{'s' if n_rep!=1 else ''}  ·  {n_well} well{'s' if n_well!=1 else ''})",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=bg,
-        )
-        count_lbl.pack(side=tk.LEFT, padx=(4, 0))
-
-        bf = tk.Frame(hdr, bg=bg)
-        bf.pack(side=tk.RIGHT)
-
-        def _cmd(action, i=idx):
-            self._bar_active_grp = i
-            action(i)
-
-        vis_txt = "Show" if grp.hidden else "Hide"
-        vis_bg = BG_CELL if grp.hidden else CLR_WARN_BG
-        vis_fg = CLR_SUCCESS if grp.hidden else CLR_WARN_TEXT
-        tk.Button(
-            bf,
-            text=vis_txt,
-            command=lambda i=idx: _cmd(self._bar_toggle_group_visibility, i),
-            font=FM_TINY,
-            bg=vis_bg,
-            fg=vis_fg,
-            relief=tk.FLAT,
-            padx=4,
-            cursor="hand2",
-            activebackground=BG_HOVER,
-        ).pack(side=tk.LEFT, padx=1)
-        tk.Button(
-            bf,
-            text="Rename",
-            command=lambda i=idx: _cmd(self._bar_rename_group, i),
-            font=FM_TINY,
-            bg=BG_CELL,
-            fg=TXT_SEC,
-            relief=tk.FLAT,
-            padx=4,
-            cursor="hand2",
-            activebackground=BG_HOVER,
-        ).pack(side=tk.LEFT, padx=1)
-        tk.Button(
-            bf,
-            text="Clear",
-            command=lambda i=idx: _cmd(self._bar_clear_group, i),
-            font=FM_TINY,
-            bg=BG_CELL,
-            fg=TXT_SEC,
-            relief=tk.FLAT,
-            padx=4,
-            cursor="hand2",
-            activebackground=BG_HOVER,
-        ).pack(side=tk.LEFT, padx=1)
-        tk.Button(
-            bf,
-            text="✕",
-            command=lambda i=idx: _cmd(self._bar_remove_group, i),
-            font=FM_TINY,
-            bg=CLR_DANGER_BG,
-            fg=CLR_DANGER,
-            relief=tk.FLAT,
-            padx=4,
-            cursor="hand2",
-            activebackground=CLR_DANGER_HOVER,
-        ).pack(side=tk.LEFT, padx=1)
-        return hdr, [row, hdr, bf, dot_lbl, name_lbl, count_lbl] + ([hid_lbl] if hid_lbl else [])
+    def _build_bar_group_header(self, row, idx: int, grp: "BarGroup", bg: str) -> tuple:
+        from well_viewer.views.bar_group_panel_view import build_bar_group_header as _v
+        return _v(self, row, idx, grp, bg)
 
     def _build_bar_group_chip_rows(self, row, idx: int, grp: "BarGroup", bg: str, is_active: bool) -> list:
-        color = WELL_COLORS[idx % len(WELL_COLORS)]
-        chip_color = CLR_MUTED_DISABLED if grp.hidden else color
-        chip_widgets: list = []
-        if grp.replicates:
-            rep_frame = tk.Frame(row, bg=bg)
-            rep_frame.pack(fill=tk.X, padx=6, pady=(2, 0))
-            chip_widgets.append(rep_frame)
-            for si, rset in enumerate(grp.replicates):
-                srow = tk.Frame(rep_frame, bg=bg)
-                srow.pack(fill=tk.X, pady=(2, 0))
-                chip_widgets.append(srow)
-                bracket = tk.Label(srow, text=f"R{si+1}:", font=FM_TINY, fg=color, bg=bg, padx=2)
-                bracket.pack(side=tk.LEFT)
-                chip_widgets.append(bracket)
-                for w in rset:
-                    tok = _extract_well_token(w) or w
-                    wl = tk.Label(srow, text=tok, font=FM_TINY, bg=chip_color, fg=CLR_WHITE, padx=3, pady=1)
-                    wl.pack(side=tk.LEFT, padx=(0, 2))
-                    chip_widgets.append(wl)
-                if is_active:
-                    rm_btn = tk.Button(
-                        srow,
-                        text="✕",
-                        command=lambda i=idx, s=si: self._bar_remove_replicate_set(i, s),
-                        font=FM_TINY,
-                        bg=CLR_DANGER_BG,
-                        fg=CLR_DANGER,
-                        relief=tk.FLAT,
-                        padx=3,
-                        cursor="hand2",
-                        activebackground=CLR_DANGER_HOVER,
-                    )
-                    rm_btn.pack(side=tk.LEFT, padx=(2, 0))
-                    chip_widgets.append(rm_btn)
-            assigned = {w for rs in grp.replicates for w in rs}
-            singles = [w for w in grp.wells if w not in assigned]
-            if singles:
-                singles_row = tk.Frame(rep_frame, bg=bg)
-                singles_row.pack(fill=tk.X, pady=(2, 0))
-                chip_widgets.append(singles_row)
-                tk.Label(singles_row, text="solo:", font=FM_TINY, fg=TXT_MUT, bg=bg, padx=2).pack(side=tk.LEFT)
-                for w in singles:
-                    tok = _extract_well_token(w) or w
-                    wl = tk.Label(
-                        singles_row,
-                        text=tok,
-                        font=FM_TINY,
-                        bg=CLR_MUTED_DISABLED,
-                        fg=CLR_WHITE,
-                        padx=3,
-                        pady=1,
-                    )
-                    wl.pack(side=tk.LEFT, padx=(0, 2))
-                    chip_widgets.append(wl)
-        elif grp.wells:
-            chips = tk.Frame(row, bg=bg)
-            chips.pack(fill=tk.X, padx=6, pady=(2, 0))
-            chip_widgets.append(chips)
-            for lbl in grp.wells:
-                tok = _extract_well_token(lbl) or lbl
-                cl = tk.Label(chips, text=tok, font=FM_TINY, bg=chip_color, fg=CLR_WHITE, padx=4, pady=1)
-                cl.pack(side=tk.LEFT, padx=(0, 2), pady=1)
-                chip_widgets.append(cl)
-        else:
-            empty_lbl = tk.Label(
-                row,
-                text="No wells — assign replicates from the map",
-                font=FM_TINY,
-                fg=TXT_MUT,
-                bg=bg,
-                padx=6,
-            )
-            empty_lbl.pack(anchor="w", padx=6, pady=(0, 4))
-            chip_widgets.append(empty_lbl)
-        return chip_widgets
+        from well_viewer.views.bar_group_panel_view import build_bar_group_chip_rows as _v
+        return _v(self, row, idx, grp, bg, is_active)
 
     def _build_bar_group_action_row(self, row, idx: int, bg: str, is_active: bool) -> list:
-        if not is_active:
-            return []
-        act_frame = tk.Frame(row, bg=bg)
-        act_frame.pack(fill=tk.X, padx=6, pady=(4, 4))
-        tk.Button(
-            act_frame,
-            text="+ Add replicate set",
-            command=lambda i=idx: self._bar_add_replicate_set(i),
-            font=FM_TINY,
-            bg=BG_CELL,
-            fg=TXT_SEC,
-            relief=tk.FLAT,
-            padx=5,
-            cursor="hand2",
-            activebackground=BG_HOVER,
-        ).pack(side=tk.LEFT)
-        tk.Button(
-            act_frame,
-            text="Clear replicates",
-            command=lambda i=idx: self._bar_clear_replicates(i),
-            font=FM_TINY,
-            bg=BG_CELL,
-            fg=TXT_SEC,
-            relief=tk.FLAT,
-            padx=5,
-            cursor="hand2",
-            activebackground=BG_HOVER,
-        ).pack(side=tk.LEFT, padx=(4, 0))
-        return [act_frame]
+        from well_viewer.views.bar_group_panel_view import build_bar_group_action_row as _v
+        return _v(self, row, idx, bg, is_active)
 
     def _rebuild_all(self) -> None:
         """
@@ -4933,7 +3747,7 @@ class WellViewerApp(tk.Frame):
         # Reload preview images for the new channel if Preview tab is active.
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
-            if tab == "Preview":
+            if tab == "Movie Montage":
                 self._update_preview(self._preview_selected_well)
 
     def _on_metric_selected(self) -> None:
@@ -5119,7 +3933,7 @@ class WellViewerApp(tk.Frame):
         self._sidebar_sample_frame.pack_forget()
         self._sidebar_stats_frame.pack_forget()
 
-        if tab == "Preview":
+        if tab == "Movie Montage":
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
@@ -5187,41 +4001,8 @@ class WellViewerApp(tk.Frame):
         pass
 
     def _build_review_csv_tab(self, parent: tk.Frame) -> None:
-        wrap = tk.Frame(parent, bg=BG_APP, padx=10, pady=10)
-        wrap.pack(fill=tk.BOTH, expand=True)
-
-        ctrl = tk.Frame(wrap, bg=BG_SIDE, padx=8, pady=6)
-        ctrl.pack(fill=tk.X)
-        tk.Label(ctrl, text="Well:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
-        self._review_well_var = tk.StringVar(value="(select one well)")
-        tk.Label(ctrl, textvariable=self._review_well_var, font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(6, 14))
-
-        tk.Label(ctrl, text="FOV:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
-        self._review_fov_var = tk.StringVar(value="")
-        self._review_fov_cb = ttk.Combobox(ctrl, textvariable=self._review_fov_var, state="readonly", width=12)
-        self._review_fov_cb.pack(side=tk.LEFT, padx=(6, 12))
-        self._review_fov_cb.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_csv_rows())
-
-        tk.Label(ctrl, text="Timepoint:", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
-        self._review_tp_var = tk.StringVar(value="")
-        self._review_tp_cb = ttk.Combobox(ctrl, textvariable=self._review_tp_var, state="readonly", width=14)
-        self._review_tp_cb.pack(side=tk.LEFT, padx=(6, 12))
-        self._review_tp_cb.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_csv_rows())
-        ttk.Button(ctrl, text="Refresh", command=self._refresh_review_csv).pack(side=tk.LEFT)
-
-        table_wrap = tk.Frame(wrap, bg=BG_APP)
-        table_wrap.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
-        self._review_csv_table = ttk.Treeview(table_wrap, show="headings")
-        ys = ttk.Scrollbar(table_wrap, orient=tk.VERTICAL, command=self._review_csv_table.yview)
-        xs = ttk.Scrollbar(table_wrap, orient=tk.HORIZONTAL, command=self._review_csv_table.xview)
-        self._review_csv_table.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
-        self._review_csv_table.grid(row=0, column=0, sticky="nsew")
-        ys.grid(row=0, column=1, sticky="ns")
-        xs.grid(row=1, column=0, sticky="ew")
-        table_wrap.rowconfigure(0, weight=1)
-        table_wrap.columnconfigure(0, weight=1)
-        self._review_csv_msg = tk.StringVar(value="Select a single well to inspect CSV rows.")
-        tk.Label(wrap, textvariable=self._review_csv_msg, font=FM_TINY, fg=TXT_MUT, bg=BG_APP, anchor="w").pack(fill=tk.X, pady=(6, 0))
+        from well_viewer.tabs.review_csv_tab_view import build_review_csv_tab as _v
+        _v(self, parent)
 
     def _refresh_review_csv(self) -> None:
         if not hasattr(self, "_review_csv_table"):

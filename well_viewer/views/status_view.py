@@ -2,6 +2,36 @@
 
 from __future__ import annotations
 
+import logging
+import tkinter as tk
+
+
+class _GUILogHandler(logging.Handler):
+    """Routes logging records into a tk.Text widget on the main thread."""
+
+    def __init__(self, widget: tk.Text) -> None:
+        super().__init__()
+        self._w = widget
+        from well_viewer.runtime_app import CLR_DANGER, CLR_WARN_DARK, FM_TINY, TXT_MUT, TXT_SEC
+        widget.tag_configure("ERROR",   foreground=CLR_DANGER,    font=FM_TINY)
+        widget.tag_configure("WARNING", foreground=CLR_WARN_DARK,  font=FM_TINY)
+        widget.tag_configure("INFO",    foreground=TXT_SEC,        font=FM_TINY)
+        widget.tag_configure("DEBUG",   foreground=TXT_MUT,        font=FM_TINY)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record) + "\n"
+            tag = record.levelname if record.levelname in ("ERROR", "WARNING", "INFO", "DEBUG") else "INFO"
+            self._w.after(0, self._append, msg, tag)
+        except Exception:
+            self.handleError(record)
+
+    def _append(self, msg: str, tag: str) -> None:
+        self._w.configure(state=tk.NORMAL)
+        self._w.insert(tk.END, msg, tag)
+        self._w.see(tk.END)
+        self._w.configure(state=tk.DISABLED)
+
 
 def build_bottom(app) -> None:
     """Build the persistent status/log footer strip."""
@@ -75,10 +105,10 @@ def build_bottom(app) -> None:
     hsb.config(command=app._log_text.xview)
     app._log_visible = False
 
-    handler = rt._GUILogHandler(app._log_text)
-    handler.setFormatter(rt.logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s", datefmt="%H:%M:%S"))
-    handler.setLevel(rt.logging.DEBUG)
+    handler = _GUILogHandler(app._log_text)
+    handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s", datefmt="%H:%M:%S"))
+    handler.setLevel(logging.DEBUG)
     rt._logger.addHandler(handler)
-    rt._logger.setLevel(rt.logging.DEBUG)
-    rt.logging.getLogger().addHandler(handler)
+    rt._logger.setLevel(logging.DEBUG)
+    logging.getLogger().addHandler(handler)
 

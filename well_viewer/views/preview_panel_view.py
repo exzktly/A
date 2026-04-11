@@ -20,8 +20,8 @@ from well_viewer.runtime_app import (
     TXT_MUT,
     TXT_PRI,
     TXT_SEC,
-    _Tooltip,
 )
+from well_viewer.views.widgets import _Tooltip
 from well_viewer.ui_helpers import btn_card, btn_secondary
 
 
