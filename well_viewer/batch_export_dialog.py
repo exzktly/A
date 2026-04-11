@@ -711,9 +711,11 @@ class BatchExportPanel(tk.Frame):
             state="readonly",
             width=20,
             font=FM_TINY,
+            postcommand=self._refresh_export_profile_choices,
         )
         self._profile_combo.pack(side=tk.LEFT)
         self._profile_combo.bind("<<ComboboxSelected>>", self._on_export_profile_selected)
+        self._refresh_export_profile_choices()
         if self._export_profile_var.get() not in self._export_profile_names():
             self._export_profile_var.set("Custom")
         self._apply_export_profile_to_prefs(self._export_profile_var.get())
@@ -723,6 +725,13 @@ class BatchExportPanel(tk.Frame):
 
         names = _get_all_profile_names(self._app)
         return names or ["Custom"]
+
+    def _refresh_export_profile_choices(self) -> None:
+        names = self._export_profile_names()
+        if hasattr(self, "_profile_combo"):
+            self._profile_combo.configure(values=names)
+        if self._export_profile_var.get() not in names:
+            self._export_profile_var.set("Custom")
 
     def _apply_export_profile_to_prefs(self, profile_name: str) -> None:
         from well_viewer.figure_export_editor import (
