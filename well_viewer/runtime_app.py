@@ -1348,6 +1348,8 @@ class WellViewerApp(tk.Frame):
         self._review_image_zoom: float = 1.0
         self._review_image_base_pil = None
         self._review_image_is_tif: bool = False
+        self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
+        self._review_image_last_fluor_arr = None
 
         self._build_ui()
         self._apply_theme()
@@ -3879,6 +3881,12 @@ class WellViewerApp(tk.Frame):
         ch_upper = channel.upper()
         if hasattr(self, "_mon_lut_chan_lbl"):
             self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+        if hasattr(self, "_review_lut_chan_lbl"):
+            self._review_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+        saved_review_lut = self._review_image_lut_by_channel.get(channel)
+        if saved_review_lut and hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{saved_review_lut[0]:.0f}")
+            self._review_lut_max_var.set(f"{saved_review_lut[1]:.0f}")
         if hasattr(self, "_cdf_chan_lbl"):
             self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
@@ -4110,14 +4118,70 @@ class WellViewerApp(tk.Frame):
                 continue
             incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
-        self._draw_review_image(fluor_arr, mask_arr, include_by_nid)
+        self._draw_review_image(fluor_arr, mask_arr, include_by_nid, fit_lut=True)
 
-    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool]) -> None:
-        arr = _np.asarray(fluor_arr, dtype=_np.float32)
-        m = _np.asarray(mask_arr)
-        lo, hi = float(arr.min()), float(arr.max())
+    def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
+        chan = str(self._active_channel or "").lower()
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            try:
+                lo = float(self._review_lut_min_var.get().strip())
+                hi = float(self._review_lut_max_var.get().strip())
+                if hi > lo:
+                    self._review_image_lut_by_channel[chan] = (lo, hi)
+                    return lo, hi
+            except Exception:
+                pass
+        saved = self._review_image_lut_by_channel.get(chan)
+        if saved is not None and saved[1] > saved[0]:
+            return saved
+        lo = float(arr.min())
+        hi = float(arr.max())
         if hi <= lo:
             hi = lo + 1.0
+        self._review_image_lut_by_channel[chan] = (lo, hi)
+        return lo, hi
+
+    def _review_image_auto_lut(self) -> None:
+        arr = getattr(self, "_review_image_last_fluor_arr", None)
+        if arr is None or not _NP_AVAILABLE:
+            return
+        arr_np = _np.asarray(arr, dtype=_np.float32)
+        lo = float(arr_np.min())
+        hi = float(arr_np.max())
+        if hi <= lo:
+            hi = lo + 1.0
+        self._review_image_lut_by_channel[str(self._active_channel or "").lower()] = (lo, hi)
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{lo:.0f}")
+            self._review_lut_max_var.set(f"{hi:.0f}")
+        self._refresh_review_image()
+
+    def _review_image_commit_lut(self) -> None:
+        arr = getattr(self, "_review_image_last_fluor_arr", None)
+        if arr is None:
+            return
+        lo, hi = self._review_image_resolve_lut(_np.asarray(arr, dtype=_np.float32))
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{lo:.0f}")
+            self._review_lut_max_var.set(f"{hi:.0f}")
+        self._refresh_review_image()
+
+    def _draw_review_image(self, fluor_arr, mask_arr, include_by_nid: Dict[int, bool], *, fit_lut: bool = False) -> None:
+        arr = _np.asarray(fluor_arr, dtype=_np.float32)
+        self._review_image_last_fluor_arr = arr
+        m = _np.asarray(mask_arr)
+        if fit_lut:
+            lo, hi = float(arr.min()), float(arr.max())
+            if hi <= lo:
+                hi = lo + 1.0
+            self._review_image_lut_by_channel[str(self._active_channel or "").lower()] = (lo, hi)
+        else:
+            lo, hi = self._review_image_resolve_lut(arr)
+        if hasattr(self, "_review_lut_chan_lbl"):
+            self._review_lut_chan_lbl.config(text=f"{self._active_channel.upper()} LUT min:")
+        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
+            self._review_lut_min_var.set(f"{lo:.0f}")
+            self._review_lut_max_var.set(f"{hi:.0f}")
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
         rgb = _np.dstack([base, base, base])
 
