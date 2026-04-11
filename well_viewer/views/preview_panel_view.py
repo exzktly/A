@@ -264,5 +264,8 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         self._review_image_canvas.bind("<MouseWheel>", self._on_review_image_wheel)
         self._review_image_canvas.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
         self._review_image_canvas.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
+        self._review_image_canvas.bind("<ButtonPress-1>", self._on_review_image_press)
+        self._review_image_canvas.bind("<B1-Motion>", self._on_review_image_drag)
+        self._review_image_canvas.bind("<ButtonRelease-1>", self._on_review_image_release)
 
         self._review_image_tooltip = _Tooltip(inner)

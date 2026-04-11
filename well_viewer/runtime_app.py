@@ -1346,6 +1346,11 @@ class WellViewerApp(tk.Frame):
         self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
         self._review_csv_lookup_context: Dict[str, str] = {}
         self._review_image_zoom: float = 1.0
+        self._review_image_pan_x: float = 0.0
+        self._review_image_pan_y: float = 0.0
+        self._review_image_dragging: bool = False
+        self._review_image_drag_moved: bool = False
+        self._review_image_drag_last_xy: Tuple[int, int] = (0, 0)
         self._review_image_base_pil = None
         self._review_image_is_tif: bool = False
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
@@ -4208,11 +4213,18 @@ class WellViewerApp(tk.Frame):
         img = _PILImage.fromarray(rgb, mode="RGB")
         self._review_image_base_pil = img
         self._review_image_zoom = 1.0
+        self._review_image_pan_x = 0.0
+        self._review_image_pan_y = 0.0
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
         self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
-        self._review_image_label.bind("<Button-1>", self._on_review_image_click)
+        self._review_image_label.bind("<MouseWheel>", self._on_review_image_wheel)
+        self._review_image_label.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
+        self._review_image_label.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
+        self._review_image_label.bind("<ButtonPress-1>", self._on_review_image_press)
+        self._review_image_label.bind("<B1-Motion>", self._on_review_image_drag)
+        self._review_image_label.bind("<ButtonRelease-1>", self._on_review_image_release)
         suffix = f"  ·  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
         self._review_image_status.config(
             text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.{suffix}"
@@ -4232,7 +4244,13 @@ class WellViewerApp(tk.Frame):
         self._review_image_photo = _PILImageTk.PhotoImage(shown)
         self._review_image_label.configure(image=self._review_image_photo)
         self._review_image_scale = scale
-        self._review_image_canvas.coords(self._review_image_window, max(8, (cw - nw) // 2), max(8, (ch - nh) // 2))
+        base_x = max(8, (cw - nw) // 2)
+        base_y = max(8, (ch - nh) // 2)
+        self._review_image_canvas.coords(
+            self._review_image_window,
+            base_x + float(getattr(self, "_review_image_pan_x", 0.0)),
+            base_y + float(getattr(self, "_review_image_pan_y", 0.0)),
+        )
 
     def _review_image_zoom_step(self, direction: int) -> None:
         steps = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
@@ -4244,12 +4262,43 @@ class WellViewerApp(tk.Frame):
 
     def _review_image_zoom_fit(self) -> None:
         self._review_image_zoom = 1.0
+        self._review_image_pan_x = 0.0
+        self._review_image_pan_y = 0.0
         self._render_review_image_display()
 
     def _on_review_image_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        if not getattr(self, "_review_image_is_tif", False):
+        direction = +1 if getattr(event, "delta", 0) > 0 else -1
+        if getattr(event, "num", None) == 4:
+            direction = +1
+        elif getattr(event, "num", None) == 5:
+            direction = -1
+        self._review_image_zoom_step(direction)
+
+    def _on_review_image_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        self._review_image_dragging = True
+        self._review_image_drag_moved = False
+        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+
+    def _on_review_image_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        if not getattr(self, "_review_image_dragging", False):
             return
-        self._review_image_zoom_step(+1 if event.delta > 0 else -1)
+        lx, ly = self._review_image_drag_last_xy
+        dx = int(event.x_root) - lx
+        dy = int(event.y_root) - ly
+        if dx or dy:
+            self._review_image_drag_moved = True
+        self._review_image_pan_x = float(getattr(self, "_review_image_pan_x", 0.0) + dx)
+        self._review_image_pan_y = float(getattr(self, "_review_image_pan_y", 0.0) + dy)
+        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+        self._render_review_image_display()
+
+    def _on_review_image_release(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        was_dragging = getattr(self, "_review_image_dragging", False)
+        moved = getattr(self, "_review_image_drag_moved", False)
+        self._review_image_dragging = False
+        self._review_image_drag_moved = False
+        if was_dragging and not moved:
+            self._on_review_image_click(event)
 
     def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         mask_arr = getattr(self._review_image_label, "_mask_arr", None)
