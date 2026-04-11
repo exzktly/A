@@ -402,9 +402,6 @@ class CellGatingTab(tk.Frame):
             self._app._apply_cell_gating_to_included()
             # Redraw the app to reflect the new thresholds
             self._app._redraw()
-        except ValueError:
-            # Invalid input - revert to previous value (do nothing, field keeps old value)
-            pass
 
     def _on_threshold_frac_on_change(self, _e=None) -> None:
         """Handle ThreshFracOn threshold change (when focus leaves field)."""

@@ -507,8 +507,12 @@ def load_well_csv(path: Path) -> List[dict]:
                 row["Included"] = 1
             coerced: dict = {}
             for k, v in row.items():
-                if k in _STRING_COLS:
-                    coerced[k] = v
+                key_norm = str(k).strip().lower()
+                if key_norm in _STRING_COLS:
+                    if key_norm == "fov" and str(v).strip() in {"", "-1"}:
+                        coerced[k] = "1"
+                    else:
+                        coerced[k] = v
                 else:
                     try:
                         coerced[k] = float(v)
@@ -1440,6 +1444,9 @@ class WellViewerApp(tk.Frame):
                 row["Included"] = include
 
         self._invalidate_stats_cache()
+        # Keep Review CSV table in sync whenever Included is recomputed.
+        if hasattr(self, "_refresh_review_csv_rows"):
+            self._refresh_review_csv_rows()
 
     def _get_thresh_frac_on(self, channel: Optional[str] = None) -> float:
         """Get ThreshFracOn threshold. Uses active channel if not specified."""
