@@ -76,7 +76,6 @@ from well_viewer.views.preview_view import preview_pick_well as _preview_pick_we
 from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
 from well_viewer.lineplot_controller import redraw_line_plots as _lineplot_redraw
 from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
-from well_viewer.scatter_controller import collect_scatter_data as _scatter_collect_data
 from well_viewer.scatter_controller import redraw_scatter as _scatter_redraw
 from well_viewer.grouping_controller import (
     bg_apply_legacy as _gc_bg_apply_legacy,
@@ -1238,8 +1237,10 @@ class WellViewerApp(tk.Frame):
         self._tmp_dir:    Optional[Path]        = None
         self._well_paths: Dict[str, Path]       = {}
         self._cache:      Dict[str, List[dict]] = {}
+        self._all_timepoints_cache: List[float] = []
         self._last_sel:   Optional[str]         = None
         self._prev_sel:   set                   = set()   # tracks prior selection for diffing
+        self._sidebar_map_refresh_pending: bool = False
 
         # Active fluorescent channel (set when CSVs are loaded)
         self._fluor_channels: List[str] = []          # e.g. ["gfp", "mcherry"]
@@ -3424,6 +3425,20 @@ class WellViewerApp(tk.Frame):
         """Rebuild the token→label map after data is loaded."""
         _load_build_tok_to_label(self)
 
+    def _rebuild_all_timepoints_cache(self) -> None:
+        """Cache global timepoints from loaded row cache for menu population."""
+        all_tps: set[float] = set()
+        for rows in self._cache.values():
+            for row in rows:
+                raw = row.get("timepoint_hours")
+                t: Optional[float] = (
+                    raw if isinstance(raw, float) and not math.isnan(raw)
+                    else parse_timepoint_hours(str(row.get("timepoint", "")))
+                )
+                if t is not None:
+                    all_tps.add(t)
+        self._all_timepoints_cache = sorted(all_tps)
+
     @staticmethod
     def _mute_color(hex_color: str, factor: float = 0.5) -> str:
         """Blend *hex_color* 50% toward a neutral mid-grey (#94A3B8).
@@ -3444,6 +3459,13 @@ class WellViewerApp(tk.Frame):
         return self._rep_sets_active()
 
     def _refresh_sidebar_map(self) -> None:
+        """Debounce sidebar recoloring work to one pass per event-loop tick."""
+        if self._sidebar_map_refresh_pending:
+            return
+        self._sidebar_map_refresh_pending = True
+        self.after(0, self._refresh_sidebar_map_now)
+
+    def _refresh_sidebar_map_now(self) -> None:
         """Recolour every sidebar button to reflect rep-set visibility.
 
         Rep-set mode (when _rep_sets are defined):
@@ -3571,8 +3593,7 @@ class WellViewerApp(tk.Frame):
             else:
                 self._line_group_hint.config(text="")
 
-        # Force Tkinter to process pending drawing updates immediately
-        self.update_idletasks()
+        self._sidebar_map_refresh_pending = False
 
     def _sidebar_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
         from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at
@@ -4109,16 +4130,7 @@ class WellViewerApp(tk.Frame):
             self._bar_tp_var.set("—")
             return
 
-        all_tps: set = set()
-        for label in self._well_paths:
-            for row in self._get_rows(label):
-                raw = row.get("timepoint_hours")
-                t: Optional[float] = (
-                    raw if isinstance(raw, float) and not math.isnan(raw)
-                    else parse_timepoint_hours(str(row.get("timepoint", "")))
-                )
-                if t is not None:
-                    all_tps.add(t)
+        all_tps: set = set(self._all_timepoints_cache)
 
         # If no timepoints were found the schema had no timepoint field.
         # Use 0.0 as a single synthetic timepoint so bar plots remain usable.
@@ -5068,7 +5080,7 @@ class WellViewerApp(tk.Frame):
                 self._scatter_ch_y_var.set(scatter_ch_options[0 if len(scatter_ch_options) == 1 else 1])
 
         # Update timepoint dropdown for cells scatter
-        timepoints = _scatter_get_timepoints(self)
+        timepoints = list(self._all_timepoints_cache) or _scatter_get_timepoints(self)
         tp_strs = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0"]
         self._scatter_tp_cb.config(values=tp_strs)
 
@@ -5156,36 +5168,17 @@ class WellViewerApp(tk.Frame):
 
     def _on_scatter_click(self, event) -> None:
         """Handle click events on scatter plot datapoints."""
-        print(f"DEBUG scatter click: axes={event.inaxes}, button={event.button}, xdata={event.xdata}, ydata={event.ydata}")
-
         if event.inaxes is not self._ax_scatter or event.xdata is None or event.ydata is None:
-            print(f"DEBUG: Ignoring click - wrong axes or no data")
             return
 
         if event.button != 1:  # Only respond to left clicks
-            print(f"DEBUG: Ignoring non-left click (button={event.button})")
             return
 
-        # Simple nearest-neighbor finder
         try:
-            ch_x_entry = self._scatter_ch_x_var.get()
-            ch_y_entry = self._scatter_ch_y_var.get()
-            tp_str = self._scatter_tp_var.get()
-            timepoint_h = float(tp_str) if tp_str else 0.0
-            col_x = self._col_for_scatter_entry(ch_x_entry)
-            col_y = self._col_for_scatter_entry(ch_y_entry)
-
-            print(f"DEBUG: Collecting scatter data for {col_x} vs {col_y} at t={timepoint_h}")
-
-            scatter_data = _scatter_collect_data(
-                self,
-                col_x,
-                col_y,
-                timepoint_h,
-                well_colors=WELL_COLORS,
-            )
-
-            print(f"DEBUG: Got scatter_data with {len(scatter_data)} groups")
+            interaction_cache = getattr(self, "_scatter_interaction_cache", None) or {}
+            points = interaction_cache.get("points", [])
+            if not points:
+                return
 
             # Find nearest point to click
             min_dist = float('inf')
@@ -5194,32 +5187,18 @@ class WellViewerApp(tk.Frame):
             nearest_nuclear_id = None
             nearest_row_idx = None
 
-            for label, data in scatter_data.items():
-                x_vals = data['x']
-                y_vals = data['y']
-                metadata = data['metadata']
-
-                print(f"DEBUG: Group {label} has {len(x_vals)} points")
-
-                for i, (x, y) in enumerate(zip(x_vals, y_vals)):
-                    dx = x - event.xdata
-                    dy = y - event.ydata
-                    dist = (dx * dx + dy * dy) ** 0.5
-                    if dist < min_dist:
-                        min_dist = dist
-                        nearest_well, nearest_filename, nearest_nuclear_id, nearest_row_idx = metadata[i]
-
-            print(f"DEBUG: Nearest point: dist={min_dist}, well={nearest_well}, file={nearest_filename}, nuc_id={nearest_nuclear_id}")
+            for x, y, meta in points:
+                dx = x - event.xdata
+                dy = y - event.ydata
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_well, nearest_filename, nearest_nuclear_id, nearest_row_idx = meta
 
             if nearest_well is not None:
                 self._open_scatter_cell_viewer(nearest_well, nearest_filename, nearest_nuclear_id, nearest_row_idx)
-            else:
-                print(f"DEBUG: No point found")
 
         except Exception as e:
-            print(f"DEBUG: Exception in scatter click: {e}")
-            import traceback
-            traceback.print_exc()
             self._set_status(f"Error handling scatter click: {e}")
 
     def _on_scatter_motion(self, event) -> None:
@@ -5228,38 +5207,23 @@ class WellViewerApp(tk.Frame):
             return
 
         try:
-            ch_x_entry = self._scatter_ch_x_var.get()
-            ch_y_entry = self._scatter_ch_y_var.get()
-            tp_str = self._scatter_tp_var.get()
-            timepoint_h = float(tp_str) if tp_str else 0.0
-            col_x = self._col_for_scatter_entry(ch_x_entry)
-            col_y = self._col_for_scatter_entry(ch_y_entry)
-
-            scatter_data = _scatter_collect_data(
-                self,
-                col_x,
-                col_y,
-                timepoint_h,
-                well_colors=WELL_COLORS,
-            )
+            interaction_cache = getattr(self, "_scatter_interaction_cache", None) or {}
+            points = interaction_cache.get("points", [])
+            if not points:
+                return
 
             # Find nearest point to cursor
             min_dist = float('inf')
             nearest_info = None
             threshold = 0.5  # Distance threshold for tooltip
 
-            for label, data in scatter_data.items():
-                x_vals = data['x']
-                y_vals = data['y']
-                metadata = data['metadata']
-
-                for i, (x, y) in enumerate(zip(x_vals, y_vals)):
-                    dx = x - event.xdata
-                    dy = y - event.ydata
-                    dist = (dx * dx + dy * dy) ** 0.5
-                    if dist < min_dist:
-                        min_dist = dist
-                        nearest_info = metadata[i]
+            for x, y, meta in points:
+                dx = x - event.xdata
+                dy = y - event.ydata
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_info = meta
 
             if min_dist < threshold and nearest_info:
                 well_label, filename, nuclear_id, row_idx = nearest_info

@@ -11,6 +11,37 @@ def sidebar_tok_at(app, event) -> Optional[str]:
     return _tok_at_event(event, app._sidebar_btns)
 
 
+def _active_tab(app) -> str:
+    if not hasattr(app, "_notebook"):
+        return ""
+    try:
+        return app._notebook.tab(app._notebook.select(), "text")
+    except Exception:
+        return ""
+
+
+def _refresh_after_selection_change(app) -> None:
+    """Refresh only UI/views relevant to the active tab."""
+    app._refresh_sidebar_map()
+    tab = _active_tab(app)
+    if tab == "Bar Plots":
+        app._update_bar_tp_menu()
+        app._redraw_bars()
+    elif tab == "Scatter Plot: Cells":
+        app._update_scatter_menus()
+        app._redraw_scatter()
+    elif tab == "Scatter Plot: Aggregate":
+        app._update_scatter_menus()
+        app._redraw_scatter_agg()
+    elif tab == "Review CSV":
+        app._refresh_review_csv()
+    elif tab == "smFISH":
+        if hasattr(app, "_smfish_tab"):
+            app._smfish_tab.sync_from_app()
+    else:
+        app._redraw()
+
+
 def plate_drag_press(app, label: str, well_set: set, ds: dict) -> None:
     ds["visited"] = set()
     ds["rep_toggled"] = set()
@@ -120,12 +151,7 @@ def on_plate_sel_change(app) -> None:
             keep = app._last_sel if app._last_sel in app._selected_wells else next(iter(app._selected_wells))
             app._selected_wells = {keep}
             app._prev_sel = app._selected_wells.copy()
-    app._refresh_sidebar_map()
-    app._redraw()
-    app._redraw_bars()
-    app._redraw_scatter()
-    if hasattr(app, "_notebook") and app._notebook.tab(app._notebook.select(), "text") == "smFISH":
-        app._smfish_tab.sync_from_app()
+    _refresh_after_selection_change(app)
 
 
 def select_row(app, row: str) -> None:
@@ -184,10 +210,7 @@ def select_all(app) -> None:
         if app._selected_wells:
             app._last_sel = next(iter(app._selected_wells))
         app._prev_sel = app._selected_wells.copy()
-    app._refresh_sidebar_map()
-    app._redraw()
-    app._redraw_bars()
-    app._redraw_scatter()
+    _refresh_after_selection_change(app)
 
 
 def select_none(app) -> None:
@@ -198,7 +221,4 @@ def select_none(app) -> None:
     app._selected_wells.clear()
     app._last_sel = None
     app._prev_sel = set()
-    app._refresh_sidebar_map()
-    app._redraw()
-    app._redraw_bars()
-    app._redraw_scatter()
+    _refresh_after_selection_change(app)

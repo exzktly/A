@@ -46,19 +46,6 @@ def redraw(
         if tab == "Movie Montage" and app._preview_selected_well:
             app._update_preview(app._preview_selected_well)
 
-    if hasattr(app, "_notebook"):
-        tab = app._notebook.tab(app._notebook.select(), "text")
-        if tab == "Bar Plots":
-            app._update_bar_tp_menu()
-            app._redraw_bars()
-        elif tab == "Scatter Plot: Cells":
-            app._update_scatter_menus()
-            app._redraw_scatter()
-        elif tab == "Scatter Plot: Aggregate":
-            app._update_scatter_menus()
-            app._redraw_scatter_agg()
-
-
 def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
     import matplotlib as _mpl
 
