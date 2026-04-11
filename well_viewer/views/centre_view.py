@@ -1,7 +1,7 @@
 """Centre notebook/tab builder extracted from runtime_app.
 
 ``build_centre`` is the single entry point.  It creates each tab frame,
-registers it with the ttk.Notebook, and delegates content-building to the
+registers it with the custom notebook, and delegates content-building to the
 relevant module:
 
   Plot tabs (have figures):
@@ -14,7 +14,7 @@ relevant module:
     well_viewer/tabs/batch_export_tab_view.py
 
   Tabs that stay inline (class instantiation or single method call):
-    Preview            → app._build_right_panel / app._build_preview_picker
+    Movie Montage      → app._build_right_panel / app._build_preview_picker
     Review CSV         → app._build_review_csv_tab
     smFISH             → well_viewer/smfish_tab.py  (SmfishTab)
     Statistics         → app._build_stats_tab / app._build_stats_group_editor
@@ -26,7 +26,115 @@ relevant module:
 import tkinter as tk
 from tkinter import ttk
 
-from well_viewer.runtime_app import BG_APP, BG_SIDE
+from well_viewer.runtime_app import BG_APP, BG_SIDE, BORDER, FM_TINY, TXT_MUT, TXT_PRI
+
+
+class CustomNotebook(tk.Frame):
+    """Drop-in replacement for ttk.Notebook with custom tab bar.
+
+    Features:
+    - Custom header with tab buttons and visual separators
+    - Full control over tab appearance and grouping
+    - Maintains ttk.Notebook compatibility interface
+    """
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        # Header with tab buttons
+        self.header = tk.Frame(self, bg=BG_SIDE, height=35)
+        self.header.pack(fill=tk.X, padx=0, pady=0)
+        self.header.pack_propagate(False)
+
+        # Content area with single visible frame at a time
+        self.content = tk.Frame(self, bg=BG_APP)
+        self.content.pack(fill=tk.BOTH, expand=True)
+
+        self._tabs = {}              # {text: frame}
+        self._tab_buttons = {}       # {text: label widget}
+        self._current_text = None
+        self._callbacks = []
+
+    def add(self, frame, text):
+        """Add a tab with the given text and frame (mimics ttk.Notebook.add)"""
+        # Parent the frame to content area, but don't show it yet
+        frame.configure(parent=self.content)
+        self._tabs[text] = frame
+
+        # Create tab button in header
+        btn = tk.Label(
+            self.header,
+            text=text,
+            font=(FM_TINY[0], FM_TINY[1]),
+            fg=TXT_PRI,
+            bg=BG_SIDE,
+            padx=12,
+            pady=6,
+            relief=tk.FLAT,
+            cursor="hand2",
+        )
+        btn.pack(side=tk.LEFT, padx=0, pady=0)
+        btn.bind("<Button-1>", lambda e: self.select_by_text(text))
+        self._tab_buttons[text] = btn
+
+        # Select first tab automatically
+        if self._current_text is None:
+            self.select_by_text(text)
+
+    def add_separator(self):
+        """Add a thin vertical separator in the tab bar"""
+        sep = tk.Frame(self.header, bg=BORDER, width=1, height=25)
+        sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=5)
+
+    def select_by_text(self, text):
+        """Show the tab with the given text"""
+        if text not in self._tabs:
+            return
+
+        # Hide current tab
+        if self._current_text and self._current_text in self._tabs:
+            self._tabs[self._current_text].pack_forget()
+            # Unhighlight old button
+            old_btn = self._tab_buttons[self._current_text]
+            old_btn.configure(bg=BG_SIDE, relief=tk.FLAT)
+
+        # Show new tab
+        self._tabs[text].pack(fill=tk.BOTH, expand=True)
+        self._current_text = text
+
+        # Highlight new button
+        new_btn = self._tab_buttons[text]
+        new_btn.configure(bg=BG_APP, relief=tk.SUNKEN)
+
+        # Trigger callbacks
+        for cb in self._callbacks:
+            cb(text)
+
+    def select(self):
+        """Return index of currently selected tab (mimics ttk.Notebook)"""
+        if self._current_text is None:
+            return 0
+        tab_list = list(self._tabs.keys())
+        try:
+            return tab_list.index(self._current_text)
+        except ValueError:
+            return 0
+
+    def tab(self, index, key):
+        """Return tab info (mimics ttk.Notebook.tab)"""
+        if key == "text":
+            tab_list = list(self._tabs.keys())
+            if 0 <= index < len(tab_list):
+                return tab_list[index]
+        return None
+
+    def bind(self, event, callback):
+        """Bind to tab change events (mimics ttk.Notebook)"""
+        if event == "<<NotebookTabChanged>>":
+            # Store callback to call when tab changes
+            self._callbacks.append(lambda text: callback(None))
+        else:
+            super().bind(event, callback)
 
 
 def build_centre(app, parent: tk.Frame) -> None:
@@ -38,7 +146,8 @@ def build_centre(app, parent: tk.Frame) -> None:
     from well_viewer.tabs.scatter_cells_tab_view import build_scatter_cells_tab
     from well_viewer.tabs.scatter_agg_tab_view import build_scatter_agg_tab
 
-    app._notebook = ttk.Notebook(parent)
+    # Create custom notebook (replaces ttk.Notebook)
+    app._notebook = CustomNotebook(parent)
     app._notebook.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
     app._notebook.bind("<<NotebookTabChanged>>", app._on_tab_change)
 
@@ -71,14 +180,12 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._notebook.add(tab_scatter_agg, text="Scatter Plot: Aggregate")
     build_scatter_agg_tab(app, tab_scatter_agg)
 
-    # Spacer between left and middle tab groups
-    spacer_left_mid = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(spacer_left_mid, text="                ")
-    app._notebook.tab(spacer_left_mid, state="disabled")
+    # Visual separator between left and middle tab groups
+    app._notebook.add_separator()
 
-    # ── Middle group: Preview / Statistics / smFISH ───────────────────────
+    # ── Middle group: Movie Montage / Statistics / smFISH ──────────────────
     tab_preview = tk.Frame(app._notebook, bg=BG_SIDE)
-    app._notebook.add(tab_preview, text="Preview")
+    app._notebook.add(tab_preview, text="Movie Montage")
     app._build_right_panel(tab_preview)
     app._build_preview_picker(app._sidebar_preview_frame)
 
@@ -92,10 +199,8 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._smfish_tab = SmfishTab(tab_smfish, app=app)
     app._smfish_tab.pack(fill=tk.BOTH, expand=True)
 
-    # Spacer between middle and right tab groups
-    spacer_mid_right = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(spacer_mid_right, text="                ")
-    app._notebook.tab(spacer_mid_right, state="disabled")
+    # Visual separator between middle and right tab groups
+    app._notebook.add_separator()
 
     # ── Right group: workflow/data tabs ────────────────────────────────────
     tab_review_csv = tk.Frame(app._notebook, bg=BG_APP)

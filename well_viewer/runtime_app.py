@@ -3747,7 +3747,7 @@ class WellViewerApp(tk.Frame):
         # Reload preview images for the new channel if Preview tab is active.
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
-            if tab == "Preview":
+            if tab == "Movie Montage":
                 self._update_preview(self._preview_selected_well)
 
     def _on_metric_selected(self) -> None:
@@ -3933,7 +3933,7 @@ class WellViewerApp(tk.Frame):
         self._sidebar_sample_frame.pack_forget()
         self._sidebar_stats_frame.pack_forget()
 
-        if tab == "Preview":
+        if tab == "Movie Montage":
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)

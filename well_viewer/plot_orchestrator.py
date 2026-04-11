@@ -43,7 +43,7 @@ def redraw(
 
     if hasattr(app, "_notebook"):
         tab = app._notebook.tab(app._notebook.select(), "text")
-        if tab == "Preview" and app._preview_selected_well:
+        if tab == "Movie Montage" and app._preview_selected_well:
             app._update_preview(app._preview_selected_well)
 
     if hasattr(app, "_notebook"):
