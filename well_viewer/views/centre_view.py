@@ -234,6 +234,7 @@ def build_centre(app, parent: tk.Frame) -> None:
     app._cell_gating_tab.pack(fill=tk.BOTH, expand=True)
 
     tab_batch = tk.Frame(app._notebook, bg=BG_APP)
+    app._batch_export_tab_frame = tab_batch
     app._notebook.add(tab_batch, text="Batch Export")
     build_batch_export_tab(app, tab_batch)
 
