@@ -4516,8 +4516,10 @@ class WellViewerApp(tk.Frame):
                 self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
             if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
                 self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
-            # Batch Export uses shared Sample Definitions state for groups, but
-            # should not show extra group-editing pickers in this tab sidebar.
+            # Batch Export uses the same sidebar group editors as Sample
+            # Definitions so users can define replicate/well groups here.
+            self._sidebar_sample_frame.pack(fill=tk.X)
+            self._sidebar_groups_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
