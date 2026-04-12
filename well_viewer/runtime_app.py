@@ -4516,9 +4516,7 @@ class WellViewerApp(tk.Frame):
                 self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
             if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
                 self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
-            # Batch Export exposes a dedicated group-list builder (well or
-            # ReplicateSet members) without the replicate-set definition panel.
-            self._sidebar_groups_frame.pack(fill=tk.BOTH, expand=True)
+            # Batch Export now uses its in-tab group builder UI.
             self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")

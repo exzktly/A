@@ -21,7 +21,7 @@ def _show_batch_mode(app, mode: str) -> None:
     panels = state["panels"]
     if mode not in panels:
         panel_cls = BatchExportPanel if mode == "line" else BarBatchExportPanel
-        panel = panel_cls(app, host, use_sidebar_groups=True)
+        panel = panel_cls(app, host, use_sidebar_groups=False)
         panel.pack(fill=tk.BOTH, expand=True)
         panels[mode] = panel
     for key, panel in panels.items():
