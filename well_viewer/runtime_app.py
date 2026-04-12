@@ -4294,7 +4294,7 @@ class WellViewerApp(tk.Frame):
         )
 
     def _review_image_zoom_step(self, direction: int) -> None:
-        steps = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
+        steps = self._ZOOM_STEPS
         cur = getattr(self, "_review_image_zoom", 1.0)
         idx = min(range(len(steps)), key=lambda i: abs(steps[i] - cur))
         idx = max(0, min(len(steps) - 1, idx + direction))

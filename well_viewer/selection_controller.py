@@ -154,52 +154,37 @@ def on_plate_sel_change(app) -> None:
     _refresh_after_selection_change(app)
 
 
-def select_row(app, row: str) -> None:
+def _select_by_axis(app, axis: int, key: str) -> None:
+    """Toggle visibility of all wells/rep-sets whose row (axis=0) or col (axis=1) matches key."""
     if app._rep_sets:
         loaded = app._rep_sets_loaded()
-        row_idxs = [si for si, r in enumerate(loaded) if any(app._parse_rc(w)[0] == row for w in r.wells if w in app._well_paths)]
-        if not row_idxs:
+        idxs = [si for si, r in enumerate(loaded) if any(app._parse_rc(w)[axis] == key for w in r.wells if w in app._well_paths)]
+        if not idxs:
             return
-        if any(si in app._rep_hidden for si in row_idxs):
-            for si in row_idxs:
+        if any(si in app._rep_hidden for si in idxs):
+            for si in idxs:
                 app._rep_hidden.discard(si)
         else:
-            for si in row_idxs:
+            for si in idxs:
                 app._rep_hidden.add(si)
         app._on_plate_sel_change()
     else:
-        row_labels = [lbl for lbl in app._well_paths if app._parse_rc(lbl)[0] == row]
-        if not row_labels:
+        labels = [lbl for lbl in app._well_paths if app._parse_rc(lbl)[axis] == key]
+        if not labels:
             return
-        if any(lbl not in app._selected_wells for lbl in row_labels):
-            app._selected_wells.update(row_labels)
+        if any(lbl not in app._selected_wells for lbl in labels):
+            app._selected_wells.update(labels)
         else:
-            app._selected_wells.difference_update(row_labels)
+            app._selected_wells.difference_update(labels)
         app._on_plate_sel_change()
+
+
+def select_row(app, row: str) -> None:
+    _select_by_axis(app, 0, row)
 
 
 def select_col(app, col: str) -> None:
-    if app._rep_sets:
-        loaded = app._rep_sets_loaded()
-        col_idxs = [si for si, r in enumerate(loaded) if any(app._parse_rc(w)[1] == col for w in r.wells if w in app._well_paths)]
-        if not col_idxs:
-            return
-        if any(si in app._rep_hidden for si in col_idxs):
-            for si in col_idxs:
-                app._rep_hidden.discard(si)
-        else:
-            for si in col_idxs:
-                app._rep_hidden.add(si)
-        app._on_plate_sel_change()
-    else:
-        col_labels = [lbl for lbl in app._well_paths if app._parse_rc(lbl)[1] == col]
-        if not col_labels:
-            return
-        if any(lbl not in app._selected_wells for lbl in col_labels):
-            app._selected_wells.update(col_labels)
-        else:
-            app._selected_wells.difference_update(col_labels)
-        app._on_plate_sel_change()
+    _select_by_axis(app, 1, col)
 
 
 def select_all(app) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from itertools import combinations
 from typing import List, Tuple
 
 
@@ -112,7 +113,7 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         )
     lines.append("")
 
-    pairs = [(group_vals[i], group_vals[j]) for i in range(len(group_vals)) for j in range(i + 1, len(group_vals))]
+    pairs = list(combinations(group_vals, 2))
     for (name_a, vals_a), (name_b, vals_b) in pairs:
         lines.append(f"── {name_a}  vs  {name_b} ──")
         try:

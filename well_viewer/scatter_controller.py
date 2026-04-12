@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import statistics as _statistics
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -28,12 +28,56 @@ def get_all_timepoints(app) -> List[float]:
                 continue
             try:
                 tp = float(row.get("timepoint_hours", float('nan')))
-                if not (tp != tp):  # Skip NaN
+                if not math.isnan(tp):
                     timepoints.add(tp)
             except (ValueError, TypeError):
                 pass
 
     return sorted(timepoints)
+
+
+def _collect_rows_for_well(
+    app,
+    well_label: str,
+    col_x: str,
+    col_y: str,
+    timepoint_h: float,
+    cell_area_threshold: float,
+    fluor_gate_x: float,
+    fluor_gate_y: float,
+) -> Tuple[List[float], List[float], List[Tuple[str, str, str, int]]]:
+    """Filter and collect scatter data rows for a single well."""
+    x_vals: List[float] = []
+    y_vals: List[float] = []
+    metadata: List[Tuple[str, str, str, int]] = []
+    for row_idx, row in enumerate(app._get_rows(well_label)):
+        if not app._row_is_included(row):
+            continue
+        try:
+            tp = float(row.get("timepoint_hours", float('nan')))
+        except (ValueError, TypeError):
+            continue
+        if abs(tp - timepoint_h) > 1e-6:
+            continue
+        try:
+            area = float(row.get("area_px", float('nan')))
+        except (ValueError, TypeError):
+            continue
+        if math.isnan(area) or area <= cell_area_threshold:
+            continue
+        try:
+            x = float(row.get(col_x, float('nan')))
+            y = float(row.get(col_y, float('nan')))
+        except (ValueError, TypeError):
+            continue
+        if math.isnan(x) or math.isnan(y):
+            continue
+        if x <= fluor_gate_x or y <= fluor_gate_y:
+            continue
+        x_vals.append(x)
+        y_vals.append(y)
+        metadata.append((well_label, row.get("filename", ""), row.get("nucleus_id", ""), row_idx))
+    return x_vals, y_vals, metadata
 
 
 def collect_scatter_data(
@@ -83,58 +127,19 @@ def collect_scatter_data(
             color = well_colors[group_idx % len(well_colors)]
             x_vals: List[float] = []
             y_vals: List[float] = []
-            metadata: List[Tuple[str, Optional[str], int]] = []
+            metadata: List[Tuple[str, str, str, int]] = []
 
             # Collect data from all wells in this replicate set
             for well_label in rset.wells:
                 if well_label not in app._well_paths:
                     continue
-
-                rows = app._get_rows(well_label)
-                for row_idx, row in enumerate(rows):
-                    if not app._row_is_included(row):
-                        continue
-                    # Filter by timepoint
-                    try:
-                        tp = float(row.get("timepoint_hours", float('nan')))
-                    except (ValueError, TypeError):
-                        continue
-
-                    if abs(tp - timepoint_h) > 1e-6:
-                        continue
-
-                    # Filter by cell area threshold
-                    try:
-                        area = float(row.get("area_px", float('nan')))
-                    except (ValueError, TypeError):
-                        continue
-
-                    if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
-                        continue
-
-                    # Filter by fluorescence gate threshold on both channels
-                    try:
-                        x = float(row.get(col_x, float('nan')))
-                        y = float(row.get(col_y, float('nan')))
-                    except (ValueError, TypeError):
-                        continue
-
-                    if (x != x) or (y != y):  # Skip NaN
-                        continue
-
-                    if x <= fluor_gate_x or y <= fluor_gate_y:
-                        continue
-
-                    x_vals.append(x)
-                    y_vals.append(y)
-
-                    # Store filename and nucleus_id for image lookup
-                    filename = row.get("filename", "")
-                    nuclear_id = row.get("nucleus_id", "")
-                    if row_idx == 0:  # Debug first row only
-                        print(f"DEBUG scatter_controller: Row keys: {list(row.keys())}")
-                        print(f"DEBUG scatter_controller: filename={filename!r}, nuclear_id={nuclear_id!r}")
-                    metadata.append((well_label, filename, nuclear_id, row_idx))
+                wx, wy, wmeta = _collect_rows_for_well(
+                    app, well_label, col_x, col_y, timepoint_h,
+                    cell_area_threshold, fluor_gate_x, fluor_gate_y,
+                )
+                x_vals.extend(wx)
+                y_vals.extend(wy)
+                metadata.extend(wmeta)
 
             if x_vals:  # Only add group if it has data
                 scatter_data[group_name] = {
@@ -152,52 +157,10 @@ def collect_scatter_data(
 
         for well_idx, well_label in enumerate(selected_wells):
             color = well_colors[well_idx % len(well_colors)]
-            x_vals: List[float] = []
-            y_vals: List[float] = []
-            metadata: List[Tuple[str, str, str, int]] = []
-
-            rows = app._get_rows(well_label)
-            for row_idx, row in enumerate(rows):
-                if not app._row_is_included(row):
-                    continue
-                # Filter by timepoint
-                try:
-                    tp = float(row.get("timepoint_hours", float('nan')))
-                except (ValueError, TypeError):
-                    continue
-
-                if abs(tp - timepoint_h) > 1e-6:
-                    continue
-
-                # Filter by cell area threshold
-                try:
-                    area = float(row.get("area_px", float('nan')))
-                except (ValueError, TypeError):
-                    continue
-
-                if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
-                    continue
-
-                # Filter by fluorescence gate threshold on both channels
-                try:
-                    x = float(row.get(col_x, float('nan')))
-                    y = float(row.get(col_y, float('nan')))
-                except (ValueError, TypeError):
-                    continue
-
-                if (x != x) or (y != y):  # Skip NaN
-                    continue
-
-                if x <= fluor_gate_x or y <= fluor_gate_y:
-                    continue
-
-                x_vals.append(x)
-                y_vals.append(y)
-
-                # Store filename and nucleus_id for image lookup
-                filename = row.get("filename", "")
-                nuclear_id = row.get("nucleus_id", "")
-                metadata.append((well_label, filename, nuclear_id, row_idx))
+            x_vals, y_vals, metadata = _collect_rows_for_well(
+                app, well_label, col_x, col_y, timepoint_h,
+                cell_area_threshold, fluor_gate_x, fluor_gate_y,
+            )
 
             if x_vals:  # Only add well if it has data
                 scatter_data[well_label] = {
