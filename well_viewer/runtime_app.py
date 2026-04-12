@@ -5629,6 +5629,26 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("bar")
 
+    def _open_scatter_cells_batch_export(self) -> None:
+        """Switch Batch Export tab to the inline scatter-cells export builder."""
+        if not self._well_paths:
+            messagebox.showwarning("No data", "Load data before opening Scatter Cells Batch Export.")
+            return
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_batch_export_set_mode"):
+            self._batch_export_set_mode("scatter_cells")
+
+    def _open_scatter_agg_batch_export(self) -> None:
+        """Switch Batch Export tab to the inline aggregate-scatter export builder."""
+        if not self._well_paths:
+            messagebox.showwarning("No data", "Load data before opening Scatter Aggregate Batch Export.")
+            return
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_batch_export_set_mode"):
+            self._batch_export_set_mode("scatter_agg")
+
     # ── Save current figure ───────────────────────────────────────────────────
 
     _FIG_FILETYPES = [
