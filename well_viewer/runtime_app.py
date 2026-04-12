@@ -3913,6 +3913,11 @@ class WellViewerApp(tk.Frame):
             if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
 
+    def _on_review_image_channel_selected(self, _e=None) -> None:
+        """Channel-switch handler that preserves Review Image zoom/pan view."""
+        self._review_image_preserve_view_on_refresh = True
+        self._set_active_channel(self._chan_var.get().lower())
+
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
         metric_label = self._metric_var.get()
@@ -4511,13 +4516,10 @@ class WellViewerApp(tk.Frame):
                 self._stats_update_tp_menu()
 
         elif tab == "Batch Export":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
-            # Batch Export now uses its in-tab group builder UI.
-            self._refresh_sidebar_map()
+            # Batch Export owns its own in-tab well/group picker, so avoid
+            # showing the global sidebar well picker to prevent duplicate maps.
+            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._groups_centre_refresh()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
                 self._batch_export_set_mode(mode)
@@ -5631,6 +5633,26 @@ class WellViewerApp(tk.Frame):
             self._notebook.select_by_text("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("bar")
+
+    def _open_scatter_cells_batch_export(self) -> None:
+        """Switch Batch Export tab to the inline scatter-cells export builder."""
+        if not self._well_paths:
+            messagebox.showwarning("No data", "Load data before opening Scatter Cells Batch Export.")
+            return
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_batch_export_set_mode"):
+            self._batch_export_set_mode("scatter_cells")
+
+    def _open_scatter_agg_batch_export(self) -> None:
+        """Switch Batch Export tab to the inline aggregate-scatter export builder."""
+        if not self._well_paths:
+            messagebox.showwarning("No data", "Load data before opening Scatter Aggregate Batch Export.")
+            return
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_batch_export_set_mode"):
+            self._batch_export_set_mode("scatter_agg")
 
     # ── Save current figure ───────────────────────────────────────────────────
 

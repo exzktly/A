@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import logging
 
 from pathlib import Path
@@ -31,9 +32,24 @@ def load_path(app, path: Path) -> None:
 
 
 def load_directory(app, d: Path, label=None) -> None:
-    csvs = [p for p in sorted(d.glob("*.csv")) if not p.name.startswith(".")]
+    csvs_all = [p for p in sorted(d.glob("*.csv")) if not p.name.startswith(".")]
+    csvs = [p for p in csvs_all if _looks_like_well_measurement_csv(p)]
+    skipped = [p for p in csvs_all if p not in csvs]
+    if skipped:
+        logging.getLogger("well_viewer").info(
+            "Skipping %d non-measurement CSV(s): %s",
+            len(skipped),
+            ", ".join(p.name for p in skipped[:8]) + ("…" if len(skipped) > 8 else ""),
+        )
     if not csvs:
-        messagebox.showwarning("No CSVs", f"No .csv files found in:\n{d}")
+        if csvs_all:
+            messagebox.showwarning(
+                "No compatible CSVs",
+                "CSV files were found, but none looked like well-measurement input files.\n"
+                "Please select the analysis output folder containing per-well CSVs.",
+            )
+        else:
+            messagebox.showwarning("No CSVs", f"No .csv files found in:\n{d}")
         return
     app._data_dir = d
     app._well_paths.clear()
@@ -65,6 +81,25 @@ def load_directory(app, d: Path, label=None) -> None:
     app._set_status(f"Loaded {n} well(s) — {display}")
     app._recalculate_threshold()
     app._redraw()
+
+
+def _looks_like_well_measurement_csv(path: Path) -> bool:
+    """Guard loader input: accept only per-well measurement CSV schemas."""
+    try:
+        with path.open(newline="") as fh:
+            reader = csv.reader(fh)
+            header = next(reader, [])
+    except (OSError, StopIteration):
+        return False
+    if not header:
+        return False
+    cols = [str(c).strip().lower() for c in header]
+    has_timepoint = any(c in {"timepoint_hours", "timepoint"} for c in cols)
+    has_measure_col = any(
+        c.endswith("_mean_intensity") or c.endswith("_smfish_count")
+        for c in cols
+    )
+    return has_timepoint and has_measure_col
 
 
 def build_tok_to_label(app) -> None:
