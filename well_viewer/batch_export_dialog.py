@@ -1608,8 +1608,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
         vsb.config(command=self._tp_lb.yview)
         self._init_timepoint_dropdown()
 
-        mode_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=(0, 4))
-        mode_row.pack(fill=tk.X)
+        mode_row = tk.Frame(parent, bg=BG_APP, padx=12)
+        mode_row.pack(fill=tk.X, pady=(0, 4))
         self._scatter_split_tp_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             mode_row,
