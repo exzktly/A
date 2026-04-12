@@ -4511,13 +4511,10 @@ class WellViewerApp(tk.Frame):
                 self._stats_update_tp_menu()
 
         elif tab == "Batch Export":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
-            # Batch Export now uses its in-tab group builder UI.
-            self._refresh_sidebar_map()
+            # Batch Export owns its own in-tab well/group picker, so avoid
+            # showing the global sidebar well picker to prevent duplicate maps.
+            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._groups_centre_refresh()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
                 self._batch_export_set_mode(mode)
