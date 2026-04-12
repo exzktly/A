@@ -3913,6 +3913,11 @@ class WellViewerApp(tk.Frame):
             if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
 
+    def _on_review_image_channel_selected(self, _e=None) -> None:
+        """Channel-switch handler that preserves Review Image zoom/pan view."""
+        self._review_image_preserve_view_on_refresh = True
+        self._set_active_channel(self._chan_var.get().lower())
+
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
         metric_label = self._metric_var.get()

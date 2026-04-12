@@ -196,7 +196,7 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
             ctrl, textvariable=self._chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
         )
         self._review_image_chan_cb.pack(side=tk.LEFT, padx=(0, 10))
-        self._review_image_chan_cb.bind("<<ComboboxSelected>>", lambda _e: self._set_active_channel(self._chan_var.get().lower()))
+        self._review_image_chan_cb.bind("<<ComboboxSelected>>", self._on_review_image_channel_selected)
 
         tk.Label(ctrl, text="FOV:", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
         self._review_image_fov_menu = ttk.Combobox(
