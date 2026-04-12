@@ -1581,13 +1581,41 @@ class ScatterBatchExportPanel(BatchExportPanel):
             self._sc_agg_y_cb.pack(side=tk.LEFT, padx=(4, 0))
             self._init_scatter_agg_stats()
 
-        tp_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
-        tp_row.pack(fill=tk.X)
-        tk.Label(tp_row, text="Timepoint:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT)
-        self._tp_var = tk.StringVar()
-        self._tp_cb = ttk.Combobox(tp_row, textvariable=self._tp_var, state="readonly", width=10, font=FM_TINY)
-        self._tp_cb.pack(side=tk.LEFT, padx=(6, 0))
+        tp_hdr = tk.Frame(parent, bg=BG_APP, padx=12)
+        tp_hdr.pack(fill=tk.X, pady=(4, 2))
+        tk.Label(tp_hdr, text="TIMEPOINTS", font=FM_BOLD, fg=TXT_MUT, bg=BG_APP).pack(side=tk.LEFT)
+        tk.Button(tp_hdr, text="None",
+                  command=lambda: self._tp_lb.select_clear(0, tk.END),
+                  font=FM_TINY, bg=ACCENT_DARK, fg=CLR_WHITE, relief=tk.FLAT, padx=6,
+                  cursor="hand2", activebackground=ACCENT, activeforeground=CLR_WHITE,
+                  bd=0, highlightthickness=0).pack(side=tk.RIGHT)
+        tk.Button(tp_hdr, text="All",
+                  command=lambda: self._tp_lb.select_set(0, tk.END),
+                  font=FM_TINY, bg=ACCENT_DARK, fg=CLR_WHITE, relief=tk.FLAT, padx=6,
+                  cursor="hand2", activebackground=ACCENT, activeforeground=CLR_WHITE,
+                  bd=0, highlightthickness=0).pack(side=tk.RIGHT, padx=(0, 4))
+
+        tp_frame = tk.Frame(parent, bg=BG_APP, padx=12)
+        tp_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
+        vsb = tk.Scrollbar(tp_frame, relief=tk.FLAT, width=7, bg=BORDER, troughcolor=BG_SIDE)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._tp_lb = tk.Listbox(
+            tp_frame, selectmode=tk.MULTIPLE, bg=BG_PANEL, fg=TXT_PRI, font=FM_MONO,
+            selectbackground=ACCENT, selectforeground=CLR_WHITE, activestyle="none", relief=tk.FLAT,
+            highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER,
+            yscrollcommand=vsb.set, exportselection=False, borderwidth=0)
+        self._tp_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.config(command=self._tp_lb.yview)
         self._init_timepoint_dropdown()
+
+        mode_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=(0, 4))
+        mode_row.pack(fill=tk.X)
+        self._scatter_split_tp_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            mode_row,
+            text="Separate file per selected timepoint (otherwise combine all selected timepoints per group)",
+            variable=self._scatter_split_tp_var,
+        ).pack(side=tk.LEFT, anchor="w")
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
         info = tk.Label(
@@ -1623,8 +1651,11 @@ class ScatterBatchExportPanel(BatchExportPanel):
                         timepoints.append(tp)
             timepoints = sorted(set(timepoints))
         tp_vals = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0.0"]
-        self._tp_cb.config(values=tp_vals)
-        self._tp_var.set(tp_vals[0])
+        self._tp_lb.delete(0, tk.END)
+        for tp in tp_vals:
+            self._tp_lb.insert(tk.END, tp)
+        if self._tp_lb.size() > 0:
+            self._tp_lb.select_set(0, tk.END)
 
     def _init_scatter_cells_axes(self) -> None:
         channels = list(self._app._fluor_channels) if self._app._fluor_channels else ["gfp"]
@@ -1664,28 +1695,54 @@ class ScatterBatchExportPanel(BatchExportPanel):
         out_dir = self._resolve_out_dir()
         if out_dir is None:
             return
-        try:
-            tp = float(self._tp_var.get())
-        except ValueError:
+        selected_tps = _selected_listbox_values(self._tp_lb)
+        if not selected_tps:
             messagebox.showwarning("No timepoint", "Select a valid timepoint.", parent=self)
             return
+        timepoints: List[float] = []
+        for tp_str in selected_tps:
+            try:
+                timepoints.append(float(tp_str))
+            except ValueError:
+                continue
+        if not timepoints:
+            messagebox.showwarning("No timepoint", "Select at least one valid timepoint.", parent=self)
+            return
         fmt = self._fmt_var.get()
-        jobs = [(grp, tp) for grp in groups_with_data]
+        split_by_tp = bool(self._scatter_split_tp_var.get())
+        if split_by_tp:
+            jobs = [(grp, tp) for grp in groups_with_data for tp in timepoints]
 
-        def _progress(job, step: int, total: int) -> str:
-            grp, tp_h = job
-            return f"'{grp.name}' @ t={tp_h:.1f}h ({step}/{total})"
+            def _progress(job, step: int, total: int) -> str:
+                grp, tp_h = job
+                return f"'{grp.name}' @ t={tp_h:.1f}h ({step}/{total})"
 
-        def _run_job(job) -> Optional[str]:
-            grp, tp_h = job
-            safe_grp = re.sub(r"[^A-Za-z0-9_\\-]", "_", grp.name)
-            safe_tp = f"{tp_h:.1f}".replace(".", "_")
-            stem = f"scatter_{self._scatter_mode}_{safe_grp}_t{safe_tp}"
-            csv_path = out_dir / f"{stem}.csv"
-            fig_path = out_dir / f"{stem}.{fmt}"
-            if self._scatter_mode == "cells":
-                return self._run_scatter_cells_job(grp, tp_h, csv_path, fig_path, fmt)
-            return self._run_scatter_agg_job(grp, tp_h, csv_path, fig_path, fmt)
+            def _run_job(job) -> Optional[str]:
+                grp, tp_h = job
+                safe_grp = re.sub(r"[^A-Za-z0-9_\\-]", "_", grp.name)
+                safe_tp = f"{tp_h:.1f}".replace(".", "_")
+                stem = f"scatter_{self._scatter_mode}_{safe_grp}_t{safe_tp}"
+                csv_path = out_dir / f"{stem}.csv"
+                fig_path = out_dir / f"{stem}.{fmt}"
+                if self._scatter_mode == "cells":
+                    return self._run_scatter_cells_job(grp, tp_h, csv_path, fig_path, fmt)
+                return self._run_scatter_agg_job(grp, tp_h, csv_path, fig_path, fmt)
+        else:
+            jobs = list(groups_with_data)
+
+            def _progress(job, step: int, total: int) -> str:
+                grp = job
+                return f"'{grp.name}' all selected tps ({step}/{total})"
+
+            def _run_job(job) -> Optional[str]:
+                grp = job
+                safe_grp = re.sub(r"[^A-Za-z0-9_\\-]", "_", grp.name)
+                stem = f"scatter_{self._scatter_mode}_{safe_grp}_all_tps"
+                csv_path = out_dir / f"{stem}.csv"
+                fig_path = out_dir / f"{stem}.{fmt}"
+                if self._scatter_mode == "cells":
+                    return self._run_scatter_cells_multi_tp_job(grp, timepoints, csv_path, fig_path, fmt)
+                return self._run_scatter_agg_multi_tp_job(grp, timepoints, csv_path, fig_path, fmt)
 
         self._run_batch_jobs(
             jobs=jobs,
@@ -1820,6 +1877,146 @@ class ScatterBatchExportPanel(BatchExportPanel):
             ax.set_title(f"{grp.name} — Scatter Aggregate (t={tp_h:.1f}h)")
             ax.grid(True, alpha=0.3)
             ax.legend(loc="best", fontsize=8)
+            self._save_figure(fig, fig_path, fmt)
+        except Exception as exc:
+            return f"{grp.name} scatter-aggregate figure: {exc}"
+        return None
+
+    def _run_scatter_cells_multi_tp_job(
+        self,
+        grp: "BarGroup",
+        timepoints: List[float],
+        csv_path: Path,
+        fig_path: Path,
+        fmt: str,
+    ) -> Optional[str]:
+        combined_rows: List[dict] = []
+        combined_series: List[tuple[float, str, dict]] = []
+        for tp_h in sorted(timepoints):
+            col_x = self._app._col_for_scatter_entry(self._sc_cells_x_var.get())
+            col_y = self._app._col_for_scatter_entry(self._sc_cells_y_var.get())
+            old_rep_sets = self._app._rep_sets
+            old_selected = self._app._selected_wells
+            try:
+                self._app._rep_sets = list(grp.members)
+                self._app._selected_wells = set(grp.solo_wells)
+                ch_x_base = self._sc_cells_x_var.get().split(" ")[0]
+                ch_y_base = self._sc_cells_y_var.get().split(" ")[0]
+                scatter_data = _collect_scatter_data(
+                    self._app,
+                    col_x,
+                    col_y,
+                    tp_h,
+                    well_colors=WELL_COLORS,
+                    cell_area_threshold=self._app._get_cell_area_threshold(),
+                    fluor_gate_x=self._app._get_fluor_gate(ch_x_base),
+                    fluor_gate_y=self._app._get_fluor_gate(ch_y_base),
+                )
+            finally:
+                self._app._rep_sets = old_rep_sets
+                self._app._selected_wells = old_selected
+            for label, data in scatter_data.items():
+                combined_series.append((tp_h, label, data))
+                for x, y, meta in zip(data["x"], data["y"], data["metadata"]):
+                    well, filename, nuclear_id, _row_idx = meta
+                    combined_rows.append({
+                        "group": grp.name,
+                        "timepoint_h": f"{tp_h:.4f}",
+                        "member": label,
+                        "well": well,
+                        "x": f"{x:.8g}",
+                        "y": f"{y:.8g}",
+                        "filename": filename,
+                        "nucleus_id": nuclear_id,
+                    })
+        if not combined_rows:
+            return f"{grp.name}: no scatter-cells data for selected timepoints"
+        try:
+            with open(csv_path, "w", newline="") as fh:
+                fieldnames = ["group", "timepoint_h", "member", "well", "x", "y", "filename", "nucleus_id"]
+                writer = csv.DictWriter(fh, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(combined_rows)
+        except OSError as exc:
+            return f"{grp.name} scatter-cells CSV: {exc}"
+        try:
+            from matplotlib.figure import Figure as _Figure
+            fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
+            ax = fig.add_subplot(1, 1, 1)
+            for tp_h, label, data in combined_series:
+                ax.scatter(data["x"], data["y"], label=f"{label} @ t={tp_h:.1f}h", alpha=0.55, s=24)
+            ax.set_xlabel(self._app._col_for_scatter_entry(self._sc_cells_x_var.get()))
+            ax.set_ylabel(self._app._col_for_scatter_entry(self._sc_cells_y_var.get()))
+            ax.set_title(f"{grp.name} — Scatter Cells (all selected tps)")
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc="best", fontsize=7)
+            self._save_figure(fig, fig_path, fmt)
+        except Exception as exc:
+            return f"{grp.name} scatter-cells figure: {exc}"
+        return None
+
+    def _run_scatter_agg_multi_tp_job(
+        self,
+        grp: "BarGroup",
+        timepoints: List[float],
+        csv_path: Path,
+        fig_path: Path,
+        fmt: str,
+    ) -> Optional[str]:
+        stat_x = self._sc_agg_x_var.get()
+        stat_y = self._sc_agg_y_var.get()
+        old_rep_sets = self._app._rep_sets
+        old_selected = self._app._selected_wells
+        try:
+            self._app._rep_sets = list(grp.members)
+            self._app._selected_wells = set(grp.solo_wells)
+            scatter_data = _collect_scatter_agg_data(
+                self._app,
+                stat_x,
+                stat_y,
+                sorted(timepoints),
+                well_colors=WELL_COLORS,
+                aggregate_with_threshold=aggregate_with_threshold,
+            )
+        finally:
+            self._app._rep_sets = old_rep_sets
+            self._app._selected_wells = old_selected
+        if not scatter_data:
+            return f"{grp.name}: no scatter-aggregate data for selected timepoints"
+        try:
+            rows: List[dict] = []
+            for data in scatter_data.values():
+                rows.append({
+                    "group": grp.name,
+                    "label": data.get("label", ""),
+                    "timepoint_h": f"{float(data.get('timepoint', float('nan'))):.4f}",
+                    "x": f"{float(data['x'][0]):.8g}",
+                    "y": f"{float(data['y'][0]):.8g}",
+                    "x_err": f"{float(data['x_err'][0]):.8g}",
+                    "y_err": f"{float(data['y_err'][0]):.8g}",
+                })
+            with open(csv_path, "w", newline="") as fh:
+                fieldnames = ["group", "label", "timepoint_h", "x", "y", "x_err", "y_err"]
+                writer = csv.DictWriter(fh, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+        except OSError as exc:
+            return f"{grp.name} scatter-aggregate CSV: {exc}"
+        try:
+            from matplotlib.figure import Figure as _Figure
+            fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
+            ax = fig.add_subplot(1, 1, 1)
+            for data in scatter_data.values():
+                ax.errorbar(
+                    data["x"], data["y"], xerr=data["x_err"], yerr=data["y_err"],
+                    label=data.get("label", ""), marker=data.get("marker", "o"),
+                    linestyle="none", capsize=5, alpha=0.75,
+                )
+            ax.set_xlabel(stat_x)
+            ax.set_ylabel(stat_y)
+            ax.set_title(f"{grp.name} — Scatter Aggregate (all selected tps)")
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc="best", fontsize=7)
             self._save_figure(fig, fig_path, fmt)
         except Exception as exc:
             return f"{grp.name} scatter-aggregate figure: {exc}"
