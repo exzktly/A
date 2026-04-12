@@ -24,8 +24,7 @@ def build_bar_group_panel(app, parent: tk.Frame) -> None:
         build_plate_grid, _bind_drag, make_scrollable_canvas,
     )
 
-    # Title row only — Add/Clear/Save/Load removed; groups are now
-    # managed exclusively via the bar-plot drag interactions.
+    # Title row + group-list actions.
     hdr1 = tk.Frame(parent, bg=BG_SIDE, pady=3, padx=8)
     hdr1.pack(fill=tk.X)
     tk.Label(hdr1, text="PLATE MAP", font=FM_BOLD, fg=TXT_MUT,
@@ -33,6 +32,12 @@ def build_bar_group_panel(app, parent: tk.Frame) -> None:
     tk.Label(hdr1, text="(right-drag to toggle visibility)",
              font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(
              side=tk.LEFT, padx=(6, 0))
+    ttk.Button(
+        hdr1, text="+ Add Group", command=app._bar_add_group, style="ActionIndigo.TButton"
+    ).pack(side=tk.RIGHT)
+    ttk.Button(
+        hdr1, text="Clear All", command=app._bar_clear_all_groups, style="Secondary.TButton"
+    ).pack(side=tk.RIGHT, padx=(0, 6))
 
     tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
 

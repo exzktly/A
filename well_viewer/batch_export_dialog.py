@@ -84,13 +84,26 @@ class BatchExportPanel(tk.Frame):
     Right : Output settings + Run.
     """
 
-    def __init__(self, app: "WellViewerApp", parent: tk.Widget) -> None:
+    def __init__(
+        self,
+        app: "WellViewerApp",
+        parent: tk.Widget,
+        *,
+        use_sidebar_groups: bool = False,
+    ) -> None:
         super().__init__(parent, bg=BG_APP)
         self._app = app
+        self._use_sidebar_groups = bool(use_sidebar_groups)
 
         default_out = str(app._data_dir) if app._data_dir else ""
+        export_prefs = getattr(app, "_export_style_prefs", {}) or {}
+        default_fmt = str(export_prefs.get("format", "png")).lower()
+        if default_fmt not in {"png", "svg", "eps", "pdf"}:
+            default_fmt = "png"
+        default_profile = str(export_prefs.get("export_profile", "Custom"))
         self._out_dir_var = tk.StringVar(value=default_out)
-        self._fmt_var     = tk.StringVar(value="png")
+        self._fmt_var     = tk.StringVar(value=default_fmt)
+        self._export_profile_var = tk.StringVar(value=default_profile)
         self._active_grp  = -1   # index of selected export group
 
         # Initialise groups from rep-sets (one group per set).
@@ -99,16 +112,22 @@ class BatchExportPanel(tk.Frame):
         self._groups: List["BarGroup"] = self._groups_from_rep_sets()
 
         self._build_ui()
-        self._refresh_group_list()
+        if not self._use_sidebar_groups:
+            self._refresh_group_list()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         tk.Frame(self, bg=BORDER, height=1).pack(side=tk.TOP, fill=tk.X)
 
-        # Body: left = group editor, right = output + run
+        # Body: left = group editor, right = output + run (or right-only when
+        # group editing is delegated to the app sidebar).
         body = tk.Frame(self, bg=BG_APP)
         body.pack(fill=tk.BOTH, expand=True)
+
+        if self._use_sidebar_groups:
+            self._build_output_panel(body)
+            return
 
         # ── Left: group editor ────────────────────────────────────────────────
         left = tk.Frame(body, bg=BG_SIDE, width=520)
@@ -237,6 +256,7 @@ class BatchExportPanel(tk.Frame):
                                   font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
         self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
         fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
+        self._build_export_profile_row(parent)
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
 
@@ -245,6 +265,7 @@ class BatchExportPanel(tk.Frame):
                               "  \u2022 One figure with one line per group member\n"
                               "    (ReplicateSet = mean of its wells, Solo well = raw)\n"
                               "  \u2022 One CSV with per-member time-series data\n\n"
+                              f"{'Groups come from Sample Definitions in the left sidebar.' if self._use_sidebar_groups else 'Groups are defined in the left panel.'}\n"
                               "No statistics are computed across group members.\n"
                               "SD/SEM is only computed within a ReplicateSet."),
                         font=FM_TINY, fg=TXT_SEC, bg=BG_APP,
@@ -253,12 +274,13 @@ class BatchExportPanel(tk.Frame):
 
         run_row = tk.Frame(parent, bg=BG_APP, pady=12, padx=12)
         run_row.pack(fill=tk.X)
-        self._run_btn = tk.Button(run_row, text="▶  Run Batch Export",
-                                  command=self._run_batch,
-                                  font=FM_BOLD, fg=CLR_WHITE, bg=CLR_SUCCESS,
-                                  activebackground=CLR_SUCCESS_DARK,
-                                  relief=tk.FLAT, padx=16, pady=6,
-                                  cursor="hand2", bd=0)
+        self._run_btn = ttk.Button(
+            run_row,
+            text="▶  Run Batch Export",
+            command=self._run_batch,
+            style="TButton",
+            padding=(16, 6),
+        )
         self._run_btn.pack(side=tk.LEFT)
         self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
                                   fg=TXT_MUT, bg=BG_APP)
@@ -548,7 +570,7 @@ class BatchExportPanel(tk.Frame):
                 groups.append(grp)
             return groups
         # Legacy fallback
-            return copy.deepcopy(self._app._bar_groups)
+        return copy.deepcopy(self._app._bar_groups)
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -679,6 +701,62 @@ class BatchExportPanel(tk.Frame):
                  "eps": "vector — text editable", "pdf": "vector"}
         self._fmt_hint.config(text=hints.get(self._fmt_var.get(), ""))
 
+    def _build_export_profile_row(self, parent: tk.Frame) -> None:
+        row = tk.Frame(parent, bg=BG_APP, padx=12, pady=2)
+        row.pack(fill=tk.X)
+        tk.Label(row, text="Style Preset:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
+        self._profile_combo = ttk.Combobox(
+            row,
+            textvariable=self._export_profile_var,
+            values=self._export_profile_names(),
+            state="readonly",
+            width=20,
+            font=FM_TINY,
+            postcommand=self._refresh_export_profile_choices,
+        )
+        self._profile_combo.pack(side=tk.LEFT)
+        self._profile_combo.bind("<<ComboboxSelected>>", self._on_export_profile_selected)
+        self._refresh_export_profile_choices()
+        if self._export_profile_var.get() not in self._export_profile_names():
+            self._export_profile_var.set("Custom")
+        self._apply_export_profile_to_prefs(self._export_profile_var.get())
+
+    def _export_profile_names(self) -> "List[str]":
+        from well_viewer.figure_export_editor import _get_all_profile_names
+
+        names = _get_all_profile_names(self._app)
+        return names or ["Custom"]
+
+    def _refresh_export_profile_choices(self) -> None:
+        names = self._export_profile_names()
+        if hasattr(self, "_profile_combo"):
+            self._profile_combo.configure(values=names)
+        if self._export_profile_var.get() not in names:
+            self._export_profile_var.set("Custom")
+
+    def _apply_export_profile_to_prefs(self, profile_name: str) -> None:
+        from well_viewer.figure_export_editor import (
+            EXPORT_PROFILES,
+            _ensure_custom_export_profiles,
+            _ensure_export_style_prefs,
+        )
+
+        name = str(profile_name or "Custom")
+        prefs = _ensure_export_style_prefs(self._app)
+        custom_profiles = _ensure_custom_export_profiles(self._app)
+        overrides = EXPORT_PROFILES.get(name) or custom_profiles.get(name) or {}
+        prefs["export_profile"] = name
+        for key, value in overrides.items():
+            prefs[key] = value
+        fmt = str(prefs.get("format", self._fmt_var.get() or "png")).lower()
+        if fmt in {"png", "svg", "eps", "pdf"}:
+            self._fmt_var.set(fmt)
+            if hasattr(self, "_fmt_hint"):
+                self._on_fmt_change()
+
+    def _on_export_profile_selected(self, _e=None) -> None:
+        self._apply_export_profile_to_prefs(self._export_profile_var.get())
+
     def _resolve_out_dir(self) -> Optional[Path]:
         val = self._out_dir_var.get().strip()
         if val:
@@ -731,6 +809,12 @@ class BatchExportPanel(tk.Frame):
     def _save_figure(self, fig, fig_path: Path, fmt: str) -> None:
         import matplotlib as _mpl
         import matplotlib.pyplot as _plt
+        from well_viewer.figure_export_editor import (
+            _ensure_export_style_prefs,
+            apply_export_style_prefs,
+        )
+
+        apply_export_style_prefs(fig, _ensure_export_style_prefs(self._app))
 
         orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
         orig_ps = _mpl.rcParams.get("ps.fonttype", 3)
@@ -750,14 +834,30 @@ class BatchExportPanel(tk.Frame):
 
     # ── Export execution ──────────────────────────────────────────────────────
 
+    def _groups_for_export(self) -> "List[BarGroup]":
+        if self._use_sidebar_groups:
+            sidebar_groups = copy.deepcopy(getattr(self._app, "_bar_groups", []))
+            if sidebar_groups and any(g.wells for g in sidebar_groups):
+                return sidebar_groups
+            # Fallback for Sample Definitions states that only define
+            # ReplicateSets without explicit bar-group cards.
+            return self._groups_from_rep_sets()
+        return list(self._groups)
+
     def _run_batch(self) -> None:
         """Export each group: CSV + combined figure (one line per member)."""
-        groups_with_data = [g for g in self._groups
+        groups_with_data = [g for g in self._groups_for_export()
                             if any(w in self._app._well_paths for w in g.wells)]
         if not groups_with_data:
-            messagebox.showwarning("No groups", "Define at least one non-empty group.",
+            msg = (
+                "Define at least one non-empty group in Sample Definitions."
+                if self._use_sidebar_groups
+                else "Define at least one non-empty group."
+            )
+            messagebox.showwarning("No groups", msg,
                                    parent=self)
             return
+        self._log_sample_definitions_snapshot(groups_with_data)
         out_dir = self._resolve_out_dir()
         if out_dir is None:
             return
@@ -860,6 +960,19 @@ class BatchExportPanel(tk.Frame):
             run_job_fn=_run_group,
             success_text=f"\u2713 {len(groups_with_data)} group(s) \u2192 {out_dir.name}/",
             status_text=f"Batch export: {len(groups_with_data)} group(s) \u2192 {out_dir}",
+        )
+
+    def _log_sample_definitions_snapshot(self, groups_for_export: "List[BarGroup]") -> None:
+        rep_sets = getattr(self._app, "_rep_sets", [])
+        bar_groups = getattr(self._app, "_bar_groups", [])
+        rep_summary = [f"{r.name}={len(r.wells)}w" for r in rep_sets]
+        grp_summary = [f"{g.name}={len(g.wells)}w" for g in bar_groups]
+        export_summary = [f"{g.name}={len(g.wells)}w" for g in groups_for_export]
+        _logger.info(
+            "Run Batch Export clicked | rep_sets=%s | bar_groups=%s | groups_for_export=%s",
+            rep_summary,
+            grp_summary,
+            export_summary,
         )
 
     def _render_group_figure(
@@ -1043,8 +1156,14 @@ class BarBatchExportPanel(BatchExportPanel):
       _build_output_panel, _run_batch
     """
 
-    def __init__(self, app: "WellViewerApp", parent: tk.Widget) -> None:
-        super().__init__(app, parent)
+    def __init__(
+        self,
+        app: "WellViewerApp",
+        parent: tk.Widget,
+        *,
+        use_sidebar_groups: bool = False,
+    ) -> None:
+        super().__init__(app, parent, use_sidebar_groups=use_sidebar_groups)
 
     # ── Right panel ────────────────────────────────────────────────────────────
 
@@ -1078,6 +1197,7 @@ class BarBatchExportPanel(BatchExportPanel):
                                   font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
         self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
         fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
+        self._build_export_profile_row(parent)
 
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
 
@@ -1131,7 +1251,7 @@ class BarBatchExportPanel(BatchExportPanel):
                         text=("Each group \u00d7 timepoint produces:\n"
                               "  \u2022 One bar figure (one bar per replicate set or well)\n"
                               "  \u2022 One CSV row per member at that timepoint\n\n"
-                              "Groups are defined in the left panel.\n"
+                              f"{'Groups come from Sample Definitions in the left sidebar.' if self._use_sidebar_groups else 'Groups are defined in the left panel.'}\n"
                               "SD/SEM is computed within each ReplicateSet only."),
                         font=FM_TINY, fg=TXT_SEC, bg=BG_APP,
                         justify=tk.LEFT, anchor="w")
@@ -1139,12 +1259,13 @@ class BarBatchExportPanel(BatchExportPanel):
 
         run_row = tk.Frame(parent, bg=BG_APP, pady=8, padx=12)
         run_row.pack(fill=tk.X)
-        self._run_btn = tk.Button(run_row, text="▶  Run Batch Export",
-                                  command=self._run_batch,
-                                  font=FM_BOLD, fg=CLR_WHITE, bg=CLR_SUCCESS,
-                                  activebackground=CLR_SUCCESS_DARK,
-                                  relief=tk.FLAT, padx=16, pady=6,
-                                  cursor="hand2", bd=0)
+        self._run_btn = ttk.Button(
+            run_row,
+            text="▶  Run Batch Export",
+            command=self._run_batch,
+            style="TButton",
+            padding=(16, 6),
+        )
         self._run_btn.pack(side=tk.LEFT)
         self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
                                   fg=TXT_MUT, bg=BG_APP)
@@ -1158,12 +1279,18 @@ class BarBatchExportPanel(BatchExportPanel):
 
     def _run_batch(self) -> None:
         """Export: for each group, one bar figure + CSV per selected timepoint."""
-        groups_with_data = _groups_with_loaded_wells(self._groups, self._app._well_paths)
+        groups_with_data = _groups_with_loaded_wells(self._groups_for_export(), self._app._well_paths)
         if not groups_with_data:
+            msg = (
+                "Define at least one non-empty group in Sample Definitions."
+                if self._use_sidebar_groups
+                else "Define at least one non-empty group."
+            )
             messagebox.showwarning("No groups",
-                                   "Define at least one non-empty group.",
+                                   msg,
                                    parent=self)
             return
+        self._log_sample_definitions_snapshot(groups_with_data)
 
         selected_tps = _selected_listbox_values(self._tp_lb)
         if not selected_tps:

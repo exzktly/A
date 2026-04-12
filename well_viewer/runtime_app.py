@@ -3100,7 +3100,7 @@ class WellViewerApp(tk.Frame):
         self._sb_drag(event)
 
     def _bg_release(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
-        self._sb_release(event=None)
+        self._sb_release(None)
 
     def _bg_on_rep_change(self) -> None:
         self._sb_on_rep_change()
@@ -4516,10 +4516,7 @@ class WellViewerApp(tk.Frame):
                 self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
             if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
                 self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
-            # Reuse existing grouping editors to keep Batch Export aligned with
-            # the line/bar grouped-plot selection model.
-            self._sidebar_sample_frame.pack(fill=tk.X)
-            self._sidebar_groups_frame.pack(fill=tk.BOTH, expand=True)
+            # Batch Export now uses its in-tab group builder UI.
             self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
