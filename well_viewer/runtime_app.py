@@ -3100,7 +3100,7 @@ class WellViewerApp(tk.Frame):
         self._sb_drag(event)
 
     def _bg_release(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
-        self._sb_release(event=None)
+        self._sb_release(None)
 
     def _bg_on_rep_change(self) -> None:
         self._sb_on_rep_change()
