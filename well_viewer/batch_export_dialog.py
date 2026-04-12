@@ -110,6 +110,7 @@ class BatchExportPanel(tk.Frame):
         # Falls back to a deep-copy of _bar_groups if rep-sets are empty,
         # for backward compatibility with saved sessions.
         self._groups: List["BarGroup"] = self._groups_from_rep_sets()
+        self._auto_named_group_ids: set[int] = set()
 
         self._build_ui()
         if not self._use_sidebar_groups:
@@ -297,6 +298,20 @@ class BatchExportPanel(tk.Frame):
             return self._groups[self._active_grp]
         return None
 
+    def _default_group_name(self, grp: "BarGroup") -> str:
+        """Build a default name from current member elements."""
+        labels = [r.name for r in grp.members]
+        labels.extend((_extract_well_token(w) or w) for w in grp.solo_wells)
+        if not labels:
+            return "New Group"
+        return ", ".join(labels)
+
+    def _refresh_auto_group_name(self, grp: Optional["BarGroup"]) -> None:
+        if grp is None:
+            return
+        if id(grp) in self._auto_named_group_ids:
+            grp.name = self._default_group_name(grp)
+
     def _apply_drag(self, tok: str) -> None:
         if tok in self._drag_visited:
             return
@@ -323,6 +338,7 @@ class BatchExportPanel(tk.Frame):
             else:
                 if label in grp.solo_wells:
                     grp.solo_wells.remove(label)
+        self._refresh_auto_group_name(grp)
         self._refresh_single_btn(tok)
 
     def _refresh_single_btn(self, tok: str) -> None:
@@ -454,28 +470,34 @@ class BatchExportPanel(tk.Frame):
         self._refresh_group_list()
 
     def _grp_add(self) -> None:
-        name = ask_name_dialog(self, default=f"Group {len(self._groups)+1}")
-        if name:
-            self._groups.append(BarGroup(name))
-            self._active_grp = len(self._groups) - 1
-            self._refresh_group_list()
+        grp = BarGroup("New Group")
+        self._groups.append(grp)
+        self._auto_named_group_ids.add(id(grp))
+        self._refresh_auto_group_name(grp)
+        self._active_grp = len(self._groups) - 1
+        self._refresh_group_list()
 
     def _grp_rename(self, idx: int) -> None:
         if 0 <= idx < len(self._groups):
             name = ask_name_dialog(self, default=self._groups[idx].name)
             if name:
-                self._groups[idx].name = name
+                grp = self._groups[idx]
+                grp.name = name
+                self._auto_named_group_ids.discard(id(grp))
                 self._refresh_group_list()
 
     def _grp_clear(self, idx: int) -> None:
         if 0 <= idx < len(self._groups):
-            self._groups[idx].members.clear()
-            self._groups[idx].solo_wells.clear()
+            grp = self._groups[idx]
+            grp.members.clear()
+            grp.solo_wells.clear()
+            self._refresh_auto_group_name(grp)
             self._refresh_group_list()
 
     def _grp_delete(self, idx: int) -> None:
         if 0 <= idx < len(self._groups):
-            self._groups.pop(idx)
+            grp = self._groups.pop(idx)
+            self._auto_named_group_ids.discard(id(grp))
             self._active_grp = min(self._active_grp, len(self._groups) - 1)
             self._refresh_group_list()
 
@@ -486,6 +508,7 @@ class BatchExportPanel(tk.Frame):
                                f"Remove all {len(self._groups)} group(s)?",
                                parent=self):
             self._groups.clear()
+            self._auto_named_group_ids.clear()
             self._active_grp = -1
             self._refresh_group_list()
 
@@ -494,6 +517,7 @@ class BatchExportPanel(tk.Frame):
             grp = self._groups[grp_idx]
             if rset in grp.members:
                 grp.members.remove(rset)
+            self._refresh_auto_group_name(grp)
             self._refresh_group_list()
 
     def _grp_remove_solo(self, grp_idx: int, well: str) -> None:
@@ -501,6 +525,7 @@ class BatchExportPanel(tk.Frame):
             grp = self._groups[grp_idx]
             if well in grp.solo_wells:
                 grp.solo_wells.remove(well)
+            self._refresh_auto_group_name(grp)
             self._refresh_group_list()
 
     # ── Quick Setup ───────────────────────────────────────────────────────────
@@ -508,6 +533,7 @@ class BatchExportPanel(tk.Frame):
     def _quick_by_row(self) -> None:
         """One export group per plate row — all loaded wells in that row."""
         self._groups.clear()
+        self._auto_named_group_ids.clear()
         self._active_grp = -1
         for row_ltr in _PLATE_ROWS:
             # Collect rep-sets whose wells are in this row, plus solo wells in the row
@@ -530,6 +556,7 @@ class BatchExportPanel(tk.Frame):
     def _quick_by_col(self) -> None:
         """One export group per plate column — all loaded wells in that column."""
         self._groups.clear()
+        self._auto_named_group_ids.clear()
         self._active_grp = -1
         for col in _PLATE_COLS:
             col_rsets = [r for r in self._app._rep_sets
@@ -551,6 +578,7 @@ class BatchExportPanel(tk.Frame):
     def _sync_from_app(self) -> None:
         """Re-build groups from the app's current replicate sets (one group per set)."""
         self._groups = self._groups_from_rep_sets()
+        self._auto_named_group_ids.clear()
         self._active_grp = 0 if self._groups else -1
         self._refresh_group_list()
 
@@ -682,6 +710,7 @@ class BatchExportPanel(tk.Frame):
             return
 
         self._groups = new_groups
+        self._auto_named_group_ids.clear()
         self._active_grp = 0
         self._refresh_group_list()
         self._prog_lbl.config(
