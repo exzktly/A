@@ -4326,7 +4326,7 @@ class WellViewerApp(tk.Frame):
             fluor_arr,
             mask_arr,
             include_by_nid,
-            fit_lut=True,
+            fit_lut=False,
             preserve_view=preserve_view,
         )
 
@@ -4364,6 +4364,7 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{lo:.0f}")
             self._review_lut_max_var.set(f"{hi:.0f}")
+        self._review_image_preserve_view_on_refresh = True
         self._refresh_review_image()
 
     def _review_image_commit_lut(self) -> None:
@@ -4374,6 +4375,7 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{lo:.0f}")
             self._review_lut_max_var.set(f"{hi:.0f}")
+        self._review_image_preserve_view_on_refresh = True
         self._refresh_review_image()
 
     def _draw_review_image(

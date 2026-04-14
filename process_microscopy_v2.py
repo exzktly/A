@@ -54,6 +54,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections import defaultdict
 from pathlib import Path
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -183,6 +184,86 @@ def find_well_folders(input_dir: Path) -> list[tuple[str, Path]]:
             found.append((well, p))
     log.info("Found %d well folder(s) in %s", len(found), input_dir)
     return sorted(found, key=lambda x: x[0])
+
+
+def _canonical_well_label(token: str) -> str | None:
+    """Return canonical 96-well label (e.g. B03) for *token*, or None if invalid."""
+    m = _WELL_RE.match((token or "").strip())
+    if not m:
+        return None
+    col = int(m.group(2))
+    if not (1 <= col <= 12):
+        return None
+    return f"{m.group(1).upper()}{col:02d}"
+
+
+def organize_loose_tifs_into_well_folders(
+    input_dir: Path,
+    *,
+    schema: list[str],
+    sep: str,
+) -> None:
+    """
+    Move loose top-level TIF/TIFF images in *input_dir* into per-well folders.
+
+    If destination files already exist, files are skipped (no overwrite).
+    """
+    loose_images = [
+        p for p in input_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in {".tif", ".tiff"}
+    ]
+    if not loose_images:
+        return
+
+    files_by_well: dict[str, list[Path]] = defaultdict(list)
+    unparsable = 0
+    for img in loose_images:
+        try:
+            parsed = parse_filename(img, schema=schema, sep=sep)
+        except Exception:
+            unparsable += 1
+            continue
+        well = _canonical_well_label(parsed.get("well", ""))
+        if well is None:
+            unparsable += 1
+            continue
+        files_by_well[well].append(img)
+
+    if not files_by_well:
+        if unparsable:
+            log.info(
+                "Found %d loose TIF/TIFF file(s) in %s, but none had a valid 96-well token.",
+                len(loose_images),
+                input_dir,
+            )
+        return
+
+    moved = 0
+    skipped_existing = 0
+    for well, files in sorted(files_by_well.items()):
+        well_dir = input_dir / well
+        well_dir.mkdir(parents=True, exist_ok=True)
+        for src in files:
+            dst = well_dir / src.name
+            if dst.exists():
+                skipped_existing += 1
+                log.warning(
+                    "Loose image not moved (destination exists, no overwrite): %s",
+                    dst,
+                )
+                continue
+            shutil.move(str(src), str(dst))
+            moved += 1
+
+    log.info(
+        "Organized loose images in %s: moved %d file(s) into %d well folder(s), "
+        "skipped %d existing destination(s), ignored %d unparsable file(s).",
+        input_dir,
+        moved,
+        len(files_by_well),
+        skipped_existing,
+        unparsable,
+    )
 
 # ---------------------------------------------------------------------------
 # Zip extraction / compression helpers
@@ -1830,6 +1911,11 @@ def main() -> None:
         sep=sep,
         smfish_tokens=args.smfish_tokens,
     )
+
+    # If the selected input is an "in" directory, normalise any loose TIF/TIFF
+    # files into per-well folders before selecting processing mode.
+    if input_dir.name.lower() == "in":
+        organize_loose_tifs_into_well_folders(input_dir, schema=schema, sep=sep)
 
     # ── Decide mode: zip, folder, or flat ───────────────────────────────────
     well_zips    = find_well_zips(input_dir)
