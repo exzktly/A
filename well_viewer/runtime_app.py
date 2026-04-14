@@ -4206,20 +4206,52 @@ class WellViewerApp(tk.Frame):
             except Exception:
                 return s
 
-        fov = _norm(self._preview_fov_var.get())
-        if not fov or fov == "—":
+        def _lookup_imgref(
+            refs: Dict[Tuple[str, str], object],
+            fov_raw: str,
+            tp_raw: str,
+            fov_norm: str,
+            tp_norm: str,
+        ) -> Optional[object]:
+            """Resolve image refs by exact key first, then normalized key match."""
+            ref = refs.get((fov_raw, tp_raw))
+            if ref is not None:
+                return ref
+            for (k_fov, k_tp), k_ref in refs.items():
+                if _norm(k_fov) == fov_norm and _norm(k_tp) == tp_norm:
+                    return k_ref
+            return None
+
+        fov_raw = str(self._preview_fov_var.get() or "").strip()
+        fov = _norm(fov_raw)
+        if not fov_raw or fov_raw == "—" or not fov:
             self._review_image_status.config(text="No FOV selected.")
             return
-        tp_values = sorted({tp for (f, tp) in self._preview_fluor.keys() if f == fov})
+
+        def _tp_sort_key(tp: str) -> Tuple[int, float, str]:
+            tp_n = _norm(tp)
+            try:
+                return (0, float(tp_n), str(tp))
+            except Exception:
+                return (1, 0.0, str(tp))
+
+        tp_values = sorted(
+            {tp for (f, tp) in self._preview_fluor.keys() if _norm(f) == fov},
+            key=_tp_sort_key,
+        )
         self._review_image_tp_menu["values"] = tp_values or ["—"]
         if tp_values and self._review_image_tp_var.get() not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
-        tp = _norm(self._review_image_tp_var.get())
-        if not tp or tp == "—":
+        tp_raw = str(self._review_image_tp_var.get() or "").strip()
+        tp = _norm(tp_raw)
+        if not tp_raw or tp_raw == "—" or not tp:
             self._review_image_status.config(text="No timepoint selected.")
             return
-        fluor_ref = self._preview_fluor.get((fov, tp)) or getattr(self, "_preview_tophat_fluor", {}).get((fov, tp))
-        mask_ref = self._preview_mask.get((fov, tp))
+
+        fluor_ref = _lookup_imgref(self._preview_fluor, fov_raw, tp_raw, fov, tp)
+        if fluor_ref is None:
+            fluor_ref = _lookup_imgref(getattr(self, "_preview_tophat_fluor", {}), fov_raw, tp_raw, fov, tp)
+        mask_ref = _lookup_imgref(self._preview_mask, fov_raw, tp_raw, fov, tp)
         if fluor_ref is None or mask_ref is None:
             self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
             return
