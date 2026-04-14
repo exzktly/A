@@ -54,6 +54,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections import defaultdict
 from pathlib import Path
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
