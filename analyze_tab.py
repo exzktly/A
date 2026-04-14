@@ -1125,7 +1125,7 @@ class AnalyzeTab(tk.Frame):
 
         # ── Set total ────────────────────────────────────────────────────
         if not self._well_total:
-            m = _re.search(r"(?:Zip mode|Flat mode):\s+(\d+)\s+well", line)
+            m = _re.search(r"(?:Zip mode|Flat mode|Folder mode):\s+(\d+)\s+well", line)
             if m:
                 self._well_total = int(m.group(1))
                 self._progress["maximum"] = self._well_total

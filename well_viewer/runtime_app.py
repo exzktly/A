@@ -1061,7 +1061,7 @@ def _scan_folder_members(
                 mask.setdefault(key, ref)
             elif kind == "smfish":
                 smfish.setdefault(key, ref)
-    except OSError as exc:
+    except Exception as exc:
         _logger.warning("Failed scanning folder %s: %s", folder_path, exc)
     return fluor, overlay, mask, tophat_fluor, smfish
 
@@ -4118,12 +4118,16 @@ class WellViewerApp(tk.Frame):
             tok = _extract_well_token(well_label) or well_label
             self._review_image_well_lbl.config(text=tok)
 
-        fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
-            self._data_dir, well_label,
-            fluor_token=self._active_channel,
-            in_dir=self._in_dir,
-            _fov_tp_extractor=self._fov_tp_extractor,
-        )
+        try:
+            fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
+                self._data_dir, well_label,
+                fluor_token=self._active_channel,
+                in_dir=self._in_dir,
+                _fov_tp_extractor=self._fov_tp_extractor,
+            )
+        except Exception as _exc:
+            _logger.exception("Unexpected error searching images for %r: %s", well_label, _exc)
+            fluor, overlay, mask, tophat_fluor = {}, {}, {}, {}
         self._preview_fluor        = fluor
         self._preview_overlay    = overlay
         self._preview_mask       = mask
