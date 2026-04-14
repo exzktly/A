@@ -4239,6 +4239,48 @@ class WellViewerApp(tk.Frame):
             {tp for (f, tp) in self._preview_fluor.keys() if _norm(f) == fov},
             key=_tp_sort_key,
         )
+        if _logger.isEnabledFor(logging.DEBUG):
+            _logger.debug(
+                "Review image timepoint dropdown population for well=%s fov=%s (raw=%s):",
+                well,
+                fov,
+                fov_raw,
+            )
+            fluor_candidates = [
+                (k_fov, k_tp, ref)
+                for (k_fov, k_tp), ref in self._preview_fluor.items()
+                if _norm(k_fov) == fov
+            ]
+            if fluor_candidates:
+                for k_fov, k_tp, ref in sorted(
+                    fluor_candidates,
+                    key=lambda row: (_tp_sort_key(row[1]), str(row[0])),
+                ):
+                    _logger.debug(
+                        "  fluor candidate fov=%s tp=%s path=%s",
+                        k_fov,
+                        k_tp,
+                        getattr(ref, "full_path_str", str(ref)),
+                    )
+            else:
+                _logger.debug("  no fluorescence candidates found for selected FOV")
+
+            tophat_candidates = [
+                (k_fov, k_tp, ref)
+                for (k_fov, k_tp), ref in getattr(self, "_preview_tophat_fluor", {}).items()
+                if _norm(k_fov) == fov
+            ]
+            if tophat_candidates:
+                for k_fov, k_tp, ref in sorted(
+                    tophat_candidates,
+                    key=lambda row: (_tp_sort_key(row[1]), str(row[0])),
+                ):
+                    _logger.debug(
+                        "  tophat candidate fov=%s tp=%s path=%s",
+                        k_fov,
+                        k_tp,
+                        getattr(ref, "full_path_str", str(ref)),
+                    )
         self._review_image_tp_menu["values"] = tp_values or ["—"]
         if tp_values and self._review_image_tp_var.get() not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
