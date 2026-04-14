@@ -1,8 +1,8 @@
 import os
 import re
 import sys
+import shutil
 import argparse
-from zipfile import ZipFile, ZIP_DEFLATED
 from typing import List, Optional
 
 # ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ def parse_schema(schema_str: str) -> List[str]:
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(
-        description="Zip TIFF files by 96-well plate IDs in filenames"
+        description="Group TIFF files into per-well folders by 96-well plate IDs in filenames"
     )
     parser.add_argument("-s", "--search-dir", required=True)
     parser.add_argument("-o", "--output-dir", default=None)
@@ -121,13 +121,14 @@ def find_matching_files(
     return matches
 
 
-def zip_well(well: str, files: List[str], output_dir: str):
+def folder_well(well: str, files: List[str], output_dir: str) -> None:
+    """Copy *files* into a per-well subfolder <output_dir>/<well>/."""
     if not files:
         return
-    zip_path = os.path.join(output_dir, f"{well}.zip")
-    with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zf:
-        for f in files:
-            zf.write(f, arcname=os.path.basename(f))
+    well_dir = os.path.join(output_dir, well)
+    os.makedirs(well_dir, exist_ok=True)
+    for f in files:
+        shutil.copy2(f, os.path.join(well_dir, os.path.basename(f)))
     print(f"{well}: {len(files)} files")
 
 
@@ -146,7 +147,7 @@ def main():
 
     for well in generate_wells():
         files = find_matching_files(well, search_dir, args.recursive, schema, sep)
-        zip_well(well, files, output_dir)
+        folder_well(well, files, output_dir)
 
 
 if __name__ == "__main__":

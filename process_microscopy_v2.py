@@ -161,6 +161,29 @@ def find_well_zips(input_dir: Path) -> list[tuple[str, Path]]:
     log.info("Found %d well zip file(s) in %s", len(found), input_dir)
     return found
 
+
+def find_well_folders(input_dir: Path) -> list[tuple[str, Path]]:
+    """
+    Scan *input_dir* (non-recursively) for subdirectories whose name matches
+    a 96-well plate position (e.g. A01/, B12/).
+
+    Returns a list of (well_label, folder_path) sorted by well_label.
+    """
+    found: list[tuple[str, Path]] = []
+    try:
+        entries = sorted(input_dir.iterdir())
+    except OSError:
+        return found
+    for p in entries:
+        if not p.is_dir() or p.name.startswith(".") or p.name.startswith("_"):
+            continue
+        if is_valid_well_name(p.name):
+            m = _WELL_RE.match(p.name)
+            well = f"{m.group(1).upper()}{int(m.group(2)):02d}"
+            found.append((well, p))
+    log.info("Found %d well folder(s) in %s", len(found), input_dir)
+    return sorted(found, key=lambda x: x[0])
+
 # ---------------------------------------------------------------------------
 # Zip extraction / compression helpers
 # ---------------------------------------------------------------------------
@@ -1108,6 +1131,75 @@ def process_well_zip_task(
         log.info("Well %s — temporary directories removed.", well_label)
 
 
+def process_well_folder_task(
+    well_label: str,
+    well_folder: Path,
+    output_dir: Path,
+    shared_kwargs_template: dict,
+    nuclear_token: str,
+    fluor_tokens: "list[str]",
+    csv_prefix: str,
+    schema: "list[str] | None" = None,
+    sep: str = DEFAULT_SEP,
+) -> "tuple[list[dict], list[str]]":
+    """
+    Top-level picklable task: full lifecycle for one uncompressed well folder.
+
+    Runs inside a worker process (StarDist already loaded by _worker_init).
+    1. Discover image groups directly from *well_folder*.
+    2. Process groups, writing QC images to a temporary staging directory.
+    3. Write per-well CSV to <output_dir>/<csv_prefix>_<well>.csv.
+    4. Rename staging directory to <output_dir>/<well_label>/.
+
+    Returns (records, failed_names).
+    """
+    if schema is None:
+        schema = parse_schema(DEFAULT_SCHEMA)
+    log.info("Well %s — starting (folder mode, pid %d)", well_label, os.getpid())
+
+    tmp_images = output_dir / f"_tmp_images_{well_label}"
+    if tmp_images.exists():
+        log.warning("Well %s: removing stale tmp dir %s", well_label, tmp_images.name)
+        remove_directory(tmp_images)
+
+    _committed = False
+    try:
+        tmp_images.mkdir(parents=True, exist_ok=True)
+
+        groups = find_image_groups(
+            well_folder, nuclear_token, fluor_tokens, schema=schema, sep=sep
+        )
+        if not groups:
+            log.warning("Well %s: no image groups found in %s.", well_label, well_folder)
+            return [], []
+
+        kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
+        records, failed = _process_groups_in_worker(groups, kwargs, well_label)
+
+        if records:
+            safe_well = _safe_well(well_label)
+            csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
+            _write_single_csv(records, csv_path)
+            log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
+        else:
+            log.warning("Well %s: no records produced; CSV not written.", well_label)
+
+        # Atomically rename staging dir to final output folder.
+        final_out = output_dir / well_label
+        if final_out.exists():
+            remove_directory(final_out)
+        tmp_images.rename(final_out)
+        log.info("Well %s: output folder -> %s", well_label, final_out.name)
+        _committed = True
+
+        return records, failed
+
+    finally:
+        if not _committed and tmp_images.exists():
+            remove_directory(tmp_images)
+            log.info("Well %s — staging directory removed.", well_label)
+
+
 def process_well_flat_task(
     well_label: str,
     groups: "list[tuple[Path, list[Path]]]",
@@ -1267,6 +1359,22 @@ def output_exists_for_well(output_dir: Path, well_label: str, csv_prefix: str) -
     return zip_ok and csv_ok
 
 
+def output_exists_for_well_folder(output_dir: Path, well_label: str, csv_prefix: str) -> bool:
+    """
+    Return True if folder-mode output already exists for *well_label*.
+
+    Both outputs must be present and non-empty to count as complete:
+      • <output_dir>/<well>/                   – output image folder (must contain ≥1 file)
+      • <output_dir>/<csv_prefix>_<well>.csv   – per-well measurements
+    """
+    safe_well  = _safe_well(well_label)
+    out_folder = output_dir / well_label
+    csv_path   = output_dir / f"{csv_prefix}_{safe_well}.csv"
+    folder_ok  = out_folder.is_dir() and any(out_folder.iterdir())
+    csv_ok     = csv_path.exists() and csv_path.stat().st_size > 0
+    return folder_ok and csv_ok
+
+
 def output_exists_for_well_flat(output_dir: Path, well_label: str, csv_prefix: str) -> bool:
     """
     Return True if a per-well CSV already exists for *well_label* (flat mode).
@@ -1386,6 +1494,109 @@ def process_well_zips(
         for name in all_failed:
             log.warning("  %s", name)
 
+
+def process_well_folders(
+    input_dir: Path,
+    output_dir: Path,
+    well_folders: "list[tuple[str, Path]]",
+    shared_kwargs_template: dict,
+    nuclear_token: str,
+    fluor_tokens: "list[str]",
+    workers: int,
+    csv_prefix: str,
+    force: bool = False,
+    force_cpu: bool = False,
+    threads_per_worker: int = 0,
+    schema: "list[str] | None" = None,
+    sep: str = DEFAULT_SEP,
+) -> None:
+    """
+    Dispatch one worker process per well folder (uncompressed input).
+
+    Each worker: discovers image groups in its well subfolder, processes them,
+    writes the CSV, and saves output images to <output_dir>/<well>/.
+    Up to *workers* wells are processed in parallel.
+    """
+    if schema is None:
+        schema = parse_schema(DEFAULT_SCHEMA)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Sweep any stale staging dirs left by a previous crashed run.
+    for _stale in sorted(output_dir.glob("_tmp_images_*")):
+        if _stale.is_dir():
+            log.warning("Removing stale staging directory from previous run: %s", _stale.name)
+            remove_directory(_stale)
+
+    # Skip already-complete wells unless --force
+    n_skipped = 0
+    to_process: list[tuple[str, Path]] = []
+    for well_label, folder_path in well_folders:
+        if not force and output_exists_for_well_folder(output_dir, well_label, csv_prefix):
+            log.info(
+                "SKIP well %s — output already exists. Use --force to reprocess.",
+                well_label,
+            )
+            n_skipped += 1
+        else:
+            to_process.append((well_label, folder_path))
+
+    if not to_process:
+        log.info("All wells already complete.")
+        log.info("Folder mode complete. %d skipped.", n_skipped)
+        return
+
+    _ensure_stardist_runtime_deps()
+
+    log.info("Folder mode: %d well(s) to process, %d worker(s).", len(to_process), workers)
+
+    all_records: list[dict] = []
+    all_failed:  list[str]  = []
+
+    ctx = mp.get_context("spawn")
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=ctx,
+        initializer=_worker_init,
+        initargs=(force_cpu, threads_per_worker),
+    ) as executor:
+        future_to_well = {
+            executor.submit(
+                process_well_folder_task,
+                well_label,
+                folder_path,
+                output_dir,
+                shared_kwargs_template,
+                nuclear_token,
+                fluor_tokens,
+                csv_prefix,
+                schema,
+                sep,
+            ): well_label
+            for well_label, folder_path in to_process
+        }
+        for future in as_completed(future_to_well):
+            well_label = future_to_well[future]
+            try:
+                records, failed = future.result()
+                all_records.extend(records)
+                all_failed.extend(failed)
+            except Exception as exc:           # noqa: BLE001
+                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                all_failed.append(well_label)
+
+    log.info("=" * 60)
+    log.info("Folder mode complete.")
+    log.info(
+        "Total wells : %d  |  processed : %d  |  skipped : %d  |  "
+        "nuclei : %d  |  failed wells : %d",
+        len(well_folders), len(to_process), n_skipped,
+        len(all_records), len(all_failed),
+    )
+    if all_failed:
+        log.warning("Failed wells/pairs:")
+        for name in all_failed:
+            log.warning("  %s", name)
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1394,16 +1605,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
             "Parallel StarDist nuclei segmentation + GFP quantification. "
-            "Accepts a flat directory of images OR a directory of per-well "
-            "zip files named after 96-well plate positions (A01.zip … H12.zip)."
+            "Accepts a flat directory of images, a directory of per-well "
+            "zip files (A01.zip … H12.zip), or a directory of per-well "
+            "subfolders (A01/ … H12/)."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     p.add_argument("--input_dir",  type=Path, required=True,
-                   help="Directory of images or per-well zip files")
+                   help="Directory of images, per-well zip files, or per-well subfolders")
     p.add_argument("--output_dir", type=Path, default=Path("results"),
-                   help="Destination for CSVs, masks, overlays, and output zips")
+                   help="Destination for CSVs, masks, overlays, and output folders/zips")
 
     p.add_argument("--nuclear_token", default="NIR",
                    help="Channel token identifying nuclear-channel files "
@@ -1619,8 +1831,9 @@ def main() -> None:
         smfish_tokens=args.smfish_tokens,
     )
 
-    # ── Decide mode: zip or flat ─────────────────────────────────────────────
-    well_zips = find_well_zips(input_dir)
+    # ── Decide mode: zip, folder, or flat ───────────────────────────────────
+    well_zips    = find_well_zips(input_dir)
+    well_folders = find_well_folders(input_dir) if not well_zips else []
 
     if well_zips:
         log.info("Zip mode: %d well zip(s) detected.", len(well_zips))
@@ -1639,8 +1852,25 @@ def main() -> None:
             schema=schema,
             sep=sep,
         )
+    elif well_folders:
+        log.info("Folder mode: %d well folder(s) detected.", len(well_folders))
+        process_well_folders(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            well_folders=well_folders,
+            shared_kwargs_template=shared_kwargs,
+            nuclear_token=args.nuclear_token,
+            fluor_tokens=args.fluor_tokens,
+            workers=workers,
+            csv_prefix=args.csv_prefix,
+            force=args.force,
+            force_cpu=args.cpu_only,
+            threads_per_worker=threads_per_worker,
+            schema=schema,
+            sep=sep,
+        )
     else:
-        log.info("Flat mode: no well zips found, scanning directory directly.")
+        log.info("Flat mode: no well zips or folders found, scanning directory directly.")
 
         # Discover groups once; reuse for both skip detection and processing.
         groups_all = find_image_groups(input_dir, args.nuclear_token, args.fluor_tokens,

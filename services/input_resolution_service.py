@@ -10,6 +10,7 @@ from typing import Callable
 HERE = Path(__file__).resolve().parent.parent
 ZIPPER_SCRIPT = HERE / "WellPlateZipper.py"
 TIF_GLOB = ("*.tif", "*.tiff", "*.TIF", "*.TIFF")
+_WELL_NAME_RE = re.compile(r"^([A-Ha-h])(\d{1,2})$")
 
 
 def find_zipper_script() -> Path | None:
@@ -21,6 +22,16 @@ def tif_files_in(folder: Path) -> list[Path]:
     for pat in TIF_GLOB:
         files.extend(folder.glob(pat))
     return files
+
+
+def _has_well_content(folder: Path) -> bool:
+    """Return True if *folder* contains zip files OR well-named subdirectories."""
+    if any(folder.glob("*.zip")):
+        return True
+    try:
+        return any(_WELL_NAME_RE.match(p.name) for p in folder.iterdir() if p.is_dir())
+    except OSError:
+        return False
 
 
 def run_zipper(
@@ -89,14 +100,14 @@ def resolve_input_output(
         return raw, raw.parent / "out"
 
     in_sub = raw / "in"
-    if in_sub.is_dir() and any(in_sub.glob("*.zip")):
+    if in_sub.is_dir() and _has_well_content(in_sub):
         return in_sub, raw / "out"
 
     tifs = tif_files_in(raw)
     if len(tifs) > 3:
         if log_fn:
             log_fn(
-                f"[zipper] Found {len(tifs)} TIF files — running WellPlateZipper to create per-well zips in in/\n"
+                f"[zipper] Found {len(tifs)} TIF files — running WellPlateZipper to create per-well folders in in/\n"
             )
         run_zipper(
             raw,
@@ -106,9 +117,9 @@ def resolve_input_output(
             filename_schema=filename_schema,
             filename_sep=filename_sep,
         )
-        if not in_sub.is_dir() or not any(in_sub.glob("*.zip")):
+        if not in_sub.is_dir() or not _has_well_content(in_sub):
             raise ValueError(
-                "WellPlateZipper ran but produced no zip files.\n\n"
+                "WellPlateZipper ran but produced no well folders or zip files.\n\n"
                 "Common causes:\n"
                 "  • The 'well' position in the Filename Schema does not match the actual well token in your filenames.\n"
                 "  • The separator character does not match your filenames.\n"
@@ -123,7 +134,7 @@ def resolve_input_output(
         "  • Selected folder is named \"in\"\n"
         "  • Selected folder contains a sub-folder named \"in\"\n"
         "  • Selected folder contains more than 3 TIF files\n"
-        "    (will be zipped by well using WellPlateZipper)\n\n"
+        "    (will be grouped by well using WellPlateZipper)\n\n"
         f"Folder selected: {raw}\n"
         f"TIF files found: {len(tifs)}"
     )
