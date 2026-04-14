@@ -123,33 +123,41 @@ class ScatterCellViewer(tk.Toplevel):
         """Append a diagnostic line and mirror it in the diagnostics text box."""
         line = str(message)
         self._debug_lines.append(line)
-        if hasattr(self, "_debug_text"):
-            self._debug_text.config(state=tk.NORMAL)
-            self._debug_text.insert(tk.END, line + "\n")
-            self._debug_text.see(tk.END)
-            self._debug_text.config(state=tk.DISABLED)
+        if hasattr(self, "_debug_text") and self.winfo_exists():
+            try:
+                self._debug_text.config(state=tk.NORMAL)
+                self._debug_text.insert(tk.END, line + "\n")
+                self._debug_text.see(tk.END)
+                self._debug_text.config(state=tk.DISABLED)
+            except tk.TclError:
+                pass
 
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask."""
         self._channel_luts = {}
         self._cell_outline_mask = None
         self._debug_lines = []
-        if hasattr(self, "_debug_text"):
-            self._debug_text.config(state=tk.NORMAL)
-            self._debug_text.delete("1.0", tk.END)
-            self._debug_text.config(state=tk.DISABLED)
+        if hasattr(self, "_debug_text") and self.winfo_exists():
+            try:
+                self._debug_text.config(state=tk.NORMAL)
+                self._debug_text.delete("1.0", tk.END)
+                self._debug_text.config(state=tk.DISABLED)
+            except tk.TclError:
+                pass
         self._debug(f"well_label={self.well_label!r}, row_idx={self.row_idx}, filename={self.filename!r}, nuclear_id={self.nuclear_id!r}")
         try:
             nuclear_id = int(float(self.nuclear_id))
         except (ValueError, TypeError):
-            self._img_label.config(text="Invalid nuclear_id")
+            if self.winfo_exists():
+                self._img_label.config(text="Invalid nuclear_id")
             self._debug("Failed to parse nuclear_id as int.")
             return
         self._debug(f"parsed_nuclear_id={nuclear_id}")
 
         rows = self.app._get_rows(self.well_label)
         if self.row_idx >= len(rows):
-            self._img_label.config(text="Invalid row index")
+            if self.winfo_exists():
+                self._img_label.config(text="Invalid row index")
             self._debug(f"row_idx out of bounds: row_idx={self.row_idx}, rows={len(rows)}")
             return
 
@@ -165,7 +173,8 @@ class ScatterCellViewer(tk.Toplevel):
         mask_arr, mask_path = self._load_output_image_by_filename("mask")
         self._cell_bounds = self._get_cell_bounds(mask_arr, nuclear_id, padding_px=25)
         if not self._cell_bounds:
-            self._img_label.config(text=f"Cell {nuclear_id} not found in mask")
+            if self.winfo_exists():
+                self._img_label.config(text=f"Cell {nuclear_id} not found in mask")
             self._debug("No bounds found for requested nuclear_id.")
             return
         self._debug(f"cell_bounds={self._cell_bounds}")
@@ -196,6 +205,10 @@ class ScatterCellViewer(tk.Toplevel):
         arr = self._load_and_crop_channel("mask")
         if arr is not None:
             self._cell_images["nuclear"] = arr
+
+        # Window may have been closed during the (potentially slow) image loads above.
+        if not self.winfo_exists():
+            return
 
         # Populate dropdown with fluorescence channels first, then overlay and mask
         available_channels = [ch for ch in sorted(self.app._fluor_channels) if self._cell_images.get(ch) is not None]
@@ -585,6 +598,8 @@ class ScatterCellViewer(tk.Toplevel):
 
     def _on_channel_changed(self) -> None:
         """Handle channel selection change."""
+        if not self.winfo_exists():
+            return
         self._current_channel = self._channel_var.get()
         if not self._current_channel:
             return
@@ -615,6 +630,8 @@ class ScatterCellViewer(tk.Toplevel):
 
     def _on_lut_change(self) -> None:
         """Handle LUT value change."""
+        if not self.winfo_exists():
+            return
         try:
             lo = float(self._lut_min_var.get())
             hi = float(self._lut_max_var.get())
@@ -648,17 +665,23 @@ class ScatterCellViewer(tk.Toplevel):
 
     def _on_window_resize(self, event) -> None:
         """Handle window resize event to redraw image at new size."""
+        if not self.winfo_exists():
+            return
         if self._current_channel and self._cell_images.get(self._current_channel) is not None:
             self._display_current_image()
 
     def _display_current_image(self) -> None:
         """Display the current channel image with current LUT."""
+        if not self.winfo_exists():
+            return
         arr = self._cell_images.get(self._current_channel)
         if arr is None:
             self._img_label.config(text="No image")
             return
 
         self.update_idletasks()
+        if not self.winfo_exists():
+            return
 
         label_width = self._img_label.winfo_width()
         label_height = self._img_label.winfo_height()
