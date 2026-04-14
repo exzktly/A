@@ -125,6 +125,26 @@ _PREVIEW_TOKENS = {
 # Compatibility alias for local call sites
 _tif_files_in = tif_files_in
 
+import re as _re_well
+_WELL_NAME_RE = _re_well.compile(r"^[A-Ha-h]\d{1,2}$")
+
+
+def _has_well_content(folder: Path) -> bool:
+    """Return True if *folder* contains zip files OR well-named subdirectories."""
+    if any(folder.glob("*.zip")):
+        return True
+    try:
+        return any(_WELL_NAME_RE.match(p.name) for p in folder.iterdir() if p.is_dir())
+    except OSError:
+        return False
+
+
+def _count_well_content(folder: Path) -> int:
+    """Count well zips + well-named subdirectories inside *folder*."""
+    zips = list(folder.glob("*.zip"))
+    folders = [p for p in folder.iterdir() if p.is_dir() and _WELL_NAME_RE.match(p.name)]
+    return len(zips) or len(folders)
+
 # ---------------------------------------------------------------------------
 # AnalyzeTab
 # ---------------------------------------------------------------------------
@@ -858,15 +878,15 @@ class AnalyzeTab(tk.Frame):
                                     fg=CLR_SUCCESS)
             return
 
-        # Rule 2: contains "in/" with zips
+        # Rule 2: contains "in/" with zips or well-named subfolders
         in_sub = raw / "in"
-        if in_sub.is_dir() and any(in_sub.glob("*.zip")):
+        if in_sub.is_dir() and _has_well_content(in_sub):
             self._output_var.set(str(raw / "out"))
             self._layout_lbl.config(text="✓ Found in/ subfolder — using as input",
                                     fg=CLR_SUCCESS)
             return
 
-        # Rule 3: has TIF files — will need zipper (don't run it here)
+        # Rule 3: has TIF files — will need WellPlateZipper (don't run it here)
         tifs = _tif_files_in(raw)
         if len(tifs) > 3:
             self._output_var.set(str(raw / "out"))
@@ -960,9 +980,9 @@ class AnalyzeTab(tk.Frame):
         raw = opts["raw"]
         in_sub = raw / "in"
         if raw.name.lower() == "in":
-            return len(list(raw.glob("*.zip"))) or 1
-        if in_sub.is_dir() and any(in_sub.glob("*.zip")):
-            return len(list(in_sub.glob("*.zip"))) or 1
+            return _count_well_content(raw) or 1
+        if in_sub.is_dir() and _has_well_content(in_sub):
+            return _count_well_content(in_sub) or 1
         import re as _re2
 
         well_re = _re2.compile(r"[A-Ha-h]\d{1,2}", _re2.I)
@@ -1105,7 +1125,7 @@ class AnalyzeTab(tk.Frame):
 
         # ── Set total ────────────────────────────────────────────────────
         if not self._well_total:
-            m = _re.search(r"(?:Zip mode|Flat mode):\s+(\d+)\s+well", line)
+            m = _re.search(r"(?:Zip mode|Flat mode|Folder mode):\s+(\d+)\s+well", line)
             if m:
                 self._well_total = int(m.group(1))
                 self._progress["maximum"] = self._well_total
@@ -1145,7 +1165,7 @@ class AnalyzeTab(tk.Frame):
                     self._progress["maximum"] = n
                     self._progress["value"]   = 0
                     self._prog_lbl.config(
-                        text=f"Zipping: 0 / {n} wells", fg=TXT_MUT)
+                        text=f"Grouping: 0 / {n} wells", fg=TXT_MUT)
                 elif kind == "zipper_well":
                     n_total = self._progress["maximum"] or 96
                     self._zipper_done = getattr(self, "_zipper_done", 0) + 1
@@ -1153,7 +1173,7 @@ class AnalyzeTab(tk.Frame):
                     pct = int(self._zipper_done / n_total * 100)
                     done = self._zipper_done == n_total
                     self._prog_lbl.config(
-                        text=f"Zipping: {self._zipper_done} / {n_total} wells  ({pct}%)",
+                        text=f"Grouping: {self._zipper_done} / {n_total} wells  ({pct}%)",
                         fg=CLR_SUCCESS if done else TXT_MUT)
                 elif kind == "zipper_done":
                     # Reset bar for pipeline phase (maximum set when pipeline starts)
@@ -1162,7 +1182,7 @@ class AnalyzeTab(tk.Frame):
                     self._well_total = 0
                     self._well_done  = 0
                     self._prog_lbl.config(
-                        text="Zipping complete — starting pipeline…", fg=CLR_SUCCESS)
+                        text="Grouping complete — starting pipeline…", fg=CLR_SUCCESS)
                 elif kind == "workers":
                     n = payload
                     self._log_line(

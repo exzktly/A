@@ -1022,6 +1022,50 @@ def _find_out_well_zips_in_dir(out_dir: Path, well_token: str) -> List[Path]:
     return result
 
 
+def _find_well_subfolder(parent_dir: Path, well_token: str) -> "Optional[Path]":
+    """Return parent_dir/<well_token>/ if it exists as a directory, else None."""
+    candidate = parent_dir / well_token
+    return candidate if candidate.is_dir() else None
+
+
+def _scan_folder_members(
+    folder_path: Path,
+    fluor_lower: str,
+    _fov_tp_extractor=None,
+) -> "Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef]]":
+    """Scan a plain disk folder for fluor/overlay/mask/tophat/smfish images."""
+    fluor:        "Dict[Tuple[str,str], _ImgRef]" = {}
+    overlay:      "Dict[Tuple[str,str], _ImgRef]" = {}
+    mask:         "Dict[Tuple[str,str], _ImgRef]" = {}
+    tophat_fluor: "Dict[Tuple[str,str], _ImgRef]" = {}
+    smfish:       "Dict[Tuple[str,str], _ImgRef]" = {}
+    try:
+        _logger.info("Scanning folder %s", folder_path)
+        for p in sorted(folder_path.iterdir()):
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
+                continue
+            kind, fov, tp = _classify_member(p.name, fluor_lower, _fov_tp_extractor)
+            if not kind:
+                continue
+            key = (fov, tp)
+            ref = _ImgRef(disk_path=p)
+            if kind == "fluor":
+                fluor.setdefault(key, ref)
+            elif kind == "tophat_fluor":
+                tophat_fluor.setdefault(key, ref)
+            elif kind == "overlay":
+                overlay.setdefault(key, ref)
+            elif kind == "mask":
+                mask.setdefault(key, ref)
+            elif kind == "smfish":
+                smfish.setdefault(key, ref)
+    except Exception as exc:
+        _logger.warning("Failed scanning folder %s: %s", folder_path, exc)
+    return fluor, overlay, mask, tophat_fluor, smfish
+
+
 def find_well_images_and_masks(
     data_dir: Optional[Path],
     well_label: str,
@@ -1103,11 +1147,60 @@ def find_well_images_and_masks(
             for k, v in th.items():
                 tophat_fluor.setdefault(k, v)
 
+    # ── 1b. Well subfolder layout (folder mode, no zips) ─────────────────────
+    # in_dir/<well>/   → fluor/NIR source images
+    # data_dir/<well>/ → masks, overlays, tophat output images
+    if in_dir and in_dir.is_dir() and well_token:
+        in_folder = _find_well_subfolder(in_dir, well_token)
+        if in_folder:
+            g, ov, mk, th, _sm = _scan_folder_members(
+                in_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor
+            )
+            for k, v in g.items():
+                fluor.setdefault(k, v)
+            for k, v in ov.items():
+                overlay.setdefault(k, v)
+            for k, v in mk.items():
+                mask.setdefault(k, v)
+            for k, v in th.items():
+                tophat_fluor.setdefault(k, v)
+
+    if in_dir and data_dir and data_dir.is_dir() and well_token:
+        out_folder = _find_well_subfolder(data_dir, well_token)
+        if out_folder:
+            g, ov, mk, th, _sm = _scan_folder_members(
+                out_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor
+            )
+            for k, v in g.items():
+                fluor.setdefault(k, v)
+            for k, v in ov.items():
+                overlay.setdefault(k, v)
+            for k, v in mk.items():
+                mask.setdefault(k, v)
+            for k, v in th.items():
+                tophat_fluor.setdefault(k, v)
+
     # ── 2. Flat directory: all zips in data_dir ───────────────────────────────
     if in_dir is None and data_dir and data_dir.is_dir() and well_token:
         for wzip in _find_well_zips_in_dir(data_dir, well_token):
             g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
                                                    _fov_tp_extractor=_fov_tp_extractor)
+            for k, v in g.items():
+                fluor.setdefault(k, v)
+            for k, v in ov.items():
+                overlay.setdefault(k, v)
+            for k, v in mk.items():
+                mask.setdefault(k, v)
+            for k, v in th.items():
+                tophat_fluor.setdefault(k, v)
+
+    # ── 2b. Flat directory: <well>/ subfolders in data_dir ───────────────────
+    if in_dir is None and data_dir and data_dir.is_dir() and well_token:
+        flat_folder = _find_well_subfolder(data_dir, well_token)
+        if flat_folder:
+            g, ov, mk, th, _sm = _scan_folder_members(
+                flat_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor
+            )
             for k, v in g.items():
                 fluor.setdefault(k, v)
             for k, v in ov.items():
@@ -4025,12 +4118,16 @@ class WellViewerApp(tk.Frame):
             tok = _extract_well_token(well_label) or well_label
             self._review_image_well_lbl.config(text=tok)
 
-        fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
-            self._data_dir, well_label,
-            fluor_token=self._active_channel,
-            in_dir=self._in_dir,
-            _fov_tp_extractor=self._fov_tp_extractor,
-        )
+        try:
+            fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
+                self._data_dir, well_label,
+                fluor_token=self._active_channel,
+                in_dir=self._in_dir,
+                _fov_tp_extractor=self._fov_tp_extractor,
+            )
+        except Exception as _exc:
+            _logger.exception("Unexpected error searching images for %r: %s", well_label, _exc)
+            fluor, overlay, mask, tophat_fluor = {}, {}, {}, {}
         self._preview_fluor        = fluor
         self._preview_overlay    = overlay
         self._preview_mask       = mask
