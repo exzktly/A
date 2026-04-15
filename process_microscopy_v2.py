@@ -798,6 +798,9 @@ def process_image_group(
     meta    = parse_filename(nuclear_path, schema=schema, sep=sep)
     nuc_ids = np.unique(labels)
     nuc_ids = nuc_ids[nuc_ids != 0]
+    if len(nuc_ids) == 0:
+        log.info("  quantify:    0.0 s  (0 nuclei)")
+        return []
 
     _t = time.perf_counter()
     records: list[dict] = []
