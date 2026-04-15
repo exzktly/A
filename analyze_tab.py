@@ -420,13 +420,13 @@ class AnalyzeTab(tk.Frame):
                                          style="SideAccent.TButton")
         self._fluor_add_btn.pack(anchor="w", pady=(2, 0))
 
-        cyto_row = self._row(sec, "Cytoplasm token")
-        self._cytoplasm_entry = self._entry(cyto_row, self._cytoplasm_token, width=10)
+        self._cyto_row = self._row(sec, "Cytoplasm token")
+        self._cytoplasm_entry = self._entry(self._cyto_row, self._cytoplasm_token, width=10)
         self._cytoplasm_token.trace_add("write", lambda *_: self._refresh_segmentation_hints())
-        area_row = self._row(sec, "Min nucleus area")
-        self._min_nucleus_area_entry = self._entry(area_row, self._min_nucleus_area_px, width=6)
+        self._area_row = self._row(sec, "Min nucleus area")
+        self._min_nucleus_area_entry = self._entry(self._area_row, self._min_nucleus_area_px, width=6)
         tk.Label(
-            area_row,
+            self._area_row,
             text="pixels (watershed)",
             font=FM_TINY,
             fg=TXT_MUT,
@@ -694,6 +694,16 @@ class AnalyzeTab(tk.Frame):
             return
         method = self._segmentation_method.get().strip() or "stardist_nuclei"
         controls_enabled = method == "stardist_seeded_watershed_cell"
+        if hasattr(self, "_cyto_row"):
+            if controls_enabled and not self._cyto_row.winfo_ismapped():
+                self._cyto_row.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
+            elif not controls_enabled and self._cyto_row.winfo_ismapped():
+                self._cyto_row.pack_forget()
+        if hasattr(self, "_area_row"):
+            if controls_enabled and not self._area_row.winfo_ismapped():
+                self._area_row.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
+            elif not controls_enabled and self._area_row.winfo_ismapped():
+                self._area_row.pack_forget()
         if hasattr(self, "_cytoplasm_entry"):
             self._cytoplasm_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
         if hasattr(self, "_min_nucleus_area_entry"):
