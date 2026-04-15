@@ -25,6 +25,8 @@ def write_pipeline_info(
     cytoplasm_token: str = "",
     min_nucleus_area_px: int = 50,
 ) -> Path:
+    if segmentation_method != "stardist_seeded_watershed_cell":
+        cytoplasm_token = ""
     fields = [f.strip() for f in filename_schema.split(":")]
     info = {
         "schema": filename_schema,
@@ -48,6 +50,7 @@ def build_pipeline_args(
     output_dir: Path,
     opts: dict,
 ) -> list[str]:
+    segmentation_method = opts.get("segmentation_method", "stardist_nuclei")
     args = [
         sys.executable,
         str(pipeline),
@@ -66,7 +69,7 @@ def build_pipeline_args(
         "--filename_sep",
         opts["filename_sep"],
         "--segmentation_method",
-        opts.get("segmentation_method", "stardist_nuclei"),
+        segmentation_method,
     ]
     try:
         min_area = int(opts.get("min_nucleus_area_px", 50))
@@ -74,7 +77,7 @@ def build_pipeline_args(
         min_area = 50
     args += ["--min_nucleus_area_px", str(max(1, min_area))]
     cytoplasm_token = (opts.get("cytoplasm_token") or "").strip()
-    if cytoplasm_token:
+    if segmentation_method == "stardist_seeded_watershed_cell" and cytoplasm_token:
         args += ["--cytoplasm_token", cytoplasm_token]
     try:
         args += ["--tophat_radius_nir", str(int(opts["tophat_radius_nir"]))]

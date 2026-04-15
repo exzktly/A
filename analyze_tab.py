@@ -421,10 +421,10 @@ class AnalyzeTab(tk.Frame):
         self._fluor_add_btn.pack(anchor="w", pady=(2, 0))
 
         cyto_row = self._row(sec, "Cytoplasm token")
-        self._entry(cyto_row, self._cytoplasm_token, width=10)
+        self._cytoplasm_entry = self._entry(cyto_row, self._cytoplasm_token, width=10)
         self._cytoplasm_token.trace_add("write", lambda *_: self._refresh_segmentation_hints())
         area_row = self._row(sec, "Min nucleus area")
-        self._entry(area_row, self._min_nucleus_area_px, width=6)
+        self._min_nucleus_area_entry = self._entry(area_row, self._min_nucleus_area_px, width=6)
         tk.Label(
             area_row,
             text="pixels (watershed)",
@@ -693,6 +693,11 @@ class AnalyzeTab(tk.Frame):
         if not hasattr(self, "_segmentation_hint_lbl"):
             return
         method = self._segmentation_method.get().strip() or "stardist_nuclei"
+        controls_enabled = method == "stardist_seeded_watershed_cell"
+        if hasattr(self, "_cytoplasm_entry"):
+            self._cytoplasm_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
+        if hasattr(self, "_min_nucleus_area_entry"):
+            self._min_nucleus_area_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
         if method == "stardist_seeded_watershed_cell":
             errors = self._segmentation_validation_errors()
             if errors:
@@ -1043,11 +1048,15 @@ class AnalyzeTab(tk.Frame):
         self._status_lbl.config(text="Running…", fg=WARN)
 
     def _collect_run_options(self) -> dict:
+        segmentation_method = self._segmentation_method.get().strip() or "stardist_nuclei"
         min_area_raw = self._min_nucleus_area_px.get().strip()
         try:
             min_area = int(min_area_raw) if min_area_raw else 50
         except ValueError:
             min_area = 50
+        cytoplasm_token = self._cytoplasm_token.get().strip()
+        if segmentation_method != "stardist_seeded_watershed_cell":
+            cytoplasm_token = ""
         return dict(
             raw=Path(self._input_var.get().strip()),
             nuclear_token=self._nuclear_token.get().strip() or "NIR",
@@ -1066,8 +1075,8 @@ class AnalyzeTab(tk.Frame):
             filename_schema=self._build_schema_arg(),
             filename_sep=self._filename_sep.get() or DEFAULT_SEP,
             smfish_tokens=self._smfish_tokens_list(),
-            segmentation_method=self._segmentation_method.get().strip() or "stardist_nuclei",
-            cytoplasm_token=self._cytoplasm_token.get().strip(),
+            segmentation_method=segmentation_method,
+            cytoplasm_token=cytoplasm_token,
             min_nucleus_area_px=min_area,
         )
 
