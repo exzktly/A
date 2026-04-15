@@ -353,6 +353,20 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
     return len(image_files)
 
 
+def compress_folder_images_to_zip_and_remove(folder: Path, out_zip: Path) -> int:
+    """
+    Compress image files in *folder* to *out_zip* and remove *folder*.
+
+    Returns the number of image files added to the archive. If no image files
+    are found, the source folder is left untouched.
+    """
+    n = compress_images_to_zip(folder, out_zip)
+    if n <= 0:
+        return 0
+    remove_directory(folder)
+    return n
+
+
 def remove_directory(path: Path) -> None:
     """Remove *path* and all its contents, logging any errors."""
     try:
@@ -1313,6 +1327,8 @@ def process_well_folder_task(
     nuclear_token: str,
     fluor_tokens: "list[str]",
     csv_prefix: str,
+    compress_input_well_folders: bool = False,
+    compress_output_well_folders: bool = False,
     schema: "list[str] | None" = None,
     sep: str = DEFAULT_SEP,
 ) -> "tuple[list[dict], list[str]]":
@@ -1324,6 +1340,7 @@ def process_well_folder_task(
     2. Process groups, writing QC images to a temporary staging directory.
     3. Write per-well CSV to <output_dir>/<csv_prefix>_<well>.csv.
     4. Rename staging directory to <output_dir>/<well_label>/.
+    5. Optionally compress input/output well folders to per-well zip files.
 
     Returns (records, failed_names).
     """
@@ -1364,6 +1381,28 @@ def process_well_folder_task(
             remove_directory(final_out)
         tmp_images.rename(final_out)
         log.info("Well %s: output folder -> %s", well_label, final_out.name)
+
+        if compress_output_well_folders:
+            out_zip = output_dir / f"{well_label}_out.zip"
+            n_out = compress_folder_images_to_zip_and_remove(final_out, out_zip)
+            if n_out > 0:
+                log.info(
+                    "Well %s: compressed output folder -> %s (%d image(s))",
+                    well_label,
+                    out_zip.name,
+                    n_out,
+                )
+
+        if compress_input_well_folders:
+            in_zip = well_folder.parent / f"{well_label}.zip"
+            n_in = compress_folder_images_to_zip_and_remove(well_folder, in_zip)
+            if n_in > 0:
+                log.info(
+                    "Well %s: compressed input folder -> %s (%d image(s))",
+                    well_label,
+                    in_zip.name,
+                    n_in,
+                )
         _committed = True
 
         return records, failed
@@ -1533,20 +1572,29 @@ def output_exists_for_well(output_dir: Path, well_label: str, csv_prefix: str) -
     return zip_ok and csv_ok
 
 
-def output_exists_for_well_folder(output_dir: Path, well_label: str, csv_prefix: str) -> bool:
+def output_exists_for_well_folder(
+    output_dir: Path,
+    well_label: str,
+    csv_prefix: str,
+    compressed_output: bool = False,
+) -> bool:
     """
     Return True if folder-mode output already exists for *well_label*.
 
     Both outputs must be present and non-empty to count as complete:
-      • <output_dir>/<well>/                   – output image folder (must contain ≥1 file)
+      • <output_dir>/<well>/                   – output image folder (must contain ≥1 file), OR
+        <output_dir>/<well>_out.zip            – output image archive when *compressed_output* is True
       • <output_dir>/<csv_prefix>_<well>.csv   – per-well measurements
     """
     safe_well  = _safe_well(well_label)
     out_folder = output_dir / well_label
+    out_zip    = output_dir / f"{well_label}_out.zip"
     csv_path   = output_dir / f"{csv_prefix}_{safe_well}.csv"
     folder_ok  = out_folder.is_dir() and any(out_folder.iterdir())
+    zip_ok     = out_zip.exists() and out_zip.stat().st_size > 0
     csv_ok     = csv_path.exists() and csv_path.stat().st_size > 0
-    return folder_ok and csv_ok
+    out_ok     = zip_ok if compressed_output else folder_ok
+    return out_ok and csv_ok
 
 
 def output_exists_for_well_flat(output_dir: Path, well_label: str, csv_prefix: str) -> bool:
@@ -1688,6 +1736,8 @@ def process_well_folders(
     fluor_tokens: "list[str]",
     workers: int,
     csv_prefix: str,
+    compress_input_well_folders: bool = False,
+    compress_output_well_folders: bool = False,
     force: bool = False,
     force_cpu: bool = False,
     threads_per_worker: int = 0,
@@ -1715,7 +1765,12 @@ def process_well_folders(
     n_skipped = 0
     to_process: list[tuple[str, Path]] = []
     for well_label, folder_path in well_folders:
-        if not force and output_exists_for_well_folder(output_dir, well_label, csv_prefix):
+        if not force and output_exists_for_well_folder(
+            output_dir,
+            well_label,
+            csv_prefix,
+            compressed_output=compress_output_well_folders,
+        ):
             log.info(
                 "SKIP well %s — output already exists. Use --force to reprocess.",
                 well_label,
@@ -1753,6 +1808,8 @@ def process_well_folders(
                 nuclear_token,
                 fluor_tokens,
                 csv_prefix,
+                compress_input_well_folders,
+                compress_output_well_folders,
                 schema,
                 sep,
             ): well_label
@@ -1872,6 +1929,23 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Do not save red-outline overlay PNGs")
     p.add_argument("--no_save_tophat",   action="store_true",
                    help="Do not save top-hat/smFISH intermediate TIFFs")
+    p.add_argument(
+        "--compress_input_well_folders",
+        action="store_true",
+        help=(
+            "Folder mode only: after each well finishes, compress "
+            "<input_dir>/<well>/ to <input_dir>/<well>.zip and remove "
+            "the source folder."
+        ),
+    )
+    p.add_argument(
+        "--compress_output_well_folders",
+        action="store_true",
+        help=(
+            "Folder mode only: compress each output well folder to "
+            "<output_dir>/<well>_out.zip and remove the folder."
+        ),
+    )
 
     p.add_argument("--tf_threads", type=int, default=0,
                    help=(
@@ -2102,6 +2176,8 @@ def main() -> None:
             fluor_tokens=fluor_tokens_for_quant,
             workers=workers,
             csv_prefix=args.csv_prefix,
+            compress_input_well_folders=args.compress_input_well_folders,
+            compress_output_well_folders=args.compress_output_well_folders,
             force=args.force,
             force_cpu=args.cpu_only,
             threads_per_worker=threads_per_worker,
