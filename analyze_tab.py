@@ -368,6 +368,21 @@ class AnalyzeTab(tk.Frame):
 
     def _build_channel_tokens_section(self, parent: tk.Frame) -> None:
         sec = self._section(parent, "Channel Tokens")
+        self._segmentation_method = tk.StringVar(value="stardist_nuclei")
+        self._cytoplasm_token = tk.StringVar(value="")
+        self._min_nucleus_area_px = tk.StringVar(value="50")
+
+        seg_row = self._row(sec, "Segmentation")
+        ttk.Combobox(
+            seg_row,
+            textvariable=self._segmentation_method,
+            values=("stardist_nuclei", "stardist_seeded_watershed_cell"),
+            state="readonly",
+            width=30,
+            font=FM_UI,
+        ).pack(side=tk.LEFT)
+        self._segmentation_method.trace_add("write", lambda *_: self._refresh_segmentation_hints())
+
         self._nuclear_token = tk.StringVar(value="NIR")
         nuc_row = self._row(sec, "Nuclear (seg)")
         self._entry(nuc_row, self._nuclear_token)
@@ -379,6 +394,7 @@ class AnalyzeTab(tk.Frame):
             bg=BG_SIDE,
         ).pack(side=tk.LEFT, padx=(6, 0))
         self._nuclear_token.trace_add("write", lambda *_: self._refresh_schema_preview())
+        self._nuclear_token.trace_add("write", lambda *_: self._refresh_segmentation_hints())
 
         tk.Label(
             sec,
@@ -403,6 +419,32 @@ class AnalyzeTab(tk.Frame):
                                          command=self._fluor_add_row,
                                          style="SideAccent.TButton")
         self._fluor_add_btn.pack(anchor="w", pady=(2, 0))
+
+        self._cyto_row = self._row(sec, "Cytoplasm token")
+        self._cytoplasm_entry = self._entry(self._cyto_row, self._cytoplasm_token, width=10)
+        self._cytoplasm_token.trace_add("write", lambda *_: self._refresh_segmentation_hints())
+        self._area_row = self._row(sec, "Min nucleus area")
+        self._min_nucleus_area_entry = self._entry(self._area_row, self._min_nucleus_area_px, width=6)
+        tk.Label(
+            self._area_row,
+            text="pixels (watershed)",
+            font=FM_TINY,
+            fg=TXT_MUT,
+            bg=BG_SIDE,
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        self._min_nucleus_area_px.trace_add("write", lambda *_: self._refresh_segmentation_hints())
+        self._segmentation_hint_lbl = tk.Label(
+            sec,
+            text="",
+            font=FM_TINY,
+            fg=TXT_MUT,
+            bg=BG_SIDE,
+            anchor="w",
+            wraplength=280,
+            justify=tk.LEFT,
+        )
+        self._segmentation_hint_lbl.pack(anchor="w", pady=(2, 0))
+        self._refresh_segmentation_hints()
 
     def _build_folders_section(self, parent: tk.Frame) -> None:
         sec = self._section(parent, "Folders")
@@ -628,6 +670,58 @@ class AnalyzeTab(tk.Frame):
     def _fluor_tokens_list(self) -> list[str]:
         """Return non-empty token strings from the fluor channel list."""
         return [v.get().strip() for v in self._fluor_vars if v.get().strip()]
+
+    def _segmentation_validation_errors(self) -> list[str]:
+        errors: list[str] = []
+        method = self._segmentation_method.get().strip() or "stardist_nuclei"
+        if method == "stardist_seeded_watershed_cell":
+            cytoplasm_token = self._cytoplasm_token.get().strip()
+            nuclear_token = self._nuclear_token.get().strip()
+            if not cytoplasm_token:
+                errors.append("Watershed mode requires a cytoplasm token.")
+            if cytoplasm_token and cytoplasm_token == nuclear_token:
+                errors.append("Cytoplasm token must differ from nuclear token.")
+            try:
+                area = int(self._min_nucleus_area_px.get().strip())
+                if area <= 0:
+                    errors.append("Minimum nucleus area must be a positive integer.")
+            except ValueError:
+                errors.append("Minimum nucleus area must be a positive integer.")
+        return errors
+
+    def _refresh_segmentation_hints(self) -> None:
+        if not hasattr(self, "_segmentation_hint_lbl"):
+            return
+        method = self._segmentation_method.get().strip() or "stardist_nuclei"
+        controls_enabled = method == "stardist_seeded_watershed_cell"
+        if hasattr(self, "_cyto_row"):
+            if controls_enabled and not self._cyto_row.winfo_ismapped():
+                self._cyto_row.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
+            elif not controls_enabled and self._cyto_row.winfo_ismapped():
+                self._cyto_row.pack_forget()
+        if hasattr(self, "_area_row"):
+            if controls_enabled and not self._area_row.winfo_ismapped():
+                self._area_row.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
+            elif not controls_enabled and self._area_row.winfo_ismapped():
+                self._area_row.pack_forget()
+        if hasattr(self, "_cytoplasm_entry"):
+            self._cytoplasm_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
+        if hasattr(self, "_min_nucleus_area_entry"):
+            self._min_nucleus_area_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
+        if method == "stardist_seeded_watershed_cell":
+            errors = self._segmentation_validation_errors()
+            if errors:
+                self._segmentation_hint_lbl.config(text="  ".join(errors), fg=CLR_DANGER)
+            else:
+                self._segmentation_hint_lbl.config(
+                    text="Watershed mode uses StarDist seeds + cytoplasm mask and also quantifies the cytoplasm channel.",
+                    fg=TXT_MUT,
+                )
+        else:
+            self._segmentation_hint_lbl.config(
+                text="Default mode: StarDist nuclei segmentation (backward compatible).",
+                fg=TXT_MUT,
+            )
 
     def _smfish_tokens_list(self) -> list[str]:
         return [v.get().strip() for v, sm in
@@ -935,6 +1029,14 @@ class AnalyzeTab(tk.Frame):
                 parent=self,
             )
             return None
+        seg_errors = self._segmentation_validation_errors()
+        if seg_errors:
+            messagebox.showerror(
+                "Segmentation Error",
+                "\n".join(seg_errors),
+                parent=self,
+            )
+            return None
         pipeline = find_pipeline_script()
         if pipeline is None:
             messagebox.showerror(
@@ -956,6 +1058,15 @@ class AnalyzeTab(tk.Frame):
         self._status_lbl.config(text="Running…", fg=WARN)
 
     def _collect_run_options(self) -> dict:
+        segmentation_method = self._segmentation_method.get().strip() or "stardist_nuclei"
+        min_area_raw = self._min_nucleus_area_px.get().strip()
+        try:
+            min_area = int(min_area_raw) if min_area_raw else 50
+        except ValueError:
+            min_area = 50
+        cytoplasm_token = self._cytoplasm_token.get().strip()
+        if segmentation_method != "stardist_seeded_watershed_cell":
+            cytoplasm_token = ""
         return dict(
             raw=Path(self._input_var.get().strip()),
             nuclear_token=self._nuclear_token.get().strip() or "NIR",
@@ -974,6 +1085,9 @@ class AnalyzeTab(tk.Frame):
             filename_schema=self._build_schema_arg(),
             filename_sep=self._filename_sep.get() or DEFAULT_SEP,
             smfish_tokens=self._smfish_tokens_list(),
+            segmentation_method=segmentation_method,
+            cytoplasm_token=cytoplasm_token,
+            min_nucleus_area_px=min_area,
         )
 
     def _expected_well_count(self, opts: dict) -> int:
@@ -1025,6 +1139,9 @@ class AnalyzeTab(tk.Frame):
                 filename_sep=opts["filename_sep"],
                 fluor_tokens=opts.get("fluor_tokens", []),
                 smfish_tokens=opts.get("smfish_tokens", []),
+                segmentation_method=opts.get("segmentation_method", "stardist_nuclei"),
+                cytoplasm_token=opts.get("cytoplasm_token", ""),
+                min_nucleus_area_px=opts.get("min_nucleus_area_px", 50),
             )
             self._log_q.put(("line", f"[info] Wrote {info_path}\n"))
         except Exception as exc:

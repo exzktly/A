@@ -64,7 +64,8 @@ from tifffile import imread, imwrite
 import numpy as np
 from scipy import ndimage as ndi
 from scipy.ndimage import grey_opening
-from skimage.segmentation import find_boundaries
+from skimage.filters import threshold_otsu
+from skimage.segmentation import find_boundaries, watershed
 import imageio.v3 as iio
 
 # StarDist and csbdeep (which import TensorFlow) are intentionally NOT imported
@@ -370,6 +371,7 @@ SCHEMA_FIELDS = ("experiment", "channel", "well", "fov", "timepoint", "ignore")
 #: Default schema — matches the original hardcoded convention.
 DEFAULT_SCHEMA = "experiment:channel:well:fov:timepoint"
 DEFAULT_SEP    = "_"
+DEFAULT_SEGMENTATION_METHOD = "stardist_nuclei"
 
 
 def parse_schema(schema_str: str) -> list[str]:
@@ -587,6 +589,62 @@ def save_overlay(nir_raw: np.ndarray, labels: np.ndarray, out_path: Path) -> Non
     rgb[boundaries, 2] = 0
     iio.imwrite(str(out_path), rgb)
 
+
+def _segment_stardist_nuclei(nir_corr: np.ndarray) -> np.ndarray:
+    from csbdeep.utils import normalize
+    if _STARDIST_MODEL is None:
+        raise RuntimeError(
+            "StarDist model is not initialised. "
+            "Ensure _worker_init ran before process_image_group."
+        )
+    nir_norm = normalize(nir_corr, 1, 99.8)
+    labels, _ = _STARDIST_MODEL.predict_instances(nir_norm)
+    return labels.astype(np.int32)
+
+
+def _segment_stardist_seeded_watershed_cell(
+    nir_corr: np.ndarray,
+    cytoplasm_raw: np.ndarray,
+    tophat_radius_fluor: int,
+    min_nucleus_area_px: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    stardist_labels = _segment_stardist_nuclei(nir_corr)
+    nucleus_ids = np.unique(stardist_labels)
+    nucleus_ids = nucleus_ids[nucleus_ids != 0]
+    filtered_ids: list[int] = []
+    for nid in nucleus_ids:
+        area = int(np.count_nonzero(stardist_labels == nid))
+        if area >= min_nucleus_area_px:
+            filtered_ids.append(int(nid))
+
+    nuclear_points = np.zeros_like(stardist_labels, dtype=np.int32)
+    marker_id = 1
+    for nid in filtered_ids:
+        cy, cx = ndi.center_of_mass(stardist_labels == nid)
+        if np.isnan(cy) or np.isnan(cx):
+            continue
+        y = int(np.clip(round(float(cy)), 0, stardist_labels.shape[0] - 1))
+        x = int(np.clip(round(float(cx)), 0, stardist_labels.shape[1] - 1))
+        nuclear_points[y, x] = marker_id
+        marker_id += 1
+
+    cytoplasm_tophat = apply_tophat(cytoplasm_raw, tophat_radius_fluor)
+    try:
+        thresh = threshold_otsu(cytoplasm_tophat)
+    except ValueError:
+        thresh = float(np.mean(cytoplasm_tophat))
+    cytoplasm_binary_mask = cytoplasm_tophat > thresh
+    distance = ndi.distance_transform_edt(cytoplasm_binary_mask)
+    if marker_id <= 1:
+        labels = np.zeros_like(stardist_labels, dtype=np.int32)
+    else:
+        labels = watershed(
+            -distance,
+            markers=nuclear_points,
+            mask=cytoplasm_binary_mask,
+        ).astype(np.int32)
+    return labels, nuclear_points, cytoplasm_tophat, cytoplasm_binary_mask
+
 # ---------------------------------------------------------------------------
 # Per-image worker (runs in a subprocess)
 # ---------------------------------------------------------------------------
@@ -607,6 +665,9 @@ def process_image_group(
     schema: "list[str] | None" = None,
     sep: str = DEFAULT_SEP,
     smfish_tokens: "list[str] | None" = None,
+    segmentation_method: str = DEFAULT_SEGMENTATION_METHOD,
+    cytoplasm_token: str = "",
+    min_nucleus_area_px: int = 50,
 ) -> list[dict]:
     """
     Process one nuclear image together with an arbitrary number of fluorescent
@@ -621,7 +682,6 @@ def process_image_group(
     Output CSV columns for each fluor channel are prefixed with the lower-cased
     token, e.g. "gfp_total_intensity", "mcherry_mean_intensity".
     """
-    from csbdeep.utils import normalize
     log.info("Processing %s  (%d fluor channel(s): %s)",
              nuclear_path.name, len(fluor_paths), ", ".join(fluor_tokens))
 
@@ -666,21 +726,38 @@ def process_image_group(
             fluor_corr[i] = apply_smfish_log(fluor_tophat[i])
             log.info("  smfish_log_%s: %.1f s", tok.lower(), time.perf_counter() - _t)
 
-    # StarDist segmentation on the nuclear channel.
     _t = time.perf_counter()
-    nir_norm = normalize(nir_corr, 1, 99.8)
-    log.info("  normalize:   %.1f s", time.perf_counter() - _t)
-
-    if _STARDIST_MODEL is None:
-        raise RuntimeError(
-            "StarDist model is not initialised. "
-            "Ensure _worker_init ran before process_image_group."
+    labels: np.ndarray
+    nuclear_points: np.ndarray | None = None
+    cytoplasm_tophat: np.ndarray | None = None
+    cytoplasm_binary_mask: np.ndarray | None = None
+    if segmentation_method == "stardist_seeded_watershed_cell":
+        if not cytoplasm_token:
+            raise ValueError(
+                "segmentation_method=stardist_seeded_watershed_cell requires --cytoplasm_token."
+            )
+        if cytoplasm_token not in fluor_tokens:
+            raise ValueError(
+                f"Cytoplasm token '{cytoplasm_token}' is missing from fluor token list: {fluor_tokens}"
+            )
+        cyto_idx = fluor_tokens.index(cytoplasm_token)
+        labels, nuclear_points, cytoplasm_tophat, cytoplasm_binary_mask = (
+            _segment_stardist_seeded_watershed_cell(
+                nir_corr=nir_corr,
+                cytoplasm_raw=fluor_raws[cyto_idx],
+                tophat_radius_fluor=tophat_radius_fluor[cyto_idx],
+                min_nucleus_area_px=min_nucleus_area_px,
+            )
         )
-    _t = time.perf_counter()
-    labels, _ = _STARDIST_MODEL.predict_instances(nir_norm)
-    labels = labels.astype(np.int32)
-    log.info("  stardist:    %.1f s  (%d nuclei detected)",
-             time.perf_counter() - _t, len(np.unique(labels)) - 1)
+        log.info(
+            "  watershed:   %.1f s  (%d cells detected)",
+            time.perf_counter() - _t,
+            len(np.unique(labels)) - 1,
+        )
+    else:
+        labels = _segment_stardist_nuclei(nir_corr)
+        log.info("  stardist:    %.1f s  (%d nuclei detected)",
+                 time.perf_counter() - _t, len(np.unique(labels)) - 1)
 
     # Save QC images.
     stem      = nuclear_path.stem
@@ -697,6 +774,19 @@ def process_image_group(
             if tok in smfish_set:
                 smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
                 imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
+        if segmentation_method == "stardist_seeded_watershed_cell":
+            assert nuclear_points is not None
+            assert cytoplasm_tophat is not None
+            assert cytoplasm_binary_mask is not None
+            imwrite(str(output_dir / f"{base_name}_nuclear_points.tif"), nuclear_points.astype(np.int32))
+            imwrite(
+                str(output_dir / f"{base_name}_cytoplasm_tophat.tif"),
+                np.clip(cytoplasm_tophat, 0, None).astype(np.float32),
+            )
+            imwrite(
+                str(output_dir / f"{base_name}_cytoplasm_otsu_mask.tif"),
+                cytoplasm_binary_mask.astype(np.uint8),
+            )
         log.info("  tophat tifs written")
     if save_masks:
         imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
@@ -708,6 +798,9 @@ def process_image_group(
     meta    = parse_filename(nuclear_path, schema=schema, sep=sep)
     nuc_ids = np.unique(labels)
     nuc_ids = nuc_ids[nuc_ids != 0]
+    if len(nuc_ids) == 0:
+        log.info("  quantify:    0.0 s  (0 nuclei)")
+        return []
 
     _t = time.perf_counter()
     records: list[dict] = []
@@ -1467,6 +1560,16 @@ def output_exists_for_well_flat(output_dir: Path, well_label: str, csv_prefix: s
     return csv_path.exists() and csv_path.stat().st_size > 0
 
 
+def _unique_tokens_preserve_order(tokens: "list[str]") -> "list[str]":
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in tokens:
+        if tok not in seen:
+            out.append(tok)
+            seen.add(tok)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Zip-aware orchestration
 # ---------------------------------------------------------------------------
@@ -1706,6 +1809,31 @@ def build_parser() -> argparse.ArgumentParser:
                    help="One or more channel tokens identifying fluorescent "
                         "channels to quantify (e.g. GFP mCherry DAPI). "
                         "Each token produces its own intensity columns in the CSV.")
+    p.add_argument(
+        "--segmentation_method",
+        default=DEFAULT_SEGMENTATION_METHOD,
+        choices=("stardist_nuclei", "stardist_seeded_watershed_cell"),
+        help=(
+            "Segmentation method. 'stardist_nuclei' keeps existing behavior. "
+            "'stardist_seeded_watershed_cell' uses StarDist nuclear seeds and "
+            "2D watershed on a cytoplasm Otsu mask."
+        ),
+    )
+    p.add_argument(
+        "--cytoplasm_token",
+        default="",
+        help=(
+            "Channel token used as cytoplasm image for watershed mode. "
+            "Required when --segmentation_method=stardist_seeded_watershed_cell. "
+            "In watershed mode this channel is also quantified."
+        ),
+    )
+    p.add_argument(
+        "--min_nucleus_area_px",
+        type=int,
+        default=50,
+        help="Minimum StarDist nucleus area (pixels) kept as watershed seeds.",
+    )
 
     p.add_argument("--filename_schema", default=DEFAULT_SCHEMA,
                    help=(
@@ -1808,6 +1936,16 @@ def main() -> None:
     schema_errors = validate_schema(schema)
     if schema_errors:
         parser.error("Invalid --filename_schema:\n" + "\n".join(f"  {e}" for e in schema_errors))
+    if args.min_nucleus_area_px <= 0:
+        parser.error("--min_nucleus_area_px must be a positive integer.")
+    if args.segmentation_method == "stardist_seeded_watershed_cell":
+        if not args.cytoplasm_token:
+            parser.error(
+                "--cytoplasm_token is required when "
+                "--segmentation_method=stardist_seeded_watershed_cell."
+            )
+        if args.cytoplasm_token == args.nuclear_token:
+            parser.error("--cytoplasm_token must be different from --nuclear_token.")
     log.info("Schema   : %s  (sep=%r)", args.filename_schema, sep)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1885,12 +2023,24 @@ def main() -> None:
     if workers_override:
         log.info("Workers override : --workers=%d", args.workers)
 
+    fluor_tokens_for_quant = list(args.fluor_tokens)
+    if (
+        args.segmentation_method == "stardist_seeded_watershed_cell"
+        and args.cytoplasm_token
+    ):
+        fluor_tokens_for_quant.append(args.cytoplasm_token)
+    fluor_tokens_for_quant = _unique_tokens_preserve_order(fluor_tokens_for_quant)
+
     # Per-channel top-hat flags and radii: one entry per fluor token.
-    n_fluor            = len(args.fluor_tokens)
+    n_fluor            = len(fluor_tokens_for_quant)
     tophat_fluor       = [not args.no_tophat_fluor] * n_fluor
     tophat_radius_fluor = [args.tophat_radius_fluor] * n_fluor
 
-    log.info("Fluor channels : %s", ", ".join(args.fluor_tokens))
+    log.info("Segmentation method : %s", args.segmentation_method)
+    if args.segmentation_method == "stardist_seeded_watershed_cell":
+        log.info("Cytoplasm token     : %s", args.cytoplasm_token)
+        log.info("Min nucleus area px : %d", args.min_nucleus_area_px)
+    log.info("Fluor channels : %s", ", ".join(fluor_tokens_for_quant))
     log.info("Tophat fluor   : radius=%d, enabled=%s",
              args.tophat_radius_fluor, not args.no_tophat_fluor)
     log.info("Save tophat    : %s", not args.no_save_tophat)
@@ -1899,7 +2049,7 @@ def main() -> None:
     shared_kwargs = dict(
         output_dir=output_dir,
         nuclear_token=args.nuclear_token,
-        fluor_tokens=args.fluor_tokens,
+        fluor_tokens=fluor_tokens_for_quant,
         tophat_nir=not args.no_tophat_nir,
         tophat_radius_nir=args.tophat_radius_nir,
         tophat_fluor=tophat_fluor,
@@ -1910,6 +2060,9 @@ def main() -> None:
         schema=schema,
         sep=sep,
         smfish_tokens=args.smfish_tokens,
+        segmentation_method=args.segmentation_method,
+        cytoplasm_token=args.cytoplasm_token,
+        min_nucleus_area_px=args.min_nucleus_area_px,
     )
 
     # If the selected input is an "in" directory, normalise any loose TIF/TIFF
@@ -1929,7 +2082,7 @@ def main() -> None:
             well_zips=well_zips,
             shared_kwargs_template=shared_kwargs,
             nuclear_token=args.nuclear_token,
-            fluor_tokens=args.fluor_tokens,
+            fluor_tokens=fluor_tokens_for_quant,
             workers=workers,
             csv_prefix=args.csv_prefix,
             force=args.force,
@@ -1946,7 +2099,7 @@ def main() -> None:
             well_folders=well_folders,
             shared_kwargs_template=shared_kwargs,
             nuclear_token=args.nuclear_token,
-            fluor_tokens=args.fluor_tokens,
+            fluor_tokens=fluor_tokens_for_quant,
             workers=workers,
             csv_prefix=args.csv_prefix,
             force=args.force,
@@ -1959,7 +2112,7 @@ def main() -> None:
         log.info("Flat mode: no well zips or folders found, scanning directory directly.")
 
         # Discover groups once; reuse for both skip detection and processing.
-        groups_all = find_image_groups(input_dir, args.nuclear_token, args.fluor_tokens,
+        groups_all = find_image_groups(input_dir, args.nuclear_token, fluor_tokens_for_quant,
                                        schema=schema, sep=sep)
         skip_wells: set[str] = set()
         if not args.force:
@@ -1979,7 +2132,7 @@ def main() -> None:
             output_dir=output_dir,
             shared_kwargs=shared_kwargs,
             nuclear_token=args.nuclear_token,
-            fluor_tokens=args.fluor_tokens,
+            fluor_tokens=fluor_tokens_for_quant,
             workers=workers,
             skip_wells=skip_wells,
             force_cpu=args.cpu_only,

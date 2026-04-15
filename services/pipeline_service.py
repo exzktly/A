@@ -21,7 +21,12 @@ def write_pipeline_info(
     filename_sep: str,
     fluor_tokens: list[str],
     smfish_tokens: list[str] = [],
+    segmentation_method: str = "stardist_nuclei",
+    cytoplasm_token: str = "",
+    min_nucleus_area_px: int = 50,
 ) -> Path:
+    if segmentation_method != "stardist_seeded_watershed_cell":
+        cytoplasm_token = ""
     fields = [f.strip() for f in filename_schema.split(":")]
     info = {
         "schema": filename_schema,
@@ -30,6 +35,9 @@ def write_pipeline_info(
         "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
         "fluor_tokens": fluor_tokens,
         "smfish_tokens": smfish_tokens,
+        "segmentation_method": segmentation_method,
+        "cytoplasm_token": cytoplasm_token,
+        "min_nucleus_area_px": int(min_nucleus_area_px),
     }
     p = output_dir / "pipeline_info.json"
     p.write_text(json.dumps(info, indent=2))
@@ -42,6 +50,7 @@ def build_pipeline_args(
     output_dir: Path,
     opts: dict,
 ) -> list[str]:
+    segmentation_method = opts.get("segmentation_method", "stardist_nuclei")
     args = [
         sys.executable,
         str(pipeline),
@@ -59,7 +68,17 @@ def build_pipeline_args(
         opts["filename_schema"],
         "--filename_sep",
         opts["filename_sep"],
+        "--segmentation_method",
+        segmentation_method,
     ]
+    try:
+        min_area = int(opts.get("min_nucleus_area_px", 50))
+    except (TypeError, ValueError):
+        min_area = 50
+    args += ["--min_nucleus_area_px", str(max(1, min_area))]
+    cytoplasm_token = (opts.get("cytoplasm_token") or "").strip()
+    if segmentation_method == "stardist_seeded_watershed_cell" and cytoplasm_token:
+        args += ["--cytoplasm_token", cytoplasm_token]
     try:
         args += ["--tophat_radius_nir", str(int(opts["tophat_radius_nir"]))]
     except ValueError:
