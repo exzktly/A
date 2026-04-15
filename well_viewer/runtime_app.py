@@ -5418,6 +5418,7 @@ class WellViewerApp(tk.Frame):
         ordered_keys = self._bar_current_keys()
         if active_rsets:
             rset_by_name = {r.name: r for r in active_rsets}
+            all_set_idx = {r.name: i for i, r in enumerate(getattr(self, "_rep_sets", []))}
             plot_wells: List[str] = []
             plot_colors: List[str] = []
             plot_labels: List[str] = []
@@ -5425,7 +5426,8 @@ class WellViewerApp(tk.Frame):
                 rset = rset_by_name.get(key)
                 if rset is None:
                     continue
-                color = WELL_COLORS[si % len(WELL_COLORS)]
+                color_idx = all_set_idx.get(key, si)
+                color = WELL_COLORS[color_idx % len(WELL_COLORS)]
                 valid = [w for w in rset.wells if w in self._well_paths]
                 for w in valid:
                     plot_wells.append(w)
@@ -5476,7 +5478,11 @@ class WellViewerApp(tk.Frame):
         use_groups, items, _ = self._collect_bar_items(target_t)
         if use_groups:
             by_key = {r.name: r for r in active_rsets}
-            color_by_key = {r.name: WELL_COLORS[i % len(WELL_COLORS)] for i, r in enumerate(active_rsets)}
+            all_set_idx = {r.name: i for i, r in enumerate(getattr(self, "_rep_sets", []))}
+            color_by_key = {
+                r.name: WELL_COLORS[all_set_idx.get(r.name, i) % len(WELL_COLORS)]
+                for i, r in enumerate(active_rsets)
+            }
             ordered = []
             for key in self._bar_current_keys():
                 rset = by_key.get(key)

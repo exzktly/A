@@ -55,8 +55,15 @@ def redraw_line_plots(
 
     any_ts = any_cdf = False
     if active_rsets:
+        all_rsets = list(getattr(app, "_rep_sets", []))
         for idx, rset in enumerate(active_rsets):
-            color = well_colors[idx % len(well_colors)]
+            # Keep line-plot colors aligned with the sidebar well-picker colors:
+            # color index must come from the full replicate-set list, not the
+            # visible subset order.
+            set_idx = next((si for si, rs in enumerate(all_rsets) if rs is rset), None)
+            if set_idx is None:
+                set_idx = next((si for si, rs in enumerate(all_rsets) if getattr(rs, "name", None) == rset.name), idx)
+            color = well_colors[set_idx % len(well_colors)]
             valid_wells = [w for w in rset.wells if w in app._well_paths]
             all_tps: set = set()
             all_fluor_vals_rset = []
