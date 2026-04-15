@@ -93,6 +93,8 @@ def build_pipeline_args(
         "no_tophat_fluor",
         "no_save_masks",
         "no_save_overlays",
+        "compress_input_well_folders",
+        "compress_output_well_folders",
         "force",
         "cpu_only",
     ):
