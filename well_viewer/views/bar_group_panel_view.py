@@ -271,8 +271,7 @@ def build_bar_group_chip_rows(app, row, idx: int, grp, bg: str, is_active: bool)
             bracket.pack(side=tk.LEFT)
             chip_widgets.append(bracket)
             for w in rset:
-                tok = _extract_well_token(w) or w
-                wl = tk.Label(srow, text=tok, font=FM_TINY, bg=chip_color, fg=CLR_WHITE, padx=3, pady=1)
+                wl = tk.Label(srow, text=w, font=FM_TINY, bg=chip_color, fg=CLR_WHITE, padx=3, pady=1)
                 wl.pack(side=tk.LEFT, padx=(0, 2))
                 chip_widgets.append(wl)
             if is_active:
@@ -298,10 +297,9 @@ def build_bar_group_chip_rows(app, row, idx: int, grp, bg: str, is_active: bool)
             chip_widgets.append(singles_row)
             tk.Label(singles_row, text="solo:", font=FM_TINY, fg=TXT_MUT, bg=bg, padx=2).pack(side=tk.LEFT)
             for w in singles:
-                tok = _extract_well_token(w) or w
                 wl = tk.Label(
                     singles_row,
-                    text=tok,
+                    text=w,
                     font=FM_TINY,
                     bg=CLR_MUTED_DISABLED,
                     fg=CLR_WHITE,
@@ -315,8 +313,7 @@ def build_bar_group_chip_rows(app, row, idx: int, grp, bg: str, is_active: bool)
         chips.pack(fill=tk.X, padx=6, pady=(2, 0))
         chip_widgets.append(chips)
         for lbl in grp.wells:
-            tok = _extract_well_token(lbl) or lbl
-            cl = tk.Label(chips, text=tok, font=FM_TINY, bg=chip_color, fg=CLR_WHITE, padx=4, pady=1)
+            cl = tk.Label(chips, text=lbl, font=FM_TINY, bg=chip_color, fg=CLR_WHITE, padx=4, pady=1)
             cl.pack(side=tk.LEFT, padx=(0, 2), pady=1)
             chip_widgets.append(cl)
     else:

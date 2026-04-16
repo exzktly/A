@@ -68,21 +68,20 @@ def label_panel_refresh(app) -> None:
         fill=tk.X, padx=6, pady=(0, 2))
 
     for lbl in wells:
-        tok = _extract_well_token(lbl) or lbl
         row = tk.Frame(app._lbl_inner, bg=BG_APP)
         row.pack(fill=tk.X, padx=6, pady=1)
 
-        tk.Label(row, text=tok, font=FM_MONO, fg=TXT_SEC,
+        tk.Label(row, text=lbl, font=FM_MONO, fg=TXT_SEC,
                  bg=BG_APP, width=6, anchor="w").pack(side=tk.LEFT)
 
-        var = tk.StringVar(value=app._well_labels.get(tok, ""))
+        var = tk.StringVar(value=app._well_labels.get(lbl, ""))
         e = tk.Entry(row, textvariable=var, font=FM_TINY,
                      fg=TXT_PRI, bg=BG_PANEL, relief=tk.FLAT,
                      highlightthickness=1, highlightcolor=ACCENT,
                      highlightbackground=BORDER, width=24)
         e.pack(side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
 
-        def _on_change(t=tok, v=var):
+        def _on_change(t=lbl, v=var):
             val = v.get().strip()
             if val:
                 app._well_labels[t] = val
@@ -90,4 +89,4 @@ def label_panel_refresh(app) -> None:
                 app._well_labels.pop(t, None)
             app._invalidate_stats_cache()
 
-        var.trace_add("write", lambda *_, t=tok, v=var: _on_change(t, v))
+        var.trace_add("write", lambda *_, t=lbl, v=var: _on_change(t, v))

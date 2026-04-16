@@ -40,10 +40,9 @@ def build_preview_picker(
 
 
 def preview_pick_well(app, tok: str) -> None:
-    label = app._tok_to_label.get(tok)
-    if label is None:
+    if tok not in app._well_paths:
         return
-    app._preview_selected_well = None if app._preview_selected_well == label else label
+    app._preview_selected_well = None if app._preview_selected_well == tok else tok
     app._refresh_preview_picker()
     app._update_preview(app._preview_selected_well)
 
@@ -62,17 +61,15 @@ def refresh_preview_picker(
     extract_well_token_fn,
 ) -> None:
     for tok, btn in app._sidebar_preview_btns.items():
-        label = app._tok_to_label.get(tok)
-        if label is None:
+        if tok not in app._well_paths:
             btn.config(bg=bg_cell, fg=txt_mut, state=tk.DISABLED, cursor="arrow", relief=tk.FLAT)
-        elif label == app._preview_selected_well:
+        elif tok == app._preview_selected_well:
             btn.config(bg=accent, fg=clr_white, state=tk.NORMAL, activebackground=clr_accent_dark, cursor="hand2", relief=tk.SUNKEN)
         else:
             btn.config(bg=bg_panel, fg=txt_pri, state=tk.NORMAL, activebackground=bg_hover, cursor="hand2", relief=tk.FLAT)
     if hasattr(app, "_preview_sel_lbl"):
         if app._preview_selected_well:
-            tok = extract_well_token_fn(app._preview_selected_well) or app._preview_selected_well
-            app._preview_sel_lbl.config(text=f"Selected: {tok}")
+            app._preview_sel_lbl.config(text=f"Selected: {app._preview_selected_well}")
         else:
             app._preview_sel_lbl.config(text="No well selected")
 

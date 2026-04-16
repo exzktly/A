@@ -22,7 +22,7 @@ def bar_groups_to_dict(
     *,
     extract_well_token: Callable[[str], Optional[str]],
 ) -> dict:
-    rep_list = [{"name": r.name, "wells": [extract_well_token(w) or w for w in r.wells]} for r in rep_sets]
+    rep_list = [{"name": r.name, "wells": list(r.wells)} for r in rep_sets]
     grp_list = []
     for grp in bar_groups:
         grp_list.append(
@@ -30,7 +30,7 @@ def bar_groups_to_dict(
                 "name": grp.name,
                 "hidden": grp.hidden,
                 "members": [r.name for r in grp.members],
-                "solo_wells": [extract_well_token(w) or w for w in grp.solo_wells],
+                "solo_wells": list(grp.solo_wells),
             }
         )
     return {"rep_sets": rep_list, "groups": grp_list}
@@ -42,15 +42,16 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
         m = re.match(r"^([A-H])(\d{1,2})$", tok, re.I)
         return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else tok
 
-    def _tok_label(tok: str) -> Optional[str]:
-        return tok_to_label.get(_norm(tok))
+    def _valid_tok(raw: str) -> Optional[str]:
+        n = _norm(raw)
+        return n if n in tok_to_label else None
 
     rep_sets: List[ReplicateSet] = []
     bar_groups: List[BarGroup] = []
 
     if isinstance(data, dict):
         for item in data.get("rep_sets", []):
-            wells = [_tok_label(t) for t in item.get("wells", []) if _tok_label(t)]
+            wells = [t for t in (_valid_tok(x) for x in item.get("wells", [])) if t is not None]
             rep_sets.append(ReplicateSet(item.get("name", "R"), wells))
         rep_by_name = {r.name: r for r in rep_sets}
         for item in data.get("groups", []):
@@ -58,10 +59,10 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
             for rname in item.get("members", []):
                 if rname in rep_by_name:
                     grp.members.append(rep_by_name[rname])
-            for tok in item.get("solo_wells", []):
-                lbl = _tok_label(tok)
-                if lbl:
-                    grp.solo_wells.append(lbl)
+            for raw_tok in item.get("solo_wells", []):
+                n = _valid_tok(raw_tok)
+                if n:
+                    grp.solo_wells.append(n)
             bar_groups.append(grp)
     else:
         for item in (data if isinstance(data, list) else []):
@@ -70,7 +71,7 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
             grp = BarGroup(name, hidden=hidden)
             for rdata in item.get("replicates", []):
                 rname = rdata.get("name", "R")
-                rwells = [_tok_label(t) for t in rdata.get("wells", []) if _tok_label(t)]
+                rwells = [t for t in (_valid_tok(x) for x in rdata.get("wells", [])) if t is not None]
                 rset = ReplicateSet(rname, rwells)
                 rep_sets.append(rset)
                 grp.members.append(rset)

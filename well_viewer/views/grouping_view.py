@@ -54,8 +54,7 @@ def rep_panel_refresh(app) -> None:
                 chips = rt.tk.Frame(card, bg=bg)
                 chips.pack(fill=rt.tk.X, padx=6, pady=(0, 4))
                 for w in rset.wells:
-                    tok = rt._extract_well_token(w) or w
-                    rt.tk.Label(chips, text=tok, font=rt.FM_TINY, bg=accent, fg=clr_white, padx=4, pady=1).pack(side=rt.tk.LEFT, padx=(0, 2), pady=1)
+                    rt.tk.Label(chips, text=w, font=rt.FM_TINY, bg=accent, fg=clr_white, padx=4, pady=1).pack(side=rt.tk.LEFT, padx=(0, 2), pady=1)
         else:
             row = rt.tk.Frame(card, bg=bg)
             row.pack(fill=rt.tk.X, padx=6, pady=2)
@@ -145,18 +144,16 @@ def grp_panel_refresh(app) -> None:
                 tk.Label(mrow, text=f"[{rset.name}]", font=FM_TINY,
                          fg=dot_c, bg=bg, padx=2).pack(side=tk.LEFT)
                 for w in rset.wells:
-                    tok = _extract_well_token(w) or w
-                    tk.Label(mrow, text=tok, font=FM_TINY,
+                    tk.Label(mrow, text=w, font=FM_TINY,
                              bg=dot_c, fg=CLR_WHITE,
                              padx=3, pady=1).pack(side=tk.LEFT, padx=(0, 2))
                 if is_sel:
                     _btn_danger(mrow, "−", lambda g=gi, r=rset: app._grp_remove_member(g, r),
                                 padx=3).pack(side=tk.LEFT, padx=(4, 0))
             for w in grp.solo_wells:
-                tok = _extract_well_token(w) or w
                 srow = tk.Frame(mem_frame, bg=bg)
                 srow.pack(fill=tk.X, pady=1)
-                tk.Label(srow, text=f"[solo] {tok}", font=FM_TINY,
+                tk.Label(srow, text=f"[solo] {w}", font=FM_TINY,
                          fg=dot_c, bg=bg).pack(side=tk.LEFT)
                 if is_sel:
                     _btn_danger(srow, "−", lambda g=gi, wl=w: app._grp_remove_solo(g, wl),
@@ -184,19 +181,18 @@ def grp_panel_refresh(app) -> None:
                          font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
 
             assigned_wells = set(grp.wells)
-            unassigned = [lbl for lbl in sorted(
+            unassigned = [tok for tok in sorted(
                               app._well_paths.keys(),
-                              key=lambda l: app._parse_rc(l))
-                          if lbl not in assigned_wells]
+                              key=lambda t: app._parse_rc(t))
+                          if tok not in assigned_wells]
             if unassigned:
                 act_well = tk.Frame(card, bg=bg)
                 act_well.pack(fill=tk.X, padx=6, pady=(2, 4))
                 tk.Label(act_well, text="+ Well:", font=FM_TINY,
                          fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-                for lbl in unassigned:
-                    tok = _extract_well_token(lbl) or lbl
+                for tok in unassigned:
                     _btn_card(act_well, tok,
-                              lambda wl=lbl, g=gi: app._grp_add_solo_well(g, wl)
+                              lambda wl=tok, g=gi: app._grp_add_solo_well(g, wl)
                               ).pack(side=tk.LEFT, padx=2)
             else:
                 tk.Frame(card, bg=bg, height=4).pack()  # spacing

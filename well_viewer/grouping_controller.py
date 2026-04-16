@@ -18,11 +18,10 @@ def rep_map_press(app, event: tk.Event) -> None:
     if not (0 <= app._active_rep_idx < len(app._rep_sets)):
         return
     tok = rep_map_tok_at(app, event)
-    if tok is None or tok not in app._tok_to_label:
+    if tok is None or tok not in app._well_paths:
         return
-    lbl = app._tok_to_label[tok]
     rset = app._rep_sets[app._active_rep_idx]
-    app._rep_drag_adding = lbl not in rset.wells
+    app._rep_drag_adding = tok not in rset.wells
     app._rep_drag_visited = set()
     app._rep_map_apply(tok)
 
@@ -47,19 +46,18 @@ def rep_map_apply(app, tok: str) -> None:
     if not (0 <= app._active_rep_idx < len(app._rep_sets)):
         return
     app._rep_drag_visited.add(tok)
-    lbl = app._tok_to_label.get(tok)
-    if lbl is None:
+    if tok not in app._well_paths:
         return
     rset = app._rep_sets[app._active_rep_idx]
     if app._rep_drag_adding:
         for other in app._rep_sets:
-            if other is not rset and lbl in other.wells:
-                other.wells.remove(lbl)
-        if lbl not in rset.wells:
-            rset.wells.append(lbl)
+            if other is not rset and tok in other.wells:
+                other.wells.remove(tok)
+        if tok not in rset.wells:
+            rset.wells.append(tok)
     else:
-        if lbl in rset.wells:
-            rset.wells.remove(lbl)
+        if tok in rset.wells:
+            rset.wells.remove(tok)
     app._rep_refresh_map_single(tok)
 
 
@@ -149,26 +147,24 @@ def bg_apply_legacy(app, tok: str) -> None:
     if tok in app._bar_drag_visited:
         return
     app._bar_drag_visited.add(tok)
-    label = app._tok_to_label.get(tok)
-    if label is None:
+    if tok not in app._well_paths:
         return
     in_group_mode = 0 <= app._bar_active_grp < len(app._bar_groups)
     if in_group_mode:
         grp = app._bar_groups[app._bar_active_grp]
         for rset in grp.replicates:
-            if label in rset.wells:
+            if tok in rset.wells:
                 if not app._bar_drag_adding:
-                    rset.wells.remove(label)
+                    rset.wells.remove(tok)
                 return
         if app._bar_drag_adding:
             if 0 <= app._bar_active_rep < len(grp.replicates):
-                grp.replicates[app._bar_active_rep].wells.append(label)
+                grp.replicates[app._bar_active_rep].wells.append(tok)
             else:
-                tok_name = _extract_well_token(label) or tok
-                grp.replicates.append(ReplicateSet(tok_name, [label]))
+                grp.replicates.append(ReplicateSet(tok, [tok]))
     else:
         if app._bar_drag_adding:
-            app._selected_wells.add(label)
+            app._selected_wells.add(tok)
         else:
-            app._selected_wells.discard(label)
+            app._selected_wells.discard(tok)
     app._bar_refresh_single_btn(tok)
