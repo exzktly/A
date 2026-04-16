@@ -197,10 +197,12 @@ class ScatterCellViewer(tk.Toplevel):
             if arr is not None:
                 self._cell_images[ch] = arr
 
-        # Load and crop nuclear channel image (self.filename is the nuclear image)
+        # Load and crop nuclear/segmentation channel image (self.filename is the nuclear image).
+        # Key by the actual nuclear token (e.g. "nir") so the dropdown shows the channel name.
+        nuc_key = self._nuclear_token.lower() if self._nuclear_token else "nuclear_fluor"
         arr = self._load_and_crop_nuclear()
         if arr is not None:
-            self._cell_images["nuclear_fluor"] = arr
+            self._cell_images[nuc_key] = arr
 
         arr = self._load_and_crop_channel("mask")
         if arr is not None:
@@ -210,10 +212,10 @@ class ScatterCellViewer(tk.Toplevel):
         if not self.winfo_exists():
             return
 
-        # Populate dropdown with fluorescence channels first, then overlay and mask
+        # Populate dropdown: fluor channels, then segmentation channel, then mask
         available_channels = [ch for ch in sorted(self.app._fluor_channels) if self._cell_images.get(ch) is not None]
-        if "nuclear_fluor" in self._cell_images:
-            available_channels.append("nuclear_fluor")
+        if nuc_key in self._cell_images and nuc_key not in available_channels:
+            available_channels.append(nuc_key)
         if "nuclear" in self._cell_images:
             available_channels.append("nuclear")
         self._channel_dropdown.config(values=available_channels)

@@ -560,15 +560,28 @@ def detect_smfish_channels(rows: List[dict]) -> List[str]:
     return sorted(channels)
 
 
-def detect_review_image_channels(rows: List[dict], fluor_channels: List[str]) -> List[str]:
+def detect_nuclear_channel_token(rows: List[dict]) -> str:
+    """Return the nuclear/segmentation channel token from the CSV 'channel' column (lowercase).
+
+    This is the imaging channel used for cell segmentation (e.g. 'nir', 'dapi').
+    """
+    if not rows:
+        return ""
+    return str(rows[0].get("channel", "") or "").strip().lower()
+
+
+def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
     """
     Return channel prefixes suitable for Review Image.
 
-    Includes standard fluorescence channels plus nuclear-like intensity channels
+    Includes standard fluorescence channels, the explicit segmentation channel
+    token (from the CSV 'channel' column), plus nuclear-like intensity channels
     (e.g. dapi/nuclear/nuc/nir/hoechst) even if they are not in the primary
     fluor metrics set.
     """
     chans = set(fluor_channels)
+    if seg_channel_token:
+        chans.add(seg_channel_token)
     if not rows:
         return sorted(chans)
     nuclear_tokens = ("nuclear", "nuc", "dapi", "hoechst", "nir")
@@ -3911,7 +3924,9 @@ class WellViewerApp(tk.Frame):
             # default to the first detected channel.
             if self._active_channel not in detected:
                 self._active_channel = detected[0]
-        self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels)
+        seg_tok = detect_nuclear_channel_token(all_rows_sample)
+        self._seg_channel_token = seg_tok
+        self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels, seg_tok)
         self._update_channel_selector()
 
         # Update smFISH channels and reset metric if needed
@@ -4023,11 +4038,19 @@ class WellViewerApp(tk.Frame):
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
         labels = [ch.upper() for ch in self._fluor_channels] or ["—"]
+        # Montage/preview includes the segmentation channel even if it has no CSV measurement column
+        seg_tok = getattr(self, "_seg_channel_token", "")
+        montage_chans = list(self._fluor_channels)
+        if seg_tok and seg_tok not in montage_chans:
+            montage_chans.append(seg_tok)
+        montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
         review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
         # Update channel selector instances
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_preview"):
+        for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
                 getattr(self, attr).config(values=labels)
+        if hasattr(self, "_chan_cb_preview"):
+            self._chan_cb_preview.config(values=montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
             self._review_image_chan_cb.config(values=review_labels)
         active_label = self._active_channel.upper()
