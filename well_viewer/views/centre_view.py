@@ -29,6 +29,15 @@ from tkinter import ttk
 from well_viewer.runtime_app import BG_APP, BG_SIDE, BORDER, FM_TINY, TXT_MUT, TXT_PRI
 
 
+def _bind_if_supported(widget: tk.Misc, sequence: str, callback, *, add: str = "+") -> None:
+    """Bind an event sequence while tolerating Tk builds without extra mouse buttons."""
+    try:
+        widget.bind(sequence, callback, add=add)
+    except tk.TclError:
+        # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
+        pass
+
+
 class CustomNotebook(tk.Frame):
     """Drop-in replacement for ttk.Notebook with custom tab bar.
 
@@ -70,12 +79,12 @@ class CustomNotebook(tk.Frame):
         self.header.bind("<Configure>", self._on_header_configure)
         self._header_canvas.bind("<Configure>", self._on_header_canvas_configure)
         for target in (header_wrap, self._header_canvas, self.header):
-            target.bind("<MouseWheel>", self._on_header_wheel, add="+")
-            target.bind("<Shift-MouseWheel>", self._on_header_wheel, add="+")
-            target.bind("<Button-4>", self._on_header_wheel, add="+")
-            target.bind("<Button-5>", self._on_header_wheel, add="+")
-            target.bind("<Button-6>", self._on_header_wheel, add="+")
-            target.bind("<Button-7>", self._on_header_wheel, add="+")
+            _bind_if_supported(target, "<MouseWheel>", self._on_header_wheel)
+            _bind_if_supported(target, "<Shift-MouseWheel>", self._on_header_wheel)
+            _bind_if_supported(target, "<Button-4>", self._on_header_wheel)
+            _bind_if_supported(target, "<Button-5>", self._on_header_wheel)
+            _bind_if_supported(target, "<Button-6>", self._on_header_wheel)
+            _bind_if_supported(target, "<Button-7>", self._on_header_wheel)
 
         # Content area with single visible frame at a time
         self.content = tk.Frame(self, bg=BG_APP)
@@ -105,12 +114,12 @@ class CustomNotebook(tk.Frame):
         )
         btn.pack(side=tk.LEFT, padx=0, pady=0)
         btn.bind("<Button-1>", lambda e: self.select_by_text(text))
-        btn.bind("<MouseWheel>", self._on_header_wheel, add="+")
-        btn.bind("<Shift-MouseWheel>", self._on_header_wheel, add="+")
-        btn.bind("<Button-4>", self._on_header_wheel, add="+")
-        btn.bind("<Button-5>", self._on_header_wheel, add="+")
-        btn.bind("<Button-6>", self._on_header_wheel, add="+")
-        btn.bind("<Button-7>", self._on_header_wheel, add="+")
+        _bind_if_supported(btn, "<MouseWheel>", self._on_header_wheel)
+        _bind_if_supported(btn, "<Shift-MouseWheel>", self._on_header_wheel)
+        _bind_if_supported(btn, "<Button-4>", self._on_header_wheel)
+        _bind_if_supported(btn, "<Button-5>", self._on_header_wheel)
+        _bind_if_supported(btn, "<Button-6>", self._on_header_wheel)
+        _bind_if_supported(btn, "<Button-7>", self._on_header_wheel)
         self._tab_buttons[text] = btn
 
     def add_separator(self):
