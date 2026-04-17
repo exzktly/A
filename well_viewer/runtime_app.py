@@ -3997,15 +3997,25 @@ class WellViewerApp(tk.Frame):
         )
         detected = detect_fluor_channels(all_rows_sample)
         detected_smfish = detect_smfish_channels(all_rows_sample)
-        if detected:
-            self._fluor_channels = detected
+        pipeline_fluor = [
+            str(tok).strip().lower()
+            for tok in (self._pipeline_info.get("fluor_tokens", []) if isinstance(self._pipeline_info, dict) else [])
+            if str(tok).strip()
+        ]
+        fluor_channels = pipeline_fluor or detected
+        if fluor_channels:
+            self._fluor_channels = fluor_channels
             # Keep the active channel if it is still present; otherwise
             # default to the first detected channel.
             if not self._active_channel:
-                self._active_channel = detected[0]
+                self._active_channel = fluor_channels[0]
             if not self._active_image_channel:
-                self._active_image_channel = detected[0]
-        seg_tok = detect_nuclear_channel_token(all_rows_sample)
+                self._active_image_channel = fluor_channels[0]
+        seg_tok = ""
+        if isinstance(self._pipeline_info, dict):
+            seg_tok = str(self._pipeline_info.get("nuclear_token", "") or "").strip().lower()
+        if not seg_tok:
+            seg_tok = detect_nuclear_channel_token(all_rows_sample)
         self._seg_channel_token = seg_tok
         self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels, seg_tok)
         self._update_channel_selector()
@@ -4264,10 +4274,17 @@ class WellViewerApp(tk.Frame):
             self._review_image_well_lbl.config(text=tok)
 
         try:
+            active_image_channel = str(self._active_image_channel or "").strip().lower()
+            seg_channel = str(getattr(self, "_seg_channel_token", "") or "").strip().lower()
+            # Channel-aware source policy:
+            #   - nuclear/segmentation channel images should come from in/
+            #   - fluorescence channels should come from out/
+            # Masks/overlays always come from data_dir (out).
+            search_in_dir = self._in_dir if (seg_channel and active_image_channel == seg_channel) else None
             fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
                 self._data_dir, well_label,
-                fluor_token=self._active_image_channel,
-                in_dir=self._in_dir,
+                fluor_token=active_image_channel,
+                in_dir=search_in_dir,
                 _fov_tp_extractor=self._fov_tp_extractor,
                 _pipeline_info=self._pipeline_info,
             )
