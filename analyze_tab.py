@@ -544,14 +544,10 @@ class AnalyzeTab(tk.Frame):
 
     def _build_output_options_section(self, parent: tk.Frame) -> None:
         sec = self._section(parent, "Output Options")
-        self._no_save_masks = tk.BooleanVar(value=False)
-        self._no_save_overlays = tk.BooleanVar(value=False)
         self._compress_input_well_folders = tk.BooleanVar(value=True)
         self._compress_output_well_folders = tk.BooleanVar(value=True)
         self._csv_prefix = tk.StringVar(value="gfp_measurements")
         for txt, var in (
-            ("Skip saving masks", self._no_save_masks),
-            ("Skip saving overlays", self._no_save_overlays),
             ("Compress input well folders to .zip", self._compress_input_well_folders),
             ("Compress output well folders to .zip", self._compress_output_well_folders),
         ):
@@ -1080,8 +1076,6 @@ class AnalyzeTab(tk.Frame):
             tophat_radius_fluor=self._tophat_radius_fluor.get(),
             no_tophat_nir=self._no_tophat_nir.get(),
             no_tophat_fluor=self._no_tophat_fluor.get(),
-            no_save_masks=self._no_save_masks.get(),
-            no_save_overlays=self._no_save_overlays.get(),
             compress_input_well_folders=self._compress_input_well_folders.get(),
             compress_output_well_folders=self._compress_output_well_folders.get(),
             force=self._force.get(),
