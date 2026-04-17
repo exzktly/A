@@ -573,28 +573,28 @@ def detect_nuclear_channel_token(rows: List[dict]) -> str:
 
 
 def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
-    """
-    Return channel prefixes suitable for Review Image.
+    """Return channel prefixes suitable for Review Image.
 
-    Includes standard fluorescence channels, the explicit segmentation channel
-    token (from the CSV 'channel' column), plus nuclear-like intensity channels
-    (e.g. dapi/nuclear/nuc/nir/hoechst) even if they are not in the primary
-    fluor metrics set.
+    Harmonized policy:
+      - use the measured fluorescence channels
+      - include the explicit segmentation channel token from CSV `channel`
+    This avoids adding synthetic channel labels from metric columns that do not
+    necessarily map to real image filenames in the dataset.
     """
-    chans = set(fluor_channels)
-    if seg_channel_token:
-        chans.add(seg_channel_token)
+    chans: list[str] = []
+    seen: set[str] = set()
+    for ch in fluor_channels:
+        tok = str(ch or "").strip().lower()
+        if tok and tok not in seen:
+            seen.add(tok)
+            chans.append(tok)
+    seg_tok = str(seg_channel_token or "").strip().lower()
+    if seg_tok and seg_tok not in seen:
+        seen.add(seg_tok)
+        chans.append(seg_tok)
     if not rows:
-        return sorted(chans)
-    nuclear_tokens = ("nuclear", "nuc", "dapi", "hoechst", "nir")
-    for col in rows[0].keys():
-        lower = str(col).lower()
-        if not lower.endswith("_intensity") and not lower.endswith("_mean_intensity"):
-            continue
-        prefix = lower.split("_", 1)[0]
-        if any(tok in prefix for tok in nuclear_tokens):
-            chans.add(prefix)
-    return sorted(chans)
+        return chans
+    return chans
 
 
 # (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
