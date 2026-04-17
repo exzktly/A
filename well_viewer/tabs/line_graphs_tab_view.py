@@ -28,7 +28,7 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     """Fill *parent* with the Line Graphs controls and matplotlib figure.
 
     Creates and wires:
-    - Channel selector (shares ``app._chan_var``)
+    - Channel selector (uses ``app._plot_chan_var``)
     - Metric selector (hidden until a smFISH channel is active)
     - Export CSV + export-style panel buttons
     - Matplotlib figure with 3 subplots: mean, fraction, CDF
@@ -41,12 +41,11 @@ def build_line_graphs_tab(app, parent: tk.Frame) -> None:
     # Left side: Channel selector
     tk.Label(line_ctrl, text="Channel:", font=FM_BOLD,
              fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
-    app._chan_cb_line = ttk.Combobox(line_ctrl, textvariable=app._chan_var,
+    app._chan_cb_line = ttk.Combobox(line_ctrl, textvariable=app._plot_chan_var,
                                      values=["GFP"], state="readonly",
                                      width=10, font=FM_BOLD)
     app._chan_cb_line.pack(side=tk.LEFT, padx=(0, 12))
-    app._chan_cb_line.bind("<<ComboboxSelected>>",
-                           lambda _e: app._set_active_channel(app._chan_var.get().lower()))
+    app._chan_cb_line.bind("<<ComboboxSelected>>", app._on_plot_channel_selected)
 
     # Metric selector (hidden by default, shown when current channel has smfish_count)
     app._metric_selector_frame = tk.Frame(line_ctrl, bg=BG_SIDE)
