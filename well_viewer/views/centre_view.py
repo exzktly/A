@@ -48,6 +48,31 @@ class CustomNotebook(tk.Frame):
         self.header = tk.Frame(self, bg=self._bg_side, height=35)
         self.header.pack(fill=tk.X, padx=0, pady=0)
         self.header.pack_propagate(False)
+        self.header_canvas = tk.Canvas(
+            self.header,
+            bg=self._bg_side,
+            height=35,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.header_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
+        self.header_scroll = tk.Scrollbar(
+            self.header,
+            orient=tk.HORIZONTAL,
+            command=self.header_canvas.xview,
+        )
+        self.header_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+        self.header_canvas.configure(xscrollcommand=self.header_scroll.set)
+        self._header_inner = tk.Frame(self.header_canvas, bg=self._bg_side)
+        self._header_window = self.header_canvas.create_window(
+            (0, 0), window=self._header_inner, anchor="nw"
+        )
+        self._header_inner.bind("<Configure>", self._on_header_inner_configure)
+        self.header_canvas.bind("<Configure>", self._on_header_canvas_configure)
+        self.header_canvas.bind("<MouseWheel>", self._on_header_mousewheel)
+        self.header_canvas.bind("<Shift-MouseWheel>", self._on_header_mousewheel)
+        self.header_canvas.bind("<Button-4>", lambda _e: self.header_canvas.xview_scroll(-2, "units"))
+        self.header_canvas.bind("<Button-5>", lambda _e: self.header_canvas.xview_scroll(2, "units"))
 
         # Content area with single visible frame at a time
         self.content = tk.Frame(self, bg=BG_APP)
@@ -65,7 +90,7 @@ class CustomNotebook(tk.Frame):
 
         # Create tab button in header
         btn = tk.Label(
-            self.header,
+            self._header_inner,
             text=text,
             font=(FM_TINY[0], FM_TINY[1]),
             fg=self._txt_pri,
@@ -81,7 +106,7 @@ class CustomNotebook(tk.Frame):
 
     def add_separator(self):
         """Add a thin vertical separator in the tab bar"""
-        sep = tk.Frame(self.header, bg=BORDER, width=1, height=25)
+        sep = tk.Frame(self._header_inner, bg=BORDER, width=1, height=25)
         sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=5)
         self._separators.append(sep)
 
@@ -92,6 +117,8 @@ class CustomNotebook(tk.Frame):
         self._txt_pri = txt_pri
         self.configure(bg=bg_app)
         self.header.configure(bg=bg_side)
+        self.header_canvas.configure(bg=bg_side)
+        self._header_inner.configure(bg=bg_side)
         self.content.configure(bg=bg_app)
         for sep in self._separators:
             sep.configure(bg=border)
@@ -102,6 +129,20 @@ class CustomNotebook(tk.Frame):
                 fg=txt_pri,
                 relief=tk.SUNKEN if is_active else tk.FLAT,
             )
+
+    def _on_header_inner_configure(self, _e=None) -> None:
+        bbox = self.header_canvas.bbox("all")
+        if bbox is not None:
+            self.header_canvas.configure(scrollregion=bbox)
+
+    def _on_header_canvas_configure(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        self.header_canvas.itemconfigure(self._header_window, height=event.height)
+
+    def _on_header_mousewheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        delta = getattr(event, "delta", 0)
+        if delta:
+            direction = -1 if delta > 0 else 1
+            self.header_canvas.xview_scroll(direction * 2, "units")
 
     def select_by_text(self, text):
         """Show the tab with the given text"""

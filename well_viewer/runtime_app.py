@@ -4197,6 +4197,14 @@ class WellViewerApp(tk.Frame):
                 return f"{float(s):g}"
             except Exception:
                 return s
+        def _norm_time(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            parsed = parse_timepoint_hours(s)
+            if parsed is not None:
+                return f"{parsed:g}"
+            return _norm(s)
         def _pick(*names: str) -> object:
             for name in names:
                 if name in row:
@@ -4209,7 +4217,7 @@ class WellViewerApp(tk.Frame):
             return ""
         return (
             _norm(_pick("fov", "FOV")),
-            _norm(_pick("timepoint", "tp", "time")),
+            _norm_time(_pick("timepoint", "tp", "time")),
             _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
 
@@ -4227,6 +4235,14 @@ class WellViewerApp(tk.Frame):
                 return f"{float(s):g}"
             except Exception:
                 return s
+        def _norm_time(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            parsed = parse_timepoint_hours(s)
+            if parsed is not None:
+                return f"{parsed:g}"
+            return _norm(s)
 
         def _lookup_imgref(
             refs: Dict[Tuple[str, str], object],
@@ -4240,7 +4256,7 @@ class WellViewerApp(tk.Frame):
             if ref is not None:
                 return ref
             for (k_fov, k_tp), k_ref in refs.items():
-                if _norm(k_fov) == fov_norm and _norm(k_tp) == tp_norm:
+                if _norm(k_fov) == fov_norm and _norm_time(k_tp) == tp_norm:
                     return k_ref
             return None
 
@@ -4251,7 +4267,7 @@ class WellViewerApp(tk.Frame):
             return
 
         def _tp_sort_key(tp: str) -> Tuple[int, float, str]:
-            tp_n = _norm(tp)
+            tp_n = _norm_time(tp)
             try:
                 return (0, float(tp_n), str(tp))
             except Exception:
@@ -4307,7 +4323,7 @@ class WellViewerApp(tk.Frame):
         if tp_values and self._review_image_tp_var.get() not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
         tp_raw = str(self._review_image_tp_var.get() or "").strip()
-        tp = _norm(tp_raw)
+        tp = _norm_time(tp_raw)
         if not tp_raw or tp_raw == "—" or not tp:
             self._review_image_status.config(text="No timepoint selected.")
             return

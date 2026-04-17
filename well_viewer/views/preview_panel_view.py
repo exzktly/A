@@ -173,9 +173,9 @@ def build_right_panel(self, parent: tk.Frame) -> None:
         self._montage_canvas.bind("<MouseWheel>",
                                    self._on_montage_wheel)          # Windows / macOS
         self._montage_canvas.bind("<Button-4>",
-                                   lambda e: self._montage_zoom_step(+1))  # Linux scroll up
+                                   self._on_montage_wheel)  # Linux scroll up
         self._montage_canvas.bind("<Button-5>",
-                                   lambda e: self._montage_zoom_step(-1))  # Linux scroll down
+                                   self._on_montage_wheel)  # Linux scroll down
     
     # ── Inline preview montage ────────────────────────────────────────────────
 

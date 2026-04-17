@@ -1946,6 +1946,10 @@ def build_parser() -> argparse.ArgumentParser:
             "<output_dir>/<well>_out.zip and remove the folder."
         ),
     )
+    p.set_defaults(
+        compress_input_well_folders=True,
+        compress_output_well_folders=True,
+    )
 
     p.add_argument("--tf_threads", type=int, default=0,
                    help=(
