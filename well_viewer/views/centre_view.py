@@ -44,10 +44,25 @@ class CustomNotebook(tk.Frame):
         self._bg_app = BG_APP
         self._txt_pri = TXT_PRI
 
-        # Header with tab buttons
-        self.header = tk.Frame(self, bg=self._bg_side, height=35)
-        self.header.pack(fill=tk.X, padx=0, pady=0)
-        self.header.pack_propagate(False)
+        # Header with horizontally scrollable tab buttons
+        header_wrap = tk.Frame(self, bg=self._bg_side, height=35)
+        header_wrap.pack(fill=tk.X, padx=0, pady=0)
+        header_wrap.pack_propagate(False)
+
+        self._header_canvas = tk.Canvas(
+            header_wrap,
+            bg=self._bg_side,
+            height=35,
+            highlightthickness=0,
+            bd=0,
+        )
+        self._header_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
+        self.header = tk.Frame(self._header_canvas, bg=self._bg_side, height=35)
+        self._header_window = self._header_canvas.create_window((0, 0), window=self.header, anchor="nw")
+        self.header.bind("<Configure>", self._on_header_configure)
+        self._header_canvas.bind("<Configure>", self._on_header_canvas_configure)
+        self._header_canvas.bind("<MouseWheel>", self._on_header_wheel)
+        self._header_canvas.bind("<Shift-MouseWheel>", self._on_header_wheel)
 
         # Content area with single visible frame at a time
         self.content = tk.Frame(self, bg=BG_APP)
@@ -91,6 +106,7 @@ class CustomNotebook(tk.Frame):
         self._bg_app = bg_app
         self._txt_pri = txt_pri
         self.configure(bg=bg_app)
+        self._header_canvas.configure(bg=bg_side)
         self.header.configure(bg=bg_side)
         self.content.configure(bg=bg_app)
         for sep in self._separators:
@@ -152,6 +168,21 @@ class CustomNotebook(tk.Frame):
             self._callbacks.append(lambda text: callback(None))
         else:
             super().bind(event, callback)
+
+    def _on_header_configure(self, _event=None) -> None:
+        self._header_canvas.configure(scrollregion=self._header_canvas.bbox("all"))
+
+    def _on_header_canvas_configure(self, event=None) -> None:
+        if event is not None:
+            self._header_canvas.itemconfigure(self._header_window, height=event.height)
+            self._header_canvas.configure(scrollregion=self._header_canvas.bbox("all"))
+
+    def _on_header_wheel(self, event) -> None:
+        delta = int(getattr(event, "delta", 0) or 0)
+        if delta > 0:
+            self._header_canvas.xview_scroll(-1, "units")
+        elif delta < 0:
+            self._header_canvas.xview_scroll(1, "units")
 
 
 def build_centre(app, parent: tk.Frame) -> None:
