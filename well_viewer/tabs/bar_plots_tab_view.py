@@ -47,12 +47,11 @@ def build_bar_plots_tab(app, parent: tk.Frame) -> None:
     # (Threshold + Error Band live in the persistent bottom bar)
     tk.Label(bar_ctrl, text="Channel:", font=FM_BOLD,
              fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
-    app._chan_cb_bar = ttk.Combobox(bar_ctrl, textvariable=app._chan_var,
+    app._chan_cb_bar = ttk.Combobox(bar_ctrl, textvariable=app._plot_chan_var,
                                     values=["GFP"], state="readonly",
                                     width=10, font=FM_BOLD)
     app._chan_cb_bar.pack(side=tk.LEFT, padx=(0, 15))
-    app._chan_cb_bar.bind("<<ComboboxSelected>>",
-                          lambda _e: app._set_active_channel(app._chan_var.get().lower()))
+    app._chan_cb_bar.bind("<<ComboboxSelected>>", app._on_plot_channel_selected)
 
     # Metric selector for bar tab (shares _metric_var with line tab)
     app._metric_selector_frame_bar = tk.Frame(bar_ctrl, bg=BG_SIDE)

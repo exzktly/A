@@ -1452,7 +1452,11 @@ class WellViewerApp(tk.Frame):
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
-        self._chan_var      = tk.StringVar(value="GFP")  # selected channel dropdown
+        self._plot_chan_var = tk.StringVar(value="GFP")  # selected channel on plot tabs
+        self._preview_chan_var = tk.StringVar(value="GFP")  # selected channel on Movie Montage tab
+        self._review_image_chan_var = tk.StringVar(value="GFP")  # selected channel on Review Image tab
+        # Back-compat shared channel variable for older view code paths.
+        self._chan_var = self._plot_chan_var
         self._bar_tp_var    = tk.StringVar(value="—")  # selected timepoint for bar plots
         self._bar_swarm     = tk.BooleanVar(value=False)  # beeswarm mode toggle
         self._bar_violin    = tk.BooleanVar(value=False)  # violin mode toggle
@@ -4086,7 +4090,15 @@ class WellViewerApp(tk.Frame):
     def _on_review_image_channel_selected(self, _e=None) -> None:
         """Channel-switch handler that preserves Review Image zoom/pan view."""
         self._review_image_preserve_view_on_refresh = True
-        self._set_active_channel(self._chan_var.get().lower())
+        self._set_active_channel(self._review_image_chan_var.get().lower())
+
+    def _on_plot_channel_selected(self, _e=None) -> None:
+        """Channel-switch handler for line/bar plot tabs."""
+        self._set_active_channel(self._plot_chan_var.get().lower())
+
+    def _on_preview_channel_selected(self, _e=None) -> None:
+        """Channel-switch handler for the Movie Montage tab."""
+        self._set_active_channel(self._preview_chan_var.get().lower())
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
@@ -4129,13 +4141,47 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_review_image_chan_cb"):
             self._review_image_chan_cb.config(values=review_labels)
         active_label = self._active_channel.upper()
-        if active_label in labels and active_label != "—":
-            self._chan_var.set(active_label)
-        elif labels and labels[0] != "—":
-            self._chan_var.set(labels[0])
-            self._set_active_channel(labels[0].lower())
-        else:
-            self._chan_var.set("—")
+
+        def _pick_valid(current: str, candidates: List[str]) -> str:
+            if current in candidates and current != "—":
+                return current
+            if active_label in candidates and active_label != "—":
+                return active_label
+            if candidates and candidates[0] != "—":
+                return candidates[0]
+            return "—"
+
+        # Plot tabs: only measurement channels.
+        plot_label = _pick_valid(self._plot_chan_var.get(), labels)
+        self._plot_chan_var.set(plot_label)
+
+        # Image tabs: each validates against its own channel universe.
+        preview_label = _pick_valid(self._preview_chan_var.get(), montage_labels)
+        self._preview_chan_var.set(preview_label)
+        review_label = _pick_valid(self._review_image_chan_var.get(), review_labels)
+        self._review_image_chan_var.set(review_label)
+
+        # Keep active channel anchored to a valid plot channel.
+        if active_label not in labels:
+            if plot_label != "—":
+                self._set_active_channel(plot_label.lower())
+            else:
+                self._active_channel = ""
+
+        # Back-compat sync: follow the active tab's selector instead of forcing plot labels.
+        if hasattr(self, "_chan_var"):
+            tab_label = ""
+            if hasattr(self, "_notebook"):
+                try:
+                    tab_label = self._notebook.tab(self._notebook.select(), "text")
+                except Exception:
+                    tab_label = ""
+            if tab_label == "Movie Montage":
+                self._chan_var.set(preview_label)
+            elif tab_label == "Review Image":
+                self._chan_var.set(review_label)
+            else:
+                self._chan_var.set(plot_label)
 
     def _toggle_sem(self) -> None:
         self._invalidate_stats_cache()

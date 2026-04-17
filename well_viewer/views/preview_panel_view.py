@@ -38,11 +38,11 @@ def build_right_panel(self, parent: tk.Frame) -> None:
 
         tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC,
                  bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
-        self._chan_cb_preview = ttk.Combobox(ctrl, textvariable=self._chan_var,
+        self._chan_cb_preview = ttk.Combobox(ctrl, textvariable=self._preview_chan_var,
                                              values=["GFP"], state="readonly",
                                              width=10, font=FM_BOLD)
         self._chan_cb_preview.pack(side=tk.LEFT, padx=(0, 14))
-        self._chan_cb_preview.bind("<<ComboboxSelected>>", lambda _e: self._set_active_channel(self._chan_var.get().lower()))
+        self._chan_cb_preview.bind("<<ComboboxSelected>>", self._on_preview_channel_selected)
 
         tk.Label(ctrl, text="FOV:", font=FM_TINY, fg=TXT_MUT,
                  bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
@@ -201,7 +201,7 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
 
         tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
         self._review_image_chan_cb = ttk.Combobox(
-            ctrl, textvariable=self._chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
+            ctrl, textvariable=self._review_image_chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
         )
         self._review_image_chan_cb.pack(side=tk.LEFT, padx=(0, 10))
         self._review_image_chan_cb.bind("<<ComboboxSelected>>", self._on_review_image_channel_selected)
