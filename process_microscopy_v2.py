@@ -774,8 +774,10 @@ def process_image_group(
                  time.perf_counter() - _t, len(np.unique(labels)) - 1)
 
     # Save QC images.
+    # Keep schema tokens in output stems so output names stay harmonized with
+    # input naming conventions and schema-driven resolvers.
     stem      = nuclear_path.stem
-    base_name = stem.replace(nuclear_token, "")
+    base_name = stem
 
     _t = time.perf_counter()
     if save_tophat_images:

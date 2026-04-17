@@ -238,17 +238,8 @@ class ScatterCellViewer(tk.Toplevel):
             self._debug("No channels were successfully loaded.")
 
     def _load_output_image_by_filename(self, image_type: str):
-        """Load a mask or overlay from the output zip by constructing the expected
-        output filename from self.filename.
-
-        process_microscopy_v2.py writes output files as:
-            <stem with nuclear_token removed>_labels.tif   (mask)
-            <stem with nuclear_token removed>_overlay.png  (overlay)
-
-        Returns (array, path_str).
-        """
+        """Load a mask or overlay from the output zip via canonical filename resolver."""
         try:
-            import re as _re
             import zipfile
             from pathlib import Path as _Path
             from well_viewer.runtime_app import (
@@ -259,29 +250,17 @@ class ScatterCellViewer(tk.Toplevel):
                 _find_well_zips_in_dir,
             )
 
-            nuclear_token = getattr(self, "_nuclear_token", "")
-            stem = _Path(self.filename).stem
-            bases = self._build_output_base_candidates(stem=stem, nuclear_token=nuclear_token)
-
             pipeline_info = getattr(self.app, "_pipeline_info", None)
-            schema_candidates = resolve_filename_candidates(
-                    self.filename,
-                    pipeline_info=pipeline_info,
-                    output_kind=image_type,
-                    filename_variants_fn=self._filename_variants,
-                )
-            if not schema_candidates:
-                # If no schema candidates can be created, use legacy stem-based names.
-                if image_type == "mask":
-                    suffixes = ("_labels.tif", "_labels.tiff", "_labels.png")
-                elif image_type == "overlay":
-                    suffixes = ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif")
-                else:
-                    return None, f"unknown image_type {image_type!r}"
-                schema_candidates = [base + suffix for base in bases for suffix in suffixes]
-            candidates = list(schema_candidates)
+            candidates = resolve_filename_candidates(
+                self.filename,
+                pipeline_info=pipeline_info,
+                output_kind=image_type,
+                filename_variants_fn=self._filename_variants,
+            )
+            if not candidates:
+                return None, f"unknown image_type {image_type!r}"
             self._debug(
-                f"output lookup type={image_type}, nuclear_token={nuclear_token!r}, stem={stem!r}, candidates={candidates!r}"
+                f"output lookup type={image_type}, source={self.filename!r}, candidates={candidates!r}"
             )
 
             well_token = _extract_well_token(self.well_label)
@@ -326,25 +305,6 @@ class ScatterCellViewer(tk.Toplevel):
         except Exception as e:
             self._debug(f"_load_output_image_by_filename exception for {image_type}: {e!r}")
             return None, f"exception: {e}"
-
-    def _build_output_base_candidates(self, stem: str, nuclear_token: str) -> list[str]:
-        """Build output base-name candidates without dropping schema tokens."""
-        _ = nuclear_token  # no-op: token dropping is intentionally disabled
-        candidates = [stem]
-
-        augmented: list[str] = []
-        for c in candidates:
-            if c:
-                augmented.append(c)
-                augmented.extend(self._well_token_variants(c))
-
-        ordered: list[str] = []
-        seen: set[str] = set()
-        for c in augmented:
-            if c and c not in seen:
-                seen.add(c)
-                ordered.append(c)
-        return ordered or [stem]
 
     def _well_token_variants(self, name: str) -> list[str]:
         """Return alternate names with leading well token padded/unpadded."""
@@ -500,7 +460,12 @@ class ScatterCellViewer(tk.Toplevel):
                 zips = _find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"nuclear image zip search target={self.filename!r}, zips={[str(z) for z in zips]!r}")
 
-            target_names = self._filename_variants(self.filename)
+            pipeline_info = getattr(self.app, "_pipeline_info", None)
+            target_names = resolve_filename_candidates(
+                self.filename,
+                pipeline_info=pipeline_info,
+                filename_variants_fn=self._filename_variants,
+            )
             self._debug(f"nuclear image filename candidates={target_names!r}")
             target_lowers = {name.lower() for name in target_names}
             for zip_path in zips:
