@@ -6,8 +6,18 @@ from typing import TYPE_CHECKING, Optional, Tuple
 import tkinter as tk
 from tkinter import ttk
 
+from well_viewer.image_resolver import (
+    normalize_row_filename,
+    resolve_filename_candidates,
+)
+
 if TYPE_CHECKING:
     from .runtime_app import WellViewerApp
+
+
+def _lookup_filename_from_row_value(filename: str) -> str:
+    """Backwards alias kept for existing tests and call sites."""
+    return normalize_row_filename(filename)
 
 
 class ScatterCellViewer(tk.Toplevel):
@@ -34,7 +44,7 @@ class ScatterCellViewer(tk.Toplevel):
 
         self.app = app
         self.well_label = well_label
-        self.filename = filename
+        self.filename = _lookup_filename_from_row_value(filename)
         self.nuclear_id = nuclear_id
         self.row_idx = row_idx
 
@@ -253,15 +263,25 @@ class ScatterCellViewer(tk.Toplevel):
             stem = _Path(self.filename).stem
             bases = self._build_output_base_candidates(stem=stem, nuclear_token=nuclear_token)
 
-            if image_type == "mask":
-                suffixes = ("_labels.tif", "_labels.tiff", "_labels.png")
-            elif image_type == "overlay":
-                suffixes = ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif")
-            else:
-                return None, f"unknown image_type {image_type!r}"
-            candidates = [base + suffix for base in bases for suffix in suffixes]
+            pipeline_info = getattr(self.app, "_pipeline_info", None)
+            schema_candidates = resolve_filename_candidates(
+                    self.filename,
+                    pipeline_info=pipeline_info,
+                    output_kind=image_type,
+                    filename_variants_fn=self._filename_variants,
+                )
+            if not schema_candidates:
+                # If no schema candidates can be created, use legacy stem-based names.
+                if image_type == "mask":
+                    suffixes = ("_labels.tif", "_labels.tiff", "_labels.png")
+                elif image_type == "overlay":
+                    suffixes = ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif")
+                else:
+                    return None, f"unknown image_type {image_type!r}"
+                schema_candidates = [base + suffix for base in bases for suffix in suffixes]
+            candidates = list(schema_candidates)
             self._debug(
-                f"output lookup type={image_type}, nuclear_token={nuclear_token!r}, stem={stem!r}, bases={bases!r}, candidates={candidates!r}"
+                f"output lookup type={image_type}, nuclear_token={nuclear_token!r}, stem={stem!r}, candidates={candidates!r}"
             )
 
             well_token = _extract_well_token(self.well_label)
@@ -308,15 +328,9 @@ class ScatterCellViewer(tk.Toplevel):
             return None, f"exception: {e}"
 
     def _build_output_base_candidates(self, stem: str, nuclear_token: str) -> list[str]:
-        """Build output base-name candidates using process_microscopy_v2 schema.
-
-        process_microscopy_v2 writes masks/overlays as:
-            base_name = nuclear_stem.replace(nuclear_token, "")
-            <base_name>_labels.tif
-        """
-        token = (nuclear_token or "").strip()
-        base_name = stem.replace(token, "") if token else stem
-        candidates = [base_name, stem]
+        """Build output base-name candidates without dropping schema tokens."""
+        _ = nuclear_token  # no-op: token dropping is intentionally disabled
+        candidates = [stem]
 
         augmented: list[str] = []
         for c in candidates:
@@ -522,13 +536,8 @@ class ScatterCellViewer(tk.Toplevel):
             return None
 
     def _load_input_channel_by_filename(self, channel_token: str) -> Optional:
-        """Load a channel image from the input folder by swapping the nuclear
-        channel token in self.filename with channel_token.
-
-        Uses the CSV row's 'channel' field as the nuclear token to replace.
-        """
+        """Load a channel image from the input folder via canonical filename resolver."""
         try:
-            import re as _re
             import zipfile
             from pathlib import Path as _Path
             from well_viewer.runtime_app import (
@@ -538,23 +547,16 @@ class ScatterCellViewer(tk.Toplevel):
                 _find_well_zips_in_dir,
             )
 
-            nuclear_token = getattr(self, "_nuclear_token", "")
-            if not nuclear_token:
-                self._debug(f"channel={channel_token}: missing nuclear token from CSV row.")
-                return None
-
-            # Replace the nuclear token in the filename (case-insensitive, first occurrence)
-            target_name = _re.sub(
-                _re.escape(nuclear_token),
-                channel_token,
+            pipeline_info = getattr(self.app, "_pipeline_info", None)
+            target_names = resolve_filename_candidates(
                 self.filename,
-                count=1,
-                flags=_re.IGNORECASE,
+                pipeline_info=pipeline_info,
+                target_channel=channel_token,
+                filename_variants_fn=self._filename_variants,
             )
-            if target_name == self.filename:
-                self._debug(f"channel={channel_token}: token replacement produced unchanged name ({target_name!r}).")
+            self._debug(f"channel={channel_token}: filename candidates={target_names!r} from source={self.filename!r}")
+            if not target_names:
                 return None
-            self._debug(f"channel={channel_token}: input filename target={target_name!r} from source={self.filename!r}")
 
             well_token = _extract_well_token(self.well_label)
             if well_token is None:
@@ -571,8 +573,6 @@ class ScatterCellViewer(tk.Toplevel):
                 zips = _find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"channel={channel_token}: zip search zips={[str(z) for z in zips]!r}")
 
-            target_names = self._filename_variants(target_name)
-            self._debug(f"channel={channel_token}: filename candidates={target_names!r}")
             target_lowers = {name.lower() for name in target_names}
             for zip_path in zips:
                 with zipfile.ZipFile(zip_path, "r") as zf:
@@ -591,7 +591,7 @@ class ScatterCellViewer(tk.Toplevel):
                         self._debug(f"channel={channel_token}: loaded from disk {img_path}")
                         return open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
 
-            self._debug(f"channel={channel_token}: not found target_name={target_name!r}")
+            self._debug(f"channel={channel_token}: not found candidates={target_names!r}")
             return None
 
         except Exception as e:
@@ -748,7 +748,7 @@ class ScatterCellViewer(tk.Toplevel):
     def update_cell(self, well_label: str, filename: str, nuclear_id: str, row_idx: int) -> None:
         """Update viewer to show a different cell."""
         self.well_label = well_label
-        self.filename = filename
+        self.filename = _lookup_filename_from_row_value(filename)
         self.nuclear_id = nuclear_id
         self.row_idx = row_idx
         self.title(f"Cell Viewer - Scatter Plot: {well_label}")
