@@ -53,16 +53,29 @@ class CustomNotebook(tk.Frame):
             header_wrap,
             bg=self._bg_side,
             height=35,
+            xscrollincrement=20,
             highlightthickness=0,
             bd=0,
         )
         self._header_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
+        self._header_xsb = tk.Scrollbar(
+            header_wrap,
+            orient=tk.HORIZONTAL,
+            command=self._header_canvas.xview,
+        )
+        self._header_xsb.pack(side=tk.BOTTOM, fill=tk.X)
+        self._header_canvas.configure(xscrollcommand=self._header_xsb.set)
         self.header = tk.Frame(self._header_canvas, bg=self._bg_side, height=35)
         self._header_window = self._header_canvas.create_window((0, 0), window=self.header, anchor="nw")
         self.header.bind("<Configure>", self._on_header_configure)
         self._header_canvas.bind("<Configure>", self._on_header_canvas_configure)
-        self._header_canvas.bind("<MouseWheel>", self._on_header_wheel)
-        self._header_canvas.bind("<Shift-MouseWheel>", self._on_header_wheel)
+        for target in (header_wrap, self._header_canvas, self.header):
+            target.bind("<MouseWheel>", self._on_header_wheel, add="+")
+            target.bind("<Shift-MouseWheel>", self._on_header_wheel, add="+")
+            target.bind("<Button-4>", self._on_header_wheel, add="+")
+            target.bind("<Button-5>", self._on_header_wheel, add="+")
+            target.bind("<Button-6>", self._on_header_wheel, add="+")
+            target.bind("<Button-7>", self._on_header_wheel, add="+")
 
         # Content area with single visible frame at a time
         self.content = tk.Frame(self, bg=BG_APP)
@@ -92,6 +105,12 @@ class CustomNotebook(tk.Frame):
         )
         btn.pack(side=tk.LEFT, padx=0, pady=0)
         btn.bind("<Button-1>", lambda e: self.select_by_text(text))
+        btn.bind("<MouseWheel>", self._on_header_wheel, add="+")
+        btn.bind("<Shift-MouseWheel>", self._on_header_wheel, add="+")
+        btn.bind("<Button-4>", self._on_header_wheel, add="+")
+        btn.bind("<Button-5>", self._on_header_wheel, add="+")
+        btn.bind("<Button-6>", self._on_header_wheel, add="+")
+        btn.bind("<Button-7>", self._on_header_wheel, add="+")
         self._tab_buttons[text] = btn
 
     def add_separator(self):
@@ -178,11 +197,19 @@ class CustomNotebook(tk.Frame):
             self._header_canvas.configure(scrollregion=self._header_canvas.bbox("all"))
 
     def _on_header_wheel(self, event) -> None:
-        delta = int(getattr(event, "delta", 0) or 0)
-        if delta > 0:
+        num = getattr(event, "num", None)
+        if num in (4, 7):
             self._header_canvas.xview_scroll(-1, "units")
-        elif delta < 0:
+            return
+        if num in (5, 6):
             self._header_canvas.xview_scroll(1, "units")
+            return
+
+        delta = int(getattr(event, "delta", 0) or 0)
+        if delta == 0:
+            return
+        units = max(1, abs(delta) // 120)
+        self._header_canvas.xview_scroll(-units if delta > 0 else units, "units")
 
 
 def build_centre(app, parent: tk.Frame) -> None:

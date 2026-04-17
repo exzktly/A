@@ -1931,7 +1931,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Do not save top-hat/smFISH intermediate TIFFs")
     p.add_argument(
         "--compress_input_well_folders",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Folder mode only: after each well finishes, compress "
             "<input_dir>/<well>/ to <input_dir>/<well>.zip and remove "
@@ -1940,7 +1941,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--compress_output_well_folders",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Folder mode only: compress each output well folder to "
             "<output_dir>/<well>_out.zip and remove the folder."

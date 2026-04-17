@@ -546,8 +546,8 @@ class AnalyzeTab(tk.Frame):
         sec = self._section(parent, "Output Options")
         self._no_save_masks = tk.BooleanVar(value=False)
         self._no_save_overlays = tk.BooleanVar(value=False)
-        self._compress_input_well_folders = tk.BooleanVar(value=False)
-        self._compress_output_well_folders = tk.BooleanVar(value=False)
+        self._compress_input_well_folders = tk.BooleanVar(value=True)
+        self._compress_output_well_folders = tk.BooleanVar(value=True)
         self._csv_prefix = tk.StringVar(value="gfp_measurements")
         for txt, var in (
             ("Skip saving masks", self._no_save_masks),
