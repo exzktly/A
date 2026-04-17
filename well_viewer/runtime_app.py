@@ -4763,11 +4763,13 @@ class WellViewerApp(tk.Frame):
         self._sidebar_stats_frame.pack_forget()
 
         if tab == "Movie Montage":
+            self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
         elif tab == "Review Image":
+            self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
@@ -4838,6 +4840,32 @@ class WellViewerApp(tk.Frame):
 
         self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
         self._last_tab_name = tab
+
+    def _sync_preview_well_for_image_tabs(self) -> None:
+        """Keep current preview well unless an active group supplies one."""
+        # Preserve explicit user choice when still valid.
+        current = getattr(self, "_preview_selected_well", None)
+        if current in self._well_paths:
+            # If active group has wells, prefer first group well for image tabs.
+            if 0 <= self._bar_active_grp < len(self._bar_groups):
+                grp = self._bar_groups[self._bar_active_grp]
+                for tok in grp.wells:
+                    if tok in self._well_paths:
+                        self._preview_selected_well = tok
+                        return
+            return
+
+        # If no valid current well, use first well from active group.
+        if 0 <= self._bar_active_grp < len(self._bar_groups):
+            grp = self._bar_groups[self._bar_active_grp]
+            for tok in grp.wells:
+                if tok in self._well_paths:
+                    self._preview_selected_well = tok
+                    return
+
+        # Final fallback: keep previous behavior of choosing first available well.
+        if self._well_paths:
+            self._preview_selected_well = sorted(self._well_paths.keys(), key=self._parse_rc)[0]
 
     def _run_tab_switch_smoke_checks(
         self,
