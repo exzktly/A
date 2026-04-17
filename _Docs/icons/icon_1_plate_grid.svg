@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  All-Well icon concept 1: "Plate Grid"
+  The signature 8x12 96-well plate, with wells lit up in the three common
+  fluorescence channels (blue DAPI / green GFP / red mCherry) to evoke a
+  quantified, multi-channel dataset at a glance.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2740"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <radialGradient id="blue" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#9ec7ff"/>
+      <stop offset="1" stop-color="#2a6bd8"/>
+    </radialGradient>
+    <radialGradient id="green" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#c8ffb0"/>
+      <stop offset="1" stop-color="#2aa84a"/>
+    </radialGradient>
+    <radialGradient id="red" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#ffc4c4"/>
+      <stop offset="1" stop-color="#d83b3b"/>
+    </radialGradient>
+    <radialGradient id="empty" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#2a3858"/>
+      <stop offset="1" stop-color="#111a2e"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Rounded squircle background (macOS app-icon safe area) -->
+  <rect x="72" y="72" width="880" height="880" rx="200" ry="200" fill="url(#bg1)"/>
+  <rect x="72" y="72" width="880" height="880" rx="200" ry="200" fill="none" stroke="#2f3e63" stroke-width="3"/>
+
+  <!-- Plate body -->
+  <rect x="140" y="220" width="744" height="584" rx="36" ry="36" fill="#eef2f8"/>
+  <rect x="140" y="220" width="744" height="584" rx="36" ry="36" fill="none" stroke="#c2ccda" stroke-width="4"/>
+  <!-- Notch top-left, like real plates -->
+  <path d="M 140 256 Q 140 220 176 220 L 240 220 L 240 256 Z" fill="#dde3ed"/>
+
+  <!-- 8 rows x 12 cols of wells -->
+  <g>
+    <!-- Pattern: sparse illumination across the grid -->
+    <!-- columns: x starts at 200, spacing 56. rows: y starts at 276, spacing 64 -->
+    <!-- We'll draw all 96 wells, most "empty", some lit. -->
+    <!-- Lit wells chosen to spell out a loose gradient of conditions. -->
+  </g>
+
+  <g id="wells">
+    <!-- row A -->
+    <circle cx="200" cy="276" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="276" r="22" fill="url(#blue)"/>
+    <circle cx="312" cy="276" r="22" fill="url(#blue)"/>
+    <circle cx="368" cy="276" r="22" fill="url(#empty)"/>
+    <circle cx="424" cy="276" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="276" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="276" r="22" fill="url(#empty)"/>
+    <circle cx="592" cy="276" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="276" r="22" fill="url(#red)"/>
+    <circle cx="704" cy="276" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="276" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="276" r="22" fill="url(#empty)"/>
+    <!-- row B -->
+    <circle cx="200" cy="340" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="340" r="22" fill="url(#blue)"/>
+    <circle cx="312" cy="340" r="22" fill="url(#blue)"/>
+    <circle cx="368" cy="340" r="22" fill="url(#empty)"/>
+    <circle cx="424" cy="340" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="340" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="340" r="22" fill="url(#empty)"/>
+    <circle cx="592" cy="340" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="340" r="22" fill="url(#red)"/>
+    <circle cx="704" cy="340" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="340" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="340" r="22" fill="url(#empty)"/>
+    <!-- row C -->
+    <circle cx="200" cy="404" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="404" r="22" fill="url(#empty)"/>
+    <circle cx="312" cy="404" r="22" fill="url(#blue)"/>
+    <circle cx="368" cy="404" r="22" fill="url(#blue)"/>
+    <circle cx="424" cy="404" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="404" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="404" r="22" fill="url(#red)"/>
+    <circle cx="592" cy="404" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="404" r="22" fill="url(#empty)"/>
+    <circle cx="704" cy="404" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="404" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="404" r="22" fill="url(#empty)"/>
+    <!-- row D -->
+    <circle cx="200" cy="468" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="468" r="22" fill="url(#empty)"/>
+    <circle cx="312" cy="468" r="22" fill="url(#empty)"/>
+    <circle cx="368" cy="468" r="22" fill="url(#blue)"/>
+    <circle cx="424" cy="468" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="468" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="468" r="22" fill="url(#red)"/>
+    <circle cx="592" cy="468" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="468" r="22" fill="url(#empty)"/>
+    <circle cx="704" cy="468" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="468" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="468" r="22" fill="url(#empty)"/>
+    <!-- row E -->
+    <circle cx="200" cy="532" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="532" r="22" fill="url(#empty)"/>
+    <circle cx="312" cy="532" r="22" fill="url(#empty)"/>
+    <circle cx="368" cy="532" r="22" fill="url(#blue)"/>
+    <circle cx="424" cy="532" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="532" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="532" r="22" fill="url(#red)"/>
+    <circle cx="592" cy="532" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="532" r="22" fill="url(#empty)"/>
+    <circle cx="704" cy="532" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="532" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="532" r="22" fill="url(#empty)"/>
+    <!-- row F -->
+    <circle cx="200" cy="596" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="596" r="22" fill="url(#empty)"/>
+    <circle cx="312" cy="596" r="22" fill="url(#blue)"/>
+    <circle cx="368" cy="596" r="22" fill="url(#blue)"/>
+    <circle cx="424" cy="596" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="596" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="596" r="22" fill="url(#red)"/>
+    <circle cx="592" cy="596" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="596" r="22" fill="url(#empty)"/>
+    <circle cx="704" cy="596" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="596" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="596" r="22" fill="url(#empty)"/>
+    <!-- row G -->
+    <circle cx="200" cy="660" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="660" r="22" fill="url(#blue)"/>
+    <circle cx="312" cy="660" r="22" fill="url(#blue)"/>
+    <circle cx="368" cy="660" r="22" fill="url(#empty)"/>
+    <circle cx="424" cy="660" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="660" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="660" r="22" fill="url(#empty)"/>
+    <circle cx="592" cy="660" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="660" r="22" fill="url(#red)"/>
+    <circle cx="704" cy="660" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="660" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="660" r="22" fill="url(#empty)"/>
+    <!-- row H -->
+    <circle cx="200" cy="724" r="22" fill="url(#empty)"/>
+    <circle cx="256" cy="724" r="22" fill="url(#blue)"/>
+    <circle cx="312" cy="724" r="22" fill="url(#blue)"/>
+    <circle cx="368" cy="724" r="22" fill="url(#empty)"/>
+    <circle cx="424" cy="724" r="22" fill="url(#green)"/>
+    <circle cx="480" cy="724" r="22" fill="url(#green)"/>
+    <circle cx="536" cy="724" r="22" fill="url(#empty)"/>
+    <circle cx="592" cy="724" r="22" fill="url(#red)"/>
+    <circle cx="648" cy="724" r="22" fill="url(#red)"/>
+    <circle cx="704" cy="724" r="22" fill="url(#empty)"/>
+    <circle cx="760" cy="724" r="22" fill="url(#empty)"/>
+    <circle cx="816" cy="724" r="22" fill="url(#empty)"/>
+  </g>
+
+  <!-- Wordmark chip -->
+  <g>
+    <rect x="348" y="830" width="328" height="82" rx="24" ry="24" fill="#0e1628" stroke="#3a4a70" stroke-width="2"/>
+    <text x="512" y="886" font-family="-apple-system, SF Pro Display, Helvetica, Arial, sans-serif"
+          font-weight="700" font-size="48" fill="#eaf0ff" text-anchor="middle" letter-spacing="2">ALL-WELL</text>
+  </g>
+</svg>
