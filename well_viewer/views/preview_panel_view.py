@@ -38,7 +38,7 @@ def build_right_panel(self, parent: tk.Frame) -> None:
 
         tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC,
                  bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
-        self._chan_cb_preview = ttk.Combobox(ctrl, textvariable=self._preview_chan_var,
+        self._chan_cb_preview = ttk.Combobox(ctrl, textvariable=self._image_chan_var,
                                              values=["GFP"], state="readonly",
                                              width=10, font=FM_BOLD)
         self._chan_cb_preview.pack(side=tk.LEFT, padx=(0, 14))
@@ -93,7 +93,7 @@ def build_right_panel(self, parent: tk.Frame) -> None:
         lut_row = tk.Frame(inner, bg=BG_SIDE, pady=4, padx=8)
         lut_row.pack(fill=tk.X, side=tk.BOTTOM)
         self._mon_lut_chan_lbl = tk.Label(lut_row,
-                                          text=f"{self._active_channel.upper()} LUT min:",
+                                          text=f"{self._active_image_channel.upper()} LUT min:",
                                           font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE)
         self._mon_lut_chan_lbl.pack(side=tk.LEFT)
         self._mon_lmin_var = tk.StringVar(value="auto")
@@ -201,7 +201,7 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
 
         tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
         self._review_image_chan_cb = ttk.Combobox(
-            ctrl, textvariable=self._review_image_chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
+            ctrl, textvariable=self._image_chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
         )
         self._review_image_chan_cb.pack(side=tk.LEFT, padx=(0, 10))
         self._review_image_chan_cb.bind("<<ComboboxSelected>>", self._on_review_image_channel_selected)
@@ -235,7 +235,7 @@ def build_review_image_panel(self, parent: tk.Frame) -> None:
         lut_row.pack(fill=tk.X)
         self._review_lut_chan_lbl = tk.Label(
             lut_row,
-            text=f"{self._active_channel.upper()} LUT min:",
+            text=f"{self._active_image_channel.upper()} LUT min:",
             font=FM_TINY,
             fg=TXT_MUT,
             bg=BG_SIDE,
