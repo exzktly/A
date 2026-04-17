@@ -3390,6 +3390,13 @@ class WellViewerApp(tk.Frame):
 
     def _draw_montage_thumbs(self, tp_list: list) -> None:
         """Render fluorescence + overlay thumbnail pairs, one column per timepoint."""
+        def _bind_if_supported(widget, sequence: str, callback) -> None:
+            try:
+                widget.bind(sequence, callback)
+            except tk.TclError:
+                # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
+                pass
+
         for w in self._montage_inner.winfo_children():
             w.destroy()
         self._montage_photos.clear()
@@ -3466,8 +3473,8 @@ class WellViewerApp(tk.Frame):
                 lbl_fluor.bind("<Shift-MouseWheel>", self._on_montage_shift_wheel)
                 lbl_fluor.bind("<Button-4>", lambda _e: self._montage_zoom_step(+1))
                 lbl_fluor.bind("<Button-5>", lambda _e: self._montage_zoom_step(-1))
-                lbl_fluor.bind("<Button-6>", self._on_montage_shift_wheel)
-                lbl_fluor.bind("<Button-7>", self._on_montage_shift_wheel)
+                _bind_if_supported(lbl_fluor, "<Button-6>", self._on_montage_shift_wheel)
+                _bind_if_supported(lbl_fluor, "<Button-7>", self._on_montage_shift_wheel)
             else:
                 tk.Label(fluor_cell, text=f"{self._active_channel.upper()}\nunavail", font=FM_TINY,
                          fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
@@ -3510,8 +3517,8 @@ class WellViewerApp(tk.Frame):
                 lbl_ov.bind("<Shift-MouseWheel>", self._on_montage_shift_wheel)
                 lbl_ov.bind("<Button-4>", lambda _e: self._montage_zoom_step(+1))
                 lbl_ov.bind("<Button-5>", lambda _e: self._montage_zoom_step(-1))
-                lbl_ov.bind("<Button-6>", self._on_montage_shift_wheel)
-                lbl_ov.bind("<Button-7>", self._on_montage_shift_wheel)
+                _bind_if_supported(lbl_ov, "<Button-6>", self._on_montage_shift_wheel)
+                _bind_if_supported(lbl_ov, "<Button-7>", self._on_montage_shift_wheel)
             else:
                 tk.Label(ov_cell, text="overlay\nunavail", font=FM_TINY,
                          fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
