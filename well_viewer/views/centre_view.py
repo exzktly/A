@@ -55,14 +55,25 @@ class CustomNotebook(tk.Frame):
             height=35,
             highlightthickness=0,
             bd=0,
+            xscrollincrement=24,
         )
         self._header_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
+        self._header_scroll = tk.Scrollbar(
+            header_wrap, orient=tk.HORIZONTAL, command=self._header_canvas.xview
+        )
+        self._header_canvas.configure(xscrollcommand=self._header_scroll.set)
+        self._header_scroll.pack(side=tk.BOTTOM, fill=tk.X)
         self.header = tk.Frame(self._header_canvas, bg=self._bg_side, height=35)
         self._header_window = self._header_canvas.create_window((0, 0), window=self.header, anchor="nw")
         self.header.bind("<Configure>", self._on_header_configure)
         self._header_canvas.bind("<Configure>", self._on_header_canvas_configure)
         self._header_canvas.bind("<MouseWheel>", self._on_header_wheel)
         self._header_canvas.bind("<Shift-MouseWheel>", self._on_header_wheel)
+        for seq in ("<Button-4>", "<Button-5>", "<Button-6>", "<Button-7>"):
+            try:
+                self._header_canvas.bind(seq, self._on_header_wheel)
+            except tk.TclError:
+                pass
 
         # Content area with single visible frame at a time
         self.content = tk.Frame(self, bg=BG_APP)
@@ -178,11 +189,17 @@ class CustomNotebook(tk.Frame):
             self._header_canvas.configure(scrollregion=self._header_canvas.bbox("all"))
 
     def _on_header_wheel(self, event) -> None:
-        delta = int(getattr(event, "delta", 0) or 0)
-        if delta > 0:
-            self._header_canvas.xview_scroll(-1, "units")
-        elif delta < 0:
-            self._header_canvas.xview_scroll(1, "units")
+        num = getattr(event, "num", None)
+        if num in (4, 7):
+            steps = 1
+        elif num in (5, 6):
+            steps = -1
+        else:
+            delta = float(getattr(event, "delta", 0) or 0.0)
+            if delta == 0:
+                return
+            steps = int(round(delta / 120.0)) if abs(delta) >= 120 else (1 if delta > 0 else -1)
+        self._header_canvas.xview_scroll(-steps * 2, "units")
 
 
 def build_centre(app, parent: tk.Frame) -> None:

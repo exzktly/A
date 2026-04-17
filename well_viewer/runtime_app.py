@@ -4252,7 +4252,7 @@ class WellViewerApp(tk.Frame):
         self._refresh_preview_montage()
 
     def _review_row_keys(self, row: dict) -> Tuple[str, str, str]:
-        def _norm(v: object) -> str:
+        def _norm_numeric(v: object) -> str:
             s = str(v or "").strip()
             if not s:
                 return ""
@@ -4260,6 +4260,14 @@ class WellViewerApp(tk.Frame):
                 return f"{float(s):g}"
             except Exception:
                 return s
+        def _norm_timepoint(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            parsed = parse_timepoint_hours(s)
+            if parsed is not None:
+                return f"{parsed:g}"
+            return s
         def _pick(*names: str) -> object:
             for name in names:
                 if name in row:
@@ -4271,9 +4279,9 @@ class WellViewerApp(tk.Frame):
                     return lowered[key]
             return ""
         return (
-            _norm(_pick("fov", "FOV")),
-            _norm(_pick("timepoint", "tp", "time", "time_h", "timepoint_hours")),
-            _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
+            _norm_numeric(_pick("fov", "FOV")),
+            _norm_timepoint(_pick("timepoint", "tp", "time", "time_h", "timepoint_hours")),
+            _norm_numeric(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
 
     def _refresh_review_image(self) -> None:
@@ -4282,7 +4290,7 @@ class WellViewerApp(tk.Frame):
         well = self._preview_selected_well
         if well is None:
             return
-        def _norm(v: object) -> str:
+        def _norm_numeric(v: object) -> str:
             s = str(v or "").strip()
             if not s:
                 return ""
@@ -4290,6 +4298,14 @@ class WellViewerApp(tk.Frame):
                 return f"{float(s):g}"
             except Exception:
                 return s
+        def _norm_timepoint(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            parsed = parse_timepoint_hours(s)
+            if parsed is not None:
+                return f"{parsed:g}"
+            return s
 
         def _lookup_imgref(
             refs: Dict[Tuple[str, str], object],
@@ -4303,25 +4319,25 @@ class WellViewerApp(tk.Frame):
             if ref is not None:
                 return ref
             for (k_fov, k_tp), k_ref in refs.items():
-                if _norm(k_fov) == fov_norm and _norm(k_tp) == tp_norm:
+                if _norm_numeric(k_fov) == fov_norm and _norm_timepoint(k_tp) == tp_norm:
                     return k_ref
             return None
 
         fov_raw = str(self._preview_fov_var.get() or "").strip()
-        fov = _norm(fov_raw)
+        fov = _norm_numeric(fov_raw)
         if not fov_raw or fov_raw == "—" or not fov:
             self._review_image_status.config(text="No FOV selected.")
             return
 
         def _tp_sort_key(tp: str) -> Tuple[int, float, str]:
-            tp_n = _norm(tp)
+            tp_n = _norm_timepoint(tp)
             try:
                 return (0, float(tp_n), str(tp))
             except Exception:
-                return (1, 0.0, str(tp))
+                return (1, 0.0, str(tp_n).lower())
 
         tp_values = sorted(
-            {tp for (f, tp) in self._preview_fluor.keys() if _norm(f) == fov},
+            {tp for (f, tp) in self._preview_fluor.keys() if _norm_numeric(f) == fov},
             key=_tp_sort_key,
         )
         if _logger.isEnabledFor(logging.DEBUG):
@@ -4334,7 +4350,7 @@ class WellViewerApp(tk.Frame):
             fluor_candidates = [
                 (k_fov, k_tp, ref)
                 for (k_fov, k_tp), ref in self._preview_fluor.items()
-                if _norm(k_fov) == fov
+                if _norm_numeric(k_fov) == fov
             ]
             if fluor_candidates:
                 for k_fov, k_tp, ref in sorted(
@@ -4353,7 +4369,7 @@ class WellViewerApp(tk.Frame):
             tophat_candidates = [
                 (k_fov, k_tp, ref)
                 for (k_fov, k_tp), ref in getattr(self, "_preview_tophat_fluor", {}).items()
-                if _norm(k_fov) == fov
+                if _norm_numeric(k_fov) == fov
             ]
             if tophat_candidates:
                 for k_fov, k_tp, ref in sorted(
@@ -4370,7 +4386,7 @@ class WellViewerApp(tk.Frame):
         if tp_values and self._review_image_tp_var.get() not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
         tp_raw = str(self._review_image_tp_var.get() or "").strip()
-        tp = _norm(tp_raw)
+        tp = _norm_timepoint(tp_raw)
         if not tp_raw or tp_raw == "—" or not tp:
             self._review_image_status.config(text="No timepoint selected.")
             return
@@ -4897,7 +4913,10 @@ class WellViewerApp(tk.Frame):
             return
 
         fovs = sorted({str(r.get("fov", r.get("FOV", ""))).strip() for r in rows if str(r.get("fov", r.get("FOV", ""))).strip()})
-        tps = sorted({str(r.get("timepoint", r.get("tp", r.get("time", "")))).strip() for r in rows if str(r.get("timepoint", r.get("tp", r.get("time", "")))).strip()})
+        tps = sorted(
+            {tp for _, tp, _ in (self._review_row_keys(r) for r in rows) if tp},
+            key=lambda t: (0, float(t), t) if parse_timepoint_hours(t) is not None else (1, 0.0, t.lower()),
+        )
         self._review_fov_cb["values"] = fovs
         self._review_tp_cb["values"] = tps
         if fovs and self._review_fov_var.get() not in fovs:
@@ -4927,13 +4946,21 @@ class WellViewerApp(tk.Frame):
                 return f"{float(s):g}"
             except Exception:
                 return s
+        def _norm_tp(v: object) -> str:
+            s = str(v or "").strip()
+            if not s:
+                return ""
+            parsed = parse_timepoint_hours(s)
+            if parsed is not None:
+                return f"{parsed:g}"
+            return s
 
         fov_sel = _norm(self._review_fov_var.get()) if hasattr(self, "_review_fov_var") else ""
-        tp_sel = _norm(self._review_tp_var.get()) if hasattr(self, "_review_tp_var") else ""
+        tp_sel = _norm_tp(self._review_tp_var.get()) if hasattr(self, "_review_tp_var") else ""
         filtered = []
         for row in rows:
             row_fov = _norm(row.get("fov", row.get("FOV", "")))
-            row_tp = _norm(row.get("timepoint", row.get("tp", row.get("time", ""))))
+            row_tp = _norm_tp(row.get("timepoint", row.get("tp", row.get("time", ""))))
             if fov_sel and row_fov != fov_sel:
                 continue
             if tp_sel and row_tp != tp_sel:

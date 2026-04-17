@@ -3,6 +3,34 @@
 from __future__ import annotations
 
 
+def _wheel_steps(event) -> int:
+    """Return signed wheel steps across Tk platforms/builds."""
+    num = getattr(event, "num", None)
+    if num == 4:
+        return 1
+    if num == 5:
+        return -1
+    if num == 6:
+        return -1
+    if num == 7:
+        return 1
+
+    delta = float(getattr(event, "delta", 0) or 0.0)
+    if delta == 0:
+        return 0
+
+    # Windows wheels: +/-120 per notch. Some Linux/X11 and touchpads can emit
+    # higher magnitudes; treat them as multiple notches for smoother scaling.
+    if abs(delta) >= 120:
+        steps = int(round(delta / 120.0))
+    else:
+        # macOS trackpads often emit small deltas (e.g. +/-1, +/-2).
+        steps = 1 if delta > 0 else -1
+    if steps == 0:
+        return 1 if delta > 0 else -1
+    return steps
+
+
 def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> None:
     app._montage_fluor_display_arrays = filtered_arrays
     if not partial:
@@ -95,11 +123,10 @@ def on_montage_fluor_motion(app, e) -> None:
 
 def montage_zoom_step(app, direction: int) -> None:
     cur = float(getattr(app, "_montage_zoom", 1.0) or 1.0)
-    factor = 1.15
-    if direction > 0:
-        app._montage_zoom = cur * factor
-    elif direction < 0:
-        app._montage_zoom = max(0.05, cur / factor)
+    if direction == 0:
+        return
+    factor = 1.12
+    app._montage_zoom = min(24.0, max(0.05, cur * (factor ** direction)))
     app._montage_redraw_at_zoom()
 
 
@@ -109,21 +136,13 @@ def montage_zoom_fit(app) -> None:
 
 
 def on_montage_wheel(app, event) -> None:
-    direction = +1 if getattr(event, "delta", 0) > 0 else -1
-    if getattr(event, "num", None) == 4:
-        direction = +1
-    elif getattr(event, "num", None) == 5:
-        direction = -1
-    app._montage_zoom_step(direction)
+    app._montage_zoom_step(_wheel_steps(event))
 
 
 def on_montage_shift_wheel(app, event) -> None:
-    direction = -1 if getattr(event, "delta", 0) > 0 else 1
-    if getattr(event, "num", None) == 6:
-        direction = -1
-    elif getattr(event, "num", None) == 7:
-        direction = 1
-    app._montage_canvas.xview_scroll(direction * 3, "units")
+    steps = _wheel_steps(event)
+    if steps:
+        app._montage_canvas.xview_scroll(-steps * 3, "units")
 
 
 def montage_redraw_at_zoom(app) -> None:
