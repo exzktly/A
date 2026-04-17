@@ -1693,28 +1693,42 @@ class WellViewerApp(tk.Frame):
         self._stats_refresh_single_btn(tok)
 
     def _stats_refresh_single_btn(self, tok: str) -> None:
+        from ui.theme import get_color
+        button_bg_color = get_color("button_bg")
+        button_text_color = get_color("button_text")
+        button_text_disabled_color = get_color("button_text_disabled")
+
         btn = self._stats_map_btns.get(tok)
         if btn is None or tok not in self._well_paths:
             return
         for gi, g in enumerate(self._stats_groups):
             if tok in g.wells:
+                grp_color = WELL_COLORS[gi % len(WELL_COLORS)]
+                is_active = gi == self._stats_active_grp
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text,
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    bg=grp_color,
+                    fg="white",
+                    relief=tk.SUNKEN if is_active else tk.FLAT,
+                    activebackground=self._mute_color(grp_color, 0.3),
+                    activeforeground="white",
+                    disabledforeground=button_text_disabled_color,
                 )
                 return
         btn.config(
-            bg=button_bg,
-            fg=button_text,
-            activebackground=button_bg,
-            activeforeground=button_text,
-            disabledforeground=button_text_disabled,
+            bg=button_bg_color,
+            fg=button_text_color,
+            relief=tk.FLAT,
+            activebackground=button_bg_color,
+            activeforeground=button_text_color,
+            disabledforeground=button_text_disabled_color,
         )
 
     def _stats_refresh_map(self) -> None:
+        from ui.theme import get_color
+        button_bg_color = get_color("button_bg")
+        button_text_color = get_color("button_text")
+        button_text_disabled_color = get_color("button_text_disabled")
+
         avail = set(self._well_paths.keys())
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._stats_groups):
@@ -1729,36 +1743,37 @@ class WellViewerApp(tk.Frame):
         for tok, btn in self._stats_map_btns.items():
             if tok not in avail:
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text_disabled,
+                    bg=button_bg_color,
+                    fg=button_text_disabled_color,
                     state=tk.DISABLED,
                     cursor="arrow",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    activebackground=button_bg_color,
+                    activeforeground=button_text_color,
+                    disabledforeground=button_text_disabled_color,
                 )
             elif tok in tok_color:
-                relief = tk.SUNKEN if tok in active_wells else tk.FLAT
+                grp_color = tok_color[tok]
+                is_active = tok in active_wells
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text,
+                    bg=grp_color,
+                    fg="white",
                     state=tk.NORMAL,
-                    relief=relief,
+                    relief=tk.SUNKEN if is_active else tk.FLAT,
                     cursor="hand2",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    activebackground=self._mute_color(grp_color, 0.3),
+                    activeforeground="white",
+                    disabledforeground=button_text_disabled_color,
                 )
             else:
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text,
+                    bg=button_bg_color,
+                    fg=button_text_color,
                     state=tk.NORMAL,
                     relief=tk.FLAT,
                     cursor="hand2",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    activebackground=button_bg_color,
+                    activeforeground=button_text_color,
+                    disabledforeground=button_text_disabled_color,
                 )
 
     def _stats_refresh_group_list(self) -> None:
@@ -2006,18 +2021,15 @@ class WellViewerApp(tk.Frame):
         _preview_pick_well_view(self, tok)
 
     def _refresh_preview_picker(self) -> None:
-        # Fetch colors dynamically to support theme changes
         from ui.theme import get_color
         _refresh_preview_picker_view(
             self,
-            bg_cell=get_color("BG_CELL"),
-            txt_mut=get_color("TXT_MUT"),
-            txt_pri=get_color("TXT_PRI"),
+            button_bg=get_color("button_bg"),
+            button_text=get_color("button_text"),
+            button_text_disabled=get_color("button_text_disabled"),
             accent=get_color("ACCENT"),
             clr_white=get_color("CLR_WHITE"),
-            clr_accent_dark=get_color("CLR_ACCENT_DARK"),
-            bg_panel=get_color("BG_PANEL"),
-            bg_hover=get_color("BG_HOVER"),
+            clr_accent_dark=get_color("ACCENT_DARK"),
             extract_well_token_fn=_extract_well_token,
         )
 

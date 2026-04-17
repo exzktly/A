@@ -50,23 +50,48 @@ def preview_pick_well(app, tok: str) -> None:
 def refresh_preview_picker(
     app,
     *,
-    bg_cell: str,
-    txt_mut: str,
-    txt_pri: str,
+    button_bg: str,
+    button_text: str,
+    button_text_disabled: str,
     accent: str,
     clr_white: str,
     clr_accent_dark: str,
-    bg_panel: str,
-    bg_hover: str,
     extract_well_token_fn,
 ) -> None:
     for tok, btn in app._sidebar_preview_btns.items():
         if tok not in app._well_paths:
-            btn.config(bg=bg_cell, fg=txt_mut, state=tk.DISABLED, cursor="arrow", relief=tk.FLAT)
+            btn.config(
+                bg=button_bg,
+                fg=button_text_disabled,
+                state=tk.DISABLED,
+                cursor="arrow",
+                relief=tk.FLAT,
+                activebackground=button_bg,
+                activeforeground=button_text,
+                disabledforeground=button_text_disabled,
+            )
         elif tok == app._preview_selected_well:
-            btn.config(bg=accent, fg=clr_white, state=tk.NORMAL, activebackground=clr_accent_dark, cursor="hand2", relief=tk.SUNKEN)
+            btn.config(
+                bg=accent,
+                fg=clr_white,
+                state=tk.NORMAL,
+                cursor="hand2",
+                relief=tk.SUNKEN,
+                activebackground=clr_accent_dark,
+                activeforeground=clr_white,
+                disabledforeground=button_text_disabled,
+            )
         else:
-            btn.config(bg=bg_panel, fg=txt_pri, state=tk.NORMAL, activebackground=bg_hover, cursor="hand2", relief=tk.FLAT)
+            btn.config(
+                bg=button_bg,
+                fg=button_text,
+                state=tk.NORMAL,
+                cursor="hand2",
+                relief=tk.FLAT,
+                activebackground=button_bg,
+                activeforeground=button_text,
+                disabledforeground=button_text_disabled,
+            )
     if hasattr(app, "_preview_sel_lbl"):
         if app._preview_selected_well:
             app._preview_sel_lbl.config(text=f"Selected: {app._preview_selected_well}")
