@@ -42,14 +42,14 @@ def _refresh_after_selection_change(app) -> None:
         app._redraw()
 
 
-def plate_drag_press(app, label: str, well_set: set, ds: dict) -> None:
+def plate_drag_press(app, tok: str, well_set: set, ds: dict) -> None:
     ds["visited"] = set()
     ds["rep_toggled"] = set()
     if app._rep_sets:
-        si = app._rep_idx_for_label(label)
+        si = app._rep_idx_for_label(tok)
         ds["adding"] = (si is None or si in app._rep_hidden)
     else:
-        ds["adding"] = label not in well_set
+        ds["adding"] = tok not in well_set
 
 
 def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
@@ -58,12 +58,11 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
     if tok in ds["visited"]:
         return
     ds["visited"].add(tok)
-    label = app._tok_to_label.get(tok)
-    if label is None:
+    if tok not in app._well_paths:
         return
 
     if app._rep_sets:
-        si = app._rep_idx_for_label(label)
+        si = app._rep_idx_for_label(tok)
         if si is None or si in ds["rep_toggled"]:
             return
         ds["rep_toggled"].add(si)
@@ -78,8 +77,7 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
             muted = app._mute_color(full_c)
             hidden = si in app._rep_hidden
             for w in rset.wells:
-                t = rt._extract_well_token(w) or w
-                b = btn_dict.get(t)
+                b = btn_dict.get(w)
                 if b:
                     b.config(
                         bg=muted if hidden else full_c,
@@ -89,12 +87,12 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
                     )
     else:
         if ds["adding"]:
-            well_set.add(label)
+            well_set.add(tok)
         else:
-            well_set.discard(label)
+            well_set.discard(tok)
         btn = btn_dict.get(tok)
         if btn:
-            if label in well_set:
+            if tok in well_set:
                 btn.config(bg=rt.ACCENT, fg=rt.CLR_WHITE, activebackground=rt.CLR_ACCENT_DARK, relief=rt.tk.SUNKEN)
             else:
                 btn.config(bg=rt.BG_PANEL, fg=rt.TXT_PRI, activebackground=rt.BG_HOVER, relief=rt.tk.FLAT)
@@ -112,15 +110,15 @@ def plate_drag_release(app, ds: dict, on_rep_change, on_well_change) -> None:
 
 def sb_press(app, event) -> None:
     tok = sidebar_tok_at(app, event)
-    if tok is None or tok not in app._tok_to_label:
+    if tok is None or tok not in app._well_paths:
         return
-    plate_drag_press(app, app._tok_to_label[tok], app._selected_wells, app._sb_ds)
+    plate_drag_press(app, tok, app._selected_wells, app._sb_ds)
     plate_drag_apply(app, tok, app._sidebar_btns, app._selected_wells, app._sb_ds)
 
 
 def sb_drag(app, event) -> None:
     tok = sidebar_tok_at(app, event)
-    if tok is None or tok not in app._tok_to_label:
+    if tok is None or tok not in app._well_paths:
         return
     plate_drag_apply(app, tok, app._sidebar_btns, app._selected_wells, app._sb_ds)
 

@@ -560,15 +560,28 @@ def detect_smfish_channels(rows: List[dict]) -> List[str]:
     return sorted(channels)
 
 
-def detect_review_image_channels(rows: List[dict], fluor_channels: List[str]) -> List[str]:
+def detect_nuclear_channel_token(rows: List[dict]) -> str:
+    """Return the nuclear/segmentation channel token from the CSV 'channel' column (lowercase).
+
+    This is the imaging channel used for cell segmentation (e.g. 'nir', 'dapi').
+    """
+    if not rows:
+        return ""
+    return str(rows[0].get("channel", "") or "").strip().lower()
+
+
+def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
     """
     Return channel prefixes suitable for Review Image.
 
-    Includes standard fluorescence channels plus nuclear-like intensity channels
+    Includes standard fluorescence channels, the explicit segmentation channel
+    token (from the CSV 'channel' column), plus nuclear-like intensity channels
     (e.g. dapi/nuclear/nuc/nir/hoechst) even if they are not in the primary
     fluor metrics set.
     """
     chans = set(fluor_channels)
+    if seg_channel_token:
+        chans.add(seg_channel_token)
     if not rows:
         return sorted(chans)
     nuclear_tokens = ("nuclear", "nuc", "dapi", "hoechst", "nir")
@@ -1425,8 +1438,8 @@ class WellViewerApp(tk.Frame):
         self._thr_dragging  = False   # True while the threshold line is being dragged
 
         # Plate-map well selection
-        self._selected_wells: set  = set()   # set of well labels currently selected
-        self._tok_to_label:   Dict[str, str] = {}   # e.g. "B03" -> "gfp_measurements_B03"
+        self._selected_wells: set  = set()   # set of well tokens currently selected
+        self._tok_to_label:   Dict[str, str] = {}   # e.g. "B03" -> "gfp_measurements_B03" (display only)
 
         # Preview state
         self._fov_tp_extractor = None          # set by _load_path from pipeline_info.json
@@ -1660,10 +1673,9 @@ class WellViewerApp(tk.Frame):
             return
         self._stats_drag_visited.add(tok)
         grp = self._stats_active_group()
-        if grp is None or tok not in self._tok_to_label:
+        if grp is None or tok not in self._well_paths:
             return
-        label = self._tok_to_label[tok]
-        rset = next((r for r in self._rep_sets if label in r.wells), None)
+        rset = next((r for r in self._rep_sets if tok in r.wells), None)
         if rset is not None:
             if self._stats_drag_adding:
                 if rset not in grp.members:
@@ -1673,82 +1685,95 @@ class WellViewerApp(tk.Frame):
                     grp.members.remove(rset)
         else:
             if self._stats_drag_adding:
-                if label not in grp.solo_wells:
-                    grp.solo_wells.append(label)
+                if tok not in grp.solo_wells:
+                    grp.solo_wells.append(tok)
             else:
-                if label in grp.solo_wells:
-                    grp.solo_wells.remove(label)
+                if tok in grp.solo_wells:
+                    grp.solo_wells.remove(tok)
         self._stats_refresh_single_btn(tok)
 
     def _stats_refresh_single_btn(self, tok: str) -> None:
+        from ui.theme import get_color
+        button_bg_color = get_color("button_bg")
+        button_text_color = get_color("button_text")
+        button_text_disabled_color = get_color("button_text_disabled")
+
         btn = self._stats_map_btns.get(tok)
-        if btn is None or tok not in self._tok_to_label:
+        if btn is None or tok not in self._well_paths:
             return
-        label = self._tok_to_label[tok]
         for gi, g in enumerate(self._stats_groups):
-            if label in g.wells:
+            if tok in g.wells:
+                grp_color = WELL_COLORS[gi % len(WELL_COLORS)]
+                is_active = gi == self._stats_active_grp
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text,
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    bg=grp_color,
+                    fg="white",
+                    relief=tk.SUNKEN if is_active else tk.FLAT,
+                    activebackground=self._mute_color(grp_color, 0.3),
+                    activeforeground="white",
+                    disabledforeground=button_text_disabled_color,
                 )
                 return
         btn.config(
-            bg=button_bg,
-            fg=button_text,
-            activebackground=button_bg,
-            activeforeground=button_text,
-            disabledforeground=button_text_disabled,
+            bg=button_bg_color,
+            fg=button_text_color,
+            relief=tk.FLAT,
+            activebackground=button_bg_color,
+            activeforeground=button_text_color,
+            disabledforeground=button_text_disabled_color,
         )
 
     def _stats_refresh_map(self) -> None:
-        avail = set(self._tok_to_label.keys())
+        from ui.theme import get_color
+        button_bg_color = get_color("button_bg")
+        button_text_color = get_color("button_text")
+        button_text_disabled_color = get_color("button_text_disabled")
+
+        avail = set(self._well_paths.keys())
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._stats_groups):
             c = WELL_COLORS[gi % len(WELL_COLORS)]
             for w in grp.wells:
-                t = _extract_well_token(w) or w
-                tok_color.setdefault(t, c)
+                tok_color.setdefault(w, c)
         active_wells: set = set()
         grp = self._stats_active_group()
         if grp:
             for w in grp.wells:
-                active_wells.add(_extract_well_token(w) or w)
+                active_wells.add(w)
         for tok, btn in self._stats_map_btns.items():
             if tok not in avail:
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text_disabled,
+                    bg=button_bg_color,
+                    fg=button_text_disabled_color,
                     state=tk.DISABLED,
                     cursor="arrow",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    activebackground=button_bg_color,
+                    activeforeground=button_text_color,
+                    disabledforeground=button_text_disabled_color,
                 )
             elif tok in tok_color:
-                relief = tk.SUNKEN if tok in active_wells else tk.FLAT
+                grp_color = tok_color[tok]
+                is_active = tok in active_wells
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text,
+                    bg=grp_color,
+                    fg="white",
                     state=tk.NORMAL,
-                    relief=relief,
+                    relief=tk.SUNKEN if is_active else tk.FLAT,
                     cursor="hand2",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    activebackground=self._mute_color(grp_color, 0.3),
+                    activeforeground="white",
+                    disabledforeground=button_text_disabled_color,
                 )
             else:
                 btn.config(
-                    bg=button_bg,
-                    fg=button_text,
+                    bg=button_bg_color,
+                    fg=button_text_color,
                     state=tk.NORMAL,
                     relief=tk.FLAT,
                     cursor="hand2",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                    activebackground=button_bg_color,
+                    activeforeground=button_text_color,
+                    disabledforeground=button_text_disabled_color,
                 )
 
     def _stats_refresh_group_list(self) -> None:
@@ -1996,18 +2021,15 @@ class WellViewerApp(tk.Frame):
         _preview_pick_well_view(self, tok)
 
     def _refresh_preview_picker(self) -> None:
-        # Fetch colors dynamically to support theme changes
         from ui.theme import get_color
         _refresh_preview_picker_view(
             self,
-            bg_cell=get_color("BG_CELL"),
-            txt_mut=get_color("TXT_MUT"),
-            txt_pri=get_color("TXT_PRI"),
+            button_bg=get_color("button_bg"),
+            button_text=get_color("button_text"),
+            button_text_disabled=get_color("button_text_disabled"),
             accent=get_color("ACCENT"),
             clr_white=get_color("CLR_WHITE"),
-            clr_accent_dark=get_color("CLR_ACCENT_DARK"),
-            bg_panel=get_color("BG_PANEL"),
-            bg_hover=get_color("BG_HOVER"),
+            clr_accent_dark=get_color("ACCENT_DARK"),
             extract_well_token_fn=_extract_well_token,
         )
 
@@ -2054,8 +2076,7 @@ class WellViewerApp(tk.Frame):
         tok_active: Dict[str, bool] = {}
         for si, rset in enumerate(self._rep_sets):
             c = WELL_COLORS[si % len(WELL_COLORS)]
-            for lbl in rset.wells:
-                tok = _extract_well_token(lbl) or lbl
+            for tok in rset.wells:
                 tok_color[tok] = c
                 tok_active[tok] = (si == self._active_rep_idx)
 
@@ -2064,8 +2085,7 @@ class WellViewerApp(tk.Frame):
                         if has_active else ACCENT)
 
         for tok, btn in self._rep_map_btns.items():
-            lbl = self._tok_to_label.get(tok)
-            if lbl is None:
+            if tok not in self._well_paths:
                 btn.config(
                     bg=button_bg,
                     fg=button_text_disabled,
@@ -2136,12 +2156,11 @@ class WellViewerApp(tk.Frame):
         btn = self._rep_map_btns.get(tok)
         if btn is None:
             return
-        lbl = self._tok_to_label.get(tok)
-        if lbl is None:
+        if tok not in self._well_paths:
             return
         # Find which set owns this well now
         for si, rset in enumerate(self._rep_sets):
-            if lbl in rset.wells:
+            if tok in rset.wells:
                 act = (si == self._active_rep_idx)
                 btn.config(
                     bg=button_bg,
@@ -2214,7 +2233,7 @@ class WellViewerApp(tk.Frame):
         lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.config(command=lb.yview)
         for w in available:
-            lb.insert(tk.END, _extract_well_token(w) or w)
+            lb.insert(tk.END, w)
 
         btn_row = tk.Frame(dlg, bg=BG_APP)
         btn_row.pack(fill=tk.X, padx=16, pady=(8, 12))
@@ -2276,7 +2295,7 @@ class WellViewerApp(tk.Frame):
         lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.config(command=lb.yview)
         for i, w in enumerate(available):
-            lb.insert(tk.END, _extract_well_token(w) or w)
+            lb.insert(tk.END, w)
             if w in rset.wells:
                 lb.selection_set(i)
 
@@ -2577,7 +2596,7 @@ class WellViewerApp(tk.Frame):
         lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.config(command=lb.yview)
         for w in sorted(available, key=lambda l: self._parse_rc(l)):
-            lb.insert(tk.END, _extract_well_token(w) or w)
+            lb.insert(tk.END, w)
 
         btn_row = tk.Frame(dlg, bg=BG_APP)
         btn_row.pack(fill=tk.X, padx=16, pady=(8, 12))
@@ -2729,22 +2748,21 @@ class WellViewerApp(tk.Frame):
         x0, x1 = min(ax, cx), max(ax, cx)
         y0, y1 = min(ay, cy), max(ay, cy)
 
-        # Find labels of buttons whose screen-space centres fall inside.
-        inside_labels: set = set()
+        # Find tokens of buttons whose screen-space centres fall inside.
+        inside_toks: set = set()
         for tok, (bx, by) in btn_centres.items():
             if x0 <= bx <= x1 and y0 <= by <= y1:
-                lbl = self._tok_to_label.get(tok)
-                if lbl:
-                    inside_labels.add(lbl)
+                if tok in self._well_paths:
+                    inside_toks.add(tok)
 
-        if not inside_labels:
+        if not inside_toks:
             return
 
         loaded = self._rep_sets_loaded()
         if loaded:
             affected: set = set()
             for si, rset in enumerate(loaded):
-                if any(w in inside_labels for w in rset.wells):
+                if any(w in inside_toks for w in rset.wells):
                     affected.add(si)
 
             if not affected:
@@ -2768,9 +2786,9 @@ class WellViewerApp(tk.Frame):
         else:
             # Fallback: toggle _bar_groups.hidden (no rep-sets defined)
             affected_groups: set = set()
-            for lbl in inside_labels:
+            for tok in inside_toks:
                 for i, g in enumerate(self._bar_groups):
-                    if lbl in g.wells:
+                    if tok in g.wells:
                         affected_groups.add(i)
 
             if affected_groups:
@@ -2818,14 +2836,14 @@ class WellViewerApp(tk.Frame):
                 # Row-first iteration (same as _rep_quick_row_pairs)
                 for row_ltr in _PLATE_ROWS:
                     loaded = [f"{row_ltr}{col}" for col in _PLATE_COLS
-                              if f"{row_ltr}{col}" in self._tok_to_label]
+                              if f"{row_ltr}{col}" in self._well_paths]
                     new_sets.extend(self._make_replicate_pairs(loaded, row_ltr))
             else:
                 # Column-first iteration: collect all row pairs, then sort by column
                 by_col = {}  # col -> list of sets from that column
                 for row_ltr in _PLATE_ROWS:
                     loaded = [f"{row_ltr}{col}" for col in _PLATE_COLS
-                              if f"{row_ltr}{col}" in self._tok_to_label]
+                              if f"{row_ltr}{col}" in self._well_paths]
                     row_sets = self._make_replicate_pairs(loaded, row_ltr)
                     # Extract which column(s) each set belongs to
                     for s in row_sets:
@@ -2847,14 +2865,14 @@ class WellViewerApp(tk.Frame):
                 # Column-first iteration (same as _rep_quick_col_pairs)
                 for col in _PLATE_COLS:
                     loaded = [f"{row_ltr}{col}" for row_ltr in _PLATE_ROWS
-                              if f"{row_ltr}{col}" in self._tok_to_label]
+                              if f"{row_ltr}{col}" in self._well_paths]
                     new_sets.extend(self._make_replicate_pairs(loaded, col))
             else:
                 # Row-first iteration: collect all column pairs, then sort by row
                 by_row = {}  # row -> list of sets from that row
                 for col in _PLATE_COLS:
                     loaded = [f"{row_ltr}{col}" for row_ltr in _PLATE_ROWS
-                              if f"{row_ltr}{col}" in self._tok_to_label]
+                              if f"{row_ltr}{col}" in self._well_paths]
                     col_sets = self._make_replicate_pairs(loaded, col)
                     # Extract which row each set belongs to
                     for s in col_sets:
@@ -2942,16 +2960,12 @@ class WellViewerApp(tk.Frame):
         i = 0
         while i < len(toks):
             if i + 1 < len(toks):
-                w1 = self._tok_to_label[toks[i]]
-                w2 = self._tok_to_label[toks[i + 1]]
-                t1 = _extract_well_token(w1) or toks[i]
-                t2 = _extract_well_token(w2) or toks[i+1]
-                sets.append(ReplicateSet(f"{t1}/{t2}", [w1, w2]))
+                t1, t2 = toks[i], toks[i + 1]
+                sets.append(ReplicateSet(f"{t1}/{t2}", [t1, t2]))
                 i += 2
             else:
-                w = self._tok_to_label[toks[i]]
-                t = _extract_well_token(w) or toks[i]
-                sets.append(ReplicateSet(t, [w]))
+                t = toks[i]
+                sets.append(ReplicateSet(t, [t]))
                 i += 1
         return sets
 
@@ -2973,7 +2987,7 @@ class WellViewerApp(tk.Frame):
                 # Group by row (row-first): Same as _bar_quick_groups_row_pairs
                 for row_ltr in _PLATE_ROWS:
                     loaded = [f"{row_ltr}{col}" for col in _PLATE_COLS
-                              if f"{row_ltr}{col}" in self._tok_to_label]
+                              if f"{row_ltr}{col}" in self._well_paths]
                     if not loaded:
                         continue
                     sets = self._make_replicate_pairs(loaded, row_ltr)
@@ -2988,7 +3002,7 @@ class WellViewerApp(tk.Frame):
                         next_col_idx = _PLATE_COLS.index(col) + 1
                         if next_col_idx < len(_PLATE_COLS):
                             loaded.append(f"{row_ltr}{_PLATE_COLS[next_col_idx]}")
-                        loaded = [t for t in loaded if t in self._tok_to_label]
+                        loaded = [t for t in loaded if t in self._well_paths]
                         if loaded:
                             pairs_in_col.extend(self._make_replicate_pairs(loaded, col))
                     if pairs_in_col:
@@ -2999,7 +3013,7 @@ class WellViewerApp(tk.Frame):
                 # Group by column (column-first): Same as _bar_quick_groups_col_pairs
                 for col in _PLATE_COLS:
                     loaded = [f"{row_ltr}{col}" for row_ltr in _PLATE_ROWS
-                              if f"{row_ltr}{col}" in self._tok_to_label]
+                              if f"{row_ltr}{col}" in self._well_paths]
                     if not loaded:
                         continue
                     sets = self._make_replicate_pairs(loaded, col)
@@ -3014,7 +3028,7 @@ class WellViewerApp(tk.Frame):
                         next_row_idx = _PLATE_ROWS.index(row_ltr) + 1
                         if next_row_idx < len(_PLATE_ROWS):
                             loaded.append(f"{_PLATE_ROWS[next_row_idx]}{col}")
-                        loaded = [t for t in loaded if t in self._tok_to_label]
+                        loaded = [t for t in loaded if t in self._well_paths]
                         if loaded:
                             pairs_in_row.extend(self._make_replicate_pairs(loaded, col))
                     if pairs_in_row:
@@ -3718,13 +3732,11 @@ class WellViewerApp(tk.Frame):
             full_c  = WELL_COLORS[si % len(WELL_COLORS)]
             muted_c = self._mute_color(full_c)
             hidden  = si in self._rep_hidden
-            for lbl in rset.wells:
-                t = _extract_well_token(lbl) or lbl
-                tok_rep[t] = (full_c, muted_c, si, hidden)
+            for tok in rset.wells:
+                tok_rep[tok] = (full_c, muted_c, si, hidden)
 
         for tok, btn in self._sidebar_btns.items():
-            label = self._tok_to_label.get(tok)
-            if label is None:
+            if tok not in self._well_paths:
                 btn.config(
                     bg=button_bg_color,
                     fg=button_text_disabled_color,
@@ -3773,7 +3785,7 @@ class WellViewerApp(tk.Frame):
                     cursor="hand2",
                     relief=tk.FLAT,
                 )
-            elif label in self._selected_wells:
+            elif tok in self._selected_wells:
                 btn.config(
                     bg=ACCENT,
                     fg="white",
@@ -3924,7 +3936,9 @@ class WellViewerApp(tk.Frame):
             # default to the first detected channel.
             if self._active_channel not in detected:
                 self._active_channel = detected[0]
-        self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels)
+        seg_tok = detect_nuclear_channel_token(all_rows_sample)
+        self._seg_channel_token = seg_tok
+        self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels, seg_tok)
         self._update_channel_selector()
 
         # Update smFISH channels and reset metric if needed
@@ -4036,11 +4050,19 @@ class WellViewerApp(tk.Frame):
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
         labels = [ch.upper() for ch in self._fluor_channels] or ["—"]
+        # Montage/preview includes the segmentation channel even if it has no CSV measurement column
+        seg_tok = getattr(self, "_seg_channel_token", "")
+        montage_chans = list(self._fluor_channels)
+        if seg_tok and seg_tok not in montage_chans:
+            montage_chans.append(seg_tok)
+        montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
         review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
         # Update channel selector instances
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_preview"):
+        for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
                 getattr(self, attr).config(values=labels)
+        if hasattr(self, "_chan_cb_preview"):
+            self._chan_cb_preview.config(values=montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
             self._review_image_chan_cb.config(values=review_labels)
         active_label = self._active_channel.upper()
@@ -4798,8 +4820,7 @@ class WellViewerApp(tk.Frame):
             self._review_csv_msg.set("Select one or more wells in the picker.")
             return
 
-        toks = [self._extract_well_token(lbl) or lbl for lbl in sels]
-        self._review_well_var.set(", ".join(toks[:3]) + (f" (+{len(toks) - 3} more)" if len(toks) > 3 else ""))
+        self._review_well_var.set(", ".join(sels[:3]) + (f" (+{len(sels) - 3} more)" if len(sels) > 3 else ""))
         rows: List[dict] = []
         for label in sels:
             rows.extend(self._review_load_rows(label))

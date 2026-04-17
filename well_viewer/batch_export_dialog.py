@@ -201,13 +201,12 @@ class BatchExportPanel(tk.Frame):
 
         def _press(event):
             tok = _tok_at(event)
-            if tok is None or tok not in self._app._tok_to_label:
+            if tok is None or tok not in self._app._well_paths:
                 return
             grp = self._active_group()
             if grp is None:
                 return
-            label = self._app._tok_to_label[tok]
-            self._drag_adding  = label not in grp.wells
+            self._drag_adding  = tok not in grp.wells
             self._drag_visited = set()
             self._apply_drag(tok)
 
@@ -305,7 +304,7 @@ class BatchExportPanel(tk.Frame):
     def _default_group_name(self, grp: "BarGroup") -> str:
         """Build a default name from current member elements."""
         labels = [r.name for r in grp.members]
-        labels.extend((_extract_well_token(w) or w) for w in grp.solo_wells)
+        labels.extend(grp.solo_wells)
         if not labels:
             return "New Group"
         return ", ".join(labels)
@@ -321,11 +320,10 @@ class BatchExportPanel(tk.Frame):
             return
         self._drag_visited.add(tok)
         grp = self._active_group()
-        if grp is None or tok not in self._app._tok_to_label:
+        if grp is None or tok not in self._app._well_paths:
             return
-        label = self._app._tok_to_label[tok]
-        # Find if label belongs to a ReplicateSet in the pool
-        rset = next((r for r in self._app._rep_sets if label in r.wells), None)
+        # Find if tok belongs to a ReplicateSet in the pool
+        rset = next((r for r in self._app._rep_sets if tok in r.wells), None)
         if rset is not None:
             # Add/remove the whole ReplicateSet
             if self._drag_adding:
@@ -337,11 +335,11 @@ class BatchExportPanel(tk.Frame):
         else:
             # Solo well (not in any ReplicateSet)
             if self._drag_adding:
-                if label not in grp.solo_wells:
-                    grp.solo_wells.append(label)
+                if tok not in grp.solo_wells:
+                    grp.solo_wells.append(tok)
             else:
-                if label in grp.solo_wells:
-                    grp.solo_wells.remove(label)
+                if tok in grp.solo_wells:
+                    grp.solo_wells.remove(tok)
         self._refresh_auto_group_name(grp)
         self._refresh_single_btn(tok)
 
@@ -350,12 +348,11 @@ class BatchExportPanel(tk.Frame):
         btn = self._map_btns.get(tok)
         if btn is None:
             return
-        if tok not in self._app._tok_to_label:
+        if tok not in self._app._well_paths:
             return
-        label = self._app._tok_to_label[tok]
         # Find group index that owns this well
         for gi, g in enumerate(self._groups):
-            if label in g.wells:
+            if tok in g.wells:
                 c = WELL_COLORS[gi % len(WELL_COLORS)]
                 btn.config(bg=c, fg=CLR_WHITE, activebackground=c)
                 return
@@ -363,19 +360,18 @@ class BatchExportPanel(tk.Frame):
                    activebackground=CLR_AVAIL_HOVER)
 
     def _refresh_map(self) -> None:
-        avail = set(self._app._tok_to_label.keys())
+        avail = set(self._app._well_paths.keys())
         # Build tok -> (color) from all groups
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._groups):
             c = WELL_COLORS[gi % len(WELL_COLORS)]
             for w in grp.wells:
-                t = _extract_well_token(w) or w
-                tok_color.setdefault(t, c)
+                tok_color.setdefault(w, c)
         active_wells: set = set()
         grp = self._active_group()
         if grp:
             for w in grp.wells:
-                active_wells.add(_extract_well_token(w) or w)
+                active_wells.add(w)
 
         for tok, btn in self._map_btns.items():
             if tok not in avail:
@@ -440,8 +436,7 @@ class BatchExportPanel(tk.Frame):
                     tk.Label(mrow, text=f"[{rset.name}]", font=FM_TINY,
                              fg=color, bg=bg, padx=2).pack(side=tk.LEFT)
                     for w in rset.wells:
-                        tok = _extract_well_token(w) or w
-                        tk.Label(mrow, text=tok, font=FM_TINY, bg=color,
+                        tk.Label(mrow, text=w, font=FM_TINY, bg=color,
                                  fg=CLR_WHITE, padx=3, pady=1
                                  ).pack(side=tk.LEFT, padx=(0, 2))
                     if is_sel:
@@ -450,8 +445,7 @@ class BatchExportPanel(tk.Frame):
                 for w in grp.solo_wells:
                     srow = tk.Frame(mem_fr, bg=bg)
                     srow.pack(fill=tk.X, pady=1)
-                    tok = _extract_well_token(w) or w
-                    tk.Label(srow, text=f"[solo] {tok}", font=FM_TINY,
+                    tk.Label(srow, text=f"[solo] {w}", font=FM_TINY,
                              fg=color, bg=bg).pack(side=tk.LEFT)
                     if is_sel:
                         btn_danger(srow, "−", lambda g=gi, wl=w: self._grp_remove_solo(g, wl),
@@ -542,12 +536,10 @@ class BatchExportPanel(tk.Frame):
         for row_ltr in _PLATE_ROWS:
             # Collect rep-sets whose wells are in this row, plus solo wells in the row
             row_rsets = [r for r in self._app._rep_sets
-                         if any(_extract_well_token(w) and
-                                _extract_well_token(w)[0].upper() == row_ltr
-                                for w in r.wells)]
+                         if any(w[0].upper() == row_ltr for w in r.wells)]
             assigned_wells = {w for r in row_rsets for w in r.wells}
-            row_solos = [lbl for tok, lbl in self._app._tok_to_label.items()
-                         if tok[0].upper() == row_ltr and lbl not in assigned_wells]
+            row_solos = [tok for tok in self._app._well_paths
+                         if tok[0].upper() == row_ltr and tok not in assigned_wells]
             if not row_rsets and not row_solos:
                 continue
             grp = BarGroup(f"Row {row_ltr}", members=row_rsets,
@@ -564,12 +556,10 @@ class BatchExportPanel(tk.Frame):
         self._active_grp = -1
         for col in _PLATE_COLS:
             col_rsets = [r for r in self._app._rep_sets
-                         if any(_extract_well_token(w) and
-                                _extract_well_token(w)[1:] == col
-                                for w in r.wells)]
+                         if any(w[1:] == col for w in r.wells)]
             assigned_wells = {w for r in col_rsets for w in r.wells}
-            col_solos = [lbl for tok, lbl in self._app._tok_to_label.items()
-                         if tok[1:] == col and lbl not in assigned_wells]
+            col_solos = [tok for tok in self._app._well_paths
+                         if tok[1:] == col and tok not in assigned_wells]
             if not col_rsets and not col_solos:
                 continue
             grp = BarGroup(f"Col {col}", members=col_rsets,
@@ -627,15 +617,14 @@ class BatchExportPanel(tk.Frame):
                 "name":       grp.name,
                 "hidden":     grp.hidden,
                 "members":    members_names,
-                "solo_wells": [_extract_well_token(w) or w
-                               for w in grp.solo_wells],
+                "solo_wells": list(grp.solo_wells),
             })
         # Also save the rep-set definitions so they can be restored on load
         rep_list = []
         for rset in self._app._rep_sets:
             rep_list.append({
                 "name":  rset.name,
-                "wells": [_extract_well_token(w) or w for w in rset.wells],
+                "wells": list(rset.wells),
             })
         data = {"rep_sets": rep_list, "groups": grp_list}
 
@@ -673,8 +662,9 @@ class BatchExportPanel(tk.Frame):
             m = re.match(r"^([A-H])(\d{1,2})$", tok, re.I)
             return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else tok
 
-        def _tok_label(tok: str) -> Optional[str]:
-            return self._app._tok_to_label.get(_norm(tok))
+        def _valid_tok(raw: str) -> Optional[str]:
+            n = _norm(raw)
+            return n if n in self._app._well_paths else None
 
         # Build a name → ReplicateSet map from the app's pool
         rep_by_name = {r.name: r for r in self._app._rep_sets}
@@ -689,10 +679,10 @@ class BatchExportPanel(tk.Frame):
                 for rname in item.get("members", []):
                     if rname in rep_by_name:
                         grp.members.append(rep_by_name[rname])
-                for tok in item.get("solo_wells", []):
-                    lbl = _tok_label(tok)
-                    if lbl:
-                        grp.solo_wells.append(lbl)
+                for raw_tok in item.get("solo_wells", []):
+                    n = _valid_tok(raw_tok)
+                    if n:
+                        grp.solo_wells.append(n)
                 new_groups.append(grp)
         elif isinstance(data, list):
             # Legacy schema
@@ -930,8 +920,7 @@ class BatchExportPanel(tk.Frame):
                             "group":        grp.name,
                             "member":       rset.name,
                             "member_type":  "replicate_set",
-                            "wells":        ";".join(_extract_well_token(w) or w
-                                                     for w in valid_wells),
+                            "wells":        ";".join(valid_wells),
                             "n_wells":      len(valid_wells),
                             "time_h":       f"{t:.4f}",
                             f"mean_{_ch}":  f"{mean:.6f}" if not math.isnan(mean) else "",
@@ -945,7 +934,6 @@ class BatchExportPanel(tk.Frame):
                         continue
                     _val_col = self._app._active_val_col
                     _ch      = self._app._active_channel
-                    tok = _extract_well_token(w) or w
                     _cell_area_threshold = self._app._get_cell_area_threshold()
                     _fluor_gates = self._app._get_all_fluor_gates()
                     pts = aggregate_with_threshold(
@@ -954,9 +942,9 @@ class BatchExportPanel(tk.Frame):
                     for t, mean, sd, frac, n_above, n_total in pts:
                         rows_out.append({
                             "group":        grp.name,
-                            "member":       tok,
+                            "member":       w,
                             "member_type":  "solo_well",
-                            "wells":        tok,
+                            "wells":        w,
                             "n_wells":      1,
                             "time_h":       f"{t:.4f}",
                             f"mean_{_ch}":  f"{mean:.6f}" if not math.isnan(mean) else "",
@@ -1060,8 +1048,7 @@ class BatchExportPanel(tk.Frame):
         for w in grp.solo_wells:
             if w not in self._app._well_paths:
                 continue
-            tok = _extract_well_token(w) or w
-            members.append(("well", w, [w], tok))
+            members.append(("well", w, [w], w))
 
         _val_col = self._app._active_val_col
         _cell_area_threshold = self._app._get_cell_area_threshold()
@@ -1389,7 +1376,6 @@ class BarBatchExportPanel(BatchExportPanel):
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
                         continue
-                    tok = _extract_well_token(w) or w
                     pts = aggregate_with_threshold(
                         self._app._get_rows(w),
                         threshold,
@@ -1404,7 +1390,7 @@ class BarBatchExportPanel(BatchExportPanel):
                         rows_csv.append(
                             {
                                 "group": grp.name,
-                                "member": tok,
+                                "member": w,
                                 "member_type": "solo_well",
                                 "n_wells": 1,
                                 "timepoint_h": tp_str,
@@ -1479,8 +1465,7 @@ class BarBatchExportPanel(BatchExportPanel):
         for w in grp.solo_wells:
             if w not in self._app._well_paths:
                 continue
-            members.append((_extract_well_token(w) or w,
-                            self._app._get_rows(w)))
+            members.append((w, self._app._get_rows(w)))
 
         if not members:
             return fig

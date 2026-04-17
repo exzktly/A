@@ -61,8 +61,10 @@ def load_directory(app, d: Path, label=None) -> None:
     n = len(csvs)
     app._show_progress(n, f"Loading {n} CSV file(s)…")
     for i, p in enumerate(csvs, 1):
-        app._well_paths[p.stem] = p
-        app._cache[p.stem] = app._load_well_csv(p)
+        tok = app._extract_well_token(p.stem)
+        key = tok if tok else p.stem
+        app._well_paths[key] = p
+        app._cache[key] = app._load_well_csv(p)
         app._step_progress(i, f"Loading {i}/{n}: {p.name}")
     app._hide_progress()
     app._rebuild_all_timepoints_cache()
@@ -103,11 +105,7 @@ def _looks_like_well_measurement_csv(path: Path) -> bool:
 
 
 def build_tok_to_label(app) -> None:
-    app._tok_to_label = {}
-    for label in app._well_paths:
-        tok = app._extract_well_token(label)
-        if tok:
-            app._tok_to_label[tok] = label
+    app._tok_to_label = {tok: p.stem for tok, p in app._well_paths.items()}
     if hasattr(app, "_sidebar_btns"):
         for btn in app._sidebar_btns.values():
             btn.bind("<ButtonPress-1>", app._sb_press)

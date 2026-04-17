@@ -70,13 +70,12 @@ def build_stats_group_editor(
 
     def _press(event):
         tok = _tok_at(event)
-        if tok is None or tok not in app._tok_to_label:
+        if tok is None or tok not in app._well_paths:
             return
         grp = app._stats_active_group()
         if grp is None:
             return
-        label = app._tok_to_label[tok]
-        app._stats_drag_adding = label not in grp.wells
+        app._stats_drag_adding = tok not in grp.wells
         app._stats_drag_visited = set()
         app._stats_apply_drag(tok)
 

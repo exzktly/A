@@ -90,16 +90,16 @@ def on_review_csv_row_double_click(app, event) -> None:
     row = {c: values[i] for i, c in enumerate(cols)}
     fov, tp, nid = app._review_row_keys(row)
     well_tok = str(row.get("well", "")).strip()
-    label = app._tok_to_label.get(well_tok, None)
-    if label is None and app._selected_wells:
-        label = sorted(app._selected_wells, key=app._parse_rc)[0]
-    if label is None:
+    key = well_tok if well_tok in app._well_paths else None
+    if key is None and app._selected_wells:
+        key = sorted(app._selected_wells, key=app._parse_rc)[0]
+    if key is None:
         return
 
     if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
         app._notebook.select_by_text("Review Image")
-    app._preview_selected_well = label
-    app._update_preview(label)
+    app._preview_selected_well = key
+    app._update_preview(key)
     if fov:
         app._preview_fov_var.set(fov)
     if tp and hasattr(app, "_review_image_tp_var"):

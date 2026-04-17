@@ -90,7 +90,7 @@ def export_bar_plot_data(app) -> None:
         for label, mean, spread, frac, has in items:
             rows_out.append(
                 {
-                    "well": rt._extract_well_token(label) or label,
+                    "well": label,
                     "timepoint_h": tp_str,
                     f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not rt.math.isnan(mean) else "",
                     f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
