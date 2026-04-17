@@ -14,6 +14,16 @@ def find_pipeline_script() -> Path | None:
     return PIPELINE_SCRIPT if PIPELINE_SCRIPT.exists() else None
 
 
+def _to_jsonable(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_jsonable(v) for v in value]
+    return value
+
+
 def write_pipeline_info(
     output_dir: Path,
     *,
@@ -44,7 +54,7 @@ def write_pipeline_info(
         "segmentation_method": segmentation_method,
         "cytoplasm_token": cytoplasm_token,
         "min_nucleus_area_px": int(min_nucleus_area_px),
-        "execution_options": dict(execution_options or {}),
+        "execution_options": _to_jsonable(dict(execution_options or {})),
     }
     p = output_dir / "pipeline_info.json"
     p.write_text(json.dumps(info, indent=2))
