@@ -94,11 +94,12 @@ def on_montage_fluor_motion(app, e) -> None:
 
 
 def montage_zoom_step(app, direction: int) -> None:
-    cur = getattr(app, "_montage_zoom", 1.0)
-    steps = app._ZOOM_STEPS
-    idx = min(range(len(steps)), key=lambda i: abs(steps[i] - cur))
-    idx = max(0, min(len(steps) - 1, idx + direction))
-    app._montage_zoom = steps[idx]
+    cur = float(getattr(app, "_montage_zoom", 1.0) or 1.0)
+    factor = 1.15
+    if direction > 0:
+        app._montage_zoom = cur * factor
+    elif direction < 0:
+        app._montage_zoom = max(0.05, cur / factor)
     app._montage_redraw_at_zoom()
 
 
@@ -108,7 +109,21 @@ def montage_zoom_fit(app) -> None:
 
 
 def on_montage_wheel(app, event) -> None:
-    app._montage_zoom_step(+1 if event.delta > 0 else -1)
+    direction = +1 if getattr(event, "delta", 0) > 0 else -1
+    if getattr(event, "num", None) == 4:
+        direction = +1
+    elif getattr(event, "num", None) == 5:
+        direction = -1
+    app._montage_zoom_step(direction)
+
+
+def on_montage_shift_wheel(app, event) -> None:
+    direction = -1 if getattr(event, "delta", 0) > 0 else 1
+    if getattr(event, "num", None) == 6:
+        direction = -1
+    elif getattr(event, "num", None) == 7:
+        direction = 1
+    app._montage_canvas.xview_scroll(direction * 3, "units")
 
 
 def montage_redraw_at_zoom(app) -> None:

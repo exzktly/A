@@ -172,10 +172,18 @@ def build_right_panel(self, parent: tk.Frame) -> None:
         # Mouse-wheel zoom on the canvas
         self._montage_canvas.bind("<MouseWheel>",
                                    self._on_montage_wheel)          # Windows / macOS
+        self._montage_canvas.bind("<Shift-MouseWheel>",
+                                  self._on_montage_shift_wheel)     # Horizontal scroll
         self._montage_canvas.bind("<Button-4>",
                                    lambda e: self._montage_zoom_step(+1))  # Linux scroll up
         self._montage_canvas.bind("<Button-5>",
                                    lambda e: self._montage_zoom_step(-1))  # Linux scroll down
+        for seq in ("<Button-6>", "<Button-7>"):
+            try:
+                self._montage_canvas.bind(seq, self._on_montage_shift_wheel)  # Linux horizontal wheel
+            except tk.TclError:
+                # Not all Tk builds define extra mouse buttons; ignore gracefully.
+                pass
     
     # ── Inline preview montage ────────────────────────────────────────────────
 

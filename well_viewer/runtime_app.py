@@ -115,6 +115,7 @@ from well_viewer.montage_controller import montage_zoom_fit as _montage_zoom_fit
 from well_viewer.montage_controller import montage_zoom_step as _montage_zoom_step_controller
 from well_viewer.montage_controller import on_montage_canvas_resize as _on_montage_canvas_resize_controller
 from well_viewer.montage_controller import on_montage_fluor_motion as _on_montage_fluor_motion_controller
+from well_viewer.montage_controller import on_montage_shift_wheel as _on_montage_shift_wheel_controller
 from well_viewer.montage_controller import on_montage_wheel as _on_montage_wheel_controller
 from well_viewer.review_image_controller import on_review_csv_row_double_click as _on_review_csv_row_double_click_controller
 from well_viewer.review_image_controller import on_review_image_click as _on_review_image_click_controller
@@ -3389,6 +3390,13 @@ class WellViewerApp(tk.Frame):
 
     def _draw_montage_thumbs(self, tp_list: list) -> None:
         """Render fluorescence + overlay thumbnail pairs, one column per timepoint."""
+        def _bind_if_supported(widget, sequence: str, callback) -> None:
+            try:
+                widget.bind(sequence, callback)
+            except tk.TclError:
+                # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
+                pass
+
         for w in self._montage_inner.winfo_children():
             w.destroy()
         self._montage_photos.clear()
@@ -3461,6 +3469,12 @@ class WellViewerApp(tk.Frame):
                 lbl_fluor.pack()
                 lbl_fluor.bind("<Motion>", self._on_montage_fluor_motion)
                 lbl_fluor.bind("<Leave>",  lambda _e: self._montage_tooltip.hide())
+                lbl_fluor.bind("<MouseWheel>", self._on_montage_wheel)
+                lbl_fluor.bind("<Shift-MouseWheel>", self._on_montage_shift_wheel)
+                lbl_fluor.bind("<Button-4>", lambda _e: self._montage_zoom_step(+1))
+                lbl_fluor.bind("<Button-5>", lambda _e: self._montage_zoom_step(-1))
+                _bind_if_supported(lbl_fluor, "<Button-6>", self._on_montage_shift_wheel)
+                _bind_if_supported(lbl_fluor, "<Button-7>", self._on_montage_shift_wheel)
             else:
                 tk.Label(fluor_cell, text=f"{self._active_channel.upper()}\nunavail", font=FM_TINY,
                          fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
@@ -3497,7 +3511,14 @@ class WellViewerApp(tk.Frame):
             photo_ov = make_overlay_thumb(ov_arr, sz_w, sz_h)
             if photo_ov:
                 self._montage_photos.append(photo_ov)
-                tk.Label(ov_cell, image=photo_ov, bg=BG_APP, bd=0).pack()
+                lbl_ov = tk.Label(ov_cell, image=photo_ov, bg=BG_APP, bd=0)
+                lbl_ov.pack()
+                lbl_ov.bind("<MouseWheel>", self._on_montage_wheel)
+                lbl_ov.bind("<Shift-MouseWheel>", self._on_montage_shift_wheel)
+                lbl_ov.bind("<Button-4>", lambda _e: self._montage_zoom_step(+1))
+                lbl_ov.bind("<Button-5>", lambda _e: self._montage_zoom_step(-1))
+                _bind_if_supported(lbl_ov, "<Button-6>", self._on_montage_shift_wheel)
+                _bind_if_supported(lbl_ov, "<Button-7>", self._on_montage_shift_wheel)
             else:
                 tk.Label(ov_cell, text="overlay\nunavail", font=FM_TINY,
                          fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
@@ -3533,10 +3554,6 @@ class WellViewerApp(tk.Frame):
 
     # ── Montage zoom helpers ──────────────────────────────────────────────────
 
-    # Zoom levels: 25 % … 400 % in fixed steps
-    _ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0,
-                   1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0]
-
     def _montage_zoom_step(self, direction: int) -> None:
         _montage_zoom_step_controller(self, direction)
 
@@ -3545,6 +3562,9 @@ class WellViewerApp(tk.Frame):
 
     def _on_montage_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         _on_montage_wheel_controller(self, event)
+
+    def _on_montage_shift_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        _on_montage_shift_wheel_controller(self, event)
 
     def _montage_redraw_at_zoom(self) -> None:
         _montage_redraw_at_zoom_controller(self)
@@ -4209,7 +4229,7 @@ class WellViewerApp(tk.Frame):
             return ""
         return (
             _norm(_pick("fov", "FOV")),
-            _norm(_pick("timepoint", "tp", "time")),
+            _norm(_pick("timepoint", "tp", "time", "time_h", "timepoint_hours")),
             _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
 
