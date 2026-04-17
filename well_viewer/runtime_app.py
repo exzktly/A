@@ -71,6 +71,7 @@ from well_viewer.preview_controller import classify_member as _preview_classify_
 from well_viewer.preview_controller import open_imgref_as_array as _preview_open_imgref_as_array
 from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
 from well_viewer.preview_controller import scan_zip_members as _preview_scan_zip_members
+from well_viewer.image_resolver import resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
 from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
 from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
@@ -572,28 +573,28 @@ def detect_nuclear_channel_token(rows: List[dict]) -> str:
 
 
 def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
-    """
-    Return channel prefixes suitable for Review Image.
+    """Return channel prefixes suitable for Review Image.
 
-    Includes standard fluorescence channels, the explicit segmentation channel
-    token (from the CSV 'channel' column), plus nuclear-like intensity channels
-    (e.g. dapi/nuclear/nuc/nir/hoechst) even if they are not in the primary
-    fluor metrics set.
+    Harmonized policy:
+      - use the measured fluorescence channels
+      - include the explicit segmentation channel token from CSV `channel`
+    This avoids adding synthetic channel labels from metric columns that do not
+    necessarily map to real image filenames in the dataset.
     """
-    chans = set(fluor_channels)
-    if seg_channel_token:
-        chans.add(seg_channel_token)
+    chans: list[str] = []
+    seen: set[str] = set()
+    for ch in fluor_channels:
+        tok = str(ch or "").strip().lower()
+        if tok and tok not in seen:
+            seen.add(tok)
+            chans.append(tok)
+    seg_tok = str(seg_channel_token or "").strip().lower()
+    if seg_tok and seg_tok not in seen:
+        seen.add(seg_tok)
+        chans.append(seg_tok)
     if not rows:
-        return sorted(chans)
-    nuclear_tokens = ("nuclear", "nuc", "dapi", "hoechst", "nir")
-    for col in rows[0].keys():
-        lower = str(col).lower()
-        if not lower.endswith("_intensity") and not lower.endswith("_mean_intensity"):
-            continue
-        prefix = lower.split("_", 1)[0]
-        if any(tok in prefix for tok in nuclear_tokens):
-            chans.add(prefix)
-    return sorted(chans)
+        return chans
+    return chans
 
 
 # (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
@@ -4300,22 +4301,6 @@ class WellViewerApp(tk.Frame):
             except Exception:
                 return s
 
-        def _lookup_imgref(
-            refs: Dict[Tuple[str, str], object],
-            fov_raw: str,
-            tp_raw: str,
-            fov_norm: str,
-            tp_norm: str,
-        ) -> Optional[object]:
-            """Resolve image refs by exact key first, then normalized key match."""
-            ref = refs.get((fov_raw, tp_raw))
-            if ref is not None:
-                return ref
-            for (k_fov, k_tp), k_ref in refs.items():
-                if _norm(k_fov) == fov_norm and self._norm_timepoint(k_tp) == tp_norm:
-                    return k_ref
-            return None
-
         fov_raw = str(self._preview_fov_var.get() or "").strip()
         fov = _norm(fov_raw)
         if not fov_raw or fov_raw == "—" or not fov:
@@ -4387,10 +4372,25 @@ class WellViewerApp(tk.Frame):
             self._review_image_status.config(text="No timepoint selected.")
             return
 
-        fluor_ref = _lookup_imgref(self._preview_fluor, fov_raw, tp_raw, fov, tp)
+        fluor_ref = _resolve_ref_by_fov_tp(
+            self._preview_fluor,
+            fov_raw=fov_raw,
+            tp_raw=tp_raw,
+            norm_timepoint=self._norm_timepoint,
+        )
         if fluor_ref is None:
-            fluor_ref = _lookup_imgref(getattr(self, "_preview_tophat_fluor", {}), fov_raw, tp_raw, fov, tp)
-        mask_ref = _lookup_imgref(self._preview_mask, fov_raw, tp_raw, fov, tp)
+            fluor_ref = _resolve_ref_by_fov_tp(
+                getattr(self, "_preview_tophat_fluor", {}),
+                fov_raw=fov_raw,
+                tp_raw=tp_raw,
+                norm_timepoint=self._norm_timepoint,
+            )
+        mask_ref = _resolve_ref_by_fov_tp(
+            self._preview_mask,
+            fov_raw=fov_raw,
+            tp_raw=tp_raw,
+            norm_timepoint=self._norm_timepoint,
+        )
         if fluor_ref is None or mask_ref is None:
             self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
             return
@@ -4763,11 +4763,13 @@ class WellViewerApp(tk.Frame):
         self._sidebar_stats_frame.pack_forget()
 
         if tab == "Movie Montage":
+            self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
         elif tab == "Review Image":
+            self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
@@ -4838,6 +4840,32 @@ class WellViewerApp(tk.Frame):
 
         self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
         self._last_tab_name = tab
+
+    def _sync_preview_well_for_image_tabs(self) -> None:
+        """Keep current preview well unless an active group supplies one."""
+        # Preserve explicit user choice when still valid.
+        current = getattr(self, "_preview_selected_well", None)
+        if current in self._well_paths:
+            # If active group has wells, prefer first group well for image tabs.
+            if 0 <= self._bar_active_grp < len(self._bar_groups):
+                grp = self._bar_groups[self._bar_active_grp]
+                for tok in grp.wells:
+                    if tok in self._well_paths:
+                        self._preview_selected_well = tok
+                        return
+            return
+
+        # If no valid current well, use first well from active group.
+        if 0 <= self._bar_active_grp < len(self._bar_groups):
+            grp = self._bar_groups[self._bar_active_grp]
+            for tok in grp.wells:
+                if tok in self._well_paths:
+                    self._preview_selected_well = tok
+                    return
+
+        # Final fallback: keep previous behavior of choosing first available well.
+        if self._well_paths:
+            self._preview_selected_well = sorted(self._well_paths.keys(), key=self._parse_rc)[0]
 
     def _run_tab_switch_smoke_checks(
         self,

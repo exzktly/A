@@ -108,8 +108,6 @@ def build_pipeline_args(
     for flag in (
         "no_tophat_nir",
         "no_tophat_fluor",
-        "no_save_masks",
-        "no_save_overlays",
         "compress_input_well_folders",
         "compress_output_well_folders",
         "force",

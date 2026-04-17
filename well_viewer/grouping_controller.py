@@ -67,20 +67,18 @@ def grp_select(app, idx: int) -> None:
 
 
 def grp_add(app) -> None:
-    name = app._ask_name_dialog(default=f"Group {len(app._bar_groups)+1}")
-    if name:
-        app._bar_groups.append(BarGroup(name))
-        app._bar_active_grp = len(app._bar_groups) - 1
-        app._rebuild_all()
+    name = f"Group {len(app._bar_groups) + 1}"
+    app._bar_groups.append(BarGroup(name))
+    app._bar_active_grp = len(app._bar_groups) - 1
+    app._rebuild_all()
 
 
 def grp_rename(app, idx: int) -> None:
     if not (0 <= idx < len(app._bar_groups)):
         return
-    name = app._ask_name_dialog(default=app._bar_groups[idx].name)
-    if name:
-        app._bar_groups[idx].name = name
-        app._rebuild_all()
+    # Group names are now edited inline in the Sample Definitions panel.
+    app._bar_active_grp = idx
+    app._groups_centre_refresh()
 
 
 def grp_delete(app, idx: int) -> None:

@@ -33,8 +33,6 @@ python process_microscopy.py \\
     --tophat_radius_gfp 100 \\
     --no_tophat_nir \\
     --no_tophat_gfp \\
-    --no_save_masks \\
-    --no_save_overlays \\
     --workers 4 \\
     --csv_prefix gfp_measurements
 
@@ -673,8 +671,6 @@ def process_image_group(
     tophat_radius_nir: int,
     tophat_fluor: "list[bool]",
     tophat_radius_fluor: "list[int]",
-    save_masks: bool,
-    save_overlays: bool,
     save_tophat_images: bool,
     schema: "list[str] | None" = None,
     sep: str = DEFAULT_SEP,
@@ -774,8 +770,10 @@ def process_image_group(
                  time.perf_counter() - _t, len(np.unique(labels)) - 1)
 
     # Save QC images.
+    # Keep schema tokens in output stems so output names stay harmonized with
+    # input naming conventions and schema-driven resolvers.
     stem      = nuclear_path.stem
-    base_name = stem.replace(nuclear_token, "")
+    base_name = stem
 
     _t = time.perf_counter()
     if save_tophat_images:
@@ -802,10 +800,8 @@ def process_image_group(
                 cytoplasm_binary_mask.astype(np.uint8),
             )
         log.info("  tophat tifs written")
-    if save_masks:
-        imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
-    if save_overlays:
-        save_overlay(nir_raw, labels, output_dir / f"{base_name}_overlay.png")
+    imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
+    save_overlay(nir_raw, labels, output_dir / f"{base_name}_overlay.png")
     log.info("  save:        %.1f s", time.perf_counter() - _t)
 
     # Quantify each nucleus across all fluorescent channels.
@@ -1923,10 +1919,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Fluorescent channel tokens containing smFISH data. "
                         "A LoG spot-enhancement kernel is applied after tophat.")
 
-    p.add_argument("--no_save_masks",    action="store_true",
-                   help="Do not save label-mask TIFFs")
-    p.add_argument("--no_save_overlays", action="store_true",
-                   help="Do not save red-outline overlay PNGs")
     p.add_argument("--no_save_tophat",   action="store_true",
                    help="Do not save top-hat/smFISH intermediate TIFFs")
     p.add_argument(
@@ -2130,8 +2122,6 @@ def main() -> None:
         tophat_radius_nir=args.tophat_radius_nir,
         tophat_fluor=tophat_fluor,
         tophat_radius_fluor=tophat_radius_fluor,
-        save_masks=not args.no_save_masks,
-        save_overlays=not args.no_save_overlays,
         save_tophat_images=not args.no_save_tophat,
         schema=schema,
         sep=sep,

@@ -105,7 +105,10 @@ class AllWellApp(tk.Tk):
         analyze_frame = tk.Frame(self._nb, bg=BG_APP)
         self._nb.add(analyze_frame, text="  Analyze  ")
 
-        self._analyze = AnalyzeTab(analyze_frame)
+        self._analyze = AnalyzeTab(
+            analyze_frame,
+            on_pipeline_complete=self._on_analyze_pipeline_complete,
+        )
         self._analyze.pack(fill=tk.BOTH, expand=True)
 
         self._nb.select(0)
@@ -189,6 +192,16 @@ class AllWellApp(tk.Tk):
             return
         if tab_text == "Review":
             self.after(50, self._nudge_review)
+
+    def _on_analyze_pipeline_complete(self, output_dir: Path) -> None:
+        """Switch to Review tab and load the dataset that was just analyzed."""
+        if self._review is None:
+            return
+        dataset_path = output_dir
+        if output_dir.name.lower() == "out" and (output_dir.parent / "in").is_dir():
+            dataset_path = output_dir.parent
+        self._nb.select(0)
+        self.after(50, lambda: self._review._load_path(dataset_path))
 
     def _nudge_review(self) -> None:
         if self._review is None:

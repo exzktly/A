@@ -30,7 +30,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Optional
+from typing import Callable, Optional
 
 from services.input_resolution_service import resolve_input_output, tif_files_in
 from services.pipeline_service import (
@@ -154,13 +154,21 @@ class AnalyzeTab(tk.Frame):
     Right: live subprocess log.
     """
 
-    def __init__(self, parent: tk.Widget, **kw):
+    def __init__(
+        self,
+        parent: tk.Widget,
+        *,
+        on_pipeline_complete: Callable[[Path], None] | None = None,
+        **kw,
+    ):
         super().__init__(parent, bg=BG_APP, **kw)
         self._proc:    Optional[subprocess.Popen] = None   # type: ignore[type-arg]
         self._log_q:   queue.Queue[str] = queue.Queue()
         self._running  = False
         self._well_total: int = 0   # total wells expected this run
         self._well_done:  int = 0   # wells completed so far
+        self._on_pipeline_complete = on_pipeline_complete
+        self._last_output_dir: Path | None = None
 
         self._build_ui()
         self._poll_log()   # start the Tk-safe log polling loop
@@ -544,14 +552,10 @@ class AnalyzeTab(tk.Frame):
 
     def _build_output_options_section(self, parent: tk.Frame) -> None:
         sec = self._section(parent, "Output Options")
-        self._no_save_masks = tk.BooleanVar(value=False)
-        self._no_save_overlays = tk.BooleanVar(value=False)
         self._compress_input_well_folders = tk.BooleanVar(value=True)
         self._compress_output_well_folders = tk.BooleanVar(value=True)
         self._csv_prefix = tk.StringVar(value="gfp_measurements")
         for txt, var in (
-            ("Skip saving masks", self._no_save_masks),
-            ("Skip saving overlays", self._no_save_overlays),
             ("Compress input well folders to .zip", self._compress_input_well_folders),
             ("Compress output well folders to .zip", self._compress_output_well_folders),
         ):
@@ -1080,8 +1084,6 @@ class AnalyzeTab(tk.Frame):
             tophat_radius_fluor=self._tophat_radius_fluor.get(),
             no_tophat_nir=self._no_tophat_nir.get(),
             no_tophat_fluor=self._no_tophat_fluor.get(),
-            no_save_masks=self._no_save_masks.get(),
-            no_save_overlays=self._no_save_overlays.get(),
             compress_input_well_folders=self._compress_input_well_folders.get(),
             compress_output_well_folders=self._compress_output_well_folders.get(),
             force=self._force.get(),
@@ -1187,6 +1189,7 @@ class AnalyzeTab(tk.Frame):
             except OSError as exc:
                 self._log_q.put(("error", f"Cannot create output dir: {exc}\n"))
                 return
+            self._last_output_dir = output_dir
             self._write_pipeline_sidecar(output_dir, opts)
             args = build_pipeline_args(pipeline, input_dir, output_dir, opts)
             self._log_pipeline_command(args, input_dir, output_dir, opts)
@@ -1324,6 +1327,11 @@ class AnalyzeTab(tk.Frame):
                                    "  Processing Complete\n"
                                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
                                    "DONE")
+                    if self._on_pipeline_complete is not None and self._last_output_dir is not None:
+                        try:
+                            self._on_pipeline_complete(self._last_output_dir)
+                        except Exception as exc:
+                            self._log_line(f"[warn] Could not open Review tab automatically: {exc}\n", "WARNING")
                 elif kind == "error":
                     self._log_line(payload, "ERROR")
                 elif kind == "finished":

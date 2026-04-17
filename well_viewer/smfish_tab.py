@@ -20,6 +20,7 @@ from skimage.segmentation import find_boundaries
 from tifffile import imread
 
 from ui.theme import ACCENT, BG_APP, BG_PANEL, BG_SIDE, FM_BOLD, FM_TINY, TXT_MUT, TXT_PRI, get_color
+from well_viewer.image_resolver import resolve_ref_by_fov_tp
 from well_viewer.preview_controller import classify_member, read_member_bytes, scan_zip_members
 from well_viewer.viewer_state import make_schema_extractor
 
@@ -369,9 +370,20 @@ class SmfishTab(tk.Frame):
 
     def _load_selected_images(self) -> None:
         smfish, mask = self._scan_selected_zip()
-        key = (self._fov_var.get().strip(), self._tp_var.get().strip())
-        sm_ref = smfish.get(key)
-        mk_ref = mask.get(key)
+        fov_raw = self._fov_var.get().strip()
+        tp_raw = self._tp_var.get().strip()
+        sm_ref = resolve_ref_by_fov_tp(
+            smfish,
+            fov_raw=fov_raw,
+            tp_raw=tp_raw,
+            norm_timepoint=lambda value: str(value or "").strip(),
+        )
+        mk_ref = resolve_ref_by_fov_tp(
+            mask,
+            fov_raw=fov_raw,
+            tp_raw=tp_raw,
+            norm_timepoint=lambda value: str(value or "").strip(),
+        )
         if sm_ref is None or mk_ref is None:
             self._status_var.set("No smFISH/mask pair found for current selection.")
             return
@@ -385,7 +397,7 @@ class SmfishTab(tk.Frame):
         vals = self._current_log_img[self._current_labels > 0]
         self._current_sorted_vals = np.sort(vals) if vals.size else np.array([], dtype=np.float32)
         well = self._selected_well_token() or "N/A"
-        self._status_var.set(f"Loaded {well} fov={key[0]} tp={key[1]}.")
+        self._status_var.set(f"Loaded {well} fov={fov_raw} tp={tp_raw}.")
         self._fit_on_next_redraw = True
         self._redraw()
 
