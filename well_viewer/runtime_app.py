@@ -952,10 +952,29 @@ def _legacy_extractor(stem: str) -> Tuple[str, str]:
     return "unknown", "unknown"
 
 
+def _extract_pipeline_fields(stem: str, pipeline_info: Optional[dict]) -> Dict[str, str]:
+    """Parse *stem* into schema fields from pipeline_info.json when available."""
+    if not pipeline_info:
+        return {}
+    sep = str(pipeline_info.get("separator", "_"))
+    schema_fields = [
+        str(f).strip() for f in (pipeline_info.get("schema_fields", []) or [])
+        if str(f).strip()
+    ]
+    if not schema_fields:
+        schema = str(pipeline_info.get("schema", "")).strip()
+        schema_fields = [f.strip() for f in schema.split(":") if f.strip()]
+    if not schema_fields:
+        return {}
+    parts = stem.split(sep)
+    return {field: (parts[i] if i < len(parts) else "") for i, field in enumerate(schema_fields)}
+
+
 def _classify_member(
     name: str,
     fluor_lower: str,
     _fov_tp_extractor=None,
+    _pipeline_info: Optional[dict] = None,
 ) -> Tuple[str, str, str]:
     """Return (kind, fov, tp) where kind is 'fluor', 'tophat_fluor', 'mask', 'overlay', or ''.
 
@@ -972,6 +991,7 @@ def _classify_member(
         tophat_fluor_re=_TOPHAT_FLUOR_RE,
         fov_tp_extractor=_fov_tp_extractor,
         legacy_extractor=_legacy_extractor,
+        pipeline_fields_extractor=lambda stem: _extract_pipeline_fields(stem, _pipeline_info),
     )
 
 
@@ -980,6 +1000,7 @@ def _scan_zip_members(
     fluor_lower: str,
     member_prefix: str = "",
     _fov_tp_extractor=None,
+    _pipeline_info: Optional[dict] = None,
 ) -> Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
            Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
            Dict[Tuple[str,str], _ImgRef]]:
@@ -993,6 +1014,7 @@ def _scan_zip_members(
         logger=_logger,
         member_prefix=member_prefix,
         fov_tp_extractor=_fov_tp_extractor,
+        pipeline_info=_pipeline_info,
     )
 
 
@@ -1046,6 +1068,7 @@ def _scan_folder_members(
     folder_path: Path,
     fluor_lower: str,
     _fov_tp_extractor=None,
+    _pipeline_info: Optional[dict] = None,
 ) -> "Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef]]":
     """Scan a plain disk folder for fluor/overlay/mask/tophat/smfish images."""
     fluor:        "Dict[Tuple[str,str], _ImgRef]" = {}
@@ -1060,7 +1083,12 @@ def _scan_folder_members(
                 continue
             if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
                 continue
-            kind, fov, tp = _classify_member(p.name, fluor_lower, _fov_tp_extractor)
+            kind, fov, tp = _classify_member(
+                p.name,
+                fluor_lower,
+                _fov_tp_extractor,
+                _pipeline_info=_pipeline_info,
+            )
             if not kind:
                 continue
             key = (fov, tp)
@@ -1086,6 +1114,7 @@ def find_well_images_and_masks(
     fluor_token: str = "GFP",
     in_dir: Optional[Path] = None,
     _fov_tp_extractor=None,
+    _pipeline_info: Optional[dict] = None,
 ) -> Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
            Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef]]:
     """
@@ -1135,7 +1164,8 @@ def find_well_images_and_masks(
         in_zips = _find_plain_well_zips_in_dir(in_dir, well_token)
         for wzip in in_zips:
             g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
-                                                   _fov_tp_extractor=_fov_tp_extractor)
+                                                   _fov_tp_extractor=_fov_tp_extractor,
+                                                   _pipeline_info=_pipeline_info)
             for k, v in g.items():
                 fluor.setdefault(k, v)
             # Fluor zips may also contain overlays/masks in some workflows
@@ -1151,7 +1181,8 @@ def find_well_images_and_masks(
         out_zips = _find_out_well_zips_in_dir(data_dir, well_token)
         for wzip in out_zips:
             g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
-                                                   _fov_tp_extractor=_fov_tp_extractor)
+                                                   _fov_tp_extractor=_fov_tp_extractor,
+                                                   _pipeline_info=_pipeline_info)
             for k, v in g.items():
                 fluor.setdefault(k, v)
             for k, v in ov.items():
@@ -1168,7 +1199,7 @@ def find_well_images_and_masks(
         in_folder = _find_well_subfolder(in_dir, well_token)
         if in_folder:
             g, ov, mk, th, _sm = _scan_folder_members(
-                in_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor
+                in_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
             )
             for k, v in g.items():
                 fluor.setdefault(k, v)
@@ -1183,7 +1214,7 @@ def find_well_images_and_masks(
         out_folder = _find_well_subfolder(data_dir, well_token)
         if out_folder:
             g, ov, mk, th, _sm = _scan_folder_members(
-                out_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor
+                out_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
             )
             for k, v in g.items():
                 fluor.setdefault(k, v)
@@ -1198,7 +1229,8 @@ def find_well_images_and_masks(
     if in_dir is None and data_dir and data_dir.is_dir() and well_token:
         for wzip in _find_well_zips_in_dir(data_dir, well_token):
             g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
-                                                   _fov_tp_extractor=_fov_tp_extractor)
+                                                   _fov_tp_extractor=_fov_tp_extractor,
+                                                   _pipeline_info=_pipeline_info)
             for k, v in g.items():
                 fluor.setdefault(k, v)
             for k, v in ov.items():
@@ -1213,7 +1245,7 @@ def find_well_images_and_masks(
         flat_folder = _find_well_subfolder(data_dir, well_token)
         if flat_folder:
             g, ov, mk, th, _sm = _scan_folder_members(
-                flat_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor
+                flat_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
             )
             for k, v in g.items():
                 fluor.setdefault(k, v)
@@ -1233,7 +1265,12 @@ def find_well_images_and_masks(
             for p in sorted(search_root.rglob("*")):
                 if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
                     continue
-                kind, fov, tp = _classify_member(p.name, fluor_lower, _fov_tp_extractor)
+                kind, fov, tp = _classify_member(
+                    p.name,
+                    fluor_lower,
+                    _fov_tp_extractor,
+                    _pipeline_info=_pipeline_info,
+                )
                 if not kind:
                     continue
                 if well_token:
@@ -1241,16 +1278,20 @@ def find_well_images_and_masks(
                     # no dedicated well-field extractor here, so we use a safe
                     # substring match.  With the legacy path we keep the old
                     # regex-based well comparison for backward compatibility.
-                    if _fov_tp_extractor is not None:
-                        if well_token.lower() not in p.name.lower():
+                    parsed = _extract_pipeline_fields(p.stem, _pipeline_info)
+                    parsed_well = _norm_well(str(parsed.get("well", ""))) if parsed else None
+                    if parsed_well:
+                        if parsed_well != well_token:
                             continue
-                    else:
+                    elif _fov_tp_extractor is None:
                         m = _FNAME_RE.match(p.stem)
                         fw = _norm_well(m.group("well")) if m else None
                         if fw and fw != well_token:
                             continue
                         if not fw and well_token.lower() not in p.name.lower():
                             continue
+                    elif well_token.lower() not in p.name.lower():
+                        continue
                 ref = _ImgRef(disk_path=p)
                 if kind == "fluor":
                     fluor.setdefault((fov, tp), ref)
@@ -1444,6 +1485,7 @@ class WellViewerApp(tk.Frame):
 
         # Preview state
         self._fov_tp_extractor = None          # set by _load_path from pipeline_info.json
+        self._pipeline_info: Dict[str, object] = {}
         self._preview_selected_well: Optional[str] = None  # preview tab single selection
         self._preview_fov_var = tk.StringVar(value="—")     # selected FOV for montage
         self._montage_photos: List[object] = []             # keep PhotoImage refs alive
@@ -4166,6 +4208,7 @@ class WellViewerApp(tk.Frame):
                 fluor_token=self._active_channel,
                 in_dir=self._in_dir,
                 _fov_tp_extractor=self._fov_tp_extractor,
+                _pipeline_info=self._pipeline_info,
             )
         except Exception as _exc:
             _logger.exception("Unexpected error searching images for %r: %s", well_label, _exc)

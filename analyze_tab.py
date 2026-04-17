@@ -1143,11 +1143,13 @@ class AnalyzeTab(tk.Frame):
                 output_dir,
                 filename_schema=opts["filename_schema"],
                 filename_sep=opts["filename_sep"],
+                nuclear_token=opts.get("nuclear_token", ""),
                 fluor_tokens=opts.get("fluor_tokens", []),
                 smfish_tokens=opts.get("smfish_tokens", []),
                 segmentation_method=opts.get("segmentation_method", "stardist_nuclei"),
                 cytoplasm_token=opts.get("cytoplasm_token", ""),
                 min_nucleus_area_px=opts.get("min_nucleus_area_px", 50),
+                execution_options=opts,
             )
             self._log_q.put(("line", f"[info] Wrote {info_path}\n"))
         except Exception as exc:

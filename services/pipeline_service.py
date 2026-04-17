@@ -19,11 +19,13 @@ def write_pipeline_info(
     *,
     filename_schema: str,
     filename_sep: str,
+    nuclear_token: str = "",
     fluor_tokens: list[str],
     smfish_tokens: list[str] = [],
     segmentation_method: str = "stardist_nuclei",
     cytoplasm_token: str = "",
     min_nucleus_area_px: int = 50,
+    execution_options: dict | None = None,
 ) -> Path:
     if segmentation_method != "stardist_seeded_watershed_cell":
         cytoplasm_token = ""
@@ -31,6 +33,10 @@ def write_pipeline_info(
     info = {
         "schema": filename_schema,
         "separator": filename_sep,
+        "schema_fields": fields,
+        "nuclear_token": str(nuclear_token or ""),
+        "well_index": fields.index("well") if "well" in fields else -1,
+        "channel_index": fields.index("channel") if "channel" in fields else -1,
         "fov_index": fields.index("fov") if "fov" in fields else -1,
         "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
         "fluor_tokens": fluor_tokens,
@@ -38,6 +44,7 @@ def write_pipeline_info(
         "segmentation_method": segmentation_method,
         "cytoplasm_token": cytoplasm_token,
         "min_nucleus_area_px": int(min_nucleus_area_px),
+        "execution_options": dict(execution_options or {}),
     }
     p = output_dir / "pipeline_info.json"
     p.write_text(json.dumps(info, indent=2))

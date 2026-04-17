@@ -18,6 +18,7 @@ def classify_member(
     tophat_fluor_re,
     fov_tp_extractor,
     legacy_extractor: Callable[[str], Tuple[str, str]],
+    pipeline_fields_extractor: Callable[[str], dict[str, str]] | None = None,
 ) -> Tuple[str, str, str]:
     is_mask = bool(mask_re.search(name))
     is_overlay = bool(overlay_re.search(name))
@@ -36,6 +37,7 @@ def classify_member(
     else:
         stem = Path(name).stem
 
+    parsed_fields = pipeline_fields_extractor(stem) if pipeline_fields_extractor else {}
     extractor = fov_tp_extractor if fov_tp_extractor is not None else legacy_extractor
     fov, tp = extractor(stem)
 
@@ -48,6 +50,11 @@ def classify_member(
     if is_tophat_fluor:
         return "tophat_fluor", fov, tp
 
+    channel_field = str(parsed_fields.get("channel", "")).strip().lower()
+    if channel_field:
+        if channel_field == fluor_lower:
+            return "fluor", fov, tp
+        return "", fov, tp
     if re.search(rf"(?:^|_)({re.escape(fluor_lower)})(?:_|$)", stem, re.I):
         return "fluor", fov, tp
     return "", fov, tp
@@ -87,6 +94,7 @@ def scan_zip_members(
     logger,
     member_prefix: str = "",
     fov_tp_extractor=None,
+    pipeline_info: Optional[dict] = None,
 ) -> Tuple[Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object], Dict[Tuple[str, str], object]]:
     fluor: Dict[Tuple[str, str], object] = {}
     overlay: Dict[Tuple[str, str], object] = {}
@@ -112,7 +120,12 @@ def scan_zip_members(
                 if Path(iname).suffix.lower() not in image_exts:
                     logger.debug("  SKIP non-image: %s", iname)
                     continue
-                kind, fov, tp = classify_member_fn(iname, fluor_lower, fov_tp_extractor)
+                kind, fov, tp = classify_member_fn(
+                    iname,
+                    fluor_lower,
+                    fov_tp_extractor,
+                    pipeline_info,
+                )
                 member_ref = f"{member_prefix}::{info.filename}" if member_prefix else info.filename
                 full = f"{zip_path} >> {member_ref}"
                 logger.debug("  %-5s fov=%-6s tp=%-12s  %s", kind or "NONE", fov, tp, full)
