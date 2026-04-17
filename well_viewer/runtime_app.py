@@ -1440,6 +1440,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_channels: List[str] = []
         self._smfish_channels: set[str] = set()       # channels with smfish_count data
         self._active_channel: str       = "gfp"       # column prefix (overwritten on CSV load)
+        self._active_image_channel: str = "gfp"       # channel token used by image tabs
         self._active_metric: str        = "mean_intensity"  # "mean_intensity" or "smfish_count"
         self._active_val_col: str       = "gfp_mean_intensity"  # overwritten on CSV load
 
@@ -1453,6 +1454,7 @@ class WellViewerApp(tk.Frame):
             "mean": True, "frac": True, "cdf": True,
         }
         self._chan_var      = tk.StringVar(value="GFP")  # selected channel dropdown
+        self._image_chan_var = tk.StringVar(value="GFP")  # selected channel for image tabs
         self._bar_tp_var    = tk.StringVar(value="—")  # selected timepoint for bar plots
         self._bar_swarm     = tk.BooleanVar(value=False)  # beeswarm mode toggle
         self._bar_violin    = tk.BooleanVar(value=False)  # violin mode toggle
@@ -3519,7 +3521,7 @@ class WellViewerApp(tk.Frame):
                 _bind_if_supported(lbl_fluor, "<Button-6>", self._on_montage_shift_wheel)
                 _bind_if_supported(lbl_fluor, "<Button-7>", self._on_montage_shift_wheel)
             else:
-                tk.Label(fluor_cell, text=f"{self._active_channel.upper()}\nunavail", font=FM_TINY,
+                tk.Label(fluor_cell, text=f"{self._active_image_channel.upper()}\nunavail", font=FM_TINY,
                          fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
                          height=sz_h // 16).pack()
 
@@ -3545,7 +3547,7 @@ class WellViewerApp(tk.Frame):
             else:
                 self._montage_th_overlay_lbls.append(None)
 
-            tk.Label(col, text=self._active_channel.upper(), font=FM_TINY, fg=TXT_MUT, bg=BG_APP).pack()
+            tk.Label(col, text=self._active_image_channel.upper(), font=FM_TINY, fg=TXT_MUT, bg=BG_APP).pack()
 
             # ── Overlay thumbnail ────────────────────────────────────────────
             ov_cell = tk.Frame(col, bg=BG_CELL, highlightthickness=1,
@@ -3995,9 +3997,8 @@ class WellViewerApp(tk.Frame):
         detected_smfish = detect_smfish_channels(all_rows_sample)
         if detected:
             self._fluor_channels = detected
-            # Keep the active channel if it is still present; otherwise
-            # default to the first detected channel.
-            if self._active_channel not in detected:
+            # Keep the active metric channel stable; only initialize it if unset.
+            if not self._active_channel or self._active_channel == "—":
                 self._active_channel = detected[0]
         seg_tok = detect_nuclear_channel_token(all_rows_sample)
         self._seg_channel_token = seg_tok
@@ -4061,8 +4062,26 @@ class WellViewerApp(tk.Frame):
         self._redraw()
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
-        # Update channel-sensitive UI labels.
+        # Update channel-sensitive plot labels.
         ch_upper = channel.upper()
+        if hasattr(self, "_cdf_chan_lbl"):
+            self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
+        if hasattr(self, "_bar_ylim_chan_lbl"):
+            self._bar_ylim_chan_lbl.config(text=f"{ch_upper} y:")
+
+    def _on_review_image_channel_selected(self, _e=None) -> None:
+        """Channel-switch handler that preserves Review Image zoom/pan view."""
+        self._set_active_image_channel(self._image_chan_var.get().lower(), preserve_review_view=True)
+
+    def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
+        """Switch the active channel used by Movie Montage / Review Image tabs."""
+        if not channel or channel == "—":
+            return
+        if channel == self._active_image_channel:
+            return
+        self._active_image_channel = channel
+        ch_upper = channel.upper()
+        self._image_chan_var.set(ch_upper)
         if hasattr(self, "_mon_lut_chan_lbl"):
             self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
         if hasattr(self, "_review_lut_chan_lbl"):
@@ -4071,22 +4090,12 @@ class WellViewerApp(tk.Frame):
         if saved_review_lut and hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{saved_review_lut[0]:.0f}")
             self._review_lut_max_var.set(f"{saved_review_lut[1]:.0f}")
-        if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
-        if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.config(text=f"{ch_upper} y:")
-        # Reload preview images for channel-sensitive tabs.
+        if preserve_review_view:
+            self._review_image_preserve_view_on_refresh = True
         if hasattr(self, "_notebook") and self._preview_selected_well:
             tab = self._notebook.tab(self._notebook.select(), "text")
-            if tab == "Review Image":
-                self._review_image_preserve_view_on_refresh = True
             if tab in ("Movie Montage", "Review Image"):
                 self._update_preview(self._preview_selected_well)
-
-    def _on_review_image_channel_selected(self, _e=None) -> None:
-        """Channel-switch handler that preserves Review Image zoom/pan view."""
-        self._review_image_preserve_view_on_refresh = True
-        self._set_active_channel(self._chan_var.get().lower())
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
@@ -4128,12 +4137,23 @@ class WellViewerApp(tk.Frame):
             self._chan_cb_preview.config(values=montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
             self._review_image_chan_cb.config(values=review_labels)
+
+        image_channels = montage_chans or self._fluor_channels
+        if image_channels and self._active_image_channel not in image_channels:
+            self._active_image_channel = image_channels[0]
+        self._image_chan_var.set(self._active_image_channel.upper() if image_channels else "—")
+        if hasattr(self, "_mon_lut_chan_lbl"):
+            self._mon_lut_chan_lbl.config(text=f"{self._active_image_channel.upper()} LUT min:")
+        if hasattr(self, "_review_lut_chan_lbl"):
+            self._review_lut_chan_lbl.config(text=f"{self._active_image_channel.upper()} LUT min:")
+
         active_label = self._active_channel.upper()
         if active_label in labels and active_label != "—":
             self._chan_var.set(active_label)
         elif labels and labels[0] != "—":
+            self._active_channel = labels[0].lower()
+            self._active_val_col = f"{self._active_channel}_{self._active_metric}"
             self._chan_var.set(labels[0])
-            self._set_active_channel(labels[0].lower())
         else:
             self._chan_var.set("—")
 
@@ -4206,7 +4226,7 @@ class WellViewerApp(tk.Frame):
         try:
             fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
                 self._data_dir, well_label,
-                fluor_token=self._active_channel,
+                fluor_token=self._active_image_channel,
                 in_dir=self._in_dir,
                 _fov_tp_extractor=self._fov_tp_extractor,
                 _pipeline_info=self._pipeline_info,
@@ -4428,7 +4448,7 @@ class WellViewerApp(tk.Frame):
         )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
-        chan = str(self._active_channel or "").lower()
+        chan = str(self._active_image_channel or "").lower()
         if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             try:
                 lo = float(self._review_lut_min_var.get().strip())
@@ -4457,7 +4477,7 @@ class WellViewerApp(tk.Frame):
         hi = float(arr_np.max())
         if hi <= lo:
             hi = lo + 1.0
-        self._review_image_lut_by_channel[str(self._active_channel or "").lower()] = (lo, hi)
+        self._review_image_lut_by_channel[str(self._active_image_channel or "").lower()] = (lo, hi)
         if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{lo:.0f}")
             self._review_lut_max_var.set(f"{hi:.0f}")
@@ -4491,11 +4511,11 @@ class WellViewerApp(tk.Frame):
             lo, hi = float(arr.min()), float(arr.max())
             if hi <= lo:
                 hi = lo + 1.0
-            self._review_image_lut_by_channel[str(self._active_channel or "").lower()] = (lo, hi)
+            self._review_image_lut_by_channel[str(self._active_image_channel or "").lower()] = (lo, hi)
         else:
             lo, hi = self._review_image_resolve_lut(arr)
         if hasattr(self, "_review_lut_chan_lbl"):
-            self._review_lut_chan_lbl.config(text=f"{self._active_channel.upper()} LUT min:")
+            self._review_lut_chan_lbl.config(text=f"{self._active_image_channel.upper()} LUT min:")
         if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{lo:.0f}")
             self._review_lut_max_var.set(f"{hi:.0f}")
@@ -4543,7 +4563,7 @@ class WellViewerApp(tk.Frame):
         )
         suffix = f"  ·  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
         self._review_image_status.config(
-            text=f"Showing channel {self._active_channel.upper()} with included cell boundaries.{suffix}"
+            text=f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
         )
 
     def _render_review_image_display(self) -> None:
