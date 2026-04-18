@@ -76,6 +76,7 @@ from well_viewer.image_resolver import (
     normalize_well_token as _normalize_well_token,
     output_suffixes_for_kind as _output_suffixes_for_kind,
     resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp,
+    well_token_matches_text as _well_token_matches_text,
 )
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
 from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
@@ -1329,9 +1330,9 @@ def find_well_images_and_masks(
                         fw = _norm_well(m.group("well")) if m else None
                         if fw and fw != well_token:
                             continue
-                        if not fw and well_token.lower() not in p.name.lower():
+                        if not fw and not _well_token_matches_text(p.name, well_token):
                             continue
-                    elif well_token.lower() not in p.name.lower():
+                    elif not _well_token_matches_text(p.name, well_token):
                         continue
                 ref = _ImgRef(disk_path=p)
                 if kind == "fluor":

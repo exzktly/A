@@ -75,6 +75,7 @@ KIND_ALIASES: dict[str, str] = {
 }
 
 _WELL_TOKEN_RE = re.compile(r"^([A-Ha-h])(\d{1,2})$")
+_WELL_TOKEN_IN_TEXT_RE = re.compile(r"([A-Ha-h]\d{1,2})")
 
 
 @dataclass(frozen=True)
@@ -209,6 +210,27 @@ def find_well_subfolder_path(parent_dir: Path, well_token: object) -> Optional[P
         if entry.is_dir() and normalize_well_token(entry.name) == normalized_target:
             return entry
     return None
+
+
+def well_token_matches_text(text: object, well_token: object) -> bool:
+    """Return True if *text* contains a well token equal to *well_token*."""
+    normalized_target = normalize_well_token(well_token)
+    if not normalized_target:
+        return False
+
+    raw_text = str(text or "").strip()
+    if not raw_text:
+        return False
+
+    matched_tokens = _WELL_TOKEN_IN_TEXT_RE.findall(raw_text)
+    if matched_tokens:
+        return any(normalize_well_token(tok) == normalized_target for tok in matched_tokens)
+
+    row = normalized_target[0]
+    col = str(int(normalized_target[1:]))
+    variants = {normalized_target.lower(), f"{row}{col}".lower()}
+    lowered = raw_text.lower()
+    return any(v in lowered for v in variants)
 
 
 def resolve_ref_by_fov_tp(
