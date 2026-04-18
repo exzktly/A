@@ -24,6 +24,30 @@ def _to_jsonable(value):
     return value
 
 
+def _effective_fluor_tokens_for_sidecar(
+    fluor_tokens: list[str],
+    *,
+    nuclear_token: str = "",
+    segmentation_method: str = "stardist_nuclei",
+    cytoplasm_token: str = "",
+) -> list[str]:
+    """Return effective quantified channel tokens for pipeline_info.json."""
+    ordered = [str(nuclear_token or "").strip(), *[str(tok or "").strip() for tok in fluor_tokens]]
+    if segmentation_method == "stardist_seeded_watershed_cell":
+        ordered.append(str(cytoplasm_token or "").strip())
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in ordered:
+        if not tok:
+            continue
+        key = tok.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tok)
+    return out
+
+
 def write_pipeline_info(
     output_dir: Path,
     *,
@@ -49,7 +73,12 @@ def write_pipeline_info(
         "channel_index": fields.index("channel") if "channel" in fields else -1,
         "fov_index": fields.index("fov") if "fov" in fields else -1,
         "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
-        "fluor_tokens": fluor_tokens,
+        "fluor_tokens": _effective_fluor_tokens_for_sidecar(
+            fluor_tokens,
+            nuclear_token=nuclear_token,
+            segmentation_method=segmentation_method,
+            cytoplasm_token=cytoplasm_token,
+        ),
         "smfish_tokens": smfish_tokens,
         "segmentation_method": segmentation_method,
         "cytoplasm_token": cytoplasm_token,

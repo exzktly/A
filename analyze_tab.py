@@ -396,7 +396,7 @@ class AnalyzeTab(tk.Frame):
         self._entry(nuc_row, self._nuclear_token)
         tk.Label(
             nuc_row,
-            text="segmentation only",
+            text="segmentation + quantified",
             font=FM_TINY,
             fg=TXT_MUT,
             bg=BG_SIDE,
@@ -703,15 +703,17 @@ class AnalyzeTab(tk.Frame):
         method = self._segmentation_method.get().strip() or "stardist_nuclei"
         controls_enabled = method == "stardist_seeded_watershed_cell"
         if hasattr(self, "_cyto_row"):
-            if controls_enabled and not self._cyto_row.winfo_ismapped():
-                self._cyto_row.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
-            elif not controls_enabled and self._cyto_row.winfo_ismapped():
-                self._cyto_row.pack_forget()
+            cyto_row_frame = self._cyto_row.master
+            if controls_enabled and not cyto_row_frame.winfo_ismapped():
+                cyto_row_frame.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
+            elif not controls_enabled and cyto_row_frame.winfo_ismapped():
+                cyto_row_frame.pack_forget()
         if hasattr(self, "_area_row"):
-            if controls_enabled and not self._area_row.winfo_ismapped():
-                self._area_row.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
-            elif not controls_enabled and self._area_row.winfo_ismapped():
-                self._area_row.pack_forget()
+            area_row_frame = self._area_row.master
+            if controls_enabled and not area_row_frame.winfo_ismapped():
+                area_row_frame.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
+            elif not controls_enabled and area_row_frame.winfo_ismapped():
+                area_row_frame.pack_forget()
         if hasattr(self, "_cytoplasm_entry"):
             self._cytoplasm_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
         if hasattr(self, "_min_nucleus_area_entry"):
