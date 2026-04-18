@@ -118,6 +118,7 @@ from well_viewer.montage_controller import on_montage_canvas_resize as _on_monta
 from well_viewer.montage_controller import on_montage_fluor_motion as _on_montage_fluor_motion_controller
 from well_viewer.montage_controller import on_montage_shift_wheel as _on_montage_shift_wheel_controller
 from well_viewer.montage_controller import on_montage_wheel as _on_montage_wheel_controller
+from well_viewer.montage_controller import _show_image_pixel_tooltip as _show_image_pixel_tooltip_controller
 from well_viewer.review_image_controller import on_review_csv_row_double_click as _on_review_csv_row_double_click_controller
 from well_viewer.review_image_controller import on_review_image_click as _on_review_image_click_controller
 from well_viewer.review_image_controller import select_review_csv_row_for_cell as _select_review_csv_row_for_cell_controller
@@ -3550,7 +3551,7 @@ class WellViewerApp(tk.Frame):
                 _bind_if_supported(lbl_fluor, "<Button-6>", self._on_montage_shift_wheel)
                 _bind_if_supported(lbl_fluor, "<Button-7>", self._on_montage_shift_wheel)
             else:
-                tk.Label(fluor_cell, text=f"{self._active_channel.upper()}\nunavail", font=FM_TINY,
+                tk.Label(fluor_cell, text=f"{self._active_image_channel.upper()}\nunavail", font=FM_TINY,
                          fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
                          height=sz_h // 16).pack()
 
@@ -3576,7 +3577,7 @@ class WellViewerApp(tk.Frame):
             else:
                 self._montage_th_overlay_lbls.append(None)
 
-            tk.Label(col, text=self._active_channel.upper(), font=FM_TINY, fg=TXT_MUT, bg=BG_APP).pack()
+            tk.Label(col, text=self._active_image_channel.upper(), font=FM_TINY, fg=TXT_MUT, bg=BG_APP).pack()
 
             # ── Overlay thumbnail ────────────────────────────────────────────
             ov_cell = tk.Frame(col, bg=BG_CELL, highlightthickness=1,
@@ -4693,6 +4694,7 @@ class WellViewerApp(tk.Frame):
             self._review_image_pan_y = 0.0
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
+        self._review_image_label._raw_arr = arr      # type: ignore[attr-defined]
         self._review_image_label.bind("<Motion>", self._on_review_image_hover)
         self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
         self._review_image_label.bind("<MouseWheel>", self._on_review_image_wheel)
@@ -4780,22 +4782,15 @@ class WellViewerApp(tk.Frame):
             self._on_review_image_click(event)
 
     def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        mask_arr = getattr(self._review_image_label, "_mask_arr", None)
-        if mask_arr is None:
+        if not hasattr(self, "_review_image_label"):
             return
-        scale = float(getattr(self, "_review_image_scale", 1.0) or 1.0)
-        x, y = int(event.x / scale), int(event.y / scale)
-        if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
-            self._review_image_tooltip.hide()
-            return
-        nid = int(mask_arr[y, x])
-        if nid <= 0:
-            self._review_image_tooltip.hide()
-            return
-        self._review_image_tooltip.show(
-            f"nucleus id: {nid}",
-            self._review_image_label.winfo_rootx() + event.x,
-            self._review_image_label.winfo_rooty() + event.y,
+        self._review_image_label._sz_w = self._review_image_label.winfo_width()  # type: ignore[attr-defined]
+        self._review_image_label._sz_h = self._review_image_label.winfo_height()  # type: ignore[attr-defined]
+        _show_image_pixel_tooltip_controller(
+            self,
+            event,
+            getattr(self, "_review_image_tooltip", None),
+            f"{self._active_image_channel.upper()}",
         )
 
     def _on_review_image_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
