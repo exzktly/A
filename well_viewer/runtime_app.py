@@ -4273,11 +4273,9 @@ class WellViewerApp(tk.Frame):
 
         active_image_label = self._active_image_channel.upper()
 
-        def _pick_valid(current: str, candidates: List[str], preferred: str = "") -> str:
-            if current in candidates and current != "—":
-                return current
-            if preferred in candidates and preferred != "—":
-                return preferred
+        def _pick_valid_from_active(candidates: List[str]) -> str:
+            if active_image_label in candidates and active_image_label != "—":
+                return active_image_label
             if candidates and candidates[0] != "—":
                 return candidates[0]
             return "—"
@@ -4287,8 +4285,8 @@ class WellViewerApp(tk.Frame):
         self._plot_chan_var.set(plot_label)
 
         # Image tabs: each validates against its own channel universe.
-        montage_label = _pick_valid(self._montage_chan_var.get(), montage_labels, preferred=active_image_label)
-        review_label = _pick_valid(self._review_image_chan_var.get(), review_labels, preferred=active_image_label)
+        montage_label = _pick_valid_from_active(montage_labels)
+        review_label = _pick_valid_from_active(review_labels)
         self._montage_chan_var.set(montage_label)
         self._review_image_chan_var.set(review_label)
         # Keep active image channel anchored to at least one valid image channel list.
@@ -4296,10 +4294,10 @@ class WellViewerApp(tk.Frame):
             active_image_label not in montage_labels and active_image_label not in review_labels
         ):
             fallback_image_label = "—"
-            if montage_label != "—":
-                fallback_image_label = montage_label
-            elif review_label != "—":
+            if review_label != "—":
                 fallback_image_label = review_label
+            elif montage_label != "—":
+                fallback_image_label = montage_label
             if fallback_image_label != "—":
                 self._active_image_channel = fallback_image_label.lower()
 
