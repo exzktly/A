@@ -20,7 +20,7 @@ from skimage.segmentation import find_boundaries
 from tifffile import imread
 
 from ui.theme import ACCENT, BG_APP, BG_PANEL, BG_SIDE, FM_BOLD, FM_TINY, TXT_MUT, TXT_PRI, get_color
-from well_viewer.image_resolver import resolve_ref_by_fov_tp
+from well_viewer.image_resolver import output_suffixes_for_kind, resolve_ref_by_fov_tp
 from well_viewer.preview_controller import classify_member, read_member_bytes, scan_zip_members
 from well_viewer.viewer_state import make_schema_extractor
 
@@ -309,9 +309,21 @@ class SmfishTab(tk.Frame):
         return t
 
     def _classify_local(self, name: str, fluor_lower: str, fov_tp_extractor=None):
-        mask_re = re.compile(r"_labels\.(tif{1,2}|png)$", re.I)
-        overlay_re = re.compile(r"_overlay\.(tif{1,2}|png|jpe?g)$", re.I)
-        tophat_re = re.compile(r"_tophat_\w+\.tif{1,2}$", re.I)
+        mask_re = re.compile(
+            r"(?:%s)$" % "|".join(re.escape(sfx) for sfx in output_suffixes_for_kind("mask")),
+            re.I,
+        )
+        overlay_re = re.compile(
+            r"(?:%s)$" % "|".join(re.escape(sfx) for sfx in output_suffixes_for_kind("overlay")),
+            re.I,
+        )
+        tophat_re = re.compile(
+            r"(?:%s)$" % "|".join(
+                re.escape(sfx).replace(re.escape(fluor_lower), r"\w+")
+                for sfx in output_suffixes_for_kind("fluor_processed", target_channel=fluor_lower)
+            ),
+            re.I,
+        )
 
         def _legacy(stem: str) -> tuple[str, str]:
             parts = stem.split(self._separator)
