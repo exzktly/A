@@ -24,9 +24,12 @@ from ui.theme import (
     update_widget_colors
 )
 
-# Global draw-time debug switch used by bar plotting internals.
-# Toggle to True when you want verbose bar label diagnostics in the terminal.
-BAR_DEBUG = False
+# Global tab-scoped debug toggles.
+# Toggle these to True for opt-in debug output in each tab.
+REVIEW_TAB_DEBUG = False
+ANALYZE_TAB_DEBUG = False
+REVIEW_BAR_DEBUG = False
+REVIEW_SCATTER_DEBUG = False
 
 
 class AllWellApp(tk.Tk):
@@ -236,7 +239,11 @@ class AllWellApp(tk.Tk):
 def main() -> None:
     from well_viewer import debug_flags as _debug_flags
 
-    _debug_flags.BAR_DEBUG = BAR_DEBUG
+    _debug_flags.REVIEW_TAB_DEBUG = REVIEW_TAB_DEBUG
+    _debug_flags.ANALYZE_TAB_DEBUG = ANALYZE_TAB_DEBUG
+    _debug_flags.REVIEW_BAR_DEBUG = REVIEW_BAR_DEBUG
+    _debug_flags.REVIEW_SCATTER_DEBUG = REVIEW_SCATTER_DEBUG
+    _debug_flags.BAR_DEBUG = REVIEW_BAR_DEBUG
 
     ap = argparse.ArgumentParser(
         description="All-Well: pipeline runner + well viewer",

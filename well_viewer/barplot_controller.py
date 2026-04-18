@@ -12,7 +12,7 @@ from . import debug_flags
 
 def _bar_debug(msg: str) -> None:
     """Emit opt-in bar-plot diagnostics for draw-time label debugging."""
-    if debug_flags.BAR_DEBUG:
+    if debug_flags.review_bar_debug_enabled():
         print(f"DEBUG barplot_controller: {msg}")
 
 

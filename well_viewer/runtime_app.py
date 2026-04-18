@@ -5651,7 +5651,7 @@ class WellViewerApp(tk.Frame):
             plot_wells = [k for k in ordered_keys if k in self._well_paths]
             plot_colors = [WELL_COLORS[i % len(WELL_COLORS)] for i in range(len(plot_wells))]
             plot_labels = [self._well_display_label(w) for w in plot_wells]
-        if _debug_flags.BAR_DEBUG:
+        if _debug_flags.review_bar_debug_enabled():
             mode = "violin" if self._bar_violin.get() else "beeswarm"
             print(f"DEBUG runtime_app: per-cell mode={mode} wells={plot_wells!r} labels={plot_labels!r}")
         if plot_wells:
