@@ -1026,7 +1026,7 @@ def _classify_member(
     None the legacy hardcoded _FNAME_RE is used as a fallback so that results
     directories produced before pipeline_info.json was introduced still work.
     """
-    return _preview_classify_member(
+    kind, fov, tp = _preview_classify_member(
         name=name,
         fluor_lower=fluor_lower,
         mask_re=_MASK_RE,
@@ -1036,6 +1036,16 @@ def _classify_member(
         legacy_extractor=_legacy_extractor,
         pipeline_fields_extractor=lambda stem: _extract_pipeline_fields(stem, _pipeline_info),
     )
+    if _debug_flags.review_image_load_debug_enabled() or _debug_flags.movie_montage_load_debug_enabled():
+        _logger.debug(
+            "[RI-CHSW step 5] classify_member name=%r fluor=%r -> kind=%r fov=%r tp=%r",
+            name,
+            fluor_lower,
+            kind,
+            fov,
+            tp,
+        )
+    return kind, fov, tp
 
 
 def _scan_zip_members(
@@ -1202,6 +1212,13 @@ def find_well_images_and_masks(
         _debug_flags.review_image_load_debug_enabled()
         or _debug_flags.movie_montage_load_debug_enabled()
     )
+    if image_load_debug:
+        _logger.debug(
+            "[RI-CHSW step 5] find_well_images_and_masks start well=%r token=%r fluor=%r",
+            well_label,
+            well_token,
+            fluor_lower,
+        )
 
     # ── 1. Structured in/out directory layout ────────────────────────────────
     # in_dir  → plain <well>.zip files → GFP source images
@@ -1390,6 +1407,14 @@ def find_well_images_and_masks(
         _logger.warning("No masks found for %r (token=%r)", well_label, well_token)
     if tophat_fluor:
         _logger.info("Pre-filtered tophat images found for %r (%d)", well_label, len(tophat_fluor))
+    if image_load_debug:
+        _logger.debug(
+            "[RI-CHSW step 5] find_well_images_and_masks done fluor=%d tophat=%d overlay=%d mask=%d",
+            len(fluor),
+            len(tophat_fluor),
+            len(overlay),
+            len(mask),
+        )
 
     return (dict(sorted(fluor.items())), dict(sorted(overlay.items())),
             dict(sorted(mask.items())), dict(sorted(tophat_fluor.items())))
@@ -4265,7 +4290,7 @@ class WellViewerApp(tk.Frame):
         )
         if image_debug:
             _logger.debug(
-                "set_active_image_channel requested=%r current=%r preserve_review_view=%s",
+                "[RI-CHSW step 3] set_active_image_channel requested=%r current=%r preserve_review_view=%s",
                 channel,
                 getattr(self, "_active_image_channel", ""),
                 preserve_review_view,
@@ -4278,7 +4303,11 @@ class WellViewerApp(tk.Frame):
                 if self._preview_selected_well:
                     self._refresh_review_image()
             if image_debug:
-                _logger.debug("set_active_image_channel no-op; active channel remains=%r", self._active_image_channel)
+                _logger.debug(
+                    "[RI-CHSW step 3] no-op channel switch; active remains=%r preserve_review_view=%s",
+                    self._active_image_channel,
+                    preserve_review_view,
+                )
             return
         prev_channel = self._active_image_channel
         self._active_image_channel = channel
@@ -4298,16 +4327,23 @@ class WellViewerApp(tk.Frame):
         if preserve_review_view:
             self._review_image_preserve_view_on_refresh = True
         if self._preview_selected_well:
+            if image_debug:
+                _logger.debug(
+                    "[RI-CHSW step 3->4] reloading preview for selected_well=%r",
+                    self._preview_selected_well,
+                )
             self._update_preview(self._preview_selected_well)
         if image_debug:
             _logger.debug(
-                "set_active_image_channel updated before=%r after=%r",
+                "[RI-CHSW step 3] set_active_image_channel updated before=%r after=%r",
                 prev_channel,
                 self._active_image_channel,
             )
 
     def _on_review_image_channel_selected(self, _e=None) -> None:
         """Channel-switch handler that preserves Review Image zoom/pan view."""
+        if _debug_flags.review_image_debug_enabled():
+            _logger.debug("[RI-CHSW step 1] Review Image channel ComboboxSelected event received")
         selected_ui_value = ""
         if hasattr(self, "_review_image_chan_cb"):
             selected_ui_value = str(self._review_image_chan_cb.get() or "").strip()
@@ -4315,7 +4351,7 @@ class WellViewerApp(tk.Frame):
             selected_ui_value = self._review_image_chan_var.get()
         if _debug_flags.review_image_debug_enabled():
             _logger.debug(
-                "review_image_channel_selected ui_value=%r active_before=%r",
+                "[RI-CHSW step 2] review_image_channel_selected ui_value=%r active_before=%r",
                 selected_ui_value,
                 getattr(self, "_active_image_channel", ""),
             )
@@ -4491,6 +4527,8 @@ class WellViewerApp(tk.Frame):
                 self._montage_status.config(text="Select a well in the left panel.")
             if hasattr(self, "_review_image_status"):
                 self._review_image_status.config(text="Select a well in the left panel.")
+            if image_debug:
+                _logger.debug("[RI-CHSW step 4] update_preview early return: no well selected")
             return
 
         if hasattr(self, "_preview_well_lbl"):
@@ -4502,6 +4540,12 @@ class WellViewerApp(tk.Frame):
 
         try:
             active_image_channel = str(self._active_image_channel or "").strip().lower()
+            if image_debug:
+                _logger.debug(
+                    "[RI-CHSW step 4] update_preview start well=%r active_channel=%r",
+                    well_label,
+                    active_image_channel,
+                )
             fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
                 self._data_dir,
                 well_label,
@@ -4519,7 +4563,7 @@ class WellViewerApp(tk.Frame):
         self._preview_tophat_fluor = tophat_fluor
         if image_debug:
             _logger.debug(
-                "update_preview well=%r active_channel=%r loaded_keys fluor=%d tophat=%d overlay=%d mask=%d",
+                "[RI-CHSW step 4] update_preview refs loaded well=%r active_channel=%r fluor=%d tophat=%d overlay=%d mask=%d",
                 well_label,
                 active_image_channel,
                 len(fluor),
@@ -4561,7 +4605,7 @@ class WellViewerApp(tk.Frame):
         )
         if image_debug:
             _logger.debug(
-                "update_preview candidate_fovs=%s selected_fov_before=%r",
+                "[RI-CHSW step 4] update_preview candidate_fovs=%s selected_fov_before=%r",
                 all_fovs,
                 self._preview_fov_var.get() if hasattr(self, "_preview_fov_var") else "—",
             )
@@ -4593,6 +4637,8 @@ class WellViewerApp(tk.Frame):
             self._preview_fov_var.set(all_fovs[0])
 
         self._refresh_preview_montage()
+        if image_debug:
+            _logger.debug("[RI-CHSW step 4->6] triggering refresh_review_image after preview reload")
         self._refresh_review_image()
 
     def _on_preview_sel_change(self, _e=None) -> None:
@@ -4639,6 +4685,8 @@ class WellViewerApp(tk.Frame):
         image_load_debug = image_debug or _debug_flags.review_image_load_debug_enabled()
         well = self._preview_selected_well
         if well is None:
+            if image_debug:
+                _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
             return
         def _norm(v: object) -> str:
             s = str(v or "").strip()
@@ -4653,6 +4701,12 @@ class WellViewerApp(tk.Frame):
         fov = _norm(fov_raw)
         if not fov_raw or fov_raw == "—" or not fov:
             self._review_image_status.config(text="No FOV selected.")
+            if image_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
+                    fov_raw,
+                    fov,
+                )
             return
 
         def _tp_sort_key(tp: str) -> Tuple[int, float, str]:
@@ -4681,7 +4735,7 @@ class WellViewerApp(tk.Frame):
             tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=_tp_sort_key)
         if image_debug:
             _logger.debug(
-                "refresh_review_image well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
+                "[RI-CHSW step 6] refresh_review_image start well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
                 well,
                 fov_raw,
                 fov,
@@ -4736,6 +4790,12 @@ class WellViewerApp(tk.Frame):
         tp = self._norm_timepoint(tp_raw)
         if not tp_raw or tp_raw == "—" or not tp:
             self._review_image_status.config(text="No timepoint selected.")
+            if image_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
+                    tp_raw,
+                    tp,
+                )
             return
 
         fluor_ref = _resolve_ref_by_fov_tp(
@@ -4800,6 +4860,12 @@ class WellViewerApp(tk.Frame):
             )
         if fluor_ref is None or mask_ref is None:
             self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
+            if image_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
+                    fluor_ref,
+                    mask_ref,
+                )
             return
         self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
 
@@ -4826,6 +4892,8 @@ class WellViewerApp(tk.Frame):
             include_by_nid[nid] = (incl != "0")
         preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
         self._review_image_preserve_view_on_refresh = False
+        if image_debug:
+            _logger.debug("[RI-CHSW step 6->7] draw_review_image preserve_view=%s", preserve_view)
         self._draw_review_image(
             fluor_arr,
             mask_arr,
@@ -4891,6 +4959,13 @@ class WellViewerApp(tk.Frame):
         fit_lut: bool = False,
         preserve_view: bool = False,
     ) -> None:
+        if _debug_flags.review_image_debug_enabled():
+            _logger.debug(
+                "[RI-CHSW step 7] draw_review_image channel=%r fit_lut=%s preserve_view=%s",
+                getattr(self, "_active_image_channel", ""),
+                fit_lut,
+                preserve_view,
+            )
         arr = _np.asarray(fluor_arr, dtype=_np.float32)
         self._review_image_last_fluor_arr = arr
         m = _np.asarray(mask_arr)
@@ -4953,10 +5028,20 @@ class WellViewerApp(tk.Frame):
         self._review_image_status.config(
             text=f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
         )
+        if _debug_flags.review_image_debug_enabled():
+            _logger.debug(
+                "[RI-CHSW step 7] draw_review_image complete status_channel=%r zoom=%.3f pan=(%.1f, %.1f)",
+                self._active_image_channel,
+                float(getattr(self, "_review_image_zoom", 1.0)),
+                float(getattr(self, "_review_image_pan_x", 0.0)),
+                float(getattr(self, "_review_image_pan_y", 0.0)),
+            )
 
     def _render_review_image_display(self) -> None:
         if not hasattr(self, "_review_image_label") or self._review_image_base_pil is None:
             return
+        if _debug_flags.review_image_debug_enabled():
+            _logger.debug("[RI-CHSW step 7] render_review_image_display start")
         img = self._review_image_base_pil
         iw, ih = img.size
         cw = max(1, int(getattr(self, "_review_image_canvas").winfo_width() - 16))
@@ -4975,6 +5060,15 @@ class WellViewerApp(tk.Frame):
             base_x + float(getattr(self, "_review_image_pan_x", 0.0)),
             base_y + float(getattr(self, "_review_image_pan_y", 0.0)),
         )
+        if _debug_flags.review_image_debug_enabled():
+            _logger.debug(
+                "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f",
+                iw,
+                ih,
+                nw,
+                nh,
+                scale,
+            )
 
     def _review_image_zoom_step(self, direction: int) -> None:
         steps = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
