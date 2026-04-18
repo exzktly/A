@@ -5,7 +5,7 @@ squircle safe-area (rounded rect, 200px corner radius).
 
 | File | Concept | Visual hook |
 |------|---------|-------------|
-| `icon_1_plate_grid.svg` | **Plate Grid** | A 96-well plate (8×12) with wells lit in DAPI blue / GFP green / mCherry red — the app's native canvas. |
+| `icon_1_plate_grid.svg` | **Plate Grid (A W)** | A 96-well plate (8×12) whose lit wells spell **A W** (for "All Well"). Colours run top-to-bottom as a fluorescence spectrum: blue → cyan (B+G) → green → yellow (G+R) → red. The centre well of the A's crossbar glows white — all three channels combined. |
 | `icon_2_stardist_nucleus.svg` | **StarDist Nucleus** | A single glowing nucleus inside a star polygon and a dark well — the segmentation-pipeline output. |
 | `icon_3_channels_curve.svg` | **Channels & Curve** | Three overlapping channel circles behind a CDF curve crossing a dashed threshold — the Review tab's analysis UI. |
 
