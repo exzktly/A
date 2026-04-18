@@ -19,11 +19,26 @@ from typing import Callable, Mapping, Optional
 OUTPUT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "mask": ("_labels.tif", "_labels.tiff", "_labels.png"),
     "overlay": ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif", "_overlay.tiff"),
-    "tophat": ("_tophat_{channel}.tif", "_tophat_{channel}.tiff"),
+    "tophat": (
+        "_tophat.tif",
+        "_tophat.tiff",
+        "_tophat_{channel}.tif",
+        "_tophat_{channel}.tiff",
+    ),
     # Backwards-compatible alias for old callers.
-    "fluor_processed": ("_tophat_{channel}.tif", "_tophat_{channel}.tiff"),
+    "fluor_processed": (
+        "_tophat.tif",
+        "_tophat.tiff",
+        "_tophat_{channel}.tif",
+        "_tophat_{channel}.tiff",
+    ),
     "fluor_raw": (),
-    "smfish": ("_smfish_{channel}.tif", "_smfish_{channel}.tiff"),
+    "smfish": (
+        "_smfish.tif",
+        "_smfish.tiff",
+        "_smfish_{channel}.tif",
+        "_smfish_{channel}.tiff",
+    ),
 }
 
 

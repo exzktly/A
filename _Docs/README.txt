@@ -405,7 +405,7 @@ No Metal GPU detected:
 Preview tab shows "No images found" for a well:
   Ensure the results directory has both in/ and out/ subfolders, and that
   the out/ folder contains a <well>_out.zip file.  The viewer looks for
-  top-hat filtered images (_tophat_<channel>.tif), overlays (_overlay.png),
+  top-hat filtered images (new: _tophat.tif, legacy: _tophat_<channel>.tif), overlays (_overlay.png),
   and masks (_labels.tif) inside those zips.  If the channel token used
   during analysis differs from what the viewer expects, re-open the directory
   — the viewer reads pipeline_info.json to detect the correct tokens
