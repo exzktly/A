@@ -72,8 +72,11 @@ from well_viewer.preview_controller import open_imgref_as_array as _preview_open
 from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
 from well_viewer.preview_controller import scan_zip_members as _preview_scan_zip_members
 from well_viewer.image_resolver import (
+    find_well_subfolder_path as _find_well_subfolder_path,
+    normalize_well_token as _normalize_well_token,
     output_suffixes_for_kind as _output_suffixes_for_kind,
     resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp,
+    well_token_matches_text as _well_token_matches_text,
 )
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
 from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
@@ -914,8 +917,8 @@ _FNAME_RE     = re.compile(
 
 
 def _norm_well(raw: str) -> Optional[str]:
-    m = re.match(r"([A-Ha-h])(\d{1,2})$", raw.strip(), re.I)
-    return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else None
+    normalized = _normalize_well_token(raw)
+    return normalized or None
 
 
 def _extract_well_token(label: str) -> Optional[str]:
@@ -1099,9 +1102,8 @@ def _find_out_well_zips_in_dir(out_dir: Path, well_token: str) -> List[Path]:
 
 
 def _find_well_subfolder(parent_dir: Path, well_token: str) -> "Optional[Path]":
-    """Return parent_dir/<well_token>/ if it exists as a directory, else None."""
-    candidate = parent_dir / well_token
-    return candidate if candidate.is_dir() else None
+    """Return well subfolder matching token, accepting both A1/A01 forms."""
+    return _find_well_subfolder_path(parent_dir, well_token)
 
 
 def _scan_folder_members(
@@ -1328,9 +1330,9 @@ def find_well_images_and_masks(
                         fw = _norm_well(m.group("well")) if m else None
                         if fw and fw != well_token:
                             continue
-                        if not fw and well_token.lower() not in p.name.lower():
+                        if not fw and not _well_token_matches_text(p.name, well_token):
                             continue
-                    elif well_token.lower() not in p.name.lower():
+                    elif not _well_token_matches_text(p.name, well_token):
                         continue
                 ref = _ImgRef(disk_path=p)
                 if kind == "fluor":
