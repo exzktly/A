@@ -29,32 +29,32 @@ BAR_DEBUG: bool = REVIEW_BAR_DEBUG
 
 def review_bar_debug_enabled() -> bool:
     """Return whether Review tab bar-plot debug output is enabled."""
-    return REVIEW_TAB_DEBUG and REVIEW_BAR_DEBUG
+    return REVIEW_TAB_DEBUG or REVIEW_BAR_DEBUG
 
 
 def review_scatter_debug_enabled() -> bool:
     """Return whether Review tab scatter debug output is enabled."""
-    return REVIEW_TAB_DEBUG and REVIEW_SCATTER_DEBUG
+    return REVIEW_TAB_DEBUG or REVIEW_SCATTER_DEBUG
 
 
 def review_image_debug_enabled() -> bool:
     """Return whether Review Image tab debug output is enabled."""
-    return REVIEW_TAB_DEBUG and REVIEW_IMAGE_DEBUG
+    return REVIEW_TAB_DEBUG or REVIEW_IMAGE_DEBUG
 
 
 def review_image_load_debug_enabled() -> bool:
     """Return whether Review Image image-loading debug output is enabled."""
-    return REVIEW_TAB_DEBUG and REVIEW_IMAGE_LOAD_DEBUG
+    return REVIEW_TAB_DEBUG or REVIEW_IMAGE_LOAD_DEBUG
 
 
 def movie_montage_debug_enabled() -> bool:
     """Return whether Movie Montage tab debug output is enabled."""
-    return REVIEW_TAB_DEBUG and MOVIE_MONTAGE_DEBUG
+    return REVIEW_TAB_DEBUG or MOVIE_MONTAGE_DEBUG
 
 
 def movie_montage_load_debug_enabled() -> bool:
     """Return whether Movie Montage image-loading debug output is enabled."""
-    return REVIEW_TAB_DEBUG and MOVIE_MONTAGE_LOAD_DEBUG
+    return REVIEW_TAB_DEBUG or MOVIE_MONTAGE_LOAD_DEBUG
 
 
 def debug_with_source(logger: Any, message: str, *args: Any) -> None:

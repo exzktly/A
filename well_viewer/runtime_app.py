@@ -4506,6 +4506,7 @@ class WellViewerApp(tk.Frame):
                 self._data_dir,
                 well_label,
                 fluor_token=active_image_channel,
+                in_dir=self._in_dir,
                 _fov_tp_extractor=self._fov_tp_extractor,
                 _pipeline_info=self._pipeline_info,
             )

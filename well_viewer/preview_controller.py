@@ -99,7 +99,7 @@ def scan_zip_members(
             raw = read_member_bytes(zip_path=zip_path, member=member_prefix, logger=logger)
             if raw is None:
                 logger.warning("Cannot read nested zip member %r from %s", member_prefix, zip_path)
-                return fluor, overlay, mask, tophat
+                return fluor, overlay, mask, tophat, smfish
             zf_src = zipfile.ZipFile(io.BytesIO(raw), "r")
         else:
             zf_src = zipfile.ZipFile(zip_path, "r")
