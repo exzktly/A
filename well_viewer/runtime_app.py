@@ -4462,16 +4462,10 @@ class WellViewerApp(tk.Frame):
 
         try:
             active_image_channel = str(self._active_image_channel or "").strip().lower()
-            seg_channel = str(getattr(self, "_seg_channel_token", "") or "").strip().lower()
-            # Channel-aware source policy:
-            #   - nuclear/segmentation channel images should come from in/
-            #   - fluorescence channels should come from out/
-            # Masks/overlays always come from data_dir (out).
-            search_in_dir = self._in_dir if (seg_channel and active_image_channel == seg_channel) else None
             fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
-                self._data_dir, well_label,
+                self._data_dir,
+                well_label,
                 fluor_token=active_image_channel,
-                in_dir=search_in_dir,
                 _fov_tp_extractor=self._fov_tp_extractor,
                 _pipeline_info=self._pipeline_info,
             )
