@@ -111,9 +111,28 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
     if hasattr(app, "_montage_zoom_lbl"):
         app._montage_zoom_lbl.config(text=f"{int(zoom * 100)}%")
 
+    channel_row_lbl = rt.tk.Label(
+        app._montage_inner,
+        text=app._active_image_channel.upper(),
+        font=rt.FM_TINY,
+        fg=rt.TXT_MUT,
+        bg=rt.BG_APP,
+        anchor="e",
+    )
+    channel_row_lbl.grid(row=1, column=0, padx=(3, 6), pady=(0, 2), sticky="e")
+    overlay_row_lbl = rt.tk.Label(
+        app._montage_inner,
+        text="overlay",
+        font=rt.FM_TINY,
+        fg=rt.TXT_MUT,
+        bg=rt.BG_APP,
+        anchor="e",
+    )
+    overlay_row_lbl.grid(row=2, column=0, padx=(3, 6), pady=(2, 0), sticky="e")
+
     for col_idx, ((tp, _), fluor_arr, ov_arr) in enumerate(zip(tp_list, display_source, app._montage_overlay_arrays)):
         col = rt.tk.Frame(app._montage_inner, bg=rt.BG_APP)
-        col.grid(row=0, column=col_idx, padx=3, pady=4, sticky="n")
+        col.grid(row=0, column=col_idx + 1, padx=3, pady=4, sticky="n")
         rt.tk.Label(col, text=tp, font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_APP, pady=2).pack()
         fluor_cell = rt.tk.Frame(col, bg=rt.BG_CELL, highlightthickness=1, highlightbackground=rt.BORDER)
         fluor_cell.pack(pady=(0, 2))
@@ -149,7 +168,6 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
             app._montage_th_overlay_lbls.append(th_lbl)
         else:
             app._montage_th_overlay_lbls.append(None)
-        rt.tk.Label(col, text=app._active_image_channel.upper(), font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_APP).pack()
         ov_cell = rt.tk.Frame(col, bg=rt.BG_CELL, highlightthickness=1, highlightbackground=rt.BORDER)
         ov_cell.pack(pady=(2, 0))
         photo_ov = rt.make_overlay_thumb(ov_arr, sz_w, sz_h)
@@ -165,7 +183,6 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
             _bind_if_supported(lbl_ov, "<Button-7>", app._on_montage_shift_wheel)
         else:
             rt.tk.Label(ov_cell, text="overlay\nunavail", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_CELL, width=sz_w // 7, height=sz_h // 16).pack()
-        rt.tk.Label(col, text="overlay", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_APP).pack()
     n_ov = sum(1 for a in app._montage_overlay_arrays if a is not None)
     app._montage_status.config(text=f"{n} timepoint(s)  ·  {n_ov} overlay(s)")
 

@@ -108,37 +108,33 @@ def grp_panel_refresh(app) -> None:
         tk.Label(hdr, text="●", font=FM_BOLD, fg=dot_c,
                  bg=bg).pack(side=tk.LEFT, padx=(0, 4))
         name_fg = TXT_MUT if grp.hidden else TXT_PRI
-        if is_sel:
-            name_var = tk.StringVar(value=grp.name)
-            name_ent = tk.Entry(
-                hdr,
-                textvariable=name_var,
-                font=FM_BOLD,
-                fg=name_fg,
-                bg=bg,
-                relief=tk.FLAT,
-                insertbackground=name_fg,
-                highlightthickness=1,
-                highlightbackground=BORDER,
-                highlightcolor=ACCENT,
-                width=max(10, len(grp.name) + 2),
-            )
-            name_ent.pack(side=tk.LEFT, padx=(0, 4))
+        name_var = tk.StringVar(value=grp.name)
+        name_ent = tk.Entry(
+            hdr,
+            textvariable=name_var,
+            font=FM_BOLD,
+            fg=name_fg,
+            bg=bg,
+            relief=tk.FLAT,
+            insertbackground=name_fg,
+            highlightthickness=1,
+            highlightbackground=ACCENT if is_sel else BORDER,
+            highlightcolor=ACCENT,
+            width=max(10, len(grp.name) + 2),
+        )
+        name_ent.pack(side=tk.LEFT, padx=(0, 4))
 
-            def _commit_name(_e=None, i=gi, var=name_var):
-                new_name = str(var.get() or "").strip()
-                if not new_name:
-                    var.set(app._bar_groups[i].name)
-                    return
-                if new_name != app._bar_groups[i].name:
-                    app._bar_groups[i].name = new_name
-                    app._rebuild_all()
+        def _commit_name(_e=None, i=gi, var=name_var):
+            new_name = str(var.get() or "").strip()
+            if not new_name:
+                var.set(app._bar_groups[i].name)
+                return
+            if new_name != app._bar_groups[i].name:
+                app._bar_groups[i].name = new_name
+                app._rebuild_all()
 
-            name_ent.bind("<Return>", _commit_name)
-            name_ent.bind("<FocusOut>", _commit_name)
-        else:
-            tk.Label(hdr, text=grp.name, font=FM_BOLD,
-                     fg=name_fg, bg=bg).pack(side=tk.LEFT)
+        name_ent.bind("<Return>", _commit_name)
+        name_ent.bind("<FocusOut>", _commit_name)
         if grp.hidden:
             tk.Label(hdr, text="[hidden]", font=FM_TINY,
                      fg=TXT_MUT, bg=bg).pack(side=tk.LEFT, padx=(4, 0))
