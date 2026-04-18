@@ -68,29 +68,38 @@ def montage_resize_deferred(app) -> None:
 
 
 def on_montage_fluor_motion(app, e) -> None:
+    _show_image_pixel_tooltip(
+        app,
+        e=e,
+        tooltip=getattr(app, "_montage_tooltip", None),
+        channel_label=f"{getattr(app, '_active_image_channel', '')}".upper() or "IMAGE",
+    )
+
+
+def _show_image_pixel_tooltip(app, e, tooltip, channel_label: str) -> None:
+    """Show x/y/value tooltip for a widget carrying `_raw_arr`, `_sz_w`, `_sz_h`."""
     lbl = e.widget
     arr = getattr(lbl, "_raw_arr", None)
     sz_w = getattr(lbl, "_sz_w", 1)
     sz_h = getattr(lbl, "_sz_h", 1)
-    lo = getattr(lbl, "_lo", None)
-    hi = getattr(lbl, "_hi", None)
-    if arr is None or not app._NP_AVAILABLE:
-        app._montage_tooltip.hide()
+    if arr is None or tooltip is None or not app._NP_AVAILABLE:
+        if tooltip is not None:
+            tooltip.hide()
         return
     arr = app._np.asarray(arr, dtype=app._np.float32)
     ih, iw = arr.shape[:2]
-    scale = min(sz_w / iw, sz_h / ih, 1.0)
+    scale = min(sz_w / max(iw, 1), sz_h / max(ih, 1))
     nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
     lw, lh = lbl.winfo_width(), lbl.winfo_height()
-    img_x = (e.x - (lw - nw) // 2) / scale
-    img_y = (e.y - (lh - nh) // 2) / scale
+    img_x = (e.x - (lw - nw) // 2) / max(scale, 1e-9)
+    img_y = (e.y - (lh - nh) // 2) / max(scale, 1e-9)
     if not (0 <= img_x < iw and 0 <= img_y < ih):
-        app._montage_tooltip.hide()
+        tooltip.hide()
         return
     val = float(arr[int(img_y), int(img_x)])
     sx = lbl.winfo_rootx() + e.x
     sy = lbl.winfo_rooty() + e.y
-    app._montage_tooltip.show(f"x={int(img_x)}  y={int(img_y)}  {app._active_channel.upper()}:{val:.1f}", sx, sy)
+    tooltip.show(f"x={int(img_x)}  y={int(img_y)}  {channel_label}:{val:.1f}", sx, sy)
 
 
 def _wheel_steps(event) -> int:

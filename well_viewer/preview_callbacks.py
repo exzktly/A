@@ -73,6 +73,11 @@ def refresh_preview_montage(app) -> None:
 
 def draw_montage_thumbs(app, tp_list: list) -> None:
     from well_viewer import runtime_app as rt
+    def _bind_if_supported(widget, sequence: str, callback) -> None:
+        try:
+            widget.bind(sequence, callback)
+        except rt.tk.TclError:
+            pass
 
     for w in app._montage_inner.winfo_children():
         w.destroy()
@@ -124,8 +129,14 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
             lbl_fluor.pack()
             lbl_fluor.bind("<Motion>", app._on_montage_fluor_motion)
             lbl_fluor.bind("<Leave>", lambda _e: app._montage_tooltip.hide())
+            lbl_fluor.bind("<MouseWheel>", app._on_montage_wheel)
+            lbl_fluor.bind("<Shift-MouseWheel>", app._on_montage_shift_wheel)
+            lbl_fluor.bind("<Button-4>", lambda _e: app._montage_zoom_step(+1))
+            lbl_fluor.bind("<Button-5>", lambda _e: app._montage_zoom_step(-1))
+            _bind_if_supported(lbl_fluor, "<Button-6>", app._on_montage_shift_wheel)
+            _bind_if_supported(lbl_fluor, "<Button-7>", app._on_montage_shift_wheel)
         else:
-            rt.tk.Label(fluor_cell, text=f"{app._active_channel.upper()}\nunavail", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_CELL, width=sz_w // 7, height=sz_h // 16).pack()
+            rt.tk.Label(fluor_cell, text=f"{app._active_image_channel.upper()}\nunavail", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_CELL, width=sz_w // 7, height=sz_h // 16).pack()
 
         th_on = getattr(app, "_mon_tophat_var", None) is not None and app._mon_tophat_var.get()
         th_state = app._montage_th_status[col_idx] if col_idx < len(app._montage_th_status) else ""
@@ -138,13 +149,20 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
             app._montage_th_overlay_lbls.append(th_lbl)
         else:
             app._montage_th_overlay_lbls.append(None)
-        rt.tk.Label(col, text=app._active_channel.upper(), font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_APP).pack()
+        rt.tk.Label(col, text=app._active_image_channel.upper(), font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_APP).pack()
         ov_cell = rt.tk.Frame(col, bg=rt.BG_CELL, highlightthickness=1, highlightbackground=rt.BORDER)
         ov_cell.pack(pady=(2, 0))
         photo_ov = rt.make_overlay_thumb(ov_arr, sz_w, sz_h)
         if photo_ov:
             app._montage_photos.append(photo_ov)
-            rt.tk.Label(ov_cell, image=photo_ov, bg=rt.BG_APP, bd=0).pack()
+            lbl_ov = rt.tk.Label(ov_cell, image=photo_ov, bg=rt.BG_APP, bd=0)
+            lbl_ov.pack()
+            lbl_ov.bind("<MouseWheel>", app._on_montage_wheel)
+            lbl_ov.bind("<Shift-MouseWheel>", app._on_montage_shift_wheel)
+            lbl_ov.bind("<Button-4>", lambda _e: app._montage_zoom_step(+1))
+            lbl_ov.bind("<Button-5>", lambda _e: app._montage_zoom_step(-1))
+            _bind_if_supported(lbl_ov, "<Button-6>", app._on_montage_shift_wheel)
+            _bind_if_supported(lbl_ov, "<Button-7>", app._on_montage_shift_wheel)
         else:
             rt.tk.Label(ov_cell, text="overlay\nunavail", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_CELL, width=sz_w // 7, height=sz_h // 16).pack()
         rt.tk.Label(col, text="overlay", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_APP).pack()
