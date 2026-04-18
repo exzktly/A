@@ -3414,6 +3414,11 @@ class WellViewerApp(tk.Frame):
             self._montage_status.config(text="No images found for this well.")
             return
 
+        montage_load_debug = (
+            _debug_flags.movie_montage_debug_enabled()
+            or _debug_flags.movie_montage_load_debug_enabled()
+        )
+
         # Filter refs to this FOV. Prefer pre-generated tophat frames from the
         # out directory for each timepoint, with raw fluor as fallback.
         raw_by_tp = {
@@ -3443,6 +3448,31 @@ class WellViewerApp(tk.Frame):
             self._montage_status.config(text="No images for this FOV.")
             return
 
+        if montage_load_debug:
+            _debug_flags.debug_with_source(
+                _logger,
+                "Movie Montage candidate refs for well=%s fov=%s :: fluor=%d tophat=%d overlay=%d",
+                well,
+                fov,
+                len(raw_by_tp),
+                len(tophat_by_tp),
+                len(ov_map),
+            )
+            for tp, ref in fluor_refs:
+                _debug_flags.debug_with_source(
+                    _logger,
+                    "Movie Montage load attempt fluor tp=%s path=%s",
+                    tp,
+                    getattr(ref, "full_path_str", str(ref)),
+                )
+            for tp, ref in overlay_refs:
+                _debug_flags.debug_with_source(
+                    _logger,
+                    "Movie Montage load attempt overlay tp=%s path=%s",
+                    tp,
+                    getattr(ref, "full_path_str", str(ref)),
+                )
+
         self._montage_status.config(text=f"Loading {n} timepoint(s)…")
         self.update_idletasks()
 
@@ -3457,6 +3487,15 @@ class WellViewerApp(tk.Frame):
             (open_imgref_as_array(ref) if ref else None)
             for ref in self._montage_overlay_refs
         ]
+        if montage_load_debug:
+            for ref in self._montage_overlay_refs:
+                if ref is None:
+                    continue
+                _debug_flags.debug_with_source(
+                    _logger,
+                    "Movie Montage loaded overlay path=%s",
+                    getattr(ref, "full_path_str", str(ref)),
+                )
 
         # Loaded fluorescence refs already apply tophat-first selection.
         self._montage_fluor_display_arrays = list(self._montage_fluor_arrays)
@@ -4562,6 +4601,7 @@ class WellViewerApp(tk.Frame):
         if not hasattr(self, "_review_image_label"):
             return
         image_debug = _debug_flags.review_image_debug_enabled()
+        image_load_debug = image_debug or _debug_flags.review_image_load_debug_enabled()
         well = self._preview_selected_well
         if well is None:
             return
@@ -4703,6 +4743,25 @@ class WellViewerApp(tk.Frame):
                 getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None,
                 fov_tp_match_fluor,
                 fov_tp_match_tophat,
+            )
+        if image_load_debug:
+            fluor_path = getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None
+            mask_path = getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None
+            _debug_flags.debug_with_source(
+                _logger,
+                "Review Image load attempt well=%s fov=%s tp=%s fluor_path=%s",
+                well,
+                fov,
+                tp,
+                fluor_path,
+            )
+            _debug_flags.debug_with_source(
+                _logger,
+                "Review Image load attempt well=%s fov=%s tp=%s mask_path=%s",
+                well,
+                fov,
+                tp,
+                mask_path,
             )
         if fluor_ref is None or mask_ref is None:
             self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")

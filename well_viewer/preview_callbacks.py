@@ -15,6 +15,7 @@ def refresh_preview_montage(app) -> None:
     if not hasattr(app, "_montage_inner"):
         return
     montage_debug = _debug_flags.movie_montage_debug_enabled()
+    montage_load_debug = montage_debug or _debug_flags.movie_montage_load_debug_enabled()
     app._montage_zoom = 1.0
     if hasattr(app, "_montage_zoom_lbl"):
         app._montage_zoom_lbl.config(text="100%")
@@ -54,7 +55,23 @@ def refresh_preview_montage(app) -> None:
             len([(tp, ref) for (f, tp), ref in sorted(tophat_refs.items()) if f == fov]),
             len([(tp, ref) for (f, tp), ref in sorted(app._preview_overlay.items()) if f == fov]),
         )
+    if montage_load_debug:
+        for tp, ref in fluor_refs:
+            _debug_flags.debug_with_source(
+                _logger,
+                "Movie Montage load attempt fluor tp=%s path=%s",
+                tp,
+                getattr(ref, "full_path_str", str(ref)),
+            )
     overlay_refs = [(tp, ref) for (f, tp), ref in sorted(app._preview_overlay.items()) if f == fov]
+    if montage_load_debug:
+        for tp, ref in overlay_refs:
+            _debug_flags.debug_with_source(
+                _logger,
+                "Movie Montage load attempt overlay tp=%s path=%s",
+                tp,
+                getattr(ref, "full_path_str", str(ref)),
+            )
     ov_map = dict(overlay_refs)
     n = len(fluor_refs)
     if n == 0:
