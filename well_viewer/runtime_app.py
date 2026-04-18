@@ -4391,7 +4391,31 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_th_checkbox"):
             self._update_tophat_controls(preloaded=False)
 
-        all_fovs = list(getattr(self, "_all_fovs_cache", []) or [])
+        def _norm_fov(value: object) -> str:
+            raw = str(value or "").strip()
+            if not raw:
+                return ""
+            try:
+                return f"{float(raw):g}"
+            except Exception:
+                return raw
+
+        def _fov_sort_key(token: str) -> tuple[int, float, str]:
+            try:
+                return (0, float(token), token)
+            except ValueError:
+                return (1, 0.0, token)
+
+        all_fovs = sorted(
+            {
+                fov_norm
+                for refs in (fluor, overlay, mask, tophat_fluor)
+                for (fov, _tp) in refs.keys()
+                for fov_norm in [_norm_fov(fov)]
+                if fov_norm
+            },
+            key=_fov_sort_key,
+        )
 
         if not (fluor or overlay or mask or tophat_fluor):
             if hasattr(self, "_fov_menu"):
@@ -4414,6 +4438,10 @@ class WellViewerApp(tk.Frame):
                 self._preview_fov_var.set("—")
         if hasattr(self, "_review_image_fov_menu"):
             self._review_image_fov_menu["values"] = all_fovs or ["—"]
+
+        cur = self._preview_fov_var.get()
+        if all_fovs and cur not in all_fovs:
+            self._preview_fov_var.set(all_fovs[0])
 
         self._refresh_preview_montage()
         self._refresh_review_image()
