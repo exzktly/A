@@ -50,8 +50,9 @@ class RowColSelector(QWidget):
 class Sidebar(QWidget):
     """Left sidebar of ReviewView."""
 
-    selection_changed = Signal(object)   # set[str]
+    selection_changed = Signal(object)     # set[str]
     hovered_well_changed = Signal(object)  # Optional[str]
+    data_dir_changed = Signal(str)         # absolute path to the loaded directory
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -78,9 +79,14 @@ class Sidebar(QWidget):
         plate_title.setObjectName("panelTitle")
         title_row.addWidget(plate_title)
         title_row.addStretch()
-        meta = QLabel("96 wells · 8×12")
-        meta.setObjectName("muted")
-        title_row.addWidget(meta)
+        self._meta_lbl = QLabel("96 wells · 8×12")
+        self._meta_lbl.setObjectName("muted")
+        title_row.addWidget(self._meta_lbl)
+
+        load_btn = QPushButton("Load dataset…")
+        load_btn.setObjectName("ghost")
+        load_btn.clicked.connect(self._on_load_dataset)
+        title_row.addWidget(load_btn)
         head_layout.addLayout(title_row)
 
         sub = QLabel("Drag to select · Shift-click for replicates. Colors encode sample group.")
@@ -177,6 +183,20 @@ class Sidebar(QWidget):
 
         # Seed demo groups
         self._seed_demo_groups()
+
+    def _on_load_dataset(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(self, "Select results directory")
+        if not path:
+            return
+        from pathlib import Path
+        p = Path(path)
+        # Detect in/out layout: prefer the out/ sub-directory for CSVs
+        out_dir = p / "out"
+        csv_dir = out_dir if out_dir.is_dir() else p
+        n_csv = len(list(csv_dir.glob("*.csv")))
+        self._meta_lbl.setText(f"{p.name} · {n_csv} wells")
+        self.data_dir_changed.emit(str(csv_dir))
 
     def _on_row_toggled(self, row: str) -> None:
         self.plate_map.select_row(row)

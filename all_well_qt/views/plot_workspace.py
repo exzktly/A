@@ -192,9 +192,38 @@ class PlotWorkspace(QWidget):
         card_layout.addWidget(content, 1)
         layout.addWidget(card, 1)
 
+        # Real-data state (set by ReviewView after dataset load)
+        self._data_dir: str = ""
+        self._live_groups: dict = {}   # group_id → {wells, color, name}
+        self._renderer = None          # PlotRenderer, created on first set_data_dir
+
         # Build initial demo chart
         self._render_chart()
         self._populate_demo_legend()
+
+    # ── Public API ────────────────────────────────────────────────────
+    def set_data_dir(self, path: str) -> None:
+        """Point PlotWorkspace at a real results directory.
+
+        Triggers a chart rebuild.  If the renderer finds no usable CSVs it
+        falls back to the demo dataset and logs a warning.
+        """
+        self._data_dir = path
+        try:
+            from ..adapters.plot_renderer import PlotRenderer
+            self._renderer = PlotRenderer(path)
+        except Exception:
+            self._renderer = None
+        self._render_chart()
+
+    def set_live_groups(self, groups: dict) -> None:
+        """Update the group→wells mapping used for real-data chart rendering.
+
+        *groups* maps group_id → {"wells": [...], "color": "#hex", "name": "..."}
+        """
+        self._live_groups = groups
+        if self._data_dir:
+            self._render_chart()
 
     # ── Demo data ─────────────────────────────────────────────────────
     # Shape: (3 groups, 49 time-points, 6 replicate wells)
@@ -224,6 +253,24 @@ class PlotWorkspace(QWidget):
     def _render_chart(self) -> None:
         metric = self._metric_chips.current_label() if hasattr(self, "_metric_chips") else "Mean"
         normalize = self._norm_chip.isChecked() if hasattr(self, "_norm_chip") else False
+        channel = self._channel_field.value.strip() if hasattr(self, "_channel_field") else ""
+
+        # Attempt real-data rendering first
+        renderer = getattr(self, "_renderer", None)
+        groups = getattr(self, "_live_groups", {})
+        if renderer is not None and groups:
+            try:
+                from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+                fig = renderer.render_kinetics(
+                    groups, metric=metric, normalize=normalize, channel=channel
+                )
+                if fig is not None:
+                    canvas = FigureCanvasQTAgg(fig)
+                    canvas.setStyleSheet("background: transparent;")
+                    self._chart_frame.set_canvas(canvas)
+                    return
+            except Exception:
+                pass  # fall through to demo
 
         try:
             import matplotlib
