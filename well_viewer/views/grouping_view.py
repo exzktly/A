@@ -135,6 +135,18 @@ def grp_panel_refresh(app) -> None:
 
         name_ent.bind("<Return>", _commit_name)
         name_ent.bind("<FocusOut>", _commit_name)
+        if getattr(app, "_grp_inline_edit_idx", -1) == gi:
+            app._grp_inline_edit_idx = -1
+
+            def _focus_inline_editor(ent=name_ent):
+                try:
+                    ent.focus_set()
+                    ent.select_range(0, tk.END)
+                    ent.icursor(tk.END)
+                except Exception:
+                    pass
+
+            app.after_idle(_focus_inline_editor)
         if grp.hidden:
             tk.Label(hdr, text="[hidden]", font=FM_TINY,
                      fg=TXT_MUT, bg=bg).pack(side=tk.LEFT, padx=(4, 0))

@@ -2614,11 +2614,17 @@ class WellViewerApp(tk.Frame):
         self._groups_centre_refresh()   # Groups tab centre panels
 
     def _bar_rename_group(self, idx: int) -> None:
-        name = ask_name_dialog(self, default=self._bar_groups[idx].name)
-        if name is None:
+        if not (0 <= idx < len(self._bar_groups)):
             return
-        self._bar_groups[idx].name = name
-        self._bar_rebuild_groups()
+        # Group names are edited inline in the Sample Definitions panel.
+        self._bar_active_grp = idx
+        self._grp_inline_edit_idx = idx
+        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
+            try:
+                self._notebook.select_by_text("Sample Definitions")
+            except Exception:
+                pass
+        self._groups_centre_refresh()
 
     def _bar_clear_group(self, idx: int) -> None:
         self._bar_groups[idx].replicates.clear()
