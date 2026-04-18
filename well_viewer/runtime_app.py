@@ -4179,6 +4179,17 @@ class WellViewerApp(tk.Frame):
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
+        image_debug = (
+            _debug_flags.review_image_debug_enabled()
+            or _debug_flags.movie_montage_debug_enabled()
+        )
+        if image_debug:
+            _logger.debug(
+                "set_active_image_channel requested=%r current=%r preserve_review_view=%s",
+                channel,
+                getattr(self, "_active_image_channel", ""),
+                preserve_review_view,
+            )
         if not channel or channel == "—":
             return
         if channel == self._active_image_channel:
@@ -4186,7 +4197,10 @@ class WellViewerApp(tk.Frame):
                 self._review_image_preserve_view_on_refresh = True
                 if self._preview_selected_well:
                     self._refresh_review_image()
+            if image_debug:
+                _logger.debug("set_active_image_channel no-op; active channel remains=%r", self._active_image_channel)
             return
+        prev_channel = self._active_image_channel
         self._active_image_channel = channel
         if hasattr(self, "_image_chan_var"):
             self._image_chan_var.set(channel.upper())
@@ -4203,10 +4217,23 @@ class WellViewerApp(tk.Frame):
             self._review_image_preserve_view_on_refresh = True
         if self._preview_selected_well:
             self._update_preview(self._preview_selected_well)
+        if image_debug:
+            _logger.debug(
+                "set_active_image_channel updated before=%r after=%r",
+                prev_channel,
+                self._active_image_channel,
+            )
 
     def _on_review_image_channel_selected(self, _e=None) -> None:
         """Channel-switch handler that preserves Review Image zoom/pan view."""
-        self._set_active_image_channel(self._image_chan_var.get().lower(), preserve_review_view=True)
+        selected_ui_value = self._image_chan_var.get()
+        if _debug_flags.review_image_debug_enabled():
+            _logger.debug(
+                "review_image_channel_selected ui_value=%r active_before=%r",
+                selected_ui_value,
+                getattr(self, "_active_image_channel", ""),
+            )
+        self._set_active_image_channel(selected_ui_value.lower(), preserve_review_view=True)
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
@@ -4214,7 +4241,14 @@ class WellViewerApp(tk.Frame):
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
-        self._set_active_image_channel(self._image_chan_var.get().lower())
+        selected_ui_value = self._image_chan_var.get()
+        if _debug_flags.movie_montage_debug_enabled():
+            _logger.debug(
+                "preview_channel_selected ui_value=%r active_before=%r",
+                selected_ui_value,
+                getattr(self, "_active_image_channel", ""),
+            )
+        self._set_active_image_channel(selected_ui_value.lower())
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
@@ -4337,6 +4371,10 @@ class WellViewerApp(tk.Frame):
 
     def _update_preview(self, well_label: Optional[str]) -> None:
         """Load images for *well_label* and render the inline montage."""
+        image_debug = (
+            _debug_flags.review_image_debug_enabled()
+            or _debug_flags.movie_montage_debug_enabled()
+        )
         if well_label is None:
             if hasattr(self, "_preview_well_lbl"):
                 self._preview_well_lbl.config(text="No well selected")
@@ -4389,6 +4427,16 @@ class WellViewerApp(tk.Frame):
         self._preview_overlay    = overlay
         self._preview_mask       = mask
         self._preview_tophat_fluor = tophat_fluor
+        if image_debug:
+            _logger.debug(
+                "update_preview well=%r active_channel=%r loaded_keys fluor=%d tophat=%d overlay=%d mask=%d",
+                well_label,
+                active_image_channel,
+                len(fluor),
+                len(tophat_fluor),
+                len(overlay),
+                len(mask),
+            )
 
         # Reset controls to "no preload" state now; _refresh_preview_montage
         # will call _update_tophat_controls() with the authoritative result
@@ -4421,6 +4469,12 @@ class WellViewerApp(tk.Frame):
             },
             key=_fov_sort_key,
         )
+        if image_debug:
+            _logger.debug(
+                "update_preview candidate_fovs=%s selected_fov_before=%r",
+                all_fovs,
+                self._preview_fov_var.get() if hasattr(self, "_preview_fov_var") else "—",
+            )
 
         if not (fluor or overlay or mask or tophat_fluor):
             if hasattr(self, "_fov_menu"):
@@ -4491,6 +4545,7 @@ class WellViewerApp(tk.Frame):
     def _refresh_review_image(self) -> None:
         if not hasattr(self, "_review_image_label"):
             return
+        image_debug = _debug_flags.review_image_debug_enabled()
         well = self._preview_selected_well
         if well is None:
             return
@@ -4533,7 +4588,15 @@ class WellViewerApp(tk.Frame):
         )
         if pipeline_tp_values:
             tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=_tp_sort_key)
-        if _logger.isEnabledFor(logging.DEBUG):
+        if image_debug:
+            _logger.debug(
+                "refresh_review_image well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
+                well,
+                fov_raw,
+                fov,
+                getattr(self, "_active_image_channel", ""),
+            )
+        if image_debug:
             _logger.debug(
                 "Review image timepoint dropdown population for well=%s fov=%s (raw=%s):",
                 well,
@@ -4603,6 +4666,28 @@ class WellViewerApp(tk.Frame):
             tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
+        if image_debug:
+            fov_tp_match_fluor = sum(
+                1
+                for (k_fov, k_tp) in self._preview_fluor.keys()
+                if _norm(k_fov) == fov and self._norm_timepoint(k_tp) == tp
+            )
+            fov_tp_match_tophat = sum(
+                1
+                for (k_fov, k_tp) in getattr(self, "_preview_tophat_fluor", {}).keys()
+                if _norm(k_fov) == fov and self._norm_timepoint(k_tp) == tp
+            )
+            _logger.debug(
+                "refresh_review_image refs_resolved well=%r fov=%r tp=%r fluor_ref=%s mask_ref=%s "
+                "final_key_counts fluor=%d tophat=%d",
+                well,
+                fov,
+                tp,
+                getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None,
+                getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None,
+                fov_tp_match_fluor,
+                fov_tp_match_tophat,
+            )
         if fluor_ref is None or mask_ref is None:
             self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
             return
