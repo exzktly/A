@@ -1198,6 +1198,10 @@ def find_well_images_and_masks(
         str(in_dir)   if in_dir   else "None",
         str(data_dir) if data_dir else "None",
     )
+    image_load_debug = (
+        _debug_flags.review_image_load_debug_enabled()
+        or _debug_flags.movie_montage_load_debug_enabled()
+    )
 
     # ── 1. Structured in/out directory layout ────────────────────────────────
     # in_dir  → plain <well>.zip files → GFP source images
@@ -1240,6 +1244,8 @@ def find_well_images_and_masks(
     if in_dir and in_dir.is_dir() and well_token:
         in_folder = _find_well_subfolder(in_dir, well_token)
         if in_folder:
+            if image_load_debug:
+                _logger.info("[image-load-debug] in_folder resolved for %s -> %s", well_token, in_folder)
             g, ov, mk, th, _sm = _scan_folder_members(
                 in_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
             )
@@ -1251,10 +1257,14 @@ def find_well_images_and_masks(
                 mask.setdefault(k, v)
             for k, v in th.items():
                 tophat_fluor.setdefault(k, v)
+        elif image_load_debug:
+            _logger.info("[image-load-debug] in_folder missing for token=%s in %s", well_token, in_dir)
 
     if in_dir and data_dir and data_dir.is_dir() and well_token:
         out_folder = _find_well_subfolder(data_dir, well_token)
         if out_folder:
+            if image_load_debug:
+                _logger.info("[image-load-debug] out_folder resolved for %s -> %s", well_token, out_folder)
             g, ov, mk, th, _sm = _scan_folder_members(
                 out_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
             )
@@ -1266,6 +1276,8 @@ def find_well_images_and_masks(
                 mask.setdefault(k, v)
             for k, v in th.items():
                 tophat_fluor.setdefault(k, v)
+        elif image_load_debug:
+            _logger.info("[image-load-debug] out_folder missing for token=%s in %s", well_token, data_dir)
 
     # ── 2. Flat directory: all zips in data_dir ───────────────────────────────
     if in_dir is None and data_dir and data_dir.is_dir() and well_token:
@@ -1324,15 +1336,41 @@ def find_well_images_and_masks(
                     parsed_well = _norm_well(str(parsed.get("well", ""))) if parsed else None
                     if parsed_well:
                         if parsed_well != well_token:
+                            if image_load_debug:
+                                _logger.info(
+                                    "[image-load-debug] skip %s parsed_well=%s token=%s",
+                                    p.name,
+                                    parsed_well,
+                                    well_token,
+                                )
                             continue
                     elif _fov_tp_extractor is None:
                         m = _FNAME_RE.match(p.stem)
                         fw = _norm_well(m.group("well")) if m else None
                         if fw and fw != well_token:
+                            if image_load_debug:
+                                _logger.info(
+                                    "[image-load-debug] skip %s legacy_well=%s token=%s",
+                                    p.name,
+                                    fw,
+                                    well_token,
+                                )
                             continue
                         if not fw and not _well_token_matches_text(p.name, well_token):
+                            if image_load_debug:
+                                _logger.info(
+                                    "[image-load-debug] skip %s no well token match target=%s",
+                                    p.name,
+                                    well_token,
+                                )
                             continue
                     elif not _well_token_matches_text(p.name, well_token):
+                        if image_load_debug:
+                            _logger.info(
+                                "[image-load-debug] skip %s schema path no well token match target=%s",
+                                p.name,
+                                well_token,
+                            )
                         continue
                 ref = _ImgRef(disk_path=p)
                 if kind == "fluor":

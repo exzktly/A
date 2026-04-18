@@ -75,7 +75,9 @@ KIND_ALIASES: dict[str, str] = {
 }
 
 _WELL_TOKEN_RE = re.compile(r"^([A-Ha-h])(\d{1,2})$")
-_WELL_TOKEN_IN_TEXT_RE = re.compile(r"([A-Ha-h]\d{1,2})")
+_WELL_TOKEN_IN_TEXT_RE = re.compile(
+    r"(?<![A-Za-z0-9])([A-Ha-h](?:0?[1-9]|1[0-2]))(?![A-Za-z0-9])"
+)
 
 
 @dataclass(frozen=True)

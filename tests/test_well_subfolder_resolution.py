@@ -27,3 +27,7 @@ def test_well_token_matches_text_padded_and_unpadded() -> None:
     assert well_token_matches_text("exp_gfp_A1_001_00h00m.tif", "A01")
     assert well_token_matches_text("exp_gfp_A01_001_00h00m.tif", "A1")
     assert not well_token_matches_text("exp_gfp_A10_001_00h00m.tif", "A01")
+
+
+def test_well_token_matches_text_ignores_timepoint_like_tokens() -> None:
+    assert not well_token_matches_text("exp_gfp_001_00h00m.tif", "A01")
