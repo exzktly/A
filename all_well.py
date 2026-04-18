@@ -284,5 +284,17 @@ def main() -> None:
     AllWellApp(data_path=args.data_dir).mainloop()
 
 
+def main_qt() -> None:
+    """Launch the PySide6 Qt UI (new design)."""
+    import sys
+    from all_well_qt.app import run
+    sys.exit(run(sys.argv))
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--qt" in sys.argv:
+        sys.argv.remove("--qt")
+        main_qt()
+    else:
+        main()
