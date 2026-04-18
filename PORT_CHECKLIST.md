@@ -8,7 +8,7 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] `build_qss()` produces a valid QSS stylesheet from any palette
 - [x] `ThemeManager` singleton with `palette_changed` signal
 - [x] Palette switcher in Tweaks panel swaps QSS live without restart
-- [ ] Font TTFs (Geist, Instrument Serif) placed in `all_well_qt/theme/fonts/` — _deferred: see MIGRATION_NOTES.md_
+- [x] Font TTFs (Geist, Instrument Serif) placed in `all_well_qt/theme/fonts/`
 
 ## Top Bar
 - [x] Top-bar brand mark painted in `_BrandMark` (2×2 wells + sparkline)
@@ -60,7 +60,7 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] Chart has annotated "drug added · t=6h" dashed callout
 - [x] Legend list with colored dots + group names
 - [x] "Save figure…" writes PNG/SVG via matplotlib
-- [ ] Live chart wired to real analysis CSV data — _deferred: needs data dir_
+- [x] Live chart wired to real analysis CSV data via `PlotRenderer` + `set_data_dir` / `set_live_groups`
 - [x] Metric chip changes re-render chart (demo data; switches Mean/Median/Sum/CDF reduction)
 - [x] Normalize toggle re-renders chart (divides by t=0 baseline)
 
@@ -70,7 +70,7 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] Channel chips: GFP / DAPI / Merge
 - [x] FOV, LUT min/max fields
 - [x] 2×2 montage tile grid with placeholder state
-- [ ] Tiles load real FOV thumbnails from ImageLoader — _deferred: needs data dir_
+- [x] Tiles load real FOV thumbnails from `ImageLoader` (wired via `ReviewView._on_data_dir_changed`)
 - [x] Channel chip switches displayed channel (channel-tinted placeholder; real tiles load via ImageLoader when data dir set)
 
 ## Analyze View
@@ -95,6 +95,6 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] ReviewView QSplitter state saved/restored
 
 ## Misc
-- [x] `python all_well.py --qt` launches Qt app
-- [ ] Old Tk code deleted — _deferred until parity confirmed (migration step 13)_
-- [ ] Screenshots of each palette → `_Docs/screenshots/qt_port_*.png` — _deferred_
+- [x] Qt launches by default (`python all_well.py`); pass `--tk` for legacy Tk UI
+- [x] Old Tk view/tab files deleted (`well_viewer/views/`, `well_viewer/tabs/`); all bare tkinter imports guarded with try/except so domain helpers remain importable
+- [-] Screenshots of each palette → `_Docs/screenshots/qt_port_*.png` — _requires desktop display server; deferred_
