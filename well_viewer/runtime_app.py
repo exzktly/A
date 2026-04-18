@@ -4210,8 +4210,6 @@ class WellViewerApp(tk.Frame):
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
         self._set_active_image_channel(self._image_chan_var.get().lower())
-        if self._preview_selected_well:
-            self._refresh_preview_montage()
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
