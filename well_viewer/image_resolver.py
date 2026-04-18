@@ -11,6 +11,7 @@ obtain display-ready frame refs with deterministic reason codes.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable, Mapping, Optional
@@ -72,6 +73,8 @@ CHANNEL_FRAME_PRECEDENCE: tuple[str, ...] = (
 KIND_ALIASES: dict[str, str] = {
     "fluor_processed": "tophat",
 }
+
+_WELL_TOKEN_RE = re.compile(r"^([A-Ha-h])(\d{1,2})$")
 
 
 @dataclass(frozen=True)
@@ -173,6 +176,39 @@ def normalize_numeric_token(value: object) -> str:
         return f"{float(raw):g}"
     except Exception:
         return raw
+
+
+def normalize_well_token(value: object) -> str:
+    """Normalize well tokens so `A1` and `A01` are treated as identical."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    m = _WELL_TOKEN_RE.match(raw)
+    if not m:
+        return raw.upper()
+    return f"{m.group(1).upper()}{int(m.group(2)):02d}"
+
+
+def find_well_subfolder_path(parent_dir: Path, well_token: object) -> Optional[Path]:
+    """Find matching well folder path under *parent_dir* for A1/A01 token forms."""
+    normalized_target = normalize_well_token(well_token)
+    if not normalized_target:
+        return None
+
+    requested = str(well_token or "").strip()
+    if requested:
+        direct = parent_dir / requested
+        if direct.is_dir():
+            return direct
+
+    padded = parent_dir / normalized_target
+    if padded.is_dir():
+        return padded
+
+    for entry in sorted(parent_dir.iterdir()):
+        if entry.is_dir() and normalize_well_token(entry.name) == normalized_target:
+            return entry
+    return None
 
 
 def resolve_ref_by_fov_tp(
