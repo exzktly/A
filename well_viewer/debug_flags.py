@@ -10,6 +10,10 @@ ANALYZE_TAB_DEBUG: bool = False
 # Review tab debug switches
 REVIEW_BAR_DEBUG: bool = False
 REVIEW_SCATTER_DEBUG: bool = False
+REVIEW_IMAGE_DEBUG: bool = False
+
+# Movie Montage tab debug switches
+MOVIE_MONTAGE_DEBUG: bool = False
 
 # Backward-compatible alias used by older call sites.
 # Keep this until all imports are migrated.
@@ -24,3 +28,13 @@ def review_bar_debug_enabled() -> bool:
 def review_scatter_debug_enabled() -> bool:
     """Return whether Review tab scatter debug output is enabled."""
     return REVIEW_TAB_DEBUG and REVIEW_SCATTER_DEBUG
+
+
+def review_image_debug_enabled() -> bool:
+    """Return whether Review Image tab debug output is enabled."""
+    return REVIEW_TAB_DEBUG and REVIEW_IMAGE_DEBUG
+
+
+def movie_montage_debug_enabled() -> bool:
+    """Return whether Movie Montage tab debug output is enabled."""
+    return REVIEW_TAB_DEBUG and MOVIE_MONTAGE_DEBUG

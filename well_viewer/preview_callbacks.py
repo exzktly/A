@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+
+
+_logger = logging.getLogger("well_viewer")
+
 
 def refresh_preview_montage(app) -> None:
     from well_viewer import runtime_app as rt
+    from well_viewer import debug_flags as _debug_flags
 
     if not hasattr(app, "_montage_inner"):
         return
+    montage_debug = _debug_flags.movie_montage_debug_enabled()
     app._montage_zoom = 1.0
     if hasattr(app, "_montage_zoom_lbl"):
         app._montage_zoom_lbl.config(text="100%")
@@ -26,6 +33,8 @@ def refresh_preview_montage(app) -> None:
         app._montage_status.config(text="Select a well in the left panel.")
         return
     fov = app._preview_fov_var.get()
+    if montage_debug:
+        _logger.debug("refresh_preview_montage selected_fov=%r active_channel=%r", fov, getattr(app, "_active_image_channel", ""))
     if fov == "—":
         app._montage_status.config(text="No images found for this well.")
         return
@@ -36,6 +45,15 @@ def refresh_preview_montage(app) -> None:
     if not fluor_refs:
         fluor_refs = [(tp, ref) for (f, tp), ref in sorted(tophat_refs.items()) if f == fov]
         used_tophat_as_primary = bool(fluor_refs)
+    if montage_debug:
+        source_map = "_preview_tophat_fluor" if used_tophat_as_primary else "_preview_fluor"
+        _logger.debug(
+            "refresh_preview_montage source_map=%s refs_loaded fluor=%d tophat=%d overlay=%d",
+            source_map,
+            len(fluor_refs),
+            len([(tp, ref) for (f, tp), ref in sorted(tophat_refs.items()) if f == fov]),
+            len([(tp, ref) for (f, tp), ref in sorted(app._preview_overlay.items()) if f == fov]),
+        )
     overlay_refs = [(tp, ref) for (f, tp), ref in sorted(app._preview_overlay.items()) if f == fov]
     ov_map = dict(overlay_refs)
     n = len(fluor_refs)
