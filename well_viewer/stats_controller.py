@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-import tkinter as tk
+try:
+    import tkinter as tk
+except ImportError:
+    tk = None  # type: ignore[assignment]
 from typing import List, Tuple
 
 

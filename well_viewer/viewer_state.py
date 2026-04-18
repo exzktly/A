@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-import tkinter as tk
+try:
+    import tkinter as tk
+    _TK_AVAILABLE = True
+except ImportError:
+    tk = None  # type: ignore[assignment]
+    _TK_AVAILABLE = False
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
+try:
+    import tkinter as tk
+    from tkinter import ttk
+except ImportError:
+    tk = None  # type: ignore[assignment]
+    ttk = None  # type: ignore[assignment]
 from typing import Optional
 
 

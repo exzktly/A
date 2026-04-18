@@ -6,7 +6,10 @@ import csv
 import logging
 
 from pathlib import Path
-from tkinter import messagebox
+try:
+    from tkinter import messagebox
+except ImportError:
+    messagebox = None  # type: ignore[assignment]
 
 
 def load_path(app, path: Path) -> None:

@@ -45,17 +45,25 @@ import math
 import re
 import shutil
 import statistics
-import tkinter as tk
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+    _TK_AVAILABLE = True
+except ImportError:
+    tk = filedialog = messagebox = ttk = None  # type: ignore[assignment]
+    _TK_AVAILABLE = False
 import threading
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+try:
+    matplotlib.use("TkAgg")
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+except Exception:
+    FigureCanvasTkAgg = NavigationToolbar2Tk = None  # type: ignore[assignment,misc]
 from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
@@ -75,9 +83,12 @@ from well_viewer.image_resolver import (
     output_suffixes_for_kind as _output_suffixes_for_kind,
     resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp,
 )
-from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
-from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
-from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
+try:
+    from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
+    from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
+    from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
+except ImportError:
+    _build_preview_picker_view = _preview_pick_well_view = _refresh_preview_picker_view = None  # type: ignore[assignment]
 from well_viewer.lineplot_controller import redraw_line_plots as _lineplot_redraw
 from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
 from well_viewer.scatter_controller import redraw_scatter as _scatter_redraw
@@ -128,19 +139,25 @@ from well_viewer.review_image_controller import select_review_csv_row_for_cell a
 from well_viewer.stats_controller import collect_group_values as _stats_collect_group_values
 from well_viewer.stats_controller import draw_ks_cdf as _stats_draw_ks_cdf
 from well_viewer.stats_controller import run_stats as _stats_run_controller
-from well_viewer.views.stats_view import build_stats_group_editor as _build_stats_group_editor_view
-from well_viewer.views.stats_view import build_stats_results_panel as _build_stats_results_panel_view
-from well_viewer.views.stats_view import build_stats_tab as _build_stats_tab_view
+try:
+    from well_viewer.views.stats_view import build_stats_group_editor as _build_stats_group_editor_view
+    from well_viewer.views.stats_view import build_stats_results_panel as _build_stats_results_panel_view
+    from well_viewer.views.stats_view import build_stats_tab as _build_stats_tab_view
+except ImportError:
+    _build_stats_group_editor_view = _build_stats_results_panel_view = _build_stats_tab_view = None  # type: ignore[assignment]
 from well_viewer.viewer_state import make_schema_extractor as _make_schema_extractor
 from well_viewer.viewer_state import read_pipeline_info as _read_pipeline_info_shared
-from well_viewer.ui_helpers import (
-    ask_name_dialog as _ui_ask_name_dialog,
-    btn_card as _btn_card,
-    btn_danger as _btn_danger,
-    btn_primary as _btn_primary,
-    btn_secondary as _btn_secondary,
-    make_scrollable_canvas as _ui_make_scrollable_canvas,
-)
+try:
+    from well_viewer.ui_helpers import (
+        ask_name_dialog as _ui_ask_name_dialog,
+        btn_card as _btn_card,
+        btn_danger as _btn_danger,
+        btn_primary as _btn_primary,
+        btn_secondary as _btn_secondary,
+        make_scrollable_canvas as _ui_make_scrollable_canvas,
+    )
+except ImportError:
+    _ui_ask_name_dialog = _btn_card = _btn_danger = _btn_primary = _btn_secondary = _ui_make_scrollable_canvas = None  # type: ignore[assignment]
 from ui.theme import (
     ACCENT,
     ACCENT_DARK,
@@ -300,7 +317,10 @@ def ask_name_dialog(parent: tk.Widget, title: str = "Name",
 
 
 # Canonical definitions live in well_viewer/views/well_label_widget.py
-from well_viewer.views.well_label_widget import WellLabel, build_plate_grid
+try:
+    from well_viewer.views.well_label_widget import WellLabel, build_plate_grid
+except ImportError:
+    WellLabel = build_plate_grid = None  # type: ignore[assignment,misc]
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
@@ -1358,26 +1378,37 @@ def find_well_images_and_masks(
 # Categorical label colourmap  (canonical: well_viewer/views/image_panel_view.py)
 # =============================================================================
 
-from well_viewer.views.image_panel_view import _label_to_rgb
+try:
+    from well_viewer.views.image_panel_view import _label_to_rgb
+except ImportError:
+    _label_to_rgb = None  # type: ignore[assignment]
 
 # =============================================================================
 # Tooltip
 # =============================================================================
 
-# Canonical definition lives in well_viewer/views/widgets.py
-from well_viewer.views.widgets import _Tooltip
+try:
+    from well_viewer.views.widgets import _Tooltip
+except ImportError:
+    _Tooltip = None  # type: ignore[assignment]
 
 # =============================================================================
 # Reusable image panel  (canonical: well_viewer/views/image_panel_view.py)
 # =============================================================================
 
-from well_viewer.views.image_panel_view import _ImagePanel
+try:
+    from well_viewer.views.image_panel_view import _ImagePanel
+except ImportError:
+    _ImagePanel = None  # type: ignore[assignment]
 
 # =============================================================================
 # GUI log handler  (canonical: well_viewer/views/status_view.py)
 # =============================================================================
 
-from well_viewer.views.status_view import _GUILogHandler
+try:
+    from well_viewer.views.status_view import _GUILogHandler
+except ImportError:
+    _GUILogHandler = None  # type: ignore[assignment]
 
 # =============================================================================
 # Montage popout window
@@ -1440,9 +1471,16 @@ class _SubsetEntry:
 
 
 # CellGatingTab lives in well_viewer/cell_gating_tab.py
-from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
+if _TK_AVAILABLE:
+    from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
+else:
+    CellGatingTab = None  # type: ignore[assignment,misc]
 
-class WellViewerApp(tk.Frame):
+
+_WellViewerBase: type = tk.Frame if _TK_AVAILABLE else object  # type: ignore[misc]
+
+
+class WellViewerApp(_WellViewerBase):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
         # Support both embedded use (parent is a tk.Frame/Notebook tab)

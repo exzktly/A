@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import filedialog, messagebox
+try:
+    from tkinter import filedialog, messagebox
+except ImportError:
+    filedialog = messagebox = None  # type: ignore[assignment]
 
-from well_viewer.figure_export_editor import launch_export_editor
+try:
+    from well_viewer.figure_export_editor import launch_export_editor
+except Exception:
+    launch_export_editor = None  # type: ignore[assignment]
 
 
 def redraw(

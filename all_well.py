@@ -293,8 +293,8 @@ def main_qt() -> None:
 
 if __name__ == "__main__":
     import sys
-    if "--qt" in sys.argv:
-        sys.argv.remove("--qt")
-        main_qt()
-    else:
+    if "--tk" in sys.argv:
+        sys.argv.remove("--tk")
         main()
+    else:
+        main_qt()

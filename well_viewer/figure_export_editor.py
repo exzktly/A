@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog
-
-import tkinter as tk
-from tkinter import ttk
+try:
+    from tkinter import filedialog, messagebox, simpledialog
+    import tkinter as tk
+    from tkinter import ttk
+except ImportError:
+    filedialog = messagebox = simpledialog = None  # type: ignore[assignment]
+    tk = ttk = None  # type: ignore[assignment]
 from ui.theme import FM_BOLD, FM_TINY
 from well_viewer.ui_helpers import bind_mousewheel_scroll
 

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import messagebox
+try:
+    import tkinter as tk
+    from tkinter import messagebox
+except ImportError:
+    tk = None  # type: ignore[assignment]
+    messagebox = None  # type: ignore[assignment]
 
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import extract_well_token as _extract_well_token

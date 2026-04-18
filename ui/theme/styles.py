@@ -10,7 +10,10 @@ Contains:
 from __future__ import annotations
 
 import sys as _sys
-from tkinter import ttk
+try:
+    from tkinter import ttk
+except ImportError:
+    ttk = None  # type: ignore[assignment]
 from typing import Dict, Any
 
 # ── Current theme (global state) ──────────────────────────────────────────────
