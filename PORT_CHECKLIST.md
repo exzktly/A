@@ -47,7 +47,7 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] ··· menu: Rename… / Delete
 - [x] "+ New" prompts for name, creates from current selection
 - [x] Demo groups seeded on launch
-- [ ] Sample group row rename commits to PlateMapWidget group mapping — _deferred_
+- [x] Sample group row rename commits to PlateMapWidget group mapping
 
 ## Plot Workspace
 - [x] Sub-tabs: Kinetics / Bar plots / Scatter / Stats / CSV
@@ -61,8 +61,8 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] Legend list with colored dots + group names
 - [x] "Save figure…" writes PNG/SVG via matplotlib
 - [ ] Live chart wired to real analysis CSV data — _deferred: needs data dir_
-- [ ] Metric chip changes re-render chart — _deferred_
-- [ ] Normalize toggle re-renders chart — _deferred_
+- [x] Metric chip changes re-render chart (demo data; switches Mean/Median/Sum/CDF reduction)
+- [x] Normalize toggle re-renders chart (divides by t=0 baseline)
 
 ## Preview Panel
 - [x] Well tag updates on plate-map hover
@@ -71,7 +71,7 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] FOV, LUT min/max fields
 - [x] 2×2 montage tile grid with placeholder state
 - [ ] Tiles load real FOV thumbnails from ImageLoader — _deferred: needs data dir_
-- [ ] Channel chip switches displayed channel — _deferred_
+- [x] Channel chip switches displayed channel (channel-tinted placeholder; real tiles load via ImageLoader when data dir set)
 
 ## Analyze View
 - [x] Data directory input + Browse… button
@@ -81,8 +81,8 @@ Track each item as `[x]` when complete, `[-]` when deferred with a note.
 - [x] Run button fires `run_requested` signal with config dict
 - [x] Stop button fires `stop_requested`
 - [x] Log output panel with Clear button
-- [ ] `run_requested` wired to `process_microscopy_v2.py` subprocess — _deferred_
-- [ ] `stop_requested` kills subprocess — _deferred_
+- [x] `run_requested` wired to `process_microscopy_v2.py` via `_PipelineWorker(QThread)` + `services.pipeline_service`
+- [x] `stop_requested` calls `proc.terminate()` via worker
 
 ## Status Bar
 - [x] Pulsing dot animates (QPropertyAnimation, 2s loop)

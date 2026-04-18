@@ -5,8 +5,7 @@ from typing import Optional
 
 import numpy as np
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPixmap
-from PySide6.QtWidgets import QGraphicsDropShadowEffect
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -68,6 +67,8 @@ class PreviewPanel(QWidget):
         self.setObjectName("sidePanel")
         self.setMinimumWidth(300)
         self.setMaximumWidth(420)
+        self._current_well: Optional[str] = None
+        self._image_loader = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -147,15 +148,68 @@ class PreviewPanel(QWidget):
         layout.addWidget(tile_area, 1)
 
     def update_well(self, well_id: Optional[str]) -> None:
+        self._current_well = well_id
         if well_id:
             self._well_tag.setText(well_id)
             self._well_badge.setText(well_id)
             self._well_badge.show()
+            self._refresh_tiles()
         else:
+            self._current_well = None
             self._well_tag.setText("No well selected")
             self._well_badge.hide()
             for tile in self._tiles:
                 tile._show_placeholder()
 
     def _on_channel_changed(self, _: int) -> None:
-        pass  # reload tiles from image loader
+        self._refresh_tiles()
+
+    def _refresh_tiles(self) -> None:
+        """Load FOV thumbnails for the current well + channel, or show placeholders."""
+        well = getattr(self, "_current_well", None)
+        if not well:
+            return
+
+        channel_idx = self._ch_chips.current_index()
+        channel = ["GFP", "DAPI", "Merge"][channel_idx]
+
+        # Channel-tinted placeholder colors so the UI gives visual feedback
+        # even before a real data directory is loaded.
+        ch_colors = {
+            "GFP":   ("#C9E4D6", "#0E6B52"),
+            "DAPI":  ("#CDE4E0", "#115E59"),
+            "Merge": ("#FBD9CE", "#E25C3A"),
+        }
+        bg, fg = ch_colors.get(channel, ("#EEE5D4", "#7C786D"))
+
+        if hasattr(self, "_image_loader") and self._image_loader is not None:
+            try:
+                lut_min = float(self._lut_min_field.value or 0)
+                lut_max = float(self._lut_max_field.value or 65535)
+            except ValueError:
+                lut_min, lut_max = 0.0, 65535.0
+
+            try:
+                fov_base = int(self._fov_field.value or 1) - 1
+            except ValueError:
+                fov_base = 0
+
+            for i, tile in enumerate(self._tiles):
+                arr = self._image_loader.load_fov(well, channel, fov_base + i)
+                if arr is not None:
+                    tile.set_image_array(arr, lut_min, lut_max)
+                else:
+                    tile.setStyleSheet(
+                        f"border-radius: 8px; background: {bg}; color: {fg};"
+                    )
+                    tile.setText(f"{well} · {channel} · FOV {fov_base + i + 1}")
+        else:
+            # No loader — show channel-tinted placeholder with well/channel label
+            for i, tile in enumerate(self._tiles):
+                tile.setStyleSheet(
+                    f"border-radius: 8px; background: {bg}; color: {fg};"
+                )
+                tile.setText(f"{well} · {channel} · FOV {i + 1}")
+
+    def set_image_loader(self, loader) -> None:  # noqa: ANN001
+        self._image_loader = loader

@@ -94,6 +94,8 @@ class SampleGroupList(QWidget):
 
     group_selected = Signal(str)
     new_group_requested = Signal()
+    group_renamed = Signal(str, str)   # (group_id, new_name)
+    group_deleted = Signal(str)        # group_id
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -181,6 +183,8 @@ class SampleGroupList(QWidget):
         )
         if ok and name.strip():
             row._name_lbl.setText(name.strip())
+            self.group_renamed.emit(group_id, name.strip())
 
     def _on_delete(self, group_id: str) -> None:
         self.remove_group(group_id)
+        self.group_deleted.emit(group_id)

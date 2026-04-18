@@ -168,7 +168,12 @@ class Sidebar(QWidget):
         # ── Sample groups ─────────────────────────────────────────────
         self.sample_groups = SampleGroupList()
         self.sample_groups.new_group_requested.connect(self._on_new_group)
+        self.sample_groups.group_renamed.connect(self._on_group_renamed)
+        self.sample_groups.group_deleted.connect(self._on_group_deleted)
         layout.addWidget(self.sample_groups, 1)
+
+        # well_id → GroupSpec for the full plate mapping
+        self._well_group_map: dict[str, GroupSpec] = {}
 
         # Seed demo groups
         self._seed_demo_groups()
@@ -187,22 +192,38 @@ class Sidebar(QWidget):
         self.plate_map.clear_selection()
 
     def _on_new_group(self) -> None:
-        from PySide6.QtWidgets import QInputDialog
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
         from ..theme.manager import ThemeManager
         tokens = ThemeManager.instance().tokens
         wells = self.plate_map.selection
         if not wells:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(self, "No selection", "Select wells before creating a group.")
             return
         name, ok = QInputDialog.getText(self, "New sample group", "Group name:")
-        if ok and name.strip():
-            idx = len(self.sample_groups._rows)
-            color = tokens["wells"][idx % len(tokens["wells"])]
-            gid = f"group_{idx}"
-            self.sample_groups.add_group(gid, name.strip(), color, len(wells))
-            mapping = {w: GroupSpec(color=color, name=name.strip(), id=gid) for w in wells}
-            self.plate_map.set_groups(mapping)
+        if not ok or not name.strip():
+            return
+        idx = len(self.sample_groups._rows)
+        color = tokens["wells"][idx % len(tokens["wells"])]
+        gid = f"group_{idx}"
+        self.sample_groups.add_group(gid, name.strip(), color, len(wells))
+        for w in wells:
+            self._well_group_map[w] = GroupSpec(color=color, name=name.strip(), id=gid)
+        self.plate_map.set_groups(self._well_group_map)
+
+    def _on_group_renamed(self, group_id: str, new_name: str) -> None:
+        for well_id, spec in self._well_group_map.items():
+            if spec.id == group_id:
+                self._well_group_map[well_id] = GroupSpec(
+                    color=spec.color, name=new_name, id=spec.id
+                )
+        # Colors haven't changed so no plate repaint needed
+
+    def _on_group_deleted(self, group_id: str) -> None:
+        self._well_group_map = {
+            w: spec for w, spec in self._well_group_map.items()
+            if spec.id != group_id
+        }
+        self.plate_map.set_groups(self._well_group_map)
 
     def _seed_demo_groups(self) -> None:
         from ..theme.manager import ThemeManager
@@ -217,10 +238,9 @@ class Sidebar(QWidget):
             ("ripk",  "RIPK1 kd",           ["D02","D03","D04","E02","E03","E04"]),
             ("ripa",  "RIPA co-treat",      ["D07","D08","D09","E07","E08","E09"]),
         ]
-        mapping: dict[str, GroupSpec] = {}
         for i, (gid, name, wells) in enumerate(groups):
             color = tokens["wells"][i % len(tokens["wells"])]
             self.sample_groups.add_group(gid, name, color, len(wells))
             for w in wells:
-                mapping[w] = GroupSpec(color=color, name=name, id=gid)
-        self.plate_map.set_groups(mapping)
+                self._well_group_map[w] = GroupSpec(color=color, name=name, id=gid)
+        self.plate_map.set_groups(self._well_group_map)

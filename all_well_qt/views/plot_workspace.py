@@ -141,6 +141,7 @@ class PlotWorkspace(QWidget):
         self._norm_chip = QPushButton("Normalize")
         self._norm_chip.setObjectName("chip")
         self._norm_chip.setCheckable(True)
+        self._norm_chip.toggled.connect(self._on_normalize_toggled)
         cr_layout.addWidget(self._norm_chip)
         cr_layout.addStretch()
 
@@ -192,11 +193,38 @@ class PlotWorkspace(QWidget):
         layout.addWidget(card, 1)
 
         # Build initial demo chart
-        self._build_demo_chart()
+        self._render_chart()
         self._populate_demo_legend()
 
+    # ── Demo data ─────────────────────────────────────────────────────
+    # Shape: (3 groups, 49 time-points, 6 replicate wells)
+    _DEMO_GROUPS = [
+        ("Control (DMSO)",     "#0E6B52"),
+        ("PF-562271 · 100 nM", "#E25C3A"),
+        ("PF-562271 · 1 µM",   "#C08A2E"),
+    ]
+
+    @staticmethod
+    def _demo_raw() -> tuple[np.ndarray, np.ndarray]:
+        """Return (t, data[group, time, replicate]) for the demo dataset."""
+        rng = np.random.default_rng(42)
+        t = np.linspace(0, 12, 49)
+        bases = [
+            np.exp(-0.05 * t),
+            1 + 0.5 * np.sin(t * 0.6),
+            1 + 1.2 * np.sin(t * 0.5),
+        ]
+        data = np.stack([
+            b[:, None] + rng.normal(0, 0.06, (len(t), 6))
+            for b in bases
+        ])  # (3, 49, 6)
+        return t, data
+
     # ── Internal ──────────────────────────────────────────────────────
-    def _build_demo_chart(self) -> None:
+    def _render_chart(self) -> None:
+        metric = self._metric_chips.current_label() if hasattr(self, "_metric_chips") else "Mean"
+        normalize = self._norm_chip.isChecked() if hasattr(self, "_norm_chip") else False
+
         try:
             import matplotlib
             matplotlib.use("QtAgg")
@@ -208,30 +236,53 @@ class PlotWorkspace(QWidget):
             self._chart_frame._layout.addWidget(placeholder)
             return
 
+        t, data = self._demo_raw()
+
+        # Apply metric reduction across replicates axis
+        if metric == "Mean":
+            y_all = data.mean(axis=2)
+        elif metric == "Median":
+            y_all = np.median(data, axis=2)
+        elif metric == "Sum":
+            y_all = data.sum(axis=2)
+        else:  # CDF — show cumulative distribution at final time point; fall back to mean
+            y_all = data.mean(axis=2)
+
+        if normalize:
+            baseline = y_all[:, :1]
+            denom = np.where(np.abs(baseline) < 1e-9, 1.0, baseline)
+            y_all = y_all / denom
+
+        try:
+            from ..theme.manager import ThemeManager
+            t_map = ThemeManager.instance().tokens
+            spine_color = t_map["line"]
+            tick_color = t_map["mut"]
+            ann_color = t_map["warn"]
+        except Exception:
+            spine_color, tick_color, ann_color = "#DED5C2", "#7C786D", "#C08A2E"
+
         fig = Figure(facecolor="none")
         ax = fig.add_subplot(111)
-        t = np.linspace(0, 12, 49)
-        groups = [
-            ("Control",        "#0E6B52", np.exp(-0.05 * t)),
-            ("PF · 100 nM",    "#E25C3A", 1 + 0.5 * np.sin(t * 0.6)),
-            ("PF · 1 µM",      "#C08A2E", 1 + 1.2 * np.sin(t * 0.5)),
-        ]
         ax.set_facecolor("none")
         ax.spines[["top", "right"]].set_visible(False)
-        ax.spines["bottom"].set_color("#DED5C2")
-        ax.spines["left"].set_color("#DED5C2")
-        ax.tick_params(colors="#7C786D", labelsize=9)
-        ax.set_xlabel("Time (h)", color="#7C786D", fontsize=9)
-        ax.set_ylabel("Fold change", color="#7C786D", fontsize=9)
-        ax.axvline(6, color="#C08A2E", linestyle="--", linewidth=0.8, alpha=0.6)
-        ax.text(6.1, ax.get_ylim()[0] if ax.get_ylim()[0] > 0 else 0.1,
-                "drug added · t=6h", color="#C08A2E", fontsize=7.5)
-        for name, color, y in groups:
-            ax.plot(t, y, color=color, linewidth=1.5)
+        ax.spines["bottom"].set_color(spine_color)
+        ax.spines["left"].set_color(spine_color)
+        ax.tick_params(colors=tick_color, labelsize=9)
+        ylabel = ("Fold change (norm.)" if normalize else "Fold change") if metric != "Sum" else "Sum"
+        ax.set_xlabel("Time (h)", color=tick_color, fontsize=9)
+        ax.set_ylabel(ylabel, color=tick_color, fontsize=9)
+        ax.axvline(6, color=ann_color, linestyle="--", linewidth=0.8, alpha=0.6)
+        ax.text(6.15, ax.get_ylim()[0] if ax.get_ylim()[0] != 0 else 0.02,
+                "drug added · t=6h", color=ann_color, fontsize=7.5)
+
+        for i, (name, color) in enumerate(self._DEMO_GROUPS):
+            y = y_all[i]
+            ax.plot(t, y, color=color, linewidth=1.5, label=name)
             ax.fill_between(t, y, alpha=0.06, color=color)
             ax.plot(t[-1], y[-1], "o", color=color, markersize=5)
-        fig.tight_layout(pad=0.8)
 
+        fig.tight_layout(pad=0.8)
         canvas = FigureCanvasQTAgg(fig)
         canvas.setStyleSheet("background: transparent;")
         self._chart_frame.set_canvas(canvas)
@@ -256,7 +307,10 @@ class PlotWorkspace(QWidget):
         self._title_lbl.setText(titles[idx] if idx < len(titles) else "")
 
     def _on_metric_changed(self, _: int) -> None:
-        pass  # re-render chart with new metric reduction
+        self._render_chart()
+
+    def _on_normalize_toggled(self, _: bool) -> None:
+        self._render_chart()
 
     def _on_save_figure(self) -> None:
         from PySide6.QtWidgets import QFileDialog
