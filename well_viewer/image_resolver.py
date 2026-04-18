@@ -8,8 +8,52 @@ from typing import Callable, Mapping, Optional
 
 OUTPUT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "mask": ("_labels.tif", "_labels.tiff", "_labels.png"),
-    "overlay": ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif"),
+    "overlay": ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif", "_overlay.tiff"),
+    "fluor_processed": ("_tophat_{channel}.tif", "_tophat_{channel}.tiff"),
+    "fluor_raw": (),
+    "smfish": ("_smfish_{channel}.tif", "_smfish_{channel}.tiff"),
 }
+
+
+OUTPUT_KIND_PRECEDENCE: tuple[str, ...] = (
+    "mask",
+    "overlay",
+    "smfish",
+    "fluor_processed",
+)
+
+
+def output_suffixes_for_kind(output_kind: str, *, target_channel: str = "") -> tuple[str, ...]:
+    """Return resolved suffixes for output kind, applying channel templates."""
+    raw = OUTPUT_SUFFIXES.get(output_kind, ())
+    channel = str(target_channel or "").strip().lower()
+    out: list[str] = []
+    for suffix in raw:
+        if "{channel}" in suffix:
+            if not channel:
+                continue
+            out.append(suffix.format(channel=channel))
+        else:
+            out.append(suffix)
+    return tuple(out)
+
+
+def classify_filename_kind(name: str, *, fluor_token: str = "") -> tuple[str, str]:
+    """Classify filename into canonical kind and return (kind, stem_without_kind_suffix)."""
+    p = Path(str(name or "").strip())
+    if not p.name:
+        return "", ""
+    lower_name = p.name.lower()
+
+    for kind in OUTPUT_KIND_PRECEDENCE:
+        suffixes = output_suffixes_for_kind(kind, target_channel=fluor_token)
+        for suffix in suffixes:
+            lowered = suffix.lower()
+            if lower_name.endswith(lowered):
+                stripped = p.name[: -len(suffix)] if len(suffix) else p.name
+                return kind, Path(stripped).stem
+
+    return "fluor_raw", p.stem
 
 
 def _patch_matplotlib_tk_scroll_event_windows() -> None:
@@ -161,7 +205,8 @@ def resolve_filename_candidates(
 
     # 3) Expand output suffixes where needed.
     if output_kind:
-        suffixes = OUTPUT_SUFFIXES.get(output_kind, ())
+        resolved_channel = target_channel or str(fields.get("channel", "") if fields else "")
+        suffixes = output_suffixes_for_kind(output_kind, target_channel=resolved_channel)
         expanded: list[str] = []
 
         # Backwards compatibility: old output naming dropped channel/nuclear tokens.
@@ -182,8 +227,11 @@ def resolve_filename_candidates(
                     legacy_stems.append(stripped)
 
         for stem_name in [Path(name).stem for name in out] + legacy_stems:
-            for suffix in suffixes:
-                expanded.append(f"{stem_name}{suffix}")
+            if output_kind == "fluor_raw":
+                expanded.append(f"{stem_name}{p.suffix}" if p.suffix else stem_name)
+            else:
+                for suffix in suffixes:
+                    expanded.append(f"{stem_name}{suffix}")
         out = expanded
 
     # 4) Expand with variant function (well padding etc).

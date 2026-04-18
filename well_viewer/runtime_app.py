@@ -71,7 +71,10 @@ from well_viewer.preview_controller import classify_member as _preview_classify_
 from well_viewer.preview_controller import open_imgref_as_array as _preview_open_imgref_as_array
 from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
 from well_viewer.preview_controller import scan_zip_members as _preview_scan_zip_members
-from well_viewer.image_resolver import resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp
+from well_viewer.image_resolver import (
+    output_suffixes_for_kind as _output_suffixes_for_kind,
+    resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp,
+)
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
 from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
 from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
@@ -890,9 +893,18 @@ def _beeswarm_jitter(
 # =============================================================================
 
 _IMAGE_EXTS   = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
-_MASK_RE      = re.compile(r"_labels\.(tif{1,2}|png)$", re.I)
-_OVERLAY_RE   = re.compile(r"_overlay\.(tif{1,2}|png|jpe?g)$", re.I)
-_TOPHAT_FLUOR_RE = re.compile(r"_tophat_\w+\.tif{1,2}$", re.I)  # output of process_microscopy: <base>_tophat_<channel>.tif
+
+
+def _suffix_matcher(kind: str) -> re.Pattern[str]:
+    suffixes = [re.escape(sfx) for sfx in _output_suffixes_for_kind(kind, target_channel="x")]
+    if kind in {"fluor_processed", "smfish"}:
+        suffixes = [sfx.replace("x", r"\w+") for sfx in suffixes]
+    return re.compile(r"(?:%s)$" % "|".join(suffixes), re.I)
+
+
+_MASK_RE      = _suffix_matcher("mask")
+_OVERLAY_RE   = _suffix_matcher("overlay")
+_TOPHAT_FLUOR_RE = _suffix_matcher("fluor_processed")
 _OUT_ZIP_RE   = re.compile(r"^([A-Ha-h])(\d{1,2})_out\.zip$", re.I)
 _PLAIN_ZIP_RE = re.compile(r"^([A-Ha-h])(\d{1,2})\.zip$",     re.I)
 _FNAME_RE     = re.compile(

@@ -8,6 +8,8 @@ import io
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
+from well_viewer.image_resolver import classify_filename_kind
+
 
 def classify_member(
     *,
@@ -20,21 +22,12 @@ def classify_member(
     legacy_extractor: Callable[[str], Tuple[str, str]],
     pipeline_fields_extractor: Callable[[str], dict[str, str]] | None = None,
 ) -> Tuple[str, str, str]:
-    is_mask = bool(mask_re.search(name))
-    is_overlay = bool(overlay_re.search(name))
-    is_smfish = bool(re.search(r"_smfish_" + re.escape(fluor_lower) + r"\.tif{1,2}$", name, re.I))
-    is_tophat_fluor = bool(re.search(r"_tophat_" + re.escape(fluor_lower) + r"\.tif{1,2}$", name, re.I))
-
-    if is_mask:
-        stem = Path(mask_re.sub("", name)).stem
-    elif is_overlay:
-        stem = Path(overlay_re.sub("", name)).stem
-    elif is_smfish:
-        stem = re.sub(r"_smfish_" + re.escape(fluor_lower) + r"\.tif{1,2}$", "", name, flags=re.I)
-        stem = Path(stem).stem
-    elif is_tophat_fluor:
-        stem = Path(tophat_fluor_re.sub("", name)).stem
-    else:
+    kind, stem = classify_filename_kind(name, fluor_token=fluor_lower)
+    is_mask = kind == "mask" or bool(mask_re.search(name))
+    is_overlay = kind == "overlay" or bool(overlay_re.search(name))
+    is_smfish = kind == "smfish"
+    is_tophat_fluor = kind == "fluor_processed" or bool(tophat_fluor_re.search(name))
+    if not stem:
         stem = Path(name).stem
 
     parsed_fields = pipeline_fields_extractor(stem) if pipeline_fields_extractor else {}
