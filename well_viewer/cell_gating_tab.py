@@ -255,11 +255,14 @@ class CellGatingTab(tk.Frame):
         """Load cell areas and fluorescence values from currently loaded wells."""
         self._cell_areas = []
         self._fluor_data: dict[str, list[float]] = {}  # channel -> list of values
+        labels = self._cdf_source_wells()
 
-        # Get cell areas and fluorescence values from all loaded wells
-        for label in self._app._well_paths:
+        # Get cell areas and fluorescence values from selected wells, using
+        # only the first frame of the first FOV in each well.
+        for label in labels:
             rows = self._app._get_rows(label)
-            for row in rows:
+            frame_rows, _frame_desc = self._first_frame_rows(rows)
+            for row in frame_rows:
                 # Get cell area
                 try:
                     area = float(row.get("area_px", 0))
@@ -287,7 +290,7 @@ class CellGatingTab(tk.Frame):
             self._axes_stack = []  # Reset zoom history
             self._plot_cdf()
             self._status_label.config(
-                text=f"Loaded {len(self._cell_areas)} cells",
+                text=f"Loaded {len(self._cell_areas)} cells from {len(labels)} selected well(s), first frame of first FOV",
                 fg=TXT_PRI
             )
         else:
@@ -295,6 +298,72 @@ class CellGatingTab(tk.Frame):
                 text="No cell data found",
                 fg=TXT_MUT
             )
+
+    def _first_frame_rows(self, rows: list[dict]) -> tuple[list[dict], str]:
+        """Return rows for the first frame of the first FOV in *rows*."""
+        if not rows:
+            return [], ""
+
+        def _fov_sort_key(row: dict) -> tuple[int, float | str]:
+            raw = str(row.get("fov", "1")).strip() or "1"
+            try:
+                return (0, float(raw))
+            except ValueError:
+                return (1, raw.lower())
+
+        def _tp_sort_key(row: dict) -> tuple[int, float | str]:
+            raw_h = row.get("timepoint_hours")
+            if raw_h not in (None, ""):
+                try:
+                    return (0, float(raw_h))
+                except (ValueError, TypeError):
+                    pass
+            raw_tp = str(row.get("timepoint", "")).strip()
+            if raw_tp:
+                try:
+                    return (1, float(raw_tp))
+                except ValueError:
+                    return (2, raw_tp.lower())
+            return (3, 0.0)
+
+        first_fov = min(rows, key=_fov_sort_key).get("fov", "1")
+        same_fov_rows = [r for r in rows if str(r.get("fov", "1")) == str(first_fov)]
+        if not same_fov_rows:
+            return [], ""
+
+        first_tp_row = min(same_fov_rows, key=_tp_sort_key)
+        first_tp_h = first_tp_row.get("timepoint_hours")
+        first_tp = first_tp_row.get("timepoint")
+
+        def _tp_matches(row: dict) -> bool:
+            if first_tp_h not in (None, "") and row.get("timepoint_hours") == first_tp_h:
+                return True
+            return str(row.get("timepoint", "")) == str(first_tp)
+
+        frame_rows = [r for r in same_fov_rows if _tp_matches(r)]
+        frame_desc = f"fov={first_fov}, tp={first_tp if first_tp not in (None, '') else first_tp_h}"
+        return frame_rows, frame_desc
+
+    def _cdf_source_wells(self) -> list[str]:
+        """Return CDF source wells from the global sidebar selection/grouping state."""
+        active_rsets = []
+        if hasattr(self._app, "_rep_sets_active"):
+            active_rsets = self._app._rep_sets_active()
+
+        if active_rsets:
+            seen: set[str] = set()
+            ordered: list[str] = []
+            for rset in active_rsets:
+                for well in rset.wells:
+                    if well in self._app._well_paths and well not in seen:
+                        seen.add(well)
+                        ordered.append(well)
+            return sorted(ordered, key=self._app._parse_rc)
+
+        return sorted(
+            (label for label in self._app._selected_wells if label in self._app._well_paths),
+            key=self._app._parse_rc,
+        )
 
     def _plot_cdf(self) -> None:
         """Plot CDFs for cell area and all fluorescence channels."""
