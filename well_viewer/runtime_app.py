@@ -3413,18 +3413,24 @@ class WellViewerApp(tk.Frame):
             self._montage_status.config(text="No images found for this well.")
             return
 
-        # Filter refs to this FOV
-        fluor_refs     = [(tp, ref) for (f, tp), ref in sorted(self._preview_fluor.items())
-                        if f == fov]
-
-        # If no raw fluor images exist for this FOV, fall back to tophat images
-        # as the primary source (normal case: pipeline only saves tophat output).
+        # Filter refs to this FOV. Prefer pre-generated tophat frames from the
+        # out directory for each timepoint, with raw fluor as fallback.
+        raw_by_tp = {
+            tp: ref for (f, tp), ref in sorted(self._preview_fluor.items())
+            if f == fov
+        }
         tophat_refs = getattr(self, "_preview_tophat_fluor", {})
-        _used_tophat_as_primary = False
-        if not fluor_refs:
-            fluor_refs = [(tp, ref) for (f, tp), ref in sorted(tophat_refs.items())
-                        if f == fov]
-            _used_tophat_as_primary = bool(fluor_refs)
+        tophat_by_tp = {
+            tp: ref for (f, tp), ref in sorted(tophat_refs.items())
+            if f == fov
+        }
+        ordered_tps = list(raw_by_tp.keys())
+        for tp in tophat_by_tp.keys():
+            if tp not in ordered_tps:
+                ordered_tps.append(tp)
+        fluor_refs = [(tp, tophat_by_tp.get(tp) or raw_by_tp.get(tp)) for tp in ordered_tps]
+        fluor_refs = [(tp, ref) for tp, ref in fluor_refs if ref is not None]
+        _used_tophat_as_primary = bool(fluor_refs) and all(tp in tophat_by_tp for tp, _ in fluor_refs)
 
         overlay_refs = [(tp, ref) for (f, tp), ref in sorted(self._preview_overlay.items())
                         if f == fov]
@@ -3451,30 +3457,11 @@ class WellViewerApp(tk.Frame):
             for ref in self._montage_overlay_refs
         ]
 
-        # If tophat images were used as the primary source, the arrays we just
-        # loaded ARE the display arrays — no re-load needed.
-        if _used_tophat_as_primary:
-            self._montage_fluor_display_arrays = list(self._montage_fluor_arrays)
-            self._montage_tophat_preloaded   = True
-        else:
-            # Prefer pre-filtered tophat frames by default when present;
-            # fall back to raw fluor frames for any timepoints without a
-            # matching tophat image.
-            raw_by_tp = {
-                tp: arr for (tp, _), arr in zip(fluor_refs, self._montage_fluor_arrays)
-            }
-            self._montage_fluor_display_arrays = []
-            _used_any_tophat = False
-            for tp, _ in fluor_refs:
-                th_ref = tophat_refs.get((fov, tp))
-                if th_ref is not None:
-                    self._montage_fluor_display_arrays.append(
-                        open_imgref_as_array(th_ref, greyscale=True)
-                    )
-                    _used_any_tophat = True
-                else:
-                    self._montage_fluor_display_arrays.append(raw_by_tp[tp])
-            self._montage_tophat_preloaded = _used_any_tophat
+        # Loaded fluorescence refs already apply tophat-first selection.
+        self._montage_fluor_display_arrays = list(self._montage_fluor_arrays)
+        self._montage_tophat_preloaded = _used_tophat_as_primary or any(
+            tp in tophat_by_tp for tp, _ in fluor_refs
+        )
 
         self._montage_status.config(text="")
         self._montage_auto_lut(redraw=False)  # set initial LUT from data
@@ -4598,14 +4585,14 @@ class WellViewerApp(tk.Frame):
             return
 
         fluor_ref = _resolve_ref_by_fov_tp(
-            self._preview_fluor,
+            getattr(self, "_preview_tophat_fluor", {}),
             fov_raw=fov_raw,
             tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
         if fluor_ref is None:
             fluor_ref = _resolve_ref_by_fov_tp(
-                getattr(self, "_preview_tophat_fluor", {}),
+                self._preview_fluor,
                 fov_raw=fov_raw,
                 tp_raw=tp_raw,
                 norm_timepoint=self._norm_timepoint,

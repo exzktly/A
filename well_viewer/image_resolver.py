@@ -1,14 +1,26 @@
-"""Shared image resolution helpers used by Review/Preview/Scatter/smFISH tabs."""
+"""Shared image resolution helpers used by Review/Preview/Scatter/smFISH tabs.
+
+This module is the canonical source for:
+- filename suffix families (`raw`, `tophat`, `smfish`, `overlay`, `mask`)
+- per-file kind classification
+- per-frame kind precedence selection for `(fov, timepoint)` keys
+
+`resolve_channel_frame_refs` is the high-level API for tabs/controllers to
+obtain display-ready frame refs with deterministic reason codes.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Callable, Mapping, Optional
 
 
 OUTPUT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "mask": ("_labels.tif", "_labels.tiff", "_labels.png"),
     "overlay": ("_overlay.png", "_overlay.jpg", "_overlay.jpeg", "_overlay.tif", "_overlay.tiff"),
+    "tophat": ("_tophat_{channel}.tif", "_tophat_{channel}.tiff"),
+    # Backwards-compatible alias for old callers.
     "fluor_processed": ("_tophat_{channel}.tif", "_tophat_{channel}.tiff"),
     "fluor_raw": (),
     "smfish": ("_smfish_{channel}.tif", "_smfish_{channel}.tiff"),
@@ -19,13 +31,48 @@ OUTPUT_KIND_PRECEDENCE: tuple[str, ...] = (
     "mask",
     "overlay",
     "smfish",
+    "tophat",
     "fluor_processed",
 )
 
 
+CANONICAL_SUFFIX_FAMILIES: tuple[str, ...] = (
+    "fluor_raw",
+    "tophat",
+    "smfish",
+    "overlay",
+    "mask",
+)
+
+
+CHANNEL_FRAME_PRECEDENCE: tuple[str, ...] = (
+    "smfish",
+    "tophat",
+    "fluor_raw",
+    "overlay",
+    "mask",
+)
+
+
+KIND_ALIASES: dict[str, str] = {
+    "fluor_processed": "tophat",
+}
+
+
+@dataclass(frozen=True)
+class ResolvedFrameRef:
+    """Resolved frame selection for a single `(fov, timepoint)` key."""
+
+    key: tuple[str, str]
+    kind: str
+    ref: object | None
+    reason: str
+
+
 def output_suffixes_for_kind(output_kind: str, *, target_channel: str = "") -> tuple[str, ...]:
     """Return resolved suffixes for output kind, applying channel templates."""
-    raw = OUTPUT_SUFFIXES.get(output_kind, ())
+    canonical_kind = KIND_ALIASES.get(output_kind, output_kind)
+    raw = OUTPUT_SUFFIXES.get(canonical_kind, ())
     channel = str(target_channel or "").strip().lower()
     out: list[str] = []
     for suffix in raw:
@@ -130,6 +177,100 @@ def resolve_ref_by_fov_tp(
         if normalize_numeric_token(k_fov) == fov_norm and norm_timepoint(k_tp) == tp_norm:
             return k_ref
     return None
+
+
+def resolve_channel_frame_refs(
+    *,
+    refs_by_kind: Mapping[str, Mapping[tuple[str, str], object]],
+    precedence: tuple[str, ...] = CHANNEL_FRAME_PRECEDENCE,
+    expected_keys: set[tuple[str, str]] | None = None,
+    logger=None,
+    context: Mapping[str, object] | None = None,
+) -> dict[tuple[str, str], ResolvedFrameRef]:
+    """Resolve one canonical frame ref per `(fov, timepoint)` using precedence.
+
+    Args:
+        refs_by_kind: Mapping of canonical output kind -> per-key references.
+        precedence: Kind ordering to evaluate for each key.
+        expected_keys: Optional key set to include unresolved placeholders for.
+        logger: Optional logger used for INFO/DEBUG diagnostics.
+        context: Optional metadata (well/channel/paths/etc.) added to logs.
+
+    Returns:
+        Mapping from key -> `ResolvedFrameRef`, including reason codes:
+        - `selected_first_preference`
+        - `selected_fallback_preference`
+        - `missing_all_candidates`
+    """
+    normalized_refs_by_kind: dict[str, Mapping[tuple[str, str], object]] = {}
+    for in_kind, refs in refs_by_kind.items():
+        canonical = KIND_ALIASES.get(in_kind, in_kind)
+        if canonical in normalized_refs_by_kind:
+            merged = dict(normalized_refs_by_kind[canonical])
+            merged.update(refs)
+            normalized_refs_by_kind[canonical] = merged
+        else:
+            normalized_refs_by_kind[canonical] = refs
+
+    valid_precedence = tuple(
+        KIND_ALIASES.get(kind, kind)
+        for kind in precedence
+        if KIND_ALIASES.get(kind, kind) in CANONICAL_SUFFIX_FAMILIES
+    )
+    if not valid_precedence:
+        valid_precedence = CHANNEL_FRAME_PRECEDENCE
+
+    if logger is not None:
+        logger.info(
+            "image_resolver context=%s precedence=%s",
+            dict(context or {}),
+            " > ".join(valid_precedence),
+        )
+
+    discovered: set[tuple[str, str]] = set(expected_keys or set())
+    counts: dict[str, int] = {}
+    for kind in CANONICAL_SUFFIX_FAMILIES:
+        per_kind = normalized_refs_by_kind.get(kind, {})
+        counts[kind] = len(per_kind)
+        discovered.update(per_kind.keys())
+
+    if logger is not None:
+        logger.info(
+            "image_resolver discovered counts: %s",
+            ", ".join(f"{kind}={counts.get(kind, 0)}" for kind in CANONICAL_SUFFIX_FAMILIES),
+        )
+
+    resolved: dict[tuple[str, str], ResolvedFrameRef] = {}
+    for key in sorted(discovered, key=lambda k: (str(k[0]), str(k[1]))):
+        chosen_kind = ""
+        chosen_ref: object | None = None
+        for idx, kind in enumerate(valid_precedence):
+            ref = normalized_refs_by_kind.get(kind, {}).get(key)
+            if ref is None:
+                continue
+            chosen_kind = kind
+            chosen_ref = ref
+            reason = "selected_first_preference" if idx == 0 else "selected_fallback_preference"
+            break
+        else:
+            reason = "missing_all_candidates"
+            chosen_kind = "missing"
+
+        resolved[key] = ResolvedFrameRef(
+            key=key,
+            kind=chosen_kind,
+            ref=chosen_ref,
+            reason=reason,
+        )
+        if logger is not None:
+            logger.debug(
+                "image_resolver decision key=%s kind=%s reason=%s",
+                key,
+                chosen_kind,
+                reason,
+            )
+
+    return resolved
 
 
 def schema_fields(pipeline_info: Optional[dict]) -> list[str]:
