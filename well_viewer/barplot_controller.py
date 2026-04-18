@@ -144,7 +144,6 @@ def render_bar_items(
     well_colors: list[str],
     warn_color: str,
     border_color: str,
-    placeholder_color: str,
     disabled_well_color: str,
     err_bar_color: str,
 ) -> None:
@@ -177,11 +176,6 @@ def render_bar_items(
                     ax_frac.bar(i, gf, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                     if g_err_f > 0:
                         ax_frac.errorbar(i, gf, yerr=g_err_f, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-                else:
-                    ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
-            else:
-                for ax in (ax_mean, ax_frac):
-                    ax.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
     else:
         bar_w = min(0.6, 5.0 / max(n, 1))
         for i, (_label, mean, spread, frac, has_data) in enumerate(items):
@@ -190,12 +184,8 @@ def render_bar_items(
                 ax_mean.bar(i, mean, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                 if spread > 0:
                     ax_mean.errorbar(i, mean, yerr=spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-            else:
-                ax_mean.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             if has_data and not math.isnan(frac):
                 ax_frac.bar(i, frac, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-            else:
-                ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 
     ax_mean.axhline(threshold, color=warn_color, lw=1.0, ls="--", alpha=0.7, zorder=1, label=f"threshold={threshold:.2f}")
     ax_frac.axhline(0.5, color=border_color, lw=0.8, ls="--", alpha=0.5, zorder=1)

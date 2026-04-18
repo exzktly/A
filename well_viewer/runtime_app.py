@@ -162,7 +162,6 @@ from ui.theme import (
     CLR_MUTED_DISABLED,
     CLR_MUTED_TEXT_SOFT,
     CLR_OFF_WHITE,
-    CLR_PLACEHOLDER,
     CLR_SLATE_BG,
     CLR_SLATE_TEXT,
     CLR_SUCCESS,
@@ -5577,13 +5576,10 @@ class WellViewerApp(tk.Frame):
             ax_mean.hlines(median, i - bar_w * 0.6, i + bar_w * 0.6,
                            colors=color, lw=1.2, zorder=6)
 
-        # Fraction panel — scalar dot per well
+        # Fraction panel — scalar dot per well (skip wells with no fraction value)
         for i, (fv, color) in enumerate(zip(frac_vals, colors)):
             if not math.isnan(fv):
                 ax_frac.scatter([i], [fv], c=color, s=30, zorder=3, linewidths=0)
-            else:
-                ax_frac.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                marker="x", zorder=3, linewidths=1)
 
         # Threshold line, tick labels
         ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.7, zorder=1)
@@ -5664,18 +5660,9 @@ class WellViewerApp(tk.Frame):
                 m = sum(cell_vals) / len(cell_vals)
                 ax_mean.plot([i - bar_w * 0.6, i + bar_w * 0.6],
                              [m, m], color=color, lw=1.5, zorder=4)
-            else:
-                # No data placeholder: tiny cross (omitted in log mode since log(0) undef)
-                if not log_scale:
-                    ax_mean.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                    marker="x", zorder=3, linewidths=1)
-
             if frac_val is not None:
                 ax_frac.scatter([i], [frac_val], c=color, s=30,
                                 zorder=3, linewidths=0)
-            else:
-                ax_frac.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                marker="x", zorder=3, linewidths=1)
 
         ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--",
                         alpha=0.7, zorder=1)
@@ -5904,7 +5891,6 @@ class WellViewerApp(tk.Frame):
             well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color=BORDER,
-            placeholder_color=CLR_PLACEHOLDER,
             disabled_well_color=CLR_DISABLED_WELL,
             err_bar_color=CLR_ERR_BAR,
         )
@@ -6175,7 +6161,6 @@ class WellViewerApp(tk.Frame):
             well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color=BORDER,
-            placeholder_color=CLR_PLACEHOLDER,
             disabled_well_color=CLR_DISABLED_WELL,
             err_bar_color=CLR_ERR_BAR,
         )

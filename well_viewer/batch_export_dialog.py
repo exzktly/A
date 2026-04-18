@@ -19,7 +19,6 @@ from well_viewer.runtime_app import (
     CLR_DANGER_HOVER,
     CLR_DISABLED_WELL,
     CLR_ERR_BAR,
-    CLR_PLACEHOLDER,
     CLR_SUCCESS,
     CLR_SUCCESS_DARK,
     CLR_WHITE,
@@ -1497,7 +1496,6 @@ class BarBatchExportPanel(BatchExportPanel):
             well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color=BORDER,
-            placeholder_color=CLR_PLACEHOLDER,
             disabled_well_color=CLR_DISABLED_WELL,
             err_bar_color=CLR_ERR_BAR,
         )
