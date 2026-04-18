@@ -35,7 +35,6 @@ from typing import Callable, Optional
 from services.input_resolution_service import resolve_input_output, tif_files_in
 from services.pipeline_service import (
     build_pipeline_args,
-    effective_fluor_tokens,
     find_pipeline_script,
     spawn_pipeline,
     write_pipeline_info,
@@ -1142,16 +1141,12 @@ class AnalyzeTab(tk.Frame):
 
     def _write_pipeline_sidecar(self, output_dir: Path, opts: dict) -> None:
         try:
-            fluor_tokens_effective = effective_fluor_tokens(
-                opts.get("fluor_tokens", []),
-                nuclear_token=opts.get("nuclear_token", ""),
-            )
             info_path = write_pipeline_info(
                 output_dir,
                 filename_schema=opts["filename_schema"],
                 filename_sep=opts["filename_sep"],
                 nuclear_token=opts.get("nuclear_token", ""),
-                fluor_tokens=fluor_tokens_effective,
+                fluor_tokens=opts.get("fluor_tokens", []),
                 smfish_tokens=opts.get("smfish_tokens", []),
                 segmentation_method=opts.get("segmentation_method", "stardist_nuclei"),
                 cytoplasm_token=opts.get("cytoplasm_token", ""),
