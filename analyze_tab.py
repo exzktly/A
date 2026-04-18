@@ -558,8 +558,8 @@ class AnalyzeTab(tk.Frame):
         self._compress_output_well_folders = tk.BooleanVar(value=True)
         self._csv_prefix = tk.StringVar(value="gfp_measurements")
         for txt, var in (
-            ("Compress input well folders to .zip", self._compress_input_well_folders),
-            ("Compress output well folders to .zip", self._compress_output_well_folders),
+            ("Folder mode only: Compress input well folders to .zip", self._compress_input_well_folders),
+            ("Folder mode only: Compress output well folders to .zip", self._compress_output_well_folders),
         ):
             tk.Checkbutton(
                 sec,
@@ -1063,6 +1063,7 @@ class AnalyzeTab(tk.Frame):
         self._running = True
         self._well_total = 0
         self._well_done = 0
+        self._zip_mode_warning_logged = False
         self._progress["value"] = 0
         self._prog_lbl.config(text="Preparing…", fg=TXT_MUT)
         self._run_btn.config(state=tk.DISABLED)
@@ -1200,6 +1201,13 @@ class AnalyzeTab(tk.Frame):
             if resolved is None:
                 return
             input_dir, output_dir = resolved
+            if any(input_dir.glob("*.zip")):
+                self._log_q.put(
+                    (
+                        "line",
+                        "[warn] Zip mode detected (input contains *.zip wells); folder-mode compression options do not apply.\n",
+                    )
+                )
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
@@ -1261,6 +1269,17 @@ class AnalyzeTab(tk.Frame):
         # Skip zipper lines — those are tracked via zipper_well messages
         if line.startswith("[zipper]"):
             return
+
+        if ("Zip mode:" in line or "Zip mode complete" in line) and not getattr(
+            self, "_zip_mode_warning_logged", False
+        ):
+            self._zip_mode_warning_logged = True
+            self._log_q.put(
+                (
+                    "line",
+                    "[warn] Zip mode detected (input contains *.zip wells); folder-mode compression options do not apply.\n",
+                )
+            )
 
         # ── Worker count — log once when the pipeline announces it ───────
         m = _re.search(r"TF threads/worker\s*:\s*\d+\s+\(workers:\s*(\d+)\s+x", line)
