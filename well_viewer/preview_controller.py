@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
 from well_viewer.image_resolver import classify_filename_kind
+from well_viewer import debug_flags
 
 
 def classify_member(
@@ -33,6 +34,7 @@ def classify_member(
     parsed_fields = pipeline_fields_extractor(stem) if pipeline_fields_extractor else {}
     extractor = fov_tp_extractor if fov_tp_extractor is not None else legacy_extractor
     fov, tp = extractor(stem)
+    channel_field = str(parsed_fields.get("channel", "")).strip().lower()
 
     if is_mask:
         return "mask", fov, tp
@@ -41,9 +43,16 @@ def classify_member(
     if is_smfish:
         return "smfish", fov, tp
     if is_tophat_fluor:
-        return "tophat_fluor", fov, tp
+        # Apply the same channel filtering policy used for raw fluorescence:
+        # prefer schema-derived channel when available, else token-in-stem fallback.
+        if channel_field:
+            if channel_field == fluor_lower:
+                return "tophat_fluor", fov, tp
+            return "", fov, tp
+        if re.search(rf"(?:^|_)({re.escape(fluor_lower)})(?:_|$)", stem, re.I):
+            return "tophat_fluor", fov, tp
+        return "", fov, tp
 
-    channel_field = str(parsed_fields.get("channel", "")).strip().lower()
     if channel_field:
         if channel_field == fluor_lower:
             return "fluor", fov, tp
@@ -192,14 +201,15 @@ def open_imgref_as_array(
                 if arr.ndim == 3:
                     arr = arr.mean(axis=2)
                 arr = arr.astype(np_module.float32)
-            logger.debug(
-                "tifffile: %s  dtype=%s  shape=%s  range=[%.0f,%.0f]",
-                ref.name,
-                arr.dtype,
-                arr.shape,
-                arr.min(),
-                arr.max(),
-            )
+            if debug_flags.review_image_load_debug_enabled() or debug_flags.movie_montage_load_debug_enabled():
+                logger.debug(
+                    "tifffile: %s  dtype=%s  shape=%s  range=[%.0f,%.0f]",
+                    ref.name,
+                    arr.dtype,
+                    arr.shape,
+                    arr.min(),
+                    arr.max(),
+                )
             return arr
 
         if not pil_available:
@@ -226,14 +236,15 @@ def open_imgref_as_array(
         else:
             arr = np_module.array(pil.convert("L"), dtype=np_module.float32)
 
-        logger.debug(
-            "PIL: %s  mode=%s  shape=%s  range=[%.0f,%.0f]",
-            ref.name,
-            pil.mode,
-            arr.shape,
-            arr.min(),
-            arr.max(),
-        )
+        if debug_flags.review_image_load_debug_enabled() or debug_flags.movie_montage_load_debug_enabled():
+            logger.debug(
+                "PIL: %s  mode=%s  shape=%s  range=[%.0f,%.0f]",
+                ref.name,
+                pil.mode,
+                arr.shape,
+                arr.min(),
+                arr.max(),
+            )
         return arr
     except Exception as exc:
         logger.warning("open_imgref_as_array failed for %s: %s", ref.name, exc)

@@ -17,6 +17,8 @@ REVIEW_BAR_DEBUG: bool = False
 REVIEW_SCATTER_DEBUG: bool = False
 REVIEW_IMAGE_DEBUG: bool = False
 REVIEW_IMAGE_LOAD_DEBUG: bool = False
+# Focused channel-switch trace toggle (kept ON for targeted diagnosis).
+REVIEW_IMAGE_CHANNEL_SWITCH_DEBUG: bool = True
 
 # Movie Montage tab debug switches
 MOVIE_MONTAGE_DEBUG: bool = False
@@ -45,6 +47,11 @@ def review_image_debug_enabled() -> bool:
 def review_image_load_debug_enabled() -> bool:
     """Return whether Review Image image-loading debug output is enabled."""
     return REVIEW_TAB_DEBUG or REVIEW_IMAGE_LOAD_DEBUG
+
+
+def review_image_channel_switch_debug_enabled() -> bool:
+    """Return whether focused Review Image channel-switch tracing is enabled."""
+    return REVIEW_IMAGE_CHANNEL_SWITCH_DEBUG
 
 
 def movie_montage_debug_enabled() -> bool:

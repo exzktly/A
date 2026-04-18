@@ -110,5 +110,5 @@ def build_bottom(app) -> None:
     handler.setLevel(logging.DEBUG)
     rt._logger.addHandler(handler)
     rt._logger.setLevel(logging.DEBUG)
-    logging.getLogger().addHandler(handler)
-
+    # Avoid duplicate log lines: keep GUI handler on the well_viewer logger only.
+    rt._logger.propagate = False
