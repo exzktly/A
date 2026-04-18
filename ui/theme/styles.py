@@ -14,7 +14,7 @@ from tkinter import ttk
 from typing import Dict, Any
 
 # ── Current theme (global state) ──────────────────────────────────────────────
-_CURRENT_THEME = "Dark"
+_CURRENT_THEME = "Warm"
 
 # ── Dark Mode Color Palette ───────────────────────────────────────────────────
 _DARK_THEME = {
@@ -83,6 +83,87 @@ _DARK_THEME = {
     "button_text":          "#F8FAFC",
     "button_text_disabled": "#64748B",
     "BTN_TEXT_BLACK":       "#000000",
+}
+
+# ── Warm Mode Color Palette ("Ivory mint") ────────────────────────────────────
+# Playful-scientific redesign: cream + deep teal + peach/amber.
+_WARM_THEME = {
+    # Backgrounds
+    "BG_APP":   "#F4F1EB",   # warm cream shell
+    "BG_SIDE":  "#EEE9DF",   # slightly deeper cream sidebar
+    "BG_PANEL": "#FFFFFF",   # clean white panels
+    "BG_CELL":  "#E9E4D8",   # sunk / cell background
+    "BG_HOVER": "#D4CBBA",   # hover (darker than sunk)
+    "BORDER":   "#DED7C7",   # hairline separators
+
+    # Tab chrome
+    "TAB_BG":        "#E9E4D8",
+    "TAB_BG_ACTIVE": "#FFFFFF",
+    "TAB_FG":        "#6F7874",
+    "TAB_FG_ACTIVE": "#115E59",
+    "TAB_BORDER":    "#DED7C7",
+
+    # Text
+    "TXT_PRI": "#14201D",
+    "TXT_SEC": "#2D3936",
+    "TXT_MUT": "#6F7874",
+
+    # Accents
+    "ACCENT":      "#115E59",   # deep teal
+    "ACCENT_DARK": "#0B403C",
+    "WARN":        "#B9862D",   # amber
+
+    # Plot palette
+    "PLOT_BG":  "#FFFFFF",
+    "PLOT_GRD": "#CDE4E0",
+    "PLOT_SPN": "#277F6C",
+    "PLOT_TXT": "#14201D",
+
+    # Semantic colors
+    "CLR_WHITE":             "#FFFFFF",
+    "CLR_OFF_WHITE":         "#F4F1EB",
+    "CLR_SUCCESS":           "#277F6C",
+    "CLR_SUCCESS_DARK":      "#1A5A4A",
+    "CLR_SUCCESS_BG_DARK":   "#D0EDE8",
+    "CLR_SUCCESS_TEXT_SOFT": "#0B403C",
+    "CLR_DANGER":            "#9F3A36",
+    "CLR_DANGER_DARK":       "#7A2B27",
+    "CLR_DANGER_BG":         "#F5D5D3",
+    "CLR_DANGER_HOVER":      "#7A2B27",
+    "CLR_ERROR_BG_DARK":     "#F5D5D3",
+    "CLR_ERROR_TEXT_SOFT":   "#7A2B27",
+    "CLR_WARN_DARK":         "#8C6420",
+    "CLR_WARN_TEXT":         "#5C4215",
+    "CLR_WARN_BG":           "#F5E8CC",
+    "CLR_SLATE_BG":          "#F4F1EB",
+    "CLR_SLATE_TEXT":        "#14201D",
+    "CLR_MUTED_DISABLED":    "#A8B0AD",
+    "CLR_MUTED_TEXT_SOFT":   "#6F7874",
+    "CLR_PLACEHOLDER":       "#A8B0AD",
+    "CLR_ERR_BAR":           "#DED7C7",
+    "CLR_AVAIL_WELL":        "#E9E4D8",
+    "CLR_AVAIL_HOVER":       "#D4CBBA",
+
+    # Tooltip
+    "TOOLTIP_BG": "#FFFFFF",
+    "TOOLTIP_FG": "#14201D",
+
+    # Button base tokens
+    "button_bg":            "#E9E4D8",
+    "button_text":          "#14201D",
+    "button_text_disabled": "#A8B0AD",
+    "BTN_TEXT_BLACK":       "#000000",
+
+    # Well group colors — earthy, warm palette (distinct on cream background)
+    "WELL_COLOR_1": "#115E59",   # deep teal
+    "WELL_COLOR_2": "#C8622A",   # burnt orange
+    "WELL_COLOR_3": "#B9862D",   # amber
+    "WELL_COLOR_4": "#6B4FA0",   # purple
+    "WELL_COLOR_5": "#3C7BA5",   # steel blue
+    "WELL_COLOR_6": "#9F3A36",   # brick red
+    "WELL_COLOR_7": "#277F6C",   # teal alt
+    "WELL_COLOR_8": "#A68646",   # ochre
+    "WELL_COLOR_9": "#C463A0",   # rose
 }
 
 # ── Light Mode Color Palette ──────────────────────────────────────────────────
@@ -169,8 +250,9 @@ _WELL_COLORS = {
 
 # ── Theme dictionary ─────────────────────────────────────────────────────────
 THEMES = {
-    "Dark": _DARK_THEME,
+    "Dark":  _DARK_THEME,
     "Light": _LIGHT_THEME,
+    "Warm":  _WARM_THEME,
 }
 
 def set_theme(theme_name: str) -> None:
@@ -300,10 +382,25 @@ def rebuild_widget_colors(widget, old_theme: str, new_theme: str) -> None:
         pass
 
 def get_theme_colors() -> Dict[str, str]:
-    """Get the current theme's color palette."""
-    colors = THEMES[_CURRENT_THEME].copy()
-    colors.update(_WELL_COLORS)
+    """Get the current theme's color palette.
+
+    Theme-level WELL_COLOR_* entries override the shared defaults, so each
+    theme can carry its own group-color palette.
+    """
+    colors = _WELL_COLORS.copy()           # start from shared defaults
+    colors.update(THEMES[_CURRENT_THEME])  # theme overrides (including WELL_COLOR_*)
     return colors
+
+
+def get_well_colors() -> "list[str]":
+    """Return the ordered list of well/group colors for the current theme."""
+    c = get_theme_colors()
+    return [
+        c["WELL_COLOR_1"], c["WELL_COLOR_2"], c["WELL_COLOR_3"],
+        c["CLR_SUCCESS"],
+        c["WELL_COLOR_4"], c["WELL_COLOR_5"], c["WELL_COLOR_6"],
+        c["WELL_COLOR_7"], c["WELL_COLOR_8"], c["WELL_COLOR_9"],
+    ]
 
 def get_color(color_name: str) -> str:
     """Get a single color from the current theme."""
@@ -311,81 +408,81 @@ def get_color(color_name: str) -> str:
     return colors.get(color_name, "#000000")
 
 # ── Backward compatibility: Direct color constants from current theme ────────
-# These will be replaced dynamically when theme changes
-BG_APP   = "#0F172A"
-BG_SIDE  = "#1E293B"
-BG_PANEL = "#111827"
-BG_CELL  = "#334155"
-BG_HOVER = "#475569"
-BORDER   = "#64748B"
+# Initialized to Warm defaults; _update_module_colors() refreshes on theme change.
+BG_APP   = "#F4F1EB"
+BG_SIDE  = "#EEE9DF"
+BG_PANEL = "#FFFFFF"
+BG_CELL  = "#E9E4D8"
+BG_HOVER = "#D4CBBA"
+BORDER   = "#DED7C7"
 
 # Tab chrome
-TAB_BG        = "#1F2937"
-TAB_BG_ACTIVE = "#374151"
-TAB_FG        = "#CBD5E1"
-TAB_FG_ACTIVE = "#FFFFFF"
-TAB_BORDER    = "#475569"
+TAB_BG        = "#E9E4D8"
+TAB_BG_ACTIVE = "#FFFFFF"
+TAB_FG        = "#6F7874"
+TAB_FG_ACTIVE = "#115E59"
+TAB_BORDER    = "#DED7C7"
 
 # Text
-TXT_PRI = "#F8FAFC"
-TXT_SEC = "#E2E8F0"
-TXT_MUT = "#94A3B8"
+TXT_PRI = "#14201D"
+TXT_SEC = "#2D3936"
+TXT_MUT = "#6F7874"
 
 # Accents
-ACCENT      = "#3B82F6"
-ACCENT_DARK = "#2563EB"
-WARN        = "#F59E0B"
+ACCENT      = "#115E59"
+ACCENT_DARK = "#0B403C"
+WARN        = "#B9862D"
 
 # Plot palette
 PLOT_BG  = "#FFFFFF"
-PLOT_GRD = "#B8CAE3"
-PLOT_SPN = "#7F9FC9"
-PLOT_TXT = "#2E4768"
+PLOT_GRD = "#CDE4E0"
+PLOT_SPN = "#277F6C"
+PLOT_TXT = "#14201D"
 
 # Semantic colors
 CLR_WHITE            = "#FFFFFF"
-CLR_OFF_WHITE        = "#F0F4FF"
-CLR_SUCCESS          = "#059669"
-CLR_SUCCESS_DARK     = "#047857"
-CLR_SUCCESS_BG_DARK  = "#064E3B"
-CLR_SUCCESS_TEXT_SOFT= "#6EE7B7"
-CLR_DANGER           = "#DC2626"
-CLR_DANGER_DARK      = "#B91C1C"
-CLR_DANGER_BG        = "#7F1D1D"
-CLR_DANGER_HOVER     = "#991B1B"
-CLR_ERROR_BG_DARK    = "#7F1D1D"
-CLR_ERROR_TEXT_SOFT  = "#FCA5A5"
-CLR_WARN_DARK        = "#D97706"
-CLR_WARN_TEXT        = "#92400E"
-CLR_WARN_BG          = "#78350F"
-CLR_SLATE_BG         = "#0F172A"
-CLR_SLATE_TEXT       = "#FCD34D"
-CLR_MUTED_DISABLED   = "#A0AEC0"
-CLR_MUTED_TEXT_SOFT  = "#CBD5E1"
-CLR_PLACEHOLDER      = "#64748B"
-CLR_ERR_BAR          = "#4A5568"
-CLR_AVAIL_WELL       = "#1F2937"
-CLR_AVAIL_HOVER      = "#374151"
+CLR_OFF_WHITE        = "#F4F1EB"
+CLR_SUCCESS          = "#277F6C"
+CLR_SUCCESS_DARK     = "#1A5A4A"
+CLR_SUCCESS_BG_DARK  = "#D0EDE8"
+CLR_SUCCESS_TEXT_SOFT= "#0B403C"
+CLR_DANGER           = "#9F3A36"
+CLR_DANGER_DARK      = "#7A2B27"
+CLR_DANGER_BG        = "#F5D5D3"
+CLR_DANGER_HOVER     = "#7A2B27"
+CLR_ERROR_BG_DARK    = "#F5D5D3"
+CLR_ERROR_TEXT_SOFT  = "#7A2B27"
+CLR_WARN_DARK        = "#8C6420"
+CLR_WARN_TEXT        = "#5C4215"
+CLR_WARN_BG          = "#F5E8CC"
+CLR_SLATE_BG         = "#F4F1EB"
+CLR_SLATE_TEXT       = "#14201D"
+CLR_MUTED_DISABLED   = "#A8B0AD"
+CLR_MUTED_TEXT_SOFT  = "#6F7874"
+CLR_PLACEHOLDER      = "#A8B0AD"
+CLR_ERR_BAR          = "#DED7C7"
+CLR_AVAIL_WELL       = "#E9E4D8"
+CLR_AVAIL_HOVER      = "#D4CBBA"
 
 # Tooltip
 TOOLTIP_BG = "#FFFFFF"
-TOOLTIP_FG = "#1F2937"
+TOOLTIP_FG = "#14201D"
 
-# Well group colors
-WELL_COLOR_1 = "#3B82F6"
-WELL_COLOR_2 = "#EF4444"
-WELL_COLOR_3 = "#F59E0B"
-WELL_COLOR_4 = "#8B5CF6"
-WELL_COLOR_5 = "#F97316"
-WELL_COLOR_6 = "#06B6D4"
-WELL_COLOR_7 = "#EC4899"
-WELL_COLOR_8 = "#84CC16"
-WELL_COLOR_9 = "#A855F7"
+# Well group colors (Warm defaults; overridden per theme by _update_module_colors)
+WELL_COLOR_1 = "#115E59"
+WELL_COLOR_2 = "#C8622A"
+WELL_COLOR_3 = "#B9862D"
+WELL_COLOR_4 = "#6B4FA0"
+WELL_COLOR_5 = "#3C7BA5"
+WELL_COLOR_6 = "#9F3A36"
+WELL_COLOR_7 = "#277F6C"
+WELL_COLOR_8 = "#A68646"
+WELL_COLOR_9 = "#C463A0"
 
 # Button base tokens
-button_bg            = "#374151"
-button_text          = "#F8FAFC"
-button_text_disabled = "#64748B"
+button_bg            = "#E9E4D8"
+button_text          = "#14201D"
+button_text_disabled = "#A8B0AD"
 BTN_TEXT_BLACK           = "#000000"
 BTN_FLAT_BG              = button_bg
 BTN_FLAT_TEXT            = button_text

@@ -54,12 +54,15 @@ def plate_drag_press(app, tok: str, well_set: set, ds: dict) -> None:
 
 def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
     from well_viewer import runtime_app as rt
+    from ui.theme import get_well_colors as _get_well_colors, get_color as _get_color
 
     if tok in ds["visited"]:
         return
     ds["visited"].add(tok)
     if tok not in app._well_paths:
         return
+
+    live_well_colors = _get_well_colors()
 
     if app._rep_sets:
         si = app._rep_idx_for_label(tok)
@@ -73,17 +76,17 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
         loaded = app._rep_sets_loaded()
         if si < len(loaded):
             rset = loaded[si]
-            full_c = rt.WELL_COLORS[si % len(rt.WELL_COLORS)]
-            muted = app._mute_color(full_c)
+            full_c = live_well_colors[si % len(live_well_colors)]
             hidden = si in app._rep_hidden
             for w in rset.wells:
                 b = btn_dict.get(w)
                 if b:
+                    # Group color preserved; depth (RAISED/SUNKEN) encodes selection.
                     b.config(
-                        bg=muted if hidden else full_c,
-                        fg=rt.CLR_MUTED_TEXT_SOFT if hidden else rt.CLR_WHITE,
-                        activebackground=full_c,
-                        relief=rt.tk.FLAT if hidden else rt.tk.SUNKEN,
+                        bg=full_c,
+                        fg=rt.CLR_WHITE,
+                        activebackground=app._mute_color(full_c, 0.3),
+                        relief=rt.tk.RAISED if hidden else rt.tk.SUNKEN,
                     )
     else:
         if ds["adding"]:
@@ -92,10 +95,15 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
             well_set.discard(tok)
         btn = btn_dict.get(tok)
         if btn:
+            bg_cell = _get_color("BG_CELL")
             if tok in well_set:
-                btn.config(bg=rt.ACCENT, fg=rt.CLR_WHITE, activebackground=rt.CLR_ACCENT_DARK, relief=rt.tk.SUNKEN)
+                btn.config(bg=rt.ACCENT, fg=rt.CLR_WHITE,
+                           activebackground=app._mute_color(rt.ACCENT, 0.3),
+                           relief=rt.tk.SUNKEN)
             else:
-                btn.config(bg=rt.BG_PANEL, fg=rt.TXT_PRI, activebackground=rt.BG_HOVER, relief=rt.tk.FLAT)
+                btn.config(bg=bg_cell, fg=rt.TXT_PRI,
+                           activebackground=rt.BG_HOVER,
+                           relief=rt.tk.RAISED)
 
 
 def plate_drag_release(app, ds: dict, on_rep_change, on_well_change) -> None:

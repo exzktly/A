@@ -67,4 +67,4 @@ class ThemeManager:
 
     def get_available_themes(self) -> List[str]:
         """Get list of available theme names."""
-        return ["Dark", "Light"]
+        return ["Warm", "Dark", "Light"]

@@ -202,6 +202,7 @@ from ui.theme import (
     WELL_COLOR_7,
     WELL_COLOR_8,
     WELL_COLOR_9,
+    get_well_colors as _get_well_colors,
 )
 
 
@@ -232,10 +233,11 @@ _logger = logging.getLogger("well_viewer")
 CLR_ACCENT_DARK = ACCENT_DARK
 CLR_DISABLED_WELL = CLR_MUTED_DISABLED   # disabled-well border on placeholder bars
 
-WELL_COLORS = [
-    WELL_COLOR_1, WELL_COLOR_2, WELL_COLOR_3, CLR_SUCCESS, WELL_COLOR_4,
-    WELL_COLOR_5, WELL_COLOR_6, WELL_COLOR_7, WELL_COLOR_8, WELL_COLOR_9,
-]
+# Well colors are theme-dependent; use _get_well_colors() for a live lookup in
+# hot paths (e.g. _refresh_sidebar_map_now).  The module-level list is built at
+# import time and reflects the startup theme; plots reuse it for consistency
+# within a session.
+WELL_COLORS = _get_well_colors()
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
@@ -1777,23 +1779,25 @@ class WellViewerApp(tk.Frame):
         btn = self._stats_map_btns.get(tok)
         if btn is None or tok not in self._well_paths:
             return
+        live_wc = _get_well_colors()
         for gi, g in enumerate(self._stats_groups):
             if tok in g.wells:
-                grp_color = WELL_COLORS[gi % len(WELL_COLORS)]
+                grp_color = live_wc[gi % len(live_wc)]
                 is_active = gi == self._stats_active_grp
                 btn.config(
                     bg=grp_color,
                     fg="white",
-                    relief=tk.SUNKEN if is_active else tk.FLAT,
+                    relief=tk.SUNKEN if is_active else tk.RAISED,
                     activebackground=self._mute_color(grp_color, 0.3),
                     activeforeground="white",
                     disabledforeground=button_text_disabled_color,
                 )
                 return
+        bg_cell_color = get_color("BG_CELL")
         btn.config(
-            bg=button_bg_color,
+            bg=bg_cell_color,
             fg=button_text_color,
-            relief=tk.FLAT,
+            relief=tk.RAISED,
             activebackground=button_bg_color,
             activeforeground=button_text_color,
             disabledforeground=button_text_disabled_color,
@@ -1806,9 +1810,10 @@ class WellViewerApp(tk.Frame):
         button_text_disabled_color = get_color("button_text_disabled")
 
         avail = set(self._well_paths.keys())
+        live_wc = _get_well_colors()
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._stats_groups):
-            c = WELL_COLORS[gi % len(WELL_COLORS)]
+            c = live_wc[gi % len(live_wc)]
             for w in grp.wells:
                 tok_color.setdefault(w, c)
         active_wells: set = set()
@@ -1816,6 +1821,7 @@ class WellViewerApp(tk.Frame):
         if grp:
             for w in grp.wells:
                 active_wells.add(w)
+        bg_cell_color = get_color("BG_CELL")
         for tok, btn in self._stats_map_btns.items():
             if tok not in avail:
                 btn.config(
@@ -1834,7 +1840,7 @@ class WellViewerApp(tk.Frame):
                     bg=grp_color,
                     fg="white",
                     state=tk.NORMAL,
-                    relief=tk.SUNKEN if is_active else tk.FLAT,
+                    relief=tk.SUNKEN if is_active else tk.RAISED,
                     cursor="hand2",
                     activebackground=self._mute_color(grp_color, 0.3),
                     activeforeground="white",
@@ -1842,7 +1848,7 @@ class WellViewerApp(tk.Frame):
                 )
             else:
                 btn.config(
-                    bg=button_bg_color,
+                    bg=bg_cell_color,
                     fg=button_text_color,
                     state=tk.NORMAL,
                     relief=tk.FLAT,
@@ -1862,9 +1868,10 @@ class WellViewerApp(tk.Frame):
                      pady=8).pack(anchor="w", padx=8)
             self._stats_refresh_map()
             return
+        live_wc_list = _get_well_colors()
         for gi, grp in enumerate(self._stats_groups):
             is_sel = (gi == self._stats_active_grp)
-            color  = WELL_COLORS[gi % len(WELL_COLORS)]
+            color  = live_wc_list[gi % len(live_wc_list)]
             bg     = BG_HOVER if is_sel else BG_PANEL
             card   = tk.Frame(self._stats_grp_inner, bg=bg,
                               highlightthickness=1,
@@ -2147,17 +2154,20 @@ class WellViewerApp(tk.Frame):
         button_text = get_color("button_text")
         button_text_disabled = get_color("button_text_disabled")
 
+        live_wc = _get_well_colors()
+        bg_cell = get_color("BG_CELL")
+
         # Build tok -> (color, is_active_set)
         tok_color: Dict[str, str] = {}
         tok_active: Dict[str, bool] = {}
         for si, rset in enumerate(self._rep_sets):
-            c = WELL_COLORS[si % len(WELL_COLORS)]
+            c = live_wc[si % len(live_wc)]
             for tok in rset.wells:
                 tok_color[tok] = c
                 tok_active[tok] = (si == self._active_rep_idx)
 
         has_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        active_color = (WELL_COLORS[self._active_rep_idx % len(WELL_COLORS)]
+        active_color = (live_wc[self._active_rep_idx % len(live_wc)]
                         if has_active else ACCENT)
 
         for tok, btn in self._rep_map_btns.items():
@@ -2173,42 +2183,31 @@ class WellViewerApp(tk.Frame):
                 )
             elif tok in tok_color:
                 act = tok_active.get(tok, False)
-                # Active-set wells: solid bright colour; other sets: dimmed (70 % alpha via lighter shade)
                 grp_color = tok_color[tok]
+                # Group color preserved; depth (SUNKEN active, RAISED inactive) shows editing state.
                 btn.config(
                     bg=grp_color,
                     fg="white",
                     state=tk.NORMAL,
                     cursor="hand2",
-                    relief=tk.SUNKEN if act else tk.FLAT,
-                    activebackground=self._mute_color(grp_color, 0.3) if act else grp_color,
+                    relief=tk.SUNKEN if act else tk.RAISED,
+                    activebackground=self._mute_color(grp_color, 0.3),
                     activeforeground="white",
                     disabledforeground=button_text_disabled,
                 )
             else:
                 # Unassigned well — editable if a set is selected
-                if has_active:
-                    btn.config(
-                        bg=button_bg,
-                        fg=button_text,
-                        state=tk.NORMAL,
-                        cursor="hand2",
-                        relief=tk.FLAT,
-                        activebackground=button_bg,
-                        activeforeground=button_text,
-                        disabledforeground=button_text_disabled,
-                    )
-                else:
-                    btn.config(
-                        bg=button_bg,
-                        fg=button_text,
-                        state=tk.NORMAL,
-                        cursor="arrow",
-                        relief=tk.FLAT,
-                        activebackground=button_bg,
-                        activeforeground=button_text,
-                        disabledforeground=button_text_disabled,
-                    )
+                cursor = "hand2" if has_active else "arrow"
+                btn.config(
+                    bg=bg_cell,
+                    fg=button_text,
+                    state=tk.NORMAL,
+                    cursor=cursor,
+                    relief=tk.RAISED,
+                    activebackground=button_bg,
+                    activeforeground=button_text,
+                    disabledforeground=button_text_disabled,
+                )
 
     def _rep_map_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
         return _gc_rep_map_tok_at(self, event)
@@ -3296,11 +3295,12 @@ class WellViewerApp(tk.Frame):
         _gc_bg_apply_legacy(self, tok)
 
     def _rep_color_for(self, lbl: str) -> Optional[str]:
-        """Return the WELL_COLORS colour for the ReplicateSet that owns *lbl*,
+        """Return the current-theme colour for the ReplicateSet that owns *lbl*,
         or None if the well is not assigned to any set."""
+        live_wc = _get_well_colors()
         for si, rset in enumerate(getattr(self, "_rep_sets", [])):
             if lbl in rset.wells:
-                return WELL_COLORS[si % len(WELL_COLORS)]
+                return live_wc[si % len(live_wc)]
         return None
 
     def _bar_refresh_map(self) -> None:
@@ -3880,14 +3880,18 @@ class WellViewerApp(tk.Frame):
         rep_sets = getattr(self, "_rep_sets", [])
         rep_mode = bool(rep_sets)
 
-        # Build tok -> (full_color, muted_color, si, is_hidden)
+        # Well colors fresh from the current theme (respects theme switches)
+        live_well_colors = _get_well_colors()
+
+        # Build tok -> (full_color, si, is_hidden)
         tok_rep: Dict[str, tuple] = {}
         for si, rset in enumerate(rep_sets):
-            full_c  = WELL_COLORS[si % len(WELL_COLORS)]
-            muted_c = self._mute_color(full_c)
-            hidden  = si in self._rep_hidden
+            full_c = live_well_colors[si % len(live_well_colors)]
+            hidden = si in self._rep_hidden
             for tok in rset.wells:
-                tok_rep[tok] = (full_c, muted_c, si, hidden)
+                tok_rep[tok] = (full_c, si, hidden)
+
+        bg_cell_color = get_color("BG_CELL")
 
         for tok, btn in self._sidebar_btns.items():
             if tok not in self._well_paths:
@@ -3902,21 +3906,21 @@ class WellViewerApp(tk.Frame):
                     relief=tk.FLAT,
                 )
             elif rep_mode and tok in tok_rep:
-                _full_c, _muted_c, _si, hidden = tok_rep[tok]
+                _full_c, _si, hidden = tok_rep[tok]
                 if hidden:
-                    # Dimmed: muted colour, lighter text, FLAT relief
+                    # Group color preserved; RAISED (embossed) signals deselected.
                     btn.config(
-                        bg=_muted_c,
+                        bg=_full_c,
                         fg="white",
                         state=tk.NORMAL,
-                        activebackground=_full_c,
+                        activebackground=self._mute_color(_full_c, 0.3),
                         activeforeground="white",
                         disabledforeground=button_text_disabled_color,
                         cursor="hand2",
-                        relief=tk.FLAT,
+                        relief=tk.RAISED,
                     )
                 else:
-                    # Visible: full colour, SUNKEN relief
+                    # Group color preserved; SUNKEN (depressed) signals selected.
                     btn.config(
                         bg=_full_c,
                         fg="white",
@@ -3928,18 +3932,19 @@ class WellViewerApp(tk.Frame):
                         relief=tk.SUNKEN,
                     )
             elif rep_mode:
-                # Well exists but not in any rep-set — neutral
+                # Well exists but not in any rep-set — neutral, embossed.
                 btn.config(
-                    bg=button_bg_color,
+                    bg=bg_cell_color,
                     fg=button_text_color,
                     state=tk.NORMAL,
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
                     disabledforeground=button_text_disabled_color,
                     cursor="hand2",
-                    relief=tk.FLAT,
+                    relief=tk.RAISED,
                 )
             elif tok in self._selected_wells:
+                # Per-well selected: accent color, depressed (SUNKEN).
                 btn.config(
                     bg=ACCENT,
                     fg="white",
@@ -3951,15 +3956,16 @@ class WellViewerApp(tk.Frame):
                     relief=tk.SUNKEN,
                 )
             else:
+                # Per-well unselected: neutral cell color, embossed (RAISED).
                 btn.config(
-                    bg=button_bg_color,
+                    bg=bg_cell_color,
                     fg=button_text_color,
                     state=tk.NORMAL,
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
                     disabledforeground=button_text_disabled_color,
                     cursor="hand2",
-                    relief=tk.FLAT,
+                    relief=tk.RAISED,
                 )
 
         # Count label / hint

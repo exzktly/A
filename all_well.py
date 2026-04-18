@@ -19,7 +19,7 @@ from pathlib import Path
 from tkinter import ttk
 
 from ui.theme import (
-    BG_APP, BG_SIDE, BORDER, apply_all_well_theme, TXT_PRI, TXT_MUT,
+    BG_APP, BG_SIDE, BORDER, ACCENT, apply_all_well_theme, TXT_PRI, TXT_MUT,
     FM_UI, FM_TITLE, ThemeManager, THEMES, set_theme, get_color,
     update_widget_colors
 )
@@ -44,7 +44,7 @@ class AllWellApp(tk.Tk):
 
         self._review = None
         self._analyze = None
-        self._theme_manager = ThemeManager("Dark")
+        self._theme_manager = ThemeManager("Warm")
         self._cell_threshold = 0.0  # Shared cell area threshold
 
         self._apply_outer_theme()
@@ -72,16 +72,18 @@ class AllWellApp(tk.Tk):
         self._theme_frame = tk.Frame(container, bg=BG_SIDE)
         self._theme_frame.pack(side=tk.TOP, fill=tk.X)
 
-        tk.Label(
-            self._theme_frame, text="All-Well",
-            font=FM_TITLE, fg=TXT_PRI, bg=BG_SIDE,
-        ).pack(side=tk.LEFT, padx=(14, 0), pady=7)
+        # Playful "All·Well" wordmark: accent dot separates the two words.
+        _brand_frame = tk.Frame(self._theme_frame, bg=BG_SIDE)
+        _brand_frame.pack(side=tk.LEFT, padx=(14, 0), pady=7)
+        tk.Label(_brand_frame, text="All", font=FM_TITLE, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
+        tk.Label(_brand_frame, text="·", font=FM_TITLE, fg=ACCENT, bg=BG_SIDE).pack(side=tk.LEFT)
+        tk.Label(_brand_frame, text="Well", font=FM_TITLE, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
 
-        self._theme_var = tk.StringVar(value="Dark")
+        self._theme_var = tk.StringVar(value="Warm")
         self._theme_dropdown = ttk.Combobox(
             self._theme_frame,
             textvariable=self._theme_var,
-            values=["Dark", "Light"],
+            values=["Warm", "Dark", "Light"],
             state="readonly",
             width=8,
         )
