@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 
+from . import debug_flags
+
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
@@ -131,7 +133,7 @@ def collect_scatter_data(
                     # Store filename and nucleus_id for image lookup
                     filename = row.get("filename", "")
                     nuclear_id = row.get("nucleus_id", "")
-                    if row_idx == 0:  # Debug first row only
+                    if row_idx == 0 and debug_flags.review_scatter_debug_enabled():  # Debug first row only
                         print(f"DEBUG scatter_controller: Row keys: {list(row.keys())}")
                         print(f"DEBUG scatter_controller: filename={filename!r}, nuclear_id={nuclear_id!r}")
                     metadata.append((well_label, filename, nuclear_id, row_idx))
