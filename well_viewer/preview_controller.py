@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
 from well_viewer.image_resolver import classify_filename_kind
+from well_viewer import debug_flags
 
 
 def classify_member(
@@ -192,14 +193,15 @@ def open_imgref_as_array(
                 if arr.ndim == 3:
                     arr = arr.mean(axis=2)
                 arr = arr.astype(np_module.float32)
-            logger.debug(
-                "tifffile: %s  dtype=%s  shape=%s  range=[%.0f,%.0f]",
-                ref.name,
-                arr.dtype,
-                arr.shape,
-                arr.min(),
-                arr.max(),
-            )
+            if debug_flags.review_image_load_debug_enabled() or debug_flags.movie_montage_load_debug_enabled():
+                logger.debug(
+                    "tifffile: %s  dtype=%s  shape=%s  range=[%.0f,%.0f]",
+                    ref.name,
+                    arr.dtype,
+                    arr.shape,
+                    arr.min(),
+                    arr.max(),
+                )
             return arr
 
         if not pil_available:
@@ -226,14 +228,15 @@ def open_imgref_as_array(
         else:
             arr = np_module.array(pil.convert("L"), dtype=np_module.float32)
 
-        logger.debug(
-            "PIL: %s  mode=%s  shape=%s  range=[%.0f,%.0f]",
-            ref.name,
-            pil.mode,
-            arr.shape,
-            arr.min(),
-            arr.max(),
-        )
+        if debug_flags.review_image_load_debug_enabled() or debug_flags.movie_montage_load_debug_enabled():
+            logger.debug(
+                "PIL: %s  mode=%s  shape=%s  range=[%.0f,%.0f]",
+                ref.name,
+                pil.mode,
+                arr.shape,
+                arr.min(),
+                arr.max(),
+            )
         return arr
     except Exception as exc:
         logger.warning("open_imgref_as_array failed for %s: %s", ref.name, exc)
