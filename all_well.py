@@ -152,17 +152,48 @@ class AllWellApp(tk.Tk):
         self._install_app_icon()
 
     def _install_app_icon(self) -> None:
-        """Install Option 1 app icon: highlighted well + sparkline."""
-        size = 64
+        """App icon: 96-well plate whose lit wells spell A W across the fluorescence spectrum."""
+        size = 128
         img = tk.PhotoImage(width=size, height=size)
-        bg = get_color("BG_APP")
-        panel = get_color("BG_SIDE")
-        accent = get_color("ACCENT")
-        muted = get_color("TXT_MUT")
-        white = "#FFFFFF"
 
-        img.put(bg, to=(0, 0, size, size))
-        img.put(panel, to=(6, 6, size - 6, size - 6))
+        BG_DARK  = "#0b1220"
+        PLATE    = "#eef2f8"
+        C_BLUE   = "#5aa0ff"
+        C_CYAN   = "#3dd6d6"
+        C_GREEN  = "#6fd672"
+        C_YELLOW = "#f0d042"
+        C_RED    = "#ff7a7a"
+        C_WHITE  = "#ffffff"
+        C_EMPTY  = "#2a3858"
+
+        img.put(BG_DARK, to=(0, 0, size, size))
+        img.put(PLATE, to=(10, 26, size - 10, size - 26))
+
+        xs = [14 + i * 9 for i in range(12)]
+        ys = [32 + i * 9 for i in range(8)]
+
+        # (row, col) — 1-indexed — for every lit well.
+        # Same pattern as _Docs/icons/icon_1_plate_grid.svg: A in cols 1-5,
+        # W in cols 7-12, with a vertical spectrum blue→cyan→green→yellow→red
+        # and a single white well at the A's crossbar centre.
+        pattern = {
+            (1, 3):  C_BLUE,  (1, 7):  C_BLUE,   (1, 12): C_BLUE,
+            (2, 2):  C_BLUE,  (2, 4):  C_BLUE,
+            (2, 7):  C_BLUE,  (2, 12): C_BLUE,
+            (3, 2):  C_CYAN,  (3, 4):  C_CYAN,
+            (3, 7):  C_CYAN,  (3, 12): C_CYAN,
+            (4, 1):  C_GREEN, (4, 5):  C_GREEN,
+            (4, 7):  C_GREEN, (4, 12): C_GREEN,
+            (5, 1):  C_GREEN, (5, 2):  C_GREEN, (5, 3):  C_WHITE,
+            (5, 4):  C_GREEN, (5, 5):  C_GREEN,
+            (5, 7):  C_GREEN, (5, 12): C_GREEN,
+            (6, 1):  C_YELLOW, (6, 5):  C_YELLOW,
+            (6, 7):  C_YELLOW, (6, 9):  C_YELLOW, (6, 10): C_YELLOW, (6, 12): C_YELLOW,
+            (7, 1):  C_RED,   (7, 5):  C_RED,
+            (7, 7):  C_RED,   (7, 8):  C_RED,   (7, 11): C_RED,   (7, 12): C_RED,
+            (8, 1):  C_RED,   (8, 5):  C_RED,
+            (8, 8):  C_RED,   (8, 11): C_RED,
+        }
 
         def _disk(cx: int, cy: int, r: int, color: str) -> None:
             for y in range(cy - r, cy + r + 1):
@@ -170,15 +201,9 @@ class AllWellApp(tk.Tk):
                     if 0 <= x < size and 0 <= y < size and ((x - cx) ** 2 + (y - cy) ** 2 <= r * r):
                         img.put(color, (x, y))
 
-        # 2x2 microplate wells
-        _disk(22, 22, 7, muted)
-        _disk(42, 22, 7, muted)
-        _disk(22, 42, 7, muted)
-        _disk(42, 42, 7, accent)  # highlighted well
-
-        # Sparkline overlay (simple stepped polyline)
-        for x, y in [(12, 46), (18, 42), (24, 44), (30, 36), (36, 38), (42, 30), (48, 28)]:
-            img.put(white, to=(x, y, x + 2, y + 2))
+        for row in range(1, 9):
+            for col in range(1, 13):
+                _disk(xs[col - 1], ys[row - 1], 4, pattern.get((row, col), C_EMPTY))
 
         self._app_icon = img  # keep ref alive
         try:
