@@ -34,6 +34,7 @@ def classify_member(
     parsed_fields = pipeline_fields_extractor(stem) if pipeline_fields_extractor else {}
     extractor = fov_tp_extractor if fov_tp_extractor is not None else legacy_extractor
     fov, tp = extractor(stem)
+    channel_field = str(parsed_fields.get("channel", "")).strip().lower()
 
     if is_mask:
         return "mask", fov, tp
@@ -42,9 +43,16 @@ def classify_member(
     if is_smfish:
         return "smfish", fov, tp
     if is_tophat_fluor:
-        return "tophat_fluor", fov, tp
+        # Apply the same channel filtering policy used for raw fluorescence:
+        # prefer schema-derived channel when available, else token-in-stem fallback.
+        if channel_field:
+            if channel_field == fluor_lower:
+                return "tophat_fluor", fov, tp
+            return "", fov, tp
+        if re.search(rf"(?:^|_)({re.escape(fluor_lower)})(?:_|$)", stem, re.I):
+            return "tophat_fluor", fov, tp
+        return "", fov, tp
 
-    channel_field = str(parsed_fields.get("channel", "")).strip().lower()
     if channel_field:
         if channel_field == fluor_lower:
             return "fluor", fov, tp
