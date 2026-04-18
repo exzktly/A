@@ -1494,7 +1494,8 @@ class WellViewerApp(tk.Frame):
             "mean": True, "frac": True, "cdf": True,
         }
         self._plot_chan_var = tk.StringVar(value="GFP")  # selected channel on plot tabs
-        self._image_chan_var = tk.StringVar(value="GFP")  # selected channel on image-focused tabs
+        self._montage_chan_var = tk.StringVar(value="GFP")  # selected channel on Movie Montage tab
+        self._review_image_chan_var = tk.StringVar(value="GFP")  # selected channel on Review Image tab
         # Back-compat shared channel variable for older view code paths.
         self._chan_var = self._plot_chan_var
         self._bar_tp_var    = tk.StringVar(value="—")  # selected timepoint for bar plots
@@ -4188,8 +4189,10 @@ class WellViewerApp(tk.Frame):
                     self._refresh_review_image()
             return
         self._active_image_channel = channel
-        if hasattr(self, "_image_chan_var"):
-            self._image_chan_var.set(channel.upper())
+        if hasattr(self, "_montage_chan_var"):
+            self._montage_chan_var.set(channel.upper())
+        if hasattr(self, "_review_image_chan_var"):
+            self._review_image_chan_var.set(channel.upper())
         ch_upper = channel.upper()
         if hasattr(self, "_mon_lut_chan_lbl"):
             self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
@@ -4206,7 +4209,12 @@ class WellViewerApp(tk.Frame):
 
     def _on_review_image_channel_selected(self, _e=None) -> None:
         """Channel-switch handler that preserves Review Image zoom/pan view."""
-        self._set_active_image_channel(self._image_chan_var.get().lower(), preserve_review_view=True)
+        selected_label = ""
+        if hasattr(self, "_review_image_chan_cb"):
+            selected_label = self._review_image_chan_cb.get().strip()
+        if not selected_label and hasattr(self, "_review_image_chan_var"):
+            selected_label = self._review_image_chan_var.get().strip()
+        self._set_active_image_channel(selected_label.lower(), preserve_review_view=True)
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
@@ -4214,7 +4222,12 @@ class WellViewerApp(tk.Frame):
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
-        self._set_active_image_channel(self._image_chan_var.get().lower())
+        selected_label = ""
+        if hasattr(self, "_chan_cb_preview"):
+            selected_label = self._chan_cb_preview.get().strip()
+        if not selected_label and hasattr(self, "_montage_chan_var"):
+            selected_label = self._montage_chan_var.get().strip()
+        self._set_active_image_channel(selected_label.lower())
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
@@ -4258,11 +4271,13 @@ class WellViewerApp(tk.Frame):
             self._review_image_chan_cb.config(values=review_labels)
         active_label = self._active_channel.upper()
 
-        def _pick_valid(current: str, candidates: List[str]) -> str:
+        active_image_label = self._active_image_channel.upper()
+
+        def _pick_valid(current: str, candidates: List[str], preferred: str = "") -> str:
             if current in candidates and current != "—":
                 return current
-            if active_label in candidates and active_label != "—":
-                return active_label
+            if preferred in candidates and preferred != "—":
+                return preferred
             if candidates and candidates[0] != "—":
                 return candidates[0]
             return "—"
@@ -4272,12 +4287,21 @@ class WellViewerApp(tk.Frame):
         self._plot_chan_var.set(plot_label)
 
         # Image tabs: each validates against its own channel universe.
-        image_labels = montage_labels if montage_labels and montage_labels[0] != "—" else review_labels
-        image_label = _pick_valid(self._image_chan_var.get(), image_labels)
-        self._image_chan_var.set(image_label)
-        # Keep active image channel anchored to available image channels.
-        if image_label != "—":
-            self._active_image_channel = image_label.lower()
+        montage_label = _pick_valid(self._montage_chan_var.get(), montage_labels, preferred=active_image_label)
+        review_label = _pick_valid(self._review_image_chan_var.get(), review_labels, preferred=active_image_label)
+        self._montage_chan_var.set(montage_label)
+        self._review_image_chan_var.set(review_label)
+        # Keep active image channel anchored to at least one valid image channel list.
+        if active_image_label == "—" or (
+            active_image_label not in montage_labels and active_image_label not in review_labels
+        ):
+            fallback_image_label = "—"
+            if montage_label != "—":
+                fallback_image_label = montage_label
+            elif review_label != "—":
+                fallback_image_label = review_label
+            if fallback_image_label != "—":
+                self._active_image_channel = fallback_image_label.lower()
 
         # Keep active channel anchored to a valid plot channel.
         if active_label not in labels:
@@ -4295,9 +4319,9 @@ class WellViewerApp(tk.Frame):
                 except Exception:
                     tab_label = ""
             if tab_label == "Movie Montage":
-                self._chan_var.set(image_label)
+                self._chan_var.set(montage_label)
             elif tab_label == "Review Image":
-                self._chan_var.set(image_label)
+                self._chan_var.set(review_label)
             else:
                 self._chan_var.set(plot_label)
 
