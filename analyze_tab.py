@@ -35,6 +35,8 @@ from typing import Callable, Optional
 from services.input_resolution_service import resolve_input_output, tif_files_in
 from services.pipeline_service import (
     build_pipeline_args,
+    collect_available_fovs,
+    collect_available_timepoints,
     find_pipeline_script,
     spawn_pipeline,
     write_pipeline_info,
@@ -1141,8 +1143,18 @@ class AnalyzeTab(tk.Frame):
             self._log_q.put(("error", f"Input error: {exc}\n"))
             return None
 
-    def _write_pipeline_sidecar(self, output_dir: Path, opts: dict) -> None:
+    def _write_pipeline_sidecar(self, input_dir: Path, output_dir: Path, opts: dict) -> None:
         try:
+            available_timepoints = collect_available_timepoints(
+                input_dir,
+                filename_schema=opts["filename_schema"],
+                filename_sep=opts["filename_sep"],
+            )
+            available_fovs = collect_available_fovs(
+                input_dir,
+                filename_schema=opts["filename_schema"],
+                filename_sep=opts["filename_sep"],
+            )
             info_path = write_pipeline_info(
                 output_dir,
                 filename_schema=opts["filename_schema"],
@@ -1153,6 +1165,8 @@ class AnalyzeTab(tk.Frame):
                 segmentation_method=opts.get("segmentation_method", "stardist_nuclei"),
                 cytoplasm_token=opts.get("cytoplasm_token", ""),
                 min_nucleus_area_px=opts.get("min_nucleus_area_px", 50),
+                available_timepoints=available_timepoints,
+                available_fovs=available_fovs,
                 execution_options=opts,
             )
             self._log_q.put(("line", f"[info] Wrote {info_path}\n"))
@@ -1192,7 +1206,7 @@ class AnalyzeTab(tk.Frame):
                 self._log_q.put(("error", f"Cannot create output dir: {exc}\n"))
                 return
             self._last_output_dir = output_dir
-            self._write_pipeline_sidecar(output_dir, opts)
+            self._write_pipeline_sidecar(input_dir, output_dir, opts)
             args = build_pipeline_args(pipeline, input_dir, output_dir, opts)
             self._log_pipeline_command(args, input_dir, output_dir, opts)
             self._run_pipeline_subprocess(args)

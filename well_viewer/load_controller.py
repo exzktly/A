@@ -68,6 +68,7 @@ def load_directory(app, d: Path, label=None) -> None:
         app._step_progress(i, f"Loading {i}/{n}: {p.name}")
     app._hide_progress()
     app._rebuild_all_timepoints_cache()
+    app._rebuild_all_fovs_cache()
     app._build_tok_to_label()
     app._refresh_sidebar_map()
     app._bar_groups_prune()

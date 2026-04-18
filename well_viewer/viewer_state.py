@@ -66,6 +66,16 @@ def read_pipeline_info(
             "tp_index": tp_idx,
             "nuclear_token": str(data.get("nuclear_token", "")).strip().lower(),
             "fluor_tokens": list(fluor_tokens),
+            "available_timepoints": [
+                str(tp).strip()
+                for tp in data.get("available_timepoints", []) or []
+                if str(tp).strip()
+            ],
+            "available_fovs": [
+                str(fov).strip()
+                for fov in data.get("available_fovs", []) or []
+                if str(fov).strip()
+            ],
         }
         if tp_idx < 0:
             logger.warning("pipeline_info.json has invalid tp_index (%s); using legacy regex", info_path)
