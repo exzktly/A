@@ -2551,7 +2551,7 @@ class WellViewerApp(tk.Frame):
         self._invalidate_stats_cache()
         self._groups_centre_refresh()          # Groups tab: rep panel + map
         self._bar_rebuild_groups_ui_now()      # sidebar card list + bar map
-        self._refresh_sidebar_map()            # line-graph picker: rep colours
+        self._refresh_sidebar_map()            # line-graph picker: rep colours + sidebar groups
         self._redraw_bars()
         self._redraw()
         if hasattr(self, "_notebook"):
@@ -3990,6 +3990,71 @@ class WellViewerApp(tk.Frame):
                 self._line_group_hint.config(text="")
 
         self._sidebar_map_refresh_pending = False
+        self._refresh_sidebar_groups()
+
+    def _refresh_sidebar_groups(self) -> None:
+        """Rebuild the sample-groups card list in the sidebar."""
+        if not hasattr(self, "_sidebar_groups_inner"):
+            return
+        inner = self._sidebar_groups_inner
+        for w in inner.winfo_children():
+            w.destroy()
+
+        rep_sets = getattr(self, "_rep_sets", [])
+        if not rep_sets:
+            tk.Label(inner, text="No groups yet.  Click + New.",
+                     font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE,
+                     pady=6).pack(anchor="w", padx=8)
+            return
+
+        live_wc = _get_well_colors()
+        for si, rset in enumerate(rep_sets):
+            color = live_wc[si % len(live_wc)]
+
+            card = tk.Frame(inner, bg=BG_PANEL,
+                            highlightthickness=1, highlightbackground=BORDER)
+            card.pack(fill=tk.X, pady=(0, 3), padx=2)
+
+            # Colored left accent stripe
+            tk.Frame(card, bg=color, width=4).pack(side=tk.LEFT, fill=tk.Y)
+
+            body = tk.Frame(card, bg=BG_PANEL)
+            body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 4), pady=4)
+
+            tk.Label(body, text=rset.name, font=FM_BOLD, fg=TXT_PRI,
+                     bg=BG_PANEL, anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(body, text=f"{len(rset.wells)}w", font=FM_TINY,
+                     fg=TXT_MUT, bg=BG_PANEL).pack(side=tk.LEFT, padx=(4, 0))
+
+            idx = si
+            tk.Button(card, text="···", font=FM_TINY, bg=BG_PANEL, fg=TXT_MUT,
+                      relief=tk.FLAT, bd=0, cursor="hand2", padx=4,
+                      command=lambda i=idx: self._rep_popup_menu(i)
+                      ).pack(side=tk.RIGHT, padx=2)
+
+    def _rep_popup_menu(self, idx: int) -> None:
+        """Show a small context menu for the sidebar group card at *idx*."""
+        if not (0 <= idx < len(self._rep_sets)):
+            return
+        menu = tk.Menu(self, tearoff=0, bg=BG_PANEL, fg=TXT_PRI,
+                       font=FM_TINY, relief=tk.FLAT,
+                       activebackground=ACCENT, activeforeground=CLR_WHITE)
+        menu.add_command(label="Rename…",     command=lambda: self._rep_rename(idx))
+        menu.add_command(label="Edit wells…", command=lambda: self._rep_edit_wells(idx))
+        menu.add_separator()
+        menu.add_command(label="Delete",      command=lambda: self._rep_delete(idx))
+        try:
+            menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _update_status_hover(self, tok: str) -> None:
+        """Update the status bar hover-well label when the mouse enters *tok*."""
+        if not hasattr(self, "_status_hover_lbl"):
+            return
+        rset = next((r for r in getattr(self, "_rep_sets", []) if tok in r.wells), None)
+        suffix = f" · {rset.name}" if rset else ""
+        self._status_hover_lbl.config(text=f"{tok}{suffix}")
 
     def _sidebar_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
         from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at

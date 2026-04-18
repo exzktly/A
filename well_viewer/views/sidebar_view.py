@@ -7,23 +7,34 @@ from tkinter import ttk
 
 
 def build_sidebar(app, parent: tk.Frame) -> None:
-    """Build the 8×12 plate-map well selector in the sidebar.
+    """Build the plate-map well selector sidebar.
 
     Creates:
-      - "WELLS" header
+      - "Plate" header with well-count meta + subtitle
       - Row/Col quick-select buttons (A-H, 01-12)
       - 8×12 WellLabel plate-map grid with drag-to-select bindings
-      - All / None buttons
-      - Selected-well count label
-      - Group-mode hint label
+      - Count + All + Clear footer
+      - Sample groups panel (scrollable cards)
     """
     from well_viewer.runtime_app import (
-        ACCENT, BG_SIDE, BORDER, FM_BOLD, FM_TINY, TXT_MUT,
+        ACCENT, BG_SIDE, BG_PANEL, BORDER, FM_BOLD, FM_TINY, FM_TITLE,
+        TXT_MUT, TXT_PRI,
         _PLATE_ROWS, _PLATE_COLS, _bind_drag, build_plate_grid,
+        make_scrollable_canvas,
     )
 
-    tk.Label(parent, text="WELLS", font=FM_BOLD, fg=TXT_MUT,
-             bg=BG_SIDE, pady=6).pack(fill=tk.X, padx=10)
+    # ── Header: "Plate" + meta ────────────────────────────────────────────
+    hdr = tk.Frame(parent, bg=BG_SIDE)
+    hdr.pack(fill=tk.X, padx=10, pady=(8, 0))
+    tk.Label(hdr, text="Plate", font=FM_TITLE, fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
+    tk.Label(hdr, text="8×12 · 96 wells", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.RIGHT, pady=2)
+
+    tk.Label(
+        parent,
+        text="Drag to select · Colors encode sample group.",
+        font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE,
+        anchor="w", wraplength=280,
+    ).pack(fill=tk.X, padx=10, pady=(2, 6))
 
     # ── Row / Col quick-select buttons ────────────────────────────────────
     rc_frame = tk.Frame(parent, bg=BG_SIDE)
@@ -77,24 +88,48 @@ def build_sidebar(app, parent: tk.Frame) -> None:
     _bind_drag(map_outer, app._sidebar_btns,
                app._sb_press, app._sb_drag, app._sb_release)
 
-    # ── All / None buttons ────────────────────────────────────────────────
-    br = tk.Frame(parent, bg=BG_SIDE)
-    br.pack(fill=tk.X, padx=6, pady=(4, 6))
-    app._sidebar_allnone_frame = br
-    for txt, cmd in (("All", app._select_all), ("None", app._select_none)):
-        ttk.Button(br, text=txt, command=cmd,
-                   style="PrimaryDark.TButton").pack(
-                   side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
+    # Hover → update status bar hover-well label
+    for tok, btn in app._sidebar_btns.items():
+        btn.bind("<Enter>", lambda _e, t=tok: (
+            app._update_status_hover(t)
+            if hasattr(app, "_update_status_hover") else None))
+    map_outer.bind("<Leave>", lambda _e: (
+        app._status_hover_lbl.config(text="")
+        if hasattr(app, "_status_hover_lbl") else None))
 
-    # ── Selected well count label ─────────────────────────────────────────
-    app._sel_count_lbl = tk.Label(parent, text="", font=FM_TINY,
+    # ── Footer: count label + All + Clear ────────────────────────────────
+    foot = tk.Frame(parent, bg=BG_SIDE)
+    foot.pack(fill=tk.X, padx=6, pady=(4, 2))
+
+    app._sel_count_lbl = tk.Label(foot, text="", font=FM_TINY,
                                    fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-    app._sel_count_lbl.pack(fill=tk.X, padx=10, pady=(0, 4))
+    app._sel_count_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-    # ── Group-mode hint ───────────────────────────────────────────────────
+    ttk.Button(foot, text="All", command=app._select_all,
+               style="PrimaryDark.TButton").pack(side=tk.LEFT, padx=(0, 3))
+    ttk.Button(foot, text="Clear", command=app._select_none,
+               style="Secondary.TButton").pack(side=tk.RIGHT)
+
+    # Group-mode hint (kept for back-compat, hidden when empty)
     app._line_group_hint = tk.Label(
         parent,
         text="",
         font=FM_TINY, fg=ACCENT, bg=BG_SIDE,
         anchor="w", wraplength=280, justify=tk.LEFT)
-    app._line_group_hint.pack(fill=tk.X, padx=10, pady=(0, 4))
+    app._line_group_hint.pack(fill=tk.X, padx=10, pady=(0, 2))
+
+    # ── Sample groups section ─────────────────────────────────────────────
+    tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=6, pady=(2, 0))
+
+    grp_head = tk.Frame(parent, bg=BG_SIDE)
+    grp_head.pack(fill=tk.X, padx=10, pady=(6, 2))
+    tk.Label(grp_head, text="SAMPLE GROUPS", font=FM_BOLD,
+             fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
+    ttk.Button(grp_head, text="+ New", style="Secondary.TButton",
+               command=app._rep_add).pack(side=tk.RIGHT)
+
+    # Scrollable group cards
+    grp_canvas, grp_inner = make_scrollable_canvas(parent, bg=BG_SIDE)
+    grp_canvas.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+    app._sidebar_groups_canvas = grp_canvas
+    app._sidebar_groups_inner  = grp_inner
