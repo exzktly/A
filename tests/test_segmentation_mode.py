@@ -55,3 +55,22 @@ def test_pipeline_args_do_not_emit_cytoplasm_for_stardist() -> None:
     assert "--segmentation_method" in args
     assert "stardist_nuclei" in args
     assert "--cytoplasm_token" not in args
+
+
+def test_pipeline_args_emit_explicit_compress_flags() -> None:
+    args = build_pipeline_args(
+        pipeline=Path("process_microscopy_v2.py"),
+        input_dir=Path("in"),
+        output_dir=Path("out"),
+        opts={
+            "nuclear_token": "NIR",
+            "fluor_tokens": ["GFP"],
+            "csv_prefix": "x",
+            "filename_schema": "experiment:channel:well:fov:timepoint",
+            "filename_sep": "_",
+            "compress_input_well_folders": False,
+            "compress_output_well_folders": True,
+        },
+    )
+    assert "--no-compress_input_well_folders" in args
+    assert "--compress_output_well_folders" in args

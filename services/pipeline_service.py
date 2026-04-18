@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
@@ -48,6 +50,122 @@ def _effective_fluor_tokens_for_sidecar(
     return out
 
 
+def _parse_timepoint_hours(value: str) -> float | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    m = re.match(
+        r"^\s*(?:(\d+(?:\.\d+)?)d)?\s*(?:(\d+(?:\.\d+)?)h)?\s*(?:(\d+(?:\.\d+)?)m)?\s*$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return None
+    d, h, mnt = m.groups()
+    if not any((d, h, mnt)):
+        return None
+    return (float(d or 0.0) * 24.0) + float(h or 0.0) + (float(mnt or 0.0) / 60.0)
+
+
+def collect_available_timepoints(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+) -> list[str]:
+    return _collect_available_schema_values(
+        input_dir,
+        filename_schema=filename_schema,
+        filename_sep=filename_sep,
+        field_name="timepoint",
+        sort_key=lambda tp: (
+            _parse_timepoint_hours(tp) is None,
+            _parse_timepoint_hours(tp) or 0.0,
+            tp,
+        ),
+    )
+
+
+def collect_available_fovs(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+) -> list[str]:
+    return _collect_available_schema_values(
+        input_dir,
+        filename_schema=filename_schema,
+        filename_sep=filename_sep,
+        field_name="fov",
+        sort_key=lambda fov: (_parse_numeric_token(fov) is None, _parse_numeric_token(fov) or 0.0, fov),
+    )
+
+
+def _parse_numeric_token(value: str) -> float | None:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _collect_image_stems(input_dir: Path) -> set[str]:
+    stems: set[str] = set()
+    for pat in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
+        for p in input_dir.glob(pat):
+            stems.add(p.stem)
+    try:
+        well_dirs = [p for p in input_dir.iterdir() if p.is_dir()]
+    except OSError:
+        well_dirs = []
+    for well_dir in well_dirs:
+        for pat in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
+            for p in well_dir.glob(pat):
+                stems.add(p.stem)
+    for z in input_dir.glob("*.zip"):
+        try:
+            with zipfile.ZipFile(z, "r") as zf:
+                for member in zf.namelist():
+                    name = Path(member).name
+                    lower = name.lower()
+                    if not lower.endswith((".tif", ".tiff")):
+                        continue
+                    stems.add(Path(name).stem)
+        except Exception:
+            continue
+    return stems
+
+
+def _collect_available_schema_values(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+    field_name: str,
+    sort_key,
+) -> list[str]:
+    fields = [f.strip().lower() for f in filename_schema.split(":")]
+    try:
+        field_idx = fields.index(field_name)
+    except ValueError:
+        return []
+
+    def _add_from_stem(stem: str, out: set[str]) -> None:
+        parts = stem.split(filename_sep)
+        if 0 <= field_idx < len(parts):
+            tok = str(parts[field_idx]).strip()
+            if tok:
+                out.add(tok)
+
+    values: set[str] = set()
+    for stem in _collect_image_stems(input_dir):
+        _add_from_stem(stem, values)
+    return sorted(values, key=sort_key)
+
+
 def write_pipeline_info(
     output_dir: Path,
     *,
@@ -59,6 +177,8 @@ def write_pipeline_info(
     segmentation_method: str = "stardist_nuclei",
     cytoplasm_token: str = "",
     min_nucleus_area_px: int = 50,
+    available_timepoints: list[str] | None = None,
+    available_fovs: list[str] | None = None,
     execution_options: dict | None = None,
 ) -> Path:
     if segmentation_method != "stardist_seeded_watershed_cell":
@@ -83,6 +203,8 @@ def write_pipeline_info(
         "segmentation_method": segmentation_method,
         "cytoplasm_token": cytoplasm_token,
         "min_nucleus_area_px": int(min_nucleus_area_px),
+        "available_timepoints": [str(tp).strip() for tp in (available_timepoints or []) if str(tp).strip()],
+        "available_fovs": [str(fov).strip() for fov in (available_fovs or []) if str(fov).strip()],
         "execution_options": _to_jsonable(dict(execution_options or {})),
     }
     p = output_dir / "pipeline_info.json"
@@ -137,13 +259,16 @@ def build_pipeline_args(
     for flag in (
         "no_tophat_nir",
         "no_tophat_fluor",
-        "compress_input_well_folders",
-        "compress_output_well_folders",
         "force",
         "cpu_only",
     ):
         if opts.get(flag):
             args.append(f"--{flag}")
+    for flag in (
+        "compress_input_well_folders",
+        "compress_output_well_folders",
+    ):
+        args.append(f"--{flag}" if opts.get(flag) else f"--no-{flag}")
     smfish = opts.get("smfish_tokens", [])
     if smfish:
         args += ["--smfish_tokens"] + list(smfish)

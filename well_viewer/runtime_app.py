@@ -1457,6 +1457,7 @@ class WellViewerApp(tk.Frame):
         self._well_paths: Dict[str, Path]       = {}
         self._cache:      Dict[str, List[dict]] = {}
         self._all_timepoints_cache: List[float] = []
+        self._all_fovs_cache: List[str] = []
         self._last_sel:   Optional[str]         = None
         self._prev_sel:   set                   = set()   # tracks prior selection for diffing
         self._sidebar_map_refresh_pending: bool = False
@@ -3757,7 +3758,13 @@ class WellViewerApp(tk.Frame):
         _load_build_tok_to_label(self)
 
     def _rebuild_all_timepoints_cache(self) -> None:
-        """Cache global timepoints from loaded row cache for menu population."""
+        """Cache global numeric timepoints for all plot/menu population.
+
+        Sources are merged in this single function so every tab that reads
+        ``_all_timepoints_cache`` gets the same canonical timepoint list:
+          1) loaded CSV rows (timepoint_hours / parsed timepoint strings)
+          2) pipeline_info.json ``available_timepoints`` when present
+        """
         all_tps: set[float] = set()
         for rows in self._cache.values():
             for row in rows:
@@ -3768,7 +3775,45 @@ class WellViewerApp(tk.Frame):
                 )
                 if t is not None:
                     all_tps.add(t)
+        pipeline_info = getattr(self, "_pipeline_info", {}) or {}
+        for tp in pipeline_info.get("available_timepoints", []) or []:
+            parsed = parse_timepoint_hours(str(tp))
+            if parsed is not None:
+                all_tps.add(parsed)
         self._all_timepoints_cache = sorted(all_tps)
+
+    def _rebuild_all_fovs_cache(self) -> None:
+        """Cache global FOV labels once per dataset load (no per-refresh rebuilding)."""
+        def _norm_fov(value: object) -> str:
+            raw = str(value or "").strip()
+            if not raw:
+                return ""
+            try:
+                return f"{float(raw):g}"
+            except Exception:
+                return raw
+
+        all_fovs: set[str] = set()
+        for rows in self._cache.values():
+            for row in rows:
+                fov = _norm_fov(row.get("fov", ""))
+                if fov:
+                    all_fovs.add(fov)
+        pipeline_info = getattr(self, "_pipeline_info", {}) or {}
+        for fov in pipeline_info.get("available_fovs", []) or []:
+            fov_norm = _norm_fov(fov)
+            if fov_norm:
+                all_fovs.add(fov_norm)
+        if not all_fovs and self._well_paths:
+            all_fovs.add("1")
+
+        def _fov_sort_key(token: str) -> tuple[int, float, str]:
+            try:
+                return (0, float(token), token)
+            except ValueError:
+                return (1, 0.0, token)
+
+        self._all_fovs_cache = sorted(all_fovs, key=_fov_sort_key)
 
     @staticmethod
     def _mute_color(hex_color: str, factor: float = 0.5) -> str:
@@ -4330,9 +4375,9 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_th_checkbox"):
             self._update_tophat_controls(preloaded=False)
 
-        all_fovs = sorted({k[0] for k in {**fluor, **overlay, **mask, **tophat_fluor}})
+        all_fovs = list(getattr(self, "_all_fovs_cache", []) or [])
 
-        if not all_fovs:
+        if not (fluor or overlay or mask or tophat_fluor):
             if hasattr(self, "_fov_menu"):
                 self._fov_menu["values"] = ["—"]
                 self._preview_fov_var.set("—")
@@ -4347,9 +4392,12 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_fov_menu"):
             self._fov_menu["values"] = all_fovs
             cur = self._preview_fov_var.get()
-            self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
+            if all_fovs:
+                self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
+            else:
+                self._preview_fov_var.set("—")
         if hasattr(self, "_review_image_fov_menu"):
-            self._review_image_fov_menu["values"] = all_fovs
+            self._review_image_fov_menu["values"] = all_fovs or ["—"]
 
         self._refresh_preview_montage()
         self._refresh_review_image()
@@ -4426,6 +4474,16 @@ class WellViewerApp(tk.Frame):
             },
             key=_tp_sort_key,
         )
+        pipeline_tp_values = sorted(
+            {
+                self._norm_timepoint(tp)
+                for tp in (getattr(self, "_pipeline_info", {}) or {}).get("available_timepoints", [])
+                if self._norm_timepoint(tp)
+            },
+            key=_tp_sort_key,
+        )
+        if pipeline_tp_values:
+            tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=_tp_sort_key)
         if _logger.isEnabledFor(logging.DEBUG):
             _logger.debug(
                 "Review image timepoint dropdown population for well=%s fov=%s (raw=%s):",
