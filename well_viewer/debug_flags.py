@@ -2,6 +2,11 @@
 
 Flags are grouped by UI tab so debug output can be enabled per-tab.
 """
+from __future__ import annotations
+
+import inspect
+import os
+from typing import Any
 
 # Master switches by tab
 REVIEW_TAB_DEBUG: bool = False
@@ -11,9 +16,11 @@ ANALYZE_TAB_DEBUG: bool = False
 REVIEW_BAR_DEBUG: bool = False
 REVIEW_SCATTER_DEBUG: bool = False
 REVIEW_IMAGE_DEBUG: bool = False
+REVIEW_IMAGE_LOAD_DEBUG: bool = False
 
 # Movie Montage tab debug switches
 MOVIE_MONTAGE_DEBUG: bool = False
+MOVIE_MONTAGE_LOAD_DEBUG: bool = False
 
 # Backward-compatible alias used by older call sites.
 # Keep this until all imports are migrated.
@@ -35,6 +42,31 @@ def review_image_debug_enabled() -> bool:
     return REVIEW_TAB_DEBUG and REVIEW_IMAGE_DEBUG
 
 
+def review_image_load_debug_enabled() -> bool:
+    """Return whether Review Image image-loading debug output is enabled."""
+    return REVIEW_TAB_DEBUG and REVIEW_IMAGE_LOAD_DEBUG
+
+
 def movie_montage_debug_enabled() -> bool:
     """Return whether Movie Montage tab debug output is enabled."""
     return REVIEW_TAB_DEBUG and MOVIE_MONTAGE_DEBUG
+
+
+def movie_montage_load_debug_enabled() -> bool:
+    """Return whether Movie Montage image-loading debug output is enabled."""
+    return REVIEW_TAB_DEBUG and MOVIE_MONTAGE_LOAD_DEBUG
+
+
+def debug_with_source(logger: Any, message: str, *args: Any) -> None:
+    """Emit a debug log with source file + line of the call site.
+
+    Output prefix example: [runtime_app.py:4621]
+    """
+    frame = inspect.currentframe()
+    caller = frame.f_back if frame else None
+    if caller is None:
+        logger.debug(message, *args)
+        return
+    filename = os.path.basename(caller.f_code.co_filename)
+    lineno = caller.f_lineno
+    logger.debug("[%s:%d] " + message, filename, lineno, *args)
