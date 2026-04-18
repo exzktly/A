@@ -251,6 +251,9 @@ class PlotWorkspace(QWidget):
 
     # ── Internal ──────────────────────────────────────────────────────
     def _render_chart(self) -> None:
+        import logging
+        _log = logging.getLogger("all_well_qt.plot_workspace")
+
         metric = self._metric_chips.current_label() if hasattr(self, "_metric_chips") else "Mean"
         normalize = self._norm_chip.isChecked() if hasattr(self, "_norm_chip") else False
         channel = self._channel_field.value.strip() if hasattr(self, "_channel_field") else ""
@@ -258,6 +261,18 @@ class PlotWorkspace(QWidget):
         # Attempt real-data rendering first
         renderer = getattr(self, "_renderer", None)
         groups = getattr(self, "_live_groups", {})
+
+        # If renderer has data but no groups are defined yet, synthesize a single
+        # "All wells" group so the chart shows immediately after a dataset is loaded.
+        if renderer is not None and renderer.available_wells() and not groups:
+            groups = {
+                "_all": {
+                    "wells": renderer.available_wells(),
+                    "color": "#0E6B52",
+                    "name": "All wells",
+                }
+            }
+
         if renderer is not None and groups:
             try:
                 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -268,9 +283,11 @@ class PlotWorkspace(QWidget):
                     canvas = FigureCanvasQTAgg(fig)
                     canvas.setStyleSheet("background: transparent;")
                     self._chart_frame.set_canvas(canvas)
+                    self._populate_live_legend(groups)
                     return
+                _log.warning("render_kinetics returned None (no matching wells/channels?)")
             except Exception:
-                pass  # fall through to demo
+                _log.exception("render_kinetics failed, falling back to demo")
 
         try:
             import matplotlib
@@ -333,6 +350,20 @@ class PlotWorkspace(QWidget):
         canvas = FigureCanvasQTAgg(fig)
         canvas.setStyleSheet("background: transparent;")
         self._chart_frame.set_canvas(canvas)
+
+    def _clear_legend(self) -> None:
+        while self._legend_layout.count() > 1:  # keep the trailing stretch
+            item = self._legend_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _populate_live_legend(self, groups: dict) -> None:
+        self._clear_legend()
+        idx = 0
+        for gid, spec in groups.items():
+            row = LegendRow(gid, spec.get("name", gid), spec.get("color", "#888"))
+            self._legend_layout.insertWidget(idx, row)
+            idx += 1
 
     def _populate_demo_legend(self) -> None:
         groups = [

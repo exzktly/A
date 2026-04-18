@@ -26,6 +26,8 @@ class PlotRenderer:
         self._well_paths: dict[str, Path] = {}    # well_token -> CSV Path
         self._cache: dict[str, list[dict]] = {}   # well_token -> rows
         self._fluor_channels: list[str] = []
+        if data_dir:
+            self._scan()
 
     def set_data_dir(self, path: str) -> None:
         self._data_dir = Path(path)
