@@ -1605,12 +1605,17 @@ def output_exists_for_well_flat(output_dir: Path, well_label: str, csv_prefix: s
 
 
 def _unique_tokens_preserve_order(tokens: "list[str]") -> "list[str]":
+    """Stable de-dupe for channel tokens, ignoring case and surrounding whitespace."""
     seen: set[str] = set()
     out: list[str] = []
     for tok in tokens:
-        if tok not in seen:
-            out.append(tok)
-            seen.add(tok)
+        cleaned = str(tok or "").strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key not in seen:
+            out.append(cleaned)
+            seen.add(key)
     return out
 
 
@@ -1856,7 +1861,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--nuclear_token", default="NIR",
                    help="Channel token identifying nuclear-channel files "
-                        "(used for segmentation only, not quantified)")
+                        "(used for segmentation and quantified like other channels)")
     p.add_argument("--fluor_tokens", nargs="+", default=["GFP"],
                    metavar="TOKEN",
                    help="One or more channel tokens identifying fluorescent "
@@ -2091,7 +2096,7 @@ def main() -> None:
     if workers_override:
         log.info("Workers override : --workers=%d", args.workers)
 
-    fluor_tokens_for_quant = list(args.fluor_tokens)
+    fluor_tokens_for_quant = [args.nuclear_token, *list(args.fluor_tokens)]
     if (
         args.segmentation_method == "stardist_seeded_watershed_cell"
         and args.cytoplasm_token

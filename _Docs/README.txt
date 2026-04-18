@@ -295,13 +295,15 @@ One CSV per well.  Each row is one nucleus.  Columns:
 
   filename, experiment, channel, well, fov, timepoint, timepoint_hours
   nucleus_id, area_px
-  <token>_total_intensity    — one set of five columns per fluorescent channel
+  <token>_total_intensity    — one set of five columns per quantified channel
   <token>_mean_intensity
   <token>_max_intensity
   <token>_min_intensity
   <token>_std_intensity
 
 Where <token> is the lowercase channel token, e.g. gfp, mcherry, w2turq.
+The segmentation/nuclear token is also quantified, so it appears as standard
+`<token>_*_intensity` columns and is available in viewer plot/filter selectors.
 
 The pipeline_info.json sidecar (written to the output directory alongside
 the CSVs) records the filename schema and channel tokens used during the run.

@@ -572,6 +572,32 @@ def detect_nuclear_channel_token(rows: List[dict]) -> str:
     return str(rows[0].get("channel", "") or "").strip().lower()
 
 
+def normalize_channel_tokens(tokens: List[str]) -> List[str]:
+    """Stable lower-case de-dupe for channel tokens."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in tokens:
+        cleaned = str(tok or "").strip().lower()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def merge_fluor_channels(
+    pipeline_fluor: List[str],
+    detected_fluor: List[str],
+    seg_channel_token: str = "",
+) -> List[str]:
+    """Merge pipeline + detected channel lists with stable order, always including seg token."""
+    merged = normalize_channel_tokens(list(pipeline_fluor) + list(detected_fluor))
+    seg_tok = str(seg_channel_token or "").strip().lower()
+    if seg_tok and seg_tok not in merged:
+        merged.append(seg_tok)
+    return merged
+
+
 def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
     """Return channel prefixes suitable for Review Image.
 
@@ -3997,12 +4023,19 @@ class WellViewerApp(tk.Frame):
         )
         detected = detect_fluor_channels(all_rows_sample)
         detected_smfish = detect_smfish_channels(all_rows_sample)
-        pipeline_fluor = [
+        pipeline_fluor_raw = [
             str(tok).strip().lower()
             for tok in (self._pipeline_info.get("fluor_tokens", []) if isinstance(self._pipeline_info, dict) else [])
             if str(tok).strip()
         ]
-        fluor_channels = pipeline_fluor or detected
+        pipeline_fluor = normalize_channel_tokens(pipeline_fluor_raw)
+        detected = normalize_channel_tokens(detected)
+        seg_tok = ""
+        if isinstance(self._pipeline_info, dict):
+            seg_tok = str(self._pipeline_info.get("nuclear_token", "") or "").strip().lower()
+        if not seg_tok:
+            seg_tok = detect_nuclear_channel_token(all_rows_sample)
+        fluor_channels = merge_fluor_channels(pipeline_fluor, detected, seg_tok)
         if fluor_channels:
             self._fluor_channels = fluor_channels
             # Keep the active channel if it is still present; otherwise
@@ -4011,11 +4044,6 @@ class WellViewerApp(tk.Frame):
                 self._active_channel = fluor_channels[0]
             if not self._active_image_channel:
                 self._active_image_channel = fluor_channels[0]
-        seg_tok = ""
-        if isinstance(self._pipeline_info, dict):
-            seg_tok = str(self._pipeline_info.get("nuclear_token", "") or "").strip().lower()
-        if not seg_tok:
-            seg_tok = detect_nuclear_channel_token(all_rows_sample)
         self._seg_channel_token = seg_tok
         self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels, seg_tok)
         self._update_channel_selector()
@@ -4147,7 +4175,7 @@ class WellViewerApp(tk.Frame):
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
         labels = [ch.upper() for ch in self._fluor_channels] or ["—"]
-        # Montage/preview includes the segmentation channel even if it has no CSV measurement column
+        # Montage/preview includes the segmentation channel token.
         seg_tok = getattr(self, "_seg_channel_token", "")
         montage_chans = list(self._fluor_channels)
         if seg_tok and seg_tok not in montage_chans:
