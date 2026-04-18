@@ -657,6 +657,24 @@ def _segment_stardist_seeded_watershed_cell(
         ).astype(np.int32)
     return labels, nuclear_points, cytoplasm_tophat, cytoplasm_binary_mask
 
+
+def build_processed_output_path(
+    src_path: Path,
+    *,
+    output_dir: Path,
+    suffix: str,
+    ext_override: str | None = None,
+) -> Path:
+    """Build output path as input stem + suffix + extension.
+
+    The default extension is copied from *src_path* so processed outputs preserve
+    source file type (`.tif` / `.tiff` etc.) unless explicitly overridden.
+    """
+    ext = str(ext_override) if ext_override is not None else str(src_path.suffix)
+    if not ext:
+        ext = ".tif"
+    return output_dir / f"{src_path.stem}{suffix}{ext}"
+
 # ---------------------------------------------------------------------------
 # Per-image worker (runs in a subprocess)
 # ---------------------------------------------------------------------------
@@ -678,6 +696,7 @@ def process_image_group(
     segmentation_method: str = DEFAULT_SEGMENTATION_METHOD,
     cytoplasm_token: str = "",
     min_nucleus_area_px: int = 50,
+    legacy_channel_suffix_naming: bool = False,
 ) -> list[dict]:
     """
     Process one nuclear image together with an arbitrary number of fluorescent
@@ -772,36 +791,85 @@ def process_image_group(
     # Save QC images.
     # Keep schema tokens in output stems so output names stay harmonized with
     # input naming conventions and schema-driven resolvers.
-    stem      = nuclear_path.stem
-    base_name = stem
-
     _t = time.perf_counter()
     if save_tophat_images:
-        th_nir_path = output_dir / f"{base_name}_tophat_nir.tif"
+        if legacy_channel_suffix_naming:
+            th_nir_path = output_dir / f"{nuclear_path.stem}_tophat_nir.tif"
+        else:
+            th_nir_path = build_processed_output_path(
+                nuclear_path,
+                output_dir=output_dir,
+                suffix="_tophat",
+            )
         imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
-        for fc, tok in zip(fluor_tophat, fluor_tokens):
-            th_path = output_dir / f"{base_name}_tophat_{tok.lower()}.tif"
+        for fc, tok, fp in zip(fluor_tophat, fluor_tokens, fluor_paths):
+            if legacy_channel_suffix_naming:
+                th_path = output_dir / f"{nuclear_path.stem}_tophat_{tok.lower()}.tif"
+            else:
+                th_path = build_processed_output_path(
+                    fp,
+                    output_dir=output_dir,
+                    suffix="_tophat",
+                )
             imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
-        for i, tok in enumerate(fluor_tokens):
+        for i, (tok, fp) in enumerate(zip(fluor_tokens, fluor_paths)):
             if tok in smfish_set:
-                smfish_path = output_dir / f"{base_name}_smfish_{tok.lower()}.tif"
+                if legacy_channel_suffix_naming:
+                    smfish_path = output_dir / f"{nuclear_path.stem}_smfish_{tok.lower()}.tif"
+                else:
+                    smfish_path = build_processed_output_path(
+                        fp,
+                        output_dir=output_dir,
+                        suffix="_smfish",
+                    )
                 imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
         if segmentation_method == "stardist_seeded_watershed_cell":
             assert nuclear_points is not None
             assert cytoplasm_tophat is not None
             assert cytoplasm_binary_mask is not None
-            imwrite(str(output_dir / f"{base_name}_nuclear_points.tif"), nuclear_points.astype(np.int32))
             imwrite(
-                str(output_dir / f"{base_name}_cytoplasm_tophat.tif"),
+                str(build_processed_output_path(
+                    nuclear_path,
+                    output_dir=output_dir,
+                    suffix="_nuclear_points",
+                )),
+                nuclear_points.astype(np.int32),
+            )
+            imwrite(
+                str(build_processed_output_path(
+                    nuclear_path,
+                    output_dir=output_dir,
+                    suffix="_cytoplasm_tophat",
+                )),
                 np.clip(cytoplasm_tophat, 0, None).astype(np.float32),
             )
             imwrite(
-                str(output_dir / f"{base_name}_cytoplasm_otsu_mask.tif"),
+                str(build_processed_output_path(
+                    nuclear_path,
+                    output_dir=output_dir,
+                    suffix="_cytoplasm_otsu_mask",
+                )),
                 cytoplasm_binary_mask.astype(np.uint8),
             )
         log.info("  tophat tifs written")
-    imwrite(str(output_dir / f"{base_name}_labels.tif"), labels)
-    save_overlay(nir_raw, labels, output_dir / f"{base_name}_overlay.png")
+    imwrite(
+        str(build_processed_output_path(
+            nuclear_path,
+            output_dir=output_dir,
+            suffix="_labels",
+        )),
+        labels,
+    )
+    save_overlay(
+        nir_raw,
+        labels,
+        build_processed_output_path(
+            nuclear_path,
+            output_dir=output_dir,
+            suffix="_overlay",
+            ext_override=".png",
+        ),
+    )
     log.info("  save:        %.1f s", time.perf_counter() - _t)
 
     # Quantify each nucleus across all fluorescent channels.
@@ -1927,6 +1995,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no_save_tophat",   action="store_true",
                    help="Do not save top-hat/smFISH intermediate TIFFs")
     p.add_argument(
+        "--legacy_channel_suffix_naming",
+        action="store_true",
+        help=(
+            "Write processed channel outputs using legacy suffixes "
+            "(_tophat_<channel>, _smfish_<channel>) rooted at nuclear stems. "
+            "Default uses per-input stem + task suffix naming."
+        ),
+    )
+    p.add_argument(
         "--compress_input_well_folders",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -2117,6 +2194,7 @@ def main() -> None:
     log.info("Tophat fluor   : radius=%d, enabled=%s",
              args.tophat_radius_fluor, not args.no_tophat_fluor)
     log.info("Save tophat    : %s", not args.no_save_tophat)
+    log.info("Legacy naming  : %s", args.legacy_channel_suffix_naming)
 
     # kwargs forwarded to every process_image_group call.
     shared_kwargs = dict(
@@ -2134,6 +2212,7 @@ def main() -> None:
         segmentation_method=args.segmentation_method,
         cytoplasm_token=args.cytoplasm_token,
         min_nucleus_area_px=args.min_nucleus_area_px,
+        legacy_channel_suffix_naming=args.legacy_channel_suffix_naming,
     )
 
     # If the selected input is an "in" directory, normalise any loose TIF/TIFF

@@ -56,8 +56,10 @@ def test_candidate_order_is_consistent_across_tabs() -> None:
 
     assert mask_candidates[0].endswith(OUTPUT_SUFFIXES["mask"][0])
     assert overlay_candidates[0].endswith(OUTPUT_SUFFIXES["overlay"][0])
-    assert processed_candidates[0].endswith("_tophat_gfp.tif")
-    assert smfish_candidates[0].endswith("_smfish_gfp.tif")
+    assert processed_candidates[0].endswith("_tophat.tif")
+    assert smfish_candidates[0].endswith("_smfish.tif")
+    assert any(name.endswith("_tophat_gfp.tif") for name in processed_candidates)
+    assert any(name.endswith("_smfish_gfp.tif") for name in smfish_candidates)
 
 
 def test_movie_montage_channel_switch_finds_derived_tophat_outputs(tmp_path: Path) -> None:
@@ -74,7 +76,7 @@ def test_movie_montage_channel_switch_finds_derived_tophat_outputs(tmp_path: Pat
     extractor = lambda stem: (stem.split("_")[-2], stem.split("_")[-1])
     mask_re = re.compile(r"_labels\.(?:tif|tiff|png)$", re.I)
     overlay_re = re.compile(r"_overlay\.(?:tif|tiff|png|jpe?g)$", re.I)
-    tophat_re = re.compile(r"_tophat_\w+\.(?:tif|tiff)$", re.I)
+    tophat_re = re.compile(r"_tophat(?:_\w+)?\.(?:tif|tiff)$", re.I)
     logger = logging.getLogger("resolver_test")
 
     def _classifier(name: str, fluor_lower: str, fov_tp_extractor, _pipeline_info):
