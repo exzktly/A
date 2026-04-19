@@ -13,6 +13,8 @@ from typing import Callable, Dict, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QWidget
 
+from well_viewer.plate_layout import PLATE_COLS, PLATE_ROWS
+
 
 class WellButton(QPushButton):
     def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
@@ -47,8 +49,6 @@ def build_plate_grid(
 
     Returns the layout for further configuration by the caller.
     """
-    from well_viewer.runtime_app import _PLATE_ROWS, _PLATE_COLS
-
     layout = parent.layout()
     if layout is None:
         layout = QGridLayout(parent)
@@ -60,19 +60,19 @@ def build_plate_grid(
     # corner
     layout.addWidget(QLabel("", parent), col_header_row, 0)
     # column headers
-    for ci, col in enumerate(_PLATE_COLS):
+    for ci, col in enumerate(PLATE_COLS):
         lbl = QLabel(str(int(col)), parent)
         lbl.setObjectName("Muted")
         lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl, col_header_row, ci + 1)
 
     # row headers + wells
-    for ri, row_ltr in enumerate(_PLATE_ROWS):
+    for ri, row_ltr in enumerate(PLATE_ROWS):
         rl = QLabel(row_ltr, parent)
         rl.setObjectName("Muted")
         rl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(rl, ri + row_start, 0)
-        for ci, col in enumerate(_PLATE_COLS):
+        for ci, col in enumerate(PLATE_COLS):
             tok = f"{row_ltr}{col}"
             btn = WellButton(tok, parent)
             btn.setEnabled(False)
@@ -82,6 +82,6 @@ def build_plate_grid(
             btn_store[tok] = btn
 
     layout.setColumnStretch(0, 0)
-    for ci in range(1, len(_PLATE_COLS) + 1):
+    for ci in range(1, len(PLATE_COLS) + 1):
         layout.setColumnStretch(ci, 1)
     return layout
