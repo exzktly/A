@@ -1,114 +1,144 @@
-"""Bottom/status/log view builder extracted from runtime_app."""
+"""Bottom/status/log view builder (Qt port)."""
 
 from __future__ import annotations
 
 import logging
-import tkinter as tk
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit,
+    QVBoxLayout, QWidget,
+)
 
 
 class _GUILogHandler(logging.Handler):
-    """Routes logging records into a tk.Text widget on the main thread."""
+    """Routes logging records into a QTextEdit on the Qt main thread."""
 
-    def __init__(self, widget: tk.Text) -> None:
+    def __init__(self, widget: QTextEdit) -> None:
         super().__init__()
         self._w = widget
-        from well_viewer.runtime_app import CLR_DANGER, CLR_WARN_DARK, FM_TINY, TXT_MUT, TXT_SEC
-        widget.tag_configure("ERROR",   foreground=CLR_DANGER,    font=FM_TINY)
-        widget.tag_configure("WARNING", foreground=CLR_WARN_DARK,  font=FM_TINY)
-        widget.tag_configure("INFO",    foreground=TXT_SEC,        font=FM_TINY)
-        widget.tag_configure("DEBUG",   foreground=TXT_MUT,        font=FM_TINY)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            msg = self.format(record) + "\n"
-            tag = record.levelname if record.levelname in ("ERROR", "WARNING", "INFO", "DEBUG") else "INFO"
-            self._w.after(0, self._append, msg, tag)
+            msg = self.format(record)
+            level = record.levelname
+            color_map = {
+                "ERROR":   "#DC2626",
+                "WARNING": "#D97706",
+                "INFO":    "#E2E8F0",
+                "DEBUG":   "#94A3B8",
+            }
+            color = color_map.get(level, "#E2E8F0")
+            html = f'<span style="color:{color};">{msg}</span>'
+            # Marshal to the Qt main thread.
+            QTimer.singleShot(0, lambda h=html: self._append(h))
         except Exception:
             self.handleError(record)
 
-    def _append(self, msg: str, tag: str) -> None:
-        self._w.configure(state=tk.NORMAL)
-        self._w.insert(tk.END, msg, tag)
-        self._w.see(tk.END)
-        self._w.configure(state=tk.DISABLED)
+    def _append(self, html: str) -> None:
+        try:
+            self._w.append(html)
+        except Exception:
+            pass
 
 
 def build_bottom(app) -> None:
     """Build the persistent status/log footer strip."""
     from well_viewer import runtime_app as rt
 
-    bottom = rt.tk.Frame(app, bg=rt.BG_SIDE)
-    bottom.pack(side=rt.tk.BOTTOM, fill=rt.tk.X)
-    rt.tk.Frame(bottom, bg=rt.BORDER, height=1).pack(fill=rt.tk.X)
+    # Root layout on app must accept a bottom strip — we place it as a child.
+    bottom = QWidget(app)
+    bottom.setObjectName("Sidebar")
+    outer = QVBoxLayout(bottom)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
 
-    ctrl_row = rt.tk.Frame(bottom, bg=rt.BG_SIDE, pady=8, padx=14)
-    ctrl_row.pack(fill=rt.tk.X)
-    rt.tk.Label(ctrl_row, text="Error Band", font=rt.FM_BOLD, fg=rt.TXT_SEC, bg=rt.BG_SIDE).pack(
-        side=rt.tk.LEFT, padx=(0, 6)
-    )
-    app._sem_btn = rt.ttk.Button(ctrl_row, text="SEM", command=app._toggle_sem,
-                                 style="SEM.TButton", width=5)
-    app._sem_btn.pack(side=rt.tk.LEFT)
-    rt.tk.Frame(bottom, bg=rt.BORDER, height=1).pack(fill=rt.tk.X)
+    # Add to app's layout if it has one; otherwise runtime_app must
+    # arrange layout. We assume app has a QVBoxLayout via its own builder.
+    app_layout = app.layout()
+    if app_layout is not None:
+        app_layout.addWidget(bottom)
 
-    status_row = rt.tk.Frame(bottom, bg=rt.BG_SIDE)
-    status_row.pack(fill=rt.tk.X)
-    app._log_btn = rt.ttk.Button(status_row, text="Log ▲", command=app._toggle_log,
-                                 style="Secondary.TButton")
-    app._log_btn.pack(side=rt.tk.RIGHT, padx=4, pady=2)
+    top_sep = QFrame(bottom)
+    top_sep.setFrameShape(QFrame.HLine)
+    top_sep.setFixedHeight(1)
+    outer.addWidget(top_sep)
 
-    app._progress_var = rt.tk.DoubleVar(value=0.0)
-    app._progress_bar = rt.ttk.Progressbar(
-        status_row,
-        variable=app._progress_var,
-        orient=rt.tk.HORIZONTAL,
-        mode="determinate",
-        length=220,
-    )
+    # Control row: Error Band + SEM toggle
+    ctrl_row = QWidget(bottom)
+    cr_l = QHBoxLayout(ctrl_row)
+    cr_l.setContentsMargins(14, 8, 14, 8)
+    outer.addWidget(ctrl_row)
 
-    app._status_lbl = rt.tk.Label(
-        status_row, text="Ready.", font=rt.FM_TINY, fg=rt.TXT_MUT, bg=rt.BG_SIDE, anchor="w", padx=14
-    )
-    app._status_lbl.pack(side=rt.tk.LEFT, fill=rt.tk.X, expand=True)
+    eb_lbl = QLabel("Error Band", ctrl_row)
+    eb_lbl.setProperty("role", "section")
+    cr_l.addWidget(eb_lbl)
+    app._sem_btn = QPushButton("SEM", ctrl_row)
+    app._sem_btn.setProperty("variant", "sem")
+    app._sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
+    cr_l.addWidget(app._sem_btn)
+    cr_l.addStretch(1)
 
-    app._log_frame = rt.tk.Frame(bottom, bg=rt.BG_SIDE, height=160)
-    app._log_frame.pack_propagate(False)
+    mid_sep = QFrame(bottom)
+    mid_sep.setFrameShape(QFrame.HLine)
+    mid_sep.setFixedHeight(1)
+    outer.addWidget(mid_sep)
 
-    log_hdr = rt.tk.Frame(app._log_frame, bg=rt.BG_SIDE)
-    log_hdr.pack(fill=rt.tk.X, padx=6, pady=(4, 2))
-    rt.tk.Label(log_hdr, text="LOG", font=rt.FM_BOLD, fg=rt.TXT_MUT, bg=rt.BG_SIDE).pack(side=rt.tk.LEFT)
-    rt.ttk.Button(log_hdr, text="Clear", command=app._clear_log,
-                  style="Secondary.TButton").pack(side=rt.tk.RIGHT)
+    # Status row
+    status_row = QWidget(bottom)
+    sr_l = QHBoxLayout(status_row)
+    sr_l.setContentsMargins(4, 2, 4, 2)
+    outer.addWidget(status_row)
 
-    tf = rt.tk.Frame(app._log_frame, bg=rt.BG_SIDE)
-    tf.pack(fill=rt.tk.BOTH, expand=True, padx=6, pady=(0, 2))
-    vsb = rt.tk.Scrollbar(tf, relief=rt.tk.FLAT, width=7, bg=rt.BORDER, troughcolor=rt.BG_SIDE)
-    vsb.pack(side=rt.tk.RIGHT, fill=rt.tk.Y)
-    app._log_text = rt.tk.Text(
-        tf,
-        state=rt.tk.DISABLED,
-        bg=rt.BG_PANEL,
-        fg=rt.TXT_PRI,
-        font=rt.FM_TINY,
-        relief=rt.tk.FLAT,
-        highlightthickness=1,
-        highlightbackground=rt.BORDER,
-        wrap=rt.tk.NONE,
-        yscrollcommand=vsb.set,
-        borderwidth=0,
-    )
-    app._log_text.pack(side=rt.tk.LEFT, fill=rt.tk.BOTH, expand=True)
-    vsb.config(command=app._log_text.yview)
-    hsb = rt.tk.Scrollbar(app._log_frame, orient=rt.tk.HORIZONTAL, relief=rt.tk.FLAT, width=7, bg=rt.BORDER, troughcolor=rt.BG_SIDE)
-    hsb.pack(fill=rt.tk.X, padx=6)
-    app._log_text.config(xscrollcommand=hsb.set)
-    hsb.config(command=app._log_text.xview)
+    app._status_lbl = QLabel("Ready.", status_row)
+    app._status_lbl.setObjectName("Muted")
+    sr_l.addWidget(app._status_lbl, 1)
+
+    app._progress_bar = QProgressBar(status_row)
+    app._progress_bar.setOrientation(Qt.Horizontal)
+    app._progress_bar.setFixedWidth(220)
+    app._progress_bar.setRange(0, 100)
+    app._progress_bar.setValue(0)
+    app._progress_bar.hide()
+    sr_l.addWidget(app._progress_bar)
+
+    app._log_btn = QPushButton("Log \u25b2", status_row)
+    app._log_btn.setProperty("variant", "secondary")
+    app._log_btn.clicked.connect(lambda _=False: app._toggle_log())
+    sr_l.addWidget(app._log_btn)
+
+    # Log frame (hidden initially)
+    app._log_frame = QWidget(bottom)
+    app._log_frame.setFixedHeight(160)
+    lf_l = QVBoxLayout(app._log_frame)
+    lf_l.setContentsMargins(6, 4, 6, 2)
+    outer.addWidget(app._log_frame)
+
+    log_hdr = QWidget(app._log_frame)
+    lh_l = QHBoxLayout(log_hdr)
+    lh_l.setContentsMargins(0, 0, 0, 2)
+    lf_l.addWidget(log_hdr)
+    hdr_lbl = QLabel("LOG", log_hdr)
+    hdr_lbl.setProperty("role", "section")
+    lh_l.addWidget(hdr_lbl)
+    lh_l.addStretch(1)
+    clear_btn = QPushButton("Clear", log_hdr)
+    clear_btn.setProperty("variant", "secondary")
+    clear_btn.clicked.connect(lambda _=False: app._clear_log())
+    lh_l.addWidget(clear_btn)
+
+    app._log_text = QTextEdit(app._log_frame)
+    app._log_text.setReadOnly(True)
+    app._log_text.setLineWrapMode(QTextEdit.NoWrap)
+    lf_l.addWidget(app._log_text, 1)
+
+    app._log_frame.hide()
     app._log_visible = False
 
     handler = _GUILogHandler(app._log_text)
-    handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s", datefmt="%H:%M:%S"))
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s  %(levelname)-7s  %(message)s", datefmt="%H:%M:%S"))
     handler.setLevel(logging.DEBUG)
     rt._logger.addHandler(handler)
     rt._logger.setLevel(logging.DEBUG)
-    # Avoid duplicate log lines: keep GUI handler on the well_viewer logger only.
     rt._logger.propagate = False

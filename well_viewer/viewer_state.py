@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 
 def make_schema_extractor(sep: str, fov_idx: int, tp_idx: int):
@@ -120,8 +119,15 @@ def groups_with_loaded_wells(groups, well_paths: dict) -> list:
     return [g for g in groups if any(w in well_paths for w in g.wells)]
 
 
-def selected_listbox_values(listbox: tk.Listbox) -> List[str]:
-    """Return selected string values from a Tk listbox."""
+def selected_listbox_values(listbox: Any) -> List[str]:
+    """Return selected string values from a Qt QListWidget (or legacy Tk listbox).
+
+    The Qt path uses ``selectedItems()`` and ``item.text()``; falls back to the
+    legacy Tk ``curselection()``/``get()`` protocol if the widget exposes it.
+    """
+    sel = getattr(listbox, "selectedItems", None)
+    if callable(sel):
+        return [it.text() for it in sel()]
     return [listbox.get(i) for i in listbox.curselection()]
 
 

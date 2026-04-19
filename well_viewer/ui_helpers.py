@@ -1,195 +1,89 @@
-"""Reusable UI helpers extracted from the legacy well_viewer3 surface."""
+"""Reusable Qt UI helpers (button factories, scroll area, name dialog, etc.)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
-from typing import Optional
+from typing import Any, Callable, Optional, Tuple
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+)
 
 
-def btn_primary(parent: tk.Widget, text: str, command, *, padx: int = 8, pady: int = 2, **kw) -> ttk.Button:
-    """Accent-blue primary action button."""
-    return ttk.Button(parent, text=text, command=command,
-                      style="Primary.TButton", padding=(padx, pady), **kw)
+def _btn(parent: Optional[QWidget], text: str, command: Optional[Callable[[], Any]], variant: str) -> QPushButton:
+    b = QPushButton(text, parent)
+    b.setProperty("variant", variant)
+    if command is not None:
+        b.clicked.connect(lambda _=False: command())
+    return b
 
 
-def btn_secondary(parent: tk.Widget, text: str, command, *, padx: int = 6, pady: int = 2, **kw) -> ttk.Button:
-    """Neutral secondary/toolbar button."""
-    return ttk.Button(parent, text=text, command=command,
-                      style="Secondary.TButton", padding=(padx, pady), **kw)
+def btn_primary(parent: QWidget, text: str, command, *, padx: int = 8, pady: int = 2, **_kw) -> QPushButton:
+    return _btn(parent, text, command, "primary")
 
 
-def btn_card(parent: tk.Widget, text: str, command, *, padx: int = 4, **kw) -> ttk.Button:
-    """Compact inline card button."""
-    return ttk.Button(parent, text=text, command=command,
-                      style="Card.TButton", padding=(padx, 2), **kw)
+def btn_secondary(parent: QWidget, text: str, command, *, padx: int = 6, pady: int = 2, **_kw) -> QPushButton:
+    return _btn(parent, text, command, "secondary")
 
 
-def btn_danger(parent: tk.Widget, text: str, command, *, padx: int = 4, **kw) -> ttk.Button:
-    """Red destructive action button."""
-    return ttk.Button(parent, text=text, command=command,
-                      style="Danger.TButton", padding=(padx, 2), **kw)
+def btn_card(parent: QWidget, text: str, command, *, padx: int = 4, **_kw) -> QPushButton:
+    return _btn(parent, text, command, "card")
 
 
-def tok_at_event(event: tk.Event, btn_dict: dict) -> Optional[str]:
-    """Return the token key whose button widget is under the pointer, or None."""
-    sx = event.widget.winfo_rootx() + event.x
-    sy = event.widget.winfo_rooty() + event.y
-    w = event.widget.winfo_containing(sx, sy)
+def btn_danger(parent: QWidget, text: str, command, *, padx: int = 4, **_kw) -> QPushButton:
+    return _btn(parent, text, command, "danger")
+
+
+def tok_at_event(event: Any, btn_dict: dict) -> Optional[str]:
+    """Return the well-token whose QPushButton lies under the pointer, or None.
+
+    Accepts either a QMouseEvent (preferred) or a tk-style event with
+    ``.widget`` / ``.x`` / ``.y`` attributes so legacy callers keep working.
+    """
+    pos = None
+    sender = None
+    for attr in ("position", "globalPosition"):
+        if hasattr(event, attr):
+            try:
+                pos = getattr(event, attr)().toPoint()
+                break
+            except Exception:
+                pass
+    if pos is None and hasattr(event, "pos"):
+        try:
+            pos = event.pos()
+        except Exception:
+            pass
     for tok, btn in btn_dict.items():
-        if btn is w:
-            return tok
+        try:
+            if btn is not None and btn.isVisible() and btn.underMouse():
+                return tok
+        except Exception:
+            continue
     return None
 
 
-def bind_mousewheel_scroll(canvas: tk.Canvas) -> None:
-    """Enable wheel/trackpad vertical scrolling for a Tk canvas."""
-    if getattr(canvas, "_wheel_bound", False):
-        return
-    canvas._wheel_bound = True
-
-    def _event_targets_canvas(event) -> bool:
-        w = canvas.winfo_containing(event.x_root, event.y_root)
-        while w is not None:
-            if w is canvas:
-                return True
-            w = getattr(w, "master", None)
-        return False
-
-    def _on_mousewheel(event):
-        if not _event_targets_canvas(event):
-            return
-        delta = getattr(event, "delta", 0)
-        if delta == 0:
-            return
-        # Windows usually sends ±120; macOS trackpads often send small deltas.
-        steps = int(-delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
-        canvas.yview_scroll(steps, "units")
-
-    def _on_linux_up(event):
-        if _event_targets_canvas(event):
-            canvas.yview_scroll(-1, "units")
-
-    def _on_linux_down(event):
-        if _event_targets_canvas(event):
-            canvas.yview_scroll(1, "units")
-
-    # Global binds ensure scrolling works when hovering child widgets embedded
-    # inside the canvas window, not only when the pointer is over the scrollbar.
-    canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+")
-    canvas.bind_all("<Button-4>", _on_linux_up, add="+")
-    canvas.bind_all("<Button-5>", _on_linux_down, add="+")
+def make_scrollable_canvas(parent: QWidget, **_kw) -> Tuple[QScrollArea, QWidget]:
+    """Return (scroll_area, inner_widget). Caller lays widgets inside inner."""
+    sa = QScrollArea(parent)
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QFrame.NoFrame)
+    inner = QWidget(sa)
+    sa.setWidget(inner)
+    QVBoxLayout(inner)
+    return sa, inner
 
 
-def make_scrollable_canvas(
-    parent: tk.Widget,
-    *,
-    bg: str,
-    border: str,
-    trough_bg: str,
-    scrollbar_width: int = 7,
-) -> tuple[tk.Canvas, tk.Frame]:
-    vsb = tk.Scrollbar(parent, relief=tk.FLAT, width=scrollbar_width, bg=border, troughcolor=trough_bg)
-    vsb.pack(side=tk.RIGHT, fill=tk.Y)
-    canvas = tk.Canvas(parent, bg=bg, highlightthickness=0, yscrollcommand=vsb.set)
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    vsb.config(command=canvas.yview)
-
-    inner = tk.Frame(canvas, bg=bg)
-    win = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-    inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda e: canvas.itemconfig(win, width=e.width))
-    bind_mousewheel_scroll(canvas)
-    return canvas, inner
+def bind_mousewheel_scroll(_scroll_area) -> None:
+    """No-op: QScrollArea handles wheel events natively."""
+    return
 
 
-def ask_name_dialog(
-    parent: tk.Widget,
-    *,
-    title: str,
-    prompt: str,
-    default: str,
-    width: int,
-    bg_app: str,
-    txt_pri: str,
-    txt_sec: str,
-    accent: str,
-    bg_panel: str,
-    border: str,
-    bg_cell: str,
-    bg_hover: str,
-    fm_ui,
-    fm_bold,
-    clr_white: str,
-) -> Optional[str]:
-    dlg = tk.Toplevel(parent)
-    dlg.title(title)
-    dlg.configure(bg=bg_app)
-    dlg.resizable(False, False)
-    dlg.grab_set()
-    tk.Label(dlg, text=prompt, font=fm_ui, fg=txt_pri, bg=bg_app, padx=14, pady=8).pack(anchor="w")
-
-    var = tk.StringVar(value=default)
-    e = tk.Entry(
-        dlg,
-        textvariable=var,
-        font=fm_ui,
-        width=width,
-        fg=accent,
-        bg=bg_panel,
-        insertbackground=accent,
-        relief=tk.FLAT,
-        highlightthickness=1,
-        highlightcolor=accent,
-        highlightbackground=border,
-    )
-    e.pack(padx=14, pady=(0, 8))
-    e.select_range(0, tk.END)
-    e.focus_set()
-
-    result = [None]
-
-    def _ok(_e=None):
-        v = var.get().strip()
-        if v:
-            result[0] = v
-        dlg.destroy()
-
-    def _cancel(_e=None):
-        dlg.destroy()
-
-    e.bind("<Return>", _ok)
-    e.bind("<Escape>", _cancel)
-
-    br = tk.Frame(dlg, bg=bg_app)
-    br.pack(fill=tk.X, padx=14, pady=(0, 10))
-    tk.Button(
-        br,
-        text="OK",
-        command=_ok,
-        font=fm_bold,
-        fg=clr_white,
-        bg=accent,
-        activebackground=accent,
-        activeforeground=clr_white,
-        relief=tk.FLAT,
-        padx=10,
-        pady=3,
-        cursor="hand2",
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    tk.Button(
-        br,
-        text="Cancel",
-        command=_cancel,
-        font=fm_bold,
-        fg=txt_sec,
-        bg=bg_cell,
-        activebackground=bg_hover,
-        relief=tk.FLAT,
-        padx=10,
-        pady=3,
-        cursor="hand2",
-    ).pack(side=tk.RIGHT)
-    dlg.wait_window()
-    return result[0]
+def ask_name_dialog(parent: QWidget, *, title: str, prompt: str, default: str,
+                    width: int = 30, **_kw) -> Optional[str]:
+    text, ok = QInputDialog.getText(parent, title, prompt, QLineEdit.Normal, default)
+    if not ok:
+        return None
+    text = text.strip()
+    return text or None

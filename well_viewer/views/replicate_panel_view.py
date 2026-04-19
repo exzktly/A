@@ -1,77 +1,92 @@
-"""Replicate panel builder extracted from runtime_app."""
+"""Replicate panel builder (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtWidgets import (
+    QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+)
+
+from well_viewer.ui_helpers import btn_primary, btn_secondary, make_scrollable_canvas
+from well_viewer.views.well_button import build_plate_grid
 
 
-def build_replicate_panel(app, parent: tk.Frame) -> None:
+def build_replicate_panel(app, parent: QWidget) -> None:
     """Left panel: define named ReplicateSets from the global well pool."""
-    from well_viewer.runtime_app import (
-        BORDER, BG_SIDE, FM_BOLD, TXT_MUT, FM_TINY, TXT_PRI, BG_APP,
-        _btn_primary, _btn_secondary, build_plate_grid, _bind_drag,
-        make_scrollable_canvas,
-    )
 
-    tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-    hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-    hdr.pack(fill=tk.X)
-    tk.Label(hdr, text="REPLICATE SETS", font=FM_BOLD,
-             fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-    _btn_primary(hdr, "+ Add", app._rep_add).pack(side=tk.RIGHT)
-    _btn_secondary(hdr, "Clear All", app._rep_clear_all).pack(side=tk.RIGHT, padx=(0, 4))
+    top_sep = QFrame(parent)
+    top_sep.setFrameShape(QFrame.HLine)
+    top_sep.setFixedHeight(1)
+    layout.addWidget(top_sep)
+
+    hdr = QWidget(parent)
+    hdr_l = QHBoxLayout(hdr)
+    hdr_l.setContentsMargins(8, 4, 8, 4)
+    layout.addWidget(hdr)
+    hdr_lbl = QLabel("REPLICATE SETS", hdr)
+    hdr_lbl.setProperty("role", "section")
+    hdr_l.addWidget(hdr_lbl)
+    hdr_l.addStretch(1)
+    hdr_l.addWidget(btn_secondary(hdr, "Clear All", app._rep_clear_all))
+    hdr_l.addWidget(btn_primary(hdr, "+ Add", app._rep_add))
 
     # Second row: Quick Replicates dropdowns
-    hdr2r = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-    hdr2r.pack(fill=tk.X)
+    hdr2r = QWidget(parent)
+    hdr2r_l = QHBoxLayout(hdr2r)
+    hdr2r_l.setContentsMargins(8, 4, 8, 4)
+    layout.addWidget(hdr2r)
 
-    # Pair direction dropdown
-    tk.Label(hdr2r, text="Pair:", font=FM_TINY, fg=TXT_PRI,
-             bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-    app._rep_quick_pair_dir_var = tk.StringVar(value="Rows (A01+A02)")
-    pair_dir_cb = ttk.Combobox(
-        hdr2r,
-        textvariable=app._rep_quick_pair_dir_var,
-        values=["Rows (A01+A02)", "Columns (A01+B01)"],
-        state="readonly",
-        width=18)
-    pair_dir_cb.pack(side=tk.LEFT, padx=(0, 8))
+    pair_lbl = QLabel("Pair:", hdr2r)
+    hdr2r_l.addWidget(pair_lbl)
+    app._rep_quick_pair_dir_cb = QComboBox(hdr2r)
+    app._rep_quick_pair_dir_cb.addItems(["Rows (A01+A02)", "Columns (A01+B01)"])
+    app._rep_quick_pair_dir_cb.setCurrentText("Rows (A01+A02)")
+    hdr2r_l.addWidget(app._rep_quick_pair_dir_cb)
 
-    # Iteration order dropdown
-    tk.Label(hdr2r, text="Order:", font=FM_TINY, fg=TXT_PRI,
-             bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-    app._rep_quick_iter_order_var = tk.StringVar(value="Across rows")
-    iter_order_cb = ttk.Combobox(
-        hdr2r,
-        textvariable=app._rep_quick_iter_order_var,
-        values=["Across rows", "Down columns"],
-        state="readonly",
-        width=14)
-    iter_order_cb.pack(side=tk.LEFT, padx=(0, 4))
+    order_lbl = QLabel("Order:", hdr2r)
+    hdr2r_l.addWidget(order_lbl)
+    app._rep_quick_iter_order_cb = QComboBox(hdr2r)
+    app._rep_quick_iter_order_cb.addItems(["Across rows", "Down columns"])
+    app._rep_quick_iter_order_cb.setCurrentText("Across rows")
+    hdr2r_l.addWidget(app._rep_quick_iter_order_cb)
+    hdr2r_l.addStretch(1)
 
-    # Apply button on separate row below dropdowns
-    btn_row = tk.Frame(parent, bg=BG_SIDE, pady=2, padx=8)
-    btn_row.pack(fill=tk.X)
-    _btn_primary(btn_row, "Apply Quick Replicates", app._rep_quick_pairs_from_dropdowns).pack(side=tk.LEFT)
+    btn_row = QWidget(parent)
+    btn_row_l = QHBoxLayout(btn_row)
+    btn_row_l.setContentsMargins(8, 2, 8, 2)
+    layout.addWidget(btn_row)
+    btn_row_l.addWidget(btn_primary(btn_row, "Apply Quick Replicates",
+                                    app._rep_quick_pairs_from_dropdowns))
+    btn_row_l.addStretch(1)
 
-    tk.Label(parent,
-             text="Select a set below, then drag wells on the map to add/remove.",
-             font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-             wraplength=580, justify=tk.LEFT).pack(
-             fill=tk.X, padx=8, pady=(4, 2))
+    hint = QLabel(
+        "Select a set below, then drag wells on the map to add/remove.",
+        parent,
+    )
+    hint.setObjectName("Muted")
+    hint.setWordWrap(True)
+    layout.addWidget(hint)
 
-    # Plate map — shows all rep-set colours; drag edits the selected set
-    rep_map_outer = tk.Frame(parent, bg=BG_SIDE)
-    rep_map_outer.pack(fill=tk.X, padx=4)
+    # Plate map
+    rep_map_outer = QWidget(parent)
+    layout.addWidget(rep_map_outer)
     app._rep_map_btns: dict = {}
     build_plate_grid(rep_map_outer, app._rep_map_btns)
-    _bind_drag(rep_map_outer, app._rep_map_btns,
-               app._rep_map_press, app._rep_map_drag, app._rep_map_release)
+    # NOTE: drag bindings handled in runtime_app via mouse events.
 
-    tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, pady=(4, 0))
+    sep = QFrame(parent)
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFixedHeight(1)
+    layout.addWidget(sep)
 
-    sf = tk.Frame(parent, bg=BG_APP)
-    sf.pack(fill=tk.BOTH, expand=True)
-    app._rep_canvas, app._rep_inner = make_scrollable_canvas(sf, bg=BG_APP)
+    sf = QWidget(parent)
+    sf_l = QVBoxLayout(sf)
+    sf_l.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(sf, 1)
+    app._rep_canvas, app._rep_inner = make_scrollable_canvas(sf)
+    sf_l.addWidget(app._rep_canvas)

@@ -1,100 +1,119 @@
-"""Main well-picker sidebar builder extracted from runtime_app."""
+"""Main well-picker sidebar builder (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+)
 
 
-def build_sidebar(app, parent: tk.Frame) -> None:
-    """Build the 8×12 plate-map well selector in the sidebar.
+def build_sidebar(app, parent: QWidget) -> None:
+    """Build the 8x12 plate-map well selector in the sidebar.
 
     Creates:
       - "WELLS" header
       - Row/Col quick-select buttons (A-H, 01-12)
-      - 8×12 WellLabel plate-map grid with drag-to-select bindings
+      - 8x12 WellButton plate-map grid with drag-to-select bindings
       - All / None buttons
       - Selected-well count label
       - Group-mode hint label
     """
-    from well_viewer.runtime_app import (
-        ACCENT, BG_SIDE, BORDER, FM_BOLD, FM_TINY, TXT_MUT,
-        _PLATE_ROWS, _PLATE_COLS, _bind_drag, build_plate_grid,
-    )
+    from well_viewer.runtime_app import _PLATE_ROWS, _PLATE_COLS
+    from well_viewer.views.well_button import build_plate_grid
 
-    tk.Label(parent, text="WELLS", font=FM_BOLD, fg=TXT_MUT,
-             bg=BG_SIDE, pady=6).pack(fill=tk.X, padx=10)
+    # Ensure parent has a vertical layout
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-    # ── Row / Col quick-select buttons ────────────────────────────────────
-    rc_frame = tk.Frame(parent, bg=BG_SIDE)
-    rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
+    hdr = QLabel("WELLS", parent)
+    hdr.setObjectName("SidebarHeader")
+    hdr.setProperty("role", "header")
+    layout.addWidget(hdr)
+
+    # Row / Col quick-select
+    rc_frame = QWidget(parent)
+    rc_layout = QVBoxLayout(rc_frame)
+    rc_layout.setContentsMargins(6, 0, 6, 4)
+    rc_layout.setSpacing(2)
+    layout.addWidget(rc_frame)
     app._sidebar_rc_frame = rc_frame
 
-    row_frame = tk.Frame(rc_frame, bg=BG_SIDE)
-    row_frame.pack(fill=tk.X)
-    tk.Label(row_frame, text="Row:", font=FM_TINY, fg=TXT_MUT,
-             bg=BG_SIDE, anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 2))
+    row_frame = QWidget(rc_frame)
+    row_grid = QGridLayout(row_frame)
+    row_grid.setContentsMargins(0, 0, 0, 0)
+    row_grid.setSpacing(1)
+    row_lbl = QLabel("Row:", row_frame)
+    row_lbl.setObjectName("Muted")
+    row_grid.addWidget(row_lbl, 0, 0)
     for ci, r in enumerate(_PLATE_ROWS):
-        ttk.Button(
-            row_frame,
-            text=r,
-            style="QuickSelect.TButton",
-            command=lambda row=r: app._select_row(row),
-            cursor="hand2",
-        ).grid(row=0, column=ci + 1, sticky="ew", padx=1)
-    row_frame.columnconfigure(0, weight=0)
+        b = QPushButton(r, row_frame)
+        b.setProperty("variant", "quick")
+        b.setCursor(Qt.PointingHandCursor)
+        b.clicked.connect(lambda _=False, row=r: app._select_row(row))
+        row_grid.addWidget(b, 0, ci + 1)
     for ci in range(1, len(_PLATE_ROWS) + 1):
-        row_frame.columnconfigure(ci, weight=1, uniform="rc_row")
+        row_grid.setColumnStretch(ci, 1)
+    rc_layout.addWidget(row_frame)
 
-    col_frame = tk.Frame(rc_frame, bg=BG_SIDE)
-    col_frame.pack(fill=tk.X, pady=(2, 0))
-    tk.Label(col_frame, text="Col:", font=FM_TINY, fg=TXT_MUT,
-             bg=BG_SIDE, anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 2))
+    col_frame = QWidget(rc_frame)
+    col_grid = QGridLayout(col_frame)
+    col_grid.setContentsMargins(0, 0, 0, 0)
+    col_grid.setSpacing(1)
+    col_lbl = QLabel("Col:", col_frame)
+    col_lbl.setObjectName("Muted")
+    col_grid.addWidget(col_lbl, 0, 0)
     for ci, c in enumerate(_PLATE_COLS):
-        ttk.Button(
-            col_frame,
-            text=c.lstrip("0") or "0",
-            style="QuickSelect.TButton",
-            command=lambda col=c: app._select_col(col),
-            cursor="hand2",
-        ).grid(row=0, column=ci + 1, sticky="ew", padx=1)
-    col_frame.columnconfigure(0, weight=0)
+        b = QPushButton(c.lstrip("0") or "0", col_frame)
+        b.setProperty("variant", "quick")
+        b.setCursor(Qt.PointingHandCursor)
+        b.clicked.connect(lambda _=False, col=c: app._select_col(col))
+        col_grid.addWidget(b, 0, ci + 1)
     for ci in range(1, len(_PLATE_COLS) + 1):
-        col_frame.columnconfigure(ci, weight=1, uniform="rc_col")
+        col_grid.setColumnStretch(ci, 1)
+    rc_layout.addWidget(col_frame)
 
-    tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=6, pady=(4, 4))
+    sep = QFrame(parent)
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFixedHeight(1)
+    layout.addWidget(sep)
 
-    # ── Plate map grid ────────────────────────────────────────────────────
-    map_outer = tk.Frame(parent, bg=BG_SIDE)
-    map_outer.pack(fill=tk.X, padx=4)
+    # Plate map grid
+    map_outer = QWidget(parent)
+    layout.addWidget(map_outer)
 
     app._sidebar_btns = {}
-    app._sidebar_drag_adding  = True
+    app._sidebar_drag_adding = True
     app._sidebar_drag_visited = set()
     app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     app._bg_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     build_plate_grid(map_outer, app._sidebar_btns)
-    _bind_drag(map_outer, app._sidebar_btns,
-               app._sb_press, app._sb_drag, app._sb_release)
+    # NOTE: drag bindings — runtime_app must bind to the plate map via mouse
+    # event overrides; the legacy _bind_drag helper is not used in Qt.
 
-    # ── All / None buttons ────────────────────────────────────────────────
-    br = tk.Frame(parent, bg=BG_SIDE)
-    br.pack(fill=tk.X, padx=6, pady=(4, 6))
+    # All / None buttons
+    br = QWidget(parent)
+    br_l = QHBoxLayout(br)
+    br_l.setContentsMargins(6, 4, 6, 6)
+    br_l.setSpacing(3)
+    layout.addWidget(br)
     app._sidebar_allnone_frame = br
     for txt, cmd in (("All", app._select_all), ("None", app._select_none)):
-        ttk.Button(br, text=txt, command=cmd,
-                   style="PrimaryDark.TButton").pack(
-                   side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
+        b = QPushButton(txt, br)
+        b.setProperty("variant", "primary-dark")
+        b.clicked.connect(lambda _=False, c=cmd: c())
+        br_l.addWidget(b, 1)
 
-    # ── Selected well count label ─────────────────────────────────────────
-    app._sel_count_lbl = tk.Label(parent, text="", font=FM_TINY,
-                                   fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-    app._sel_count_lbl.pack(fill=tk.X, padx=10, pady=(0, 4))
+    # Selected well count label
+    app._sel_count_lbl = QLabel("", parent)
+    app._sel_count_lbl.setObjectName("Muted")
+    layout.addWidget(app._sel_count_lbl)
 
-    # ── Group-mode hint ───────────────────────────────────────────────────
-    app._line_group_hint = tk.Label(
-        parent,
-        text="",
-        font=FM_TINY, fg=ACCENT, bg=BG_SIDE,
-        anchor="w", wraplength=280, justify=tk.LEFT)
-    app._line_group_hint.pack(fill=tk.X, padx=10, pady=(0, 4))
+    # Group-mode hint
+    app._line_group_hint = QLabel("", parent)
+    app._line_group_hint.setObjectName("Accent")
+    app._line_group_hint.setWordWrap(True)
+    layout.addWidget(app._line_group_hint)
