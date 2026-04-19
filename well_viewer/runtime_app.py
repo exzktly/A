@@ -45,17 +45,49 @@ import math
 import re
 import shutil
 import statistics
-import tkinter as tk
 import threading
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Optional, Tuple
 
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QImage, QPixmap
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QSpinBox,
+    QSplitter,
+    QTabWidget,
+    QTextEdit,
+    QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvasTkAgg
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
@@ -219,7 +251,8 @@ except ImportError:
     _TIFFFILE_AVAILABLE = False
 
 try:
-    from PIL import Image as _PILImage, ImageTk as _PILImageTk
+    from PIL import Image as _PILImage
+    _PILImageTk = None  # legacy alias; unused under Qt backend
     _PIL_AVAILABLE = True
 except ImportError:
     _PIL_AVAILABLE = False
@@ -245,61 +278,19 @@ WELL_COLORS = [
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
-def make_scrollable_canvas(
-    parent: tk.Widget,
-    bg: str = BG_APP,
-    scrollbar_width: int = 7,
-) -> "tuple[tk.Canvas, tk.Frame]":
-    """
-    Create a vertically scrollable canvas inside *parent*.
+def make_scrollable_canvas(parent, bg: str = BG_APP, scrollbar_width: int = 7):
+    """Return (scroll_area, inner_widget) for a vertically scrollable panel."""
+    return _ui_make_scrollable_canvas(parent, bg=bg)
 
-    Returns (canvas, inner_frame).  The caller stores the canvas and inner_frame
-    as instance attributes and populates inner_frame with child widgets.  The
-    canvas scroll region is kept in sync automatically via a <Configure> binding
-    on inner_frame.  The canvas width is propagated to inner_frame via a second
-    <Configure> binding on the canvas itself, ensuring cards span the full width.
-
-    Replaces 2 near-identical vsb + canvas + create_window + binding blocks.
-    """
-    return _ui_make_scrollable_canvas(
-        parent,
-        bg=bg,
-        border=BORDER,
-        trough_bg=BG_SIDE,
-        scrollbar_width=scrollbar_width,
-    )
 
 # =============================================================================
 # Shared UI helpers
 # =============================================================================
 
-def ask_name_dialog(parent: tk.Widget, title: str = "Name",
-                    prompt: str = "Name:", default: str = "",
-                    width: int = 24) -> Optional[str]:
-    """
-    Reusable modal text-input dialog.  Returns the entered string or None.
-
-    Replaces the near-identical _ask_name (BatchExportDialog) and
-    _ask_inline_name (WellViewerApp) methods.
-    """
-    return _ui_ask_name_dialog(
-        parent,
-        title=title,
-        prompt=prompt,
-        default=default,
-        width=width,
-        bg_app=BG_APP,
-        txt_pri=TXT_PRI,
-        txt_sec=TXT_SEC,
-        accent=ACCENT,
-        bg_panel=BG_PANEL,
-        border=BORDER,
-        bg_cell=BG_CELL,
-        bg_hover=BG_HOVER,
-        fm_ui=FM_UI,
-        fm_bold=FM_BOLD,
-        clr_white=CLR_WHITE,
-    )
+def ask_name_dialog(parent, title: str = "Name", prompt: str = "Name:",
+                    default: str = "", width: int = 24) -> Optional[str]:
+    """Reusable modal text-input dialog."""
+    return _ui_ask_name_dialog(parent, title=title, prompt=prompt, default=default)
 
 
 # Canonical definitions live in well_viewer/views/well_label_widget.py
@@ -308,12 +299,8 @@ from well_viewer.views.well_label_widget import WellLabel, build_plate_grid
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
                    lo: Optional[float], hi: Optional[float]):
-    """
-    Render a greyscale float32 array as a (sz_w × sz_h) PhotoImage.
-    Applies LUT [lo, hi]; falls back to array min/max if None.
-    Returns None if PIL or numpy is unavailable.
-    """
-    if arr is None or not _PIL_AVAILABLE or not _NP_AVAILABLE:
+    """Render a greyscale float32 array as a QPixmap with LUT [lo, hi]."""
+    if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr, dtype=_np.float32)
     alo = lo if lo is not None else float(arr.min())
@@ -321,21 +308,16 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
     if ahi <= alo:
         ahi = alo + 1.0
     disp = ((_np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
-    img  = _PILImage.fromarray(disp, mode="L").convert("RGB")
-    iw, ih = img.size
-    scale  = min(sz_w / iw, sz_h / ih, 1.0)
-    img    = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))),
-                        _PILImage.LANCZOS)
-    return _PILImageTk.PhotoImage(img)
+    rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    h, w, _ = rgb.shape
+    qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+    pm = QPixmap.fromImage(qimg)
+    return pm.scaled(int(sz_w), int(sz_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
 def make_overlay_thumb(arr, sz_w: int, sz_h: int):
-    """
-    Render a greyscale or RGB array as a (sz_w × sz_h) PhotoImage.
-    Handles both 2-D (greyscale, auto-stretched) and 3-D (RGB/RGBA) arrays.
-    Returns None if PIL or numpy is unavailable or the array is empty.
-    """
-    if arr is None or not _PIL_AVAILABLE or not _NP_AVAILABLE:
+    """Render a 2-D or 3-D array as a QPixmap scaled to (sz_w, sz_h)."""
+    if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr)
     if arr.ndim == 2:
@@ -344,54 +326,36 @@ def make_overlay_thumb(arr, sz_w: int, sz_h: int):
         if hi <= lo:
             hi = lo + 1.0
         disp = ((arr_f - lo) / (hi - lo) * 255).astype(_np.uint8)
-        img  = _PILImage.fromarray(disp, mode="L").convert("RGB")
+        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
     elif arr.ndim == 3 and arr.shape[2] >= 3:
         a = arr[:, :, :3]
         if a.dtype != _np.uint8:
             rng = max(a.max() - a.min(), 1)
             a = ((a.astype(_np.float32) - a.min()) / rng * 255).astype(_np.uint8)
-        img = _PILImage.fromarray(a, mode="RGB")
+        rgb = _np.ascontiguousarray(a)
     else:
         return None
-    iw, ih = img.size
-    scale  = min(sz_w / iw, sz_h / ih, 1.0)
-    img    = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))),
-                        _PILImage.LANCZOS)
-    return _PILImageTk.PhotoImage(img)
+    h, w, _ = rgb.shape
+    qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+    pm = QPixmap.fromImage(qimg)
+    return pm.scaled(int(sz_w), int(sz_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
-def _bind_drag(frame: tk.Widget, btn_store: Dict[str, "tk.Button"],
-               on_press, on_drag, on_release, *, button: int = 1) -> None:
-    """
-    Bind press/drag/release events for *button* on *frame* and every button
-    in *btn_store*.  Centralises the six-line boilerplate that otherwise
-    appears once per plate-map panel.
-    """
-    bp = f"<ButtonPress-{button}>"
-    bm = f"<B{button}-Motion>"
-    br = f"<ButtonRelease-{button}>"
-    frame.bind(bp, on_press)
-    frame.bind(bm, on_drag)
-    frame.bind(br, on_release)
-    for btn in btn_store.values():
-        btn.bind(bp, on_press)
-        btn.bind(bm, on_drag)
-        btn.bind(br, on_release)
+def _bind_drag(frame, btn_store, on_press, on_drag, on_release, *, button: int = 1) -> None:
+    """Bind press/drag/release events — stub retained for API compat under Qt."""
+    # Qt: wire mousePressEvent/mouseMoveEvent/mouseReleaseEvent overrides instead.
+    frame.mousePressEvent = on_press
+    frame.mouseMoveEvent = on_drag
+    frame.mouseReleaseEvent = on_release
 
 
-def save_json_file(parent: tk.Widget, data: object, *,
+def save_json_file(parent, data: object, *,
                    title: str = "Save", default_name: str = "data.json",
                    initial_dir: Optional[str] = None) -> bool:
-    """
-    Show a save-file dialog and write *data* as indented JSON.
-    Returns True on success, False if cancelled or on error.
-    """
-    path_str = filedialog.asksaveasfilename(
-        parent=parent, title=title,
-        defaultextension=".json",
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        initialfile=default_name,
-        initialdir=initial_dir,
+    """Show a save-file dialog and write *data* as indented JSON."""
+    initial = default_name if not initial_dir else str(Path(initial_dir) / default_name)
+    path_str, _ = QFileDialog.getSaveFileName(
+        parent, title, initial, "JSON files (*.json);;All files (*.*)",
     )
     if not path_str:
         return False
@@ -400,21 +364,16 @@ def save_json_file(parent: tk.Widget, data: object, *,
             json.dump(data, fh, indent=2)
         return True
     except OSError as exc:
-        messagebox.showerror("Save failed", str(exc), parent=parent)
+        QMessageBox.critical(parent, "Save failed", str(exc))
         return False
 
 
-def load_json_file(parent: tk.Widget, *,
-                   title: str = "Load",
+def load_json_file(parent, *, title: str = "Load",
                    initial_dir: Optional[str] = None) -> Optional[object]:
-    """
-    Show an open-file dialog and return the parsed JSON object, or None if
-    cancelled or on error.
-    """
-    path_str = filedialog.askopenfilename(
-        parent=parent, title=title,
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        initialdir=initial_dir,
+    """Show an open-file dialog and return the parsed JSON object, or None."""
+    start_dir = initial_dir or ""
+    path_str, _ = QFileDialog.getOpenFileName(
+        parent, title, start_dir, "JSON files (*.json);;All files (*.*)",
     )
     if not path_str:
         return None
@@ -422,7 +381,7 @@ def load_json_file(parent: tk.Widget, *,
         with open(path_str, "r", encoding="utf-8") as fh:
             return json.load(fh)
     except (OSError, json.JSONDecodeError) as exc:
-        messagebox.showerror("Load failed", str(exc), parent=parent)
+        QMessageBox.critical(parent, "Load failed", str(exc))
         return None
 
 
