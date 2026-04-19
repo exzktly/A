@@ -2,7 +2,29 @@
 
 from __future__ import annotations
 
+import csv
+import math
 from pathlib import Path
+
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+
+_CSV_FILTER = "CSV files (*.csv);;All files (*.*)"
+
+
+def _ask_save_csv(app, title: str, default_name: str) -> str:
+    initial_dir = str(app._data_dir) if app._data_dir else ""
+    initial_path = str(Path(initial_dir) / default_name) if initial_dir else default_name
+    out, _ = QFileDialog.getSaveFileName(app, title, initial_path, _CSV_FILTER)
+    return out or ""
+
+
+def _warn(app, title: str, msg: str) -> None:
+    QMessageBox.warning(app, title, msg)
+
+
+def _error(app, title: str, msg: str) -> None:
+    QMessageBox.critical(app, title, msg)
 
 
 def export_plot_data(app) -> None:
@@ -10,58 +32,53 @@ def export_plot_data(app) -> None:
 
     selected = app._selected_labels()
     if not selected:
-        rt.messagebox.showwarning("Export", "No wells selected.")
+        _warn(app, "Export", "No wells selected.")
         return
     ch = app._active_channel
-    metric = app._active_metric  # "mean_intensity" or "smfish_count"
+    metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
     rows_out = []
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
     for label in selected:
-        pts = rt.aggregate_with_threshold(app._get_rows(label), threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates)
+        pts = rt.aggregate_with_threshold(
+            app._get_rows(label), threshold,
+            use_sem=False, val_col=app._active_val_col,
+            cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates,
+        )
         for t, mean, sd, frac, n_above, n_total in pts:
-            rows_out.append(
-                {
-                    "well": label,
-                    "time_h": f"{t:.4f}",
-                    f"mean_{ch}_{metric}": f"{mean:.6f}" if not rt.math.isnan(mean) else "",
-                    f"sd_{ch}_{metric}": f"{sd:.6f}",
-                    "n_above_threshold": n_above,
-                    "fraction_above": f"{frac:.6f}" if not rt.math.isnan(frac) else "",
-                    "n_total": n_total,
-                    "threshold": f"{threshold:.4f}",
-                    "metric": metric,
-                }
-            )
+            rows_out.append({
+                "well": label,
+                "time_h": f"{t:.4f}",
+                f"mean_{ch}_{metric}": f"{mean:.6f}" if not math.isnan(mean) else "",
+                f"sd_{ch}_{metric}": f"{sd:.6f}",
+                "n_above_threshold": n_above,
+                "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
+                "n_total": n_total,
+                "threshold": f"{threshold:.4f}",
+                "metric": metric,
+            })
     if not rows_out:
-        rt.messagebox.showwarning("Export", "No data to export for the current selection.")
+        _warn(app, "Export", "No data to export for the current selection.")
         return
-    out_path = rt.filedialog.asksaveasfilename(
-        title="Export plot data",
-        defaultextension=".csv",
-        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile=f"{ch}_{metric}_plot_export.csv",
-    )
+    out_path = _ask_save_csv(app, "Export plot data", f"{ch}_{metric}_plot_export.csv")
     if not out_path:
         return
     fieldnames = ["well", "time_h", f"mean_{ch}_{metric}", f"sd_{ch}_{metric}", "n_above_threshold", "fraction_above", "n_total", "threshold", "metric"]
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = rt.csv.DictWriter(fh, fieldnames=fieldnames)
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} row(s) to {Path(out_path).name}")
     except OSError as exc:
-        rt.messagebox.showerror("Export failed", str(exc))
+        _error(app, "Export failed", str(exc))
 
 
 def export_bar_plot_data(app) -> None:
-    from well_viewer import runtime_app as rt
-
-    tp_str = app._bar_tp_var.get()
+    tp_str = app._bar_tp_cb.currentText()
     if tp_str in ("—", ""):
-        rt.messagebox.showwarning("Export", "Select a timepoint first.", parent=app)
+        _warn(app, "Export", "Select a timepoint first.")
         return
     try:
         target_t = float(tp_str)
@@ -74,59 +91,46 @@ def export_bar_plot_data(app) -> None:
     rows_out = []
     if use_groups:
         for name, gm, g_err_m, gf, g_err_f, has, _ in items:
-            rows_out.append(
-                {
-                    "name": name,
-                    "timepoint_h": tp_str,
-                    f"mean_{ch}_{metric}": f"{gm:.6f}" if has else "",
-                    f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
-                    "fraction_above": f"{gf:.6f}" if not rt.math.isnan(gf) else "",
-                    f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not rt.math.isnan(gf) else "",
-                    "threshold": f"{threshold:.4f}",
-                    "metric": metric,
-                }
-            )
+            rows_out.append({
+                "name": name,
+                "timepoint_h": tp_str,
+                f"mean_{ch}_{metric}": f"{gm:.6f}" if has else "",
+                f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
+                "fraction_above": f"{gf:.6f}" if not math.isnan(gf) else "",
+                f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not math.isnan(gf) else "",
+                "threshold": f"{threshold:.4f}",
+                "metric": metric,
+            })
     else:
         for label, mean, spread, frac, has in items:
-            rows_out.append(
-                {
-                    "well": label,
-                    "timepoint_h": tp_str,
-                    f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not rt.math.isnan(mean) else "",
-                    f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
-                    "fraction_above": f"{frac:.6f}" if has and not rt.math.isnan(frac) else "",
-                    "threshold": f"{threshold:.4f}",
-                    "metric": metric,
-                }
-            )
+            rows_out.append({
+                "well": label,
+                "timepoint_h": tp_str,
+                f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not math.isnan(mean) else "",
+                f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
+                "fraction_above": f"{frac:.6f}" if has and not math.isnan(frac) else "",
+                "threshold": f"{threshold:.4f}",
+                "metric": metric,
+            })
     if not rows_out:
-        rt.messagebox.showwarning("Export", "No data to export.", parent=app)
+        _warn(app, "Export", "No data to export.")
         return
-    out_path = rt.filedialog.asksaveasfilename(
-        parent=app,
-        title="Export bar plot data",
-        defaultextension=".csv",
-        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile=f"bar_t{tp_str}.csv",
-        initialdir=str(app._data_dir) if app._data_dir else None,
-    )
+    out_path = _ask_save_csv(app, "Export bar plot data", f"bar_t{tp_str}.csv")
     if not out_path:
         return
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = rt.csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
+            writer = csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} row(s) → {Path(out_path).name}")
     except OSError as exc:
-        rt.messagebox.showerror("Export failed", str(exc), parent=app)
+        _error(app, "Export failed", str(exc))
 
 
 def export_raw_data_csv(app) -> None:
-    from well_viewer import runtime_app as rt
-
     if not app._well_paths:
-        rt.messagebox.showwarning("Export", "Load data before exporting raw CSV.", parent=app)
+        _warn(app, "Export", "Load data before exporting raw CSV.")
         return
 
     rows_out = []
@@ -138,23 +142,21 @@ def export_raw_data_csv(app) -> None:
         for row in app._get_rows(label):
             if not app._row_is_included(row):
                 continue
-            # Apply cell gating thresholds
             try:
                 area = float(row.get("area_px", float('nan')))
             except (ValueError, TypeError):
                 continue
 
-            if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
+            if (area != area) or area <= cell_area_threshold:
                 continue
 
-            # Check fluorescence gate threshold
             fluor_col = f"{app._active_channel}_mean_intensity"
             try:
                 fluor = float(row.get(fluor_col, float('nan')))
             except (ValueError, TypeError):
                 continue
 
-            if (fluor != fluor) or fluor <= fluor_gate_threshold:  # Skip NaN or below threshold
+            if (fluor != fluor) or fluor <= fluor_gate_threshold:
                 continue
 
             out_row = {"well": label}
@@ -163,29 +165,22 @@ def export_raw_data_csv(app) -> None:
             fieldnames.update(out_row.keys())
 
     if not rows_out:
-        rt.messagebox.showwarning("Export", "No raw rows available to export.", parent=app)
+        _warn(app, "Export", "No raw rows available to export.")
         return
 
     ordered_fields = ["well"] + [k for k in sorted(fieldnames) if k != "well"]
-    out_path = rt.filedialog.asksaveasfilename(
-        parent=app,
-        title="Export raw data",
-        defaultextension=".csv",
-        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile="raw_data_export.csv",
-        initialdir=str(app._data_dir) if app._data_dir else None,
-    )
+    out_path = _ask_save_csv(app, "Export raw data", "raw_data_export.csv")
     if not out_path:
         return
 
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = rt.csv.DictWriter(fh, fieldnames=ordered_fields)
+            writer = csv.DictWriter(fh, fieldnames=ordered_fields)
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} raw row(s) → {Path(out_path).name}")
     except OSError as exc:
-        rt.messagebox.showerror("Export failed", str(exc), parent=app)
+        _error(app, "Export failed", str(exc))
 
 
 def save_montage_figure(app) -> None:
@@ -193,20 +188,21 @@ def save_montage_figure(app) -> None:
     from well_viewer import runtime_app as rt
 
     if not app._montage_fluor_arrays:
-        rt.messagebox.showwarning("Nothing to save", "Load a well in the Preview tab first.", parent=app)
+        _warn(app, "Nothing to save", "Load a well in the Preview tab first.")
         return
-    fov = app._preview_fov_var.get()
+    fov = app._preview_fov_cb.currentText()
     well = rt._extract_well_token(app._preview_selected_well or "") or "well"
     n = len(app._montage_fluor_arrays)
     try:
-        lo = float(app._mon_lmin_var.get())
+        lo = float(app._mon_lmin_edit.text())
     except ValueError:
         lo = None
     try:
-        hi = float(app._mon_lmax_var.get())
+        hi = float(app._mon_lmax_edit.text())
     except ValueError:
         hi = None
-    use_display = getattr(app, "_mon_tophat_var", None) is not None and app._mon_tophat_var.get() and hasattr(app, "_montage_fluor_display_arrays") and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
+    tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
+    use_display = tophat_on and hasattr(app, "_montage_fluor_display_arrays") and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
     fluor_source = app._montage_fluor_display_arrays if use_display else app._montage_fluor_arrays
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     fig = _Figure(figsize=(max(4, n * 2.5), 5), dpi=300, facecolor=rt.PLOT_BG)
@@ -251,22 +247,19 @@ def save_montage_figure(app) -> None:
 
 def export_scatter_data(app) -> None:
     """Export scatter plot data to CSV."""
-    from well_viewer import runtime_app as rt
     from well_viewer.scatter_controller import collect_scatter_data as _scatter_collect_data
 
     try:
-        ch_x_entry = app._scatter_ch_x_var.get()
-        ch_y_entry = app._scatter_ch_y_var.get()
-        tp_str = app._scatter_tp_var.get()
+        ch_x_entry = app._scatter_ch_x_cb.currentText()
+        ch_y_entry = app._scatter_ch_y_cb.currentText()
+        tp_str = app._scatter_tp_cb.currentText()
         timepoint_h = float(tp_str) if tp_str else 0.0
     except (ValueError, AttributeError):
-        rt.messagebox.showwarning("Export", "Select channels and timepoint first.", parent=app)
+        _warn(app, "Export", "Select channels and timepoint first.")
         return
 
-    # Extract base channel names for gate lookups
     ch_x_base = ch_x_entry.split(" ")[0]
     ch_y_base = ch_y_entry.split(" ")[0]
-    # Resolve to actual column names
     col_x = app._col_for_scatter_entry(ch_x_entry)
     col_y = app._col_for_scatter_entry(ch_y_entry)
 
@@ -275,11 +268,8 @@ def export_scatter_data(app) -> None:
     fluor_gate_y = app._get_fluor_gate(ch_y_base)
 
     scatter_data = _scatter_collect_data(
-        app,
-        col_x,
-        col_y,
-        timepoint_h,
-        well_colors=[],  # Not needed for export
+        app, col_x, col_y, timepoint_h,
+        well_colors=[],
         cell_area_threshold=cell_area_threshold,
         fluor_gate_x=fluor_gate_x,
         fluor_gate_y=fluor_gate_y,
@@ -298,60 +288,57 @@ def export_scatter_data(app) -> None:
             })
 
     if not rows_out:
-        rt.messagebox.showwarning("Export", "No data to export for the current selection.", parent=app)
+        _warn(app, "Export", "No data to export for the current selection.")
         return
 
-    out_path = rt.filedialog.asksaveasfilename(
-        parent=app,
-        title="Export scatter plot data",
-        defaultextension=".csv",
-        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile=f"scatter_{ch_x}_vs_{ch_y}_t{timepoint_h}.csv",
-        initialdir=str(app._data_dir) if app._data_dir else None,
+    out_path = _ask_save_csv(
+        app, "Export scatter plot data",
+        f"scatter_{ch_x_base}_vs_{ch_y_base}_t{timepoint_h}.csv",
     )
     if not out_path:
         return
 
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = rt.csv.DictWriter(fh, fieldnames=["group_well", f"{col_x}", f"{col_y}", "timepoint_h"])
+            writer = csv.DictWriter(fh, fieldnames=["group_well", f"{col_x}", f"{col_y}", "timepoint_h"])
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} datapoint(s) → {Path(out_path).name}")
     except OSError as exc:
-        rt.messagebox.showerror("Export failed", str(exc), parent=app)
+        _error(app, "Export failed", str(exc))
 
 
 def export_scatter_agg_data(app) -> None:
     """Export aggregate scatter plot data to CSV."""
     from well_viewer import runtime_app as rt
-    from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
     from well_viewer.scatter_controller import collect_scatter_agg_data as _scatter_collect_agg_data
 
     try:
-        stat_x = app._scatter_agg_stat_x_var.get()
-        stat_y = app._scatter_agg_stat_y_var.get()
+        stat_x = app._scatter_agg_stat_x_cb.currentText()
+        stat_y = app._scatter_agg_stat_y_cb.currentText()
 
-        # Get selected timepoints from BooleanVar selections
-        selected_timepoints = []
-        if hasattr(app, "_scatter_agg_tp_selections") and app._scatter_agg_tp_selections:
-            selected_timepoints = [float(tp_str) for tp_str, var in app._scatter_agg_tp_selections.items() if var.get()]
+        selected_timepoints: list[float] = []
+        tp_checks = getattr(app, "_scatter_agg_tp_checks", None)
+        if tp_checks:
+            for tp_str, widget in tp_checks.items():
+                try:
+                    if widget.isChecked():
+                        selected_timepoints.append(float(tp_str))
+                except Exception:
+                    pass
             selected_timepoints.sort()
 
         if not selected_timepoints:
-            rt.messagebox.showwarning("Export", "Please select at least one timepoint.", parent=app)
+            _warn(app, "Export", "Please select at least one timepoint.")
             return
 
     except (ValueError, AttributeError, IndexError):
-        rt.messagebox.showwarning("Export", "Select statistics and timepoints first.", parent=app)
+        _warn(app, "Export", "Select statistics and timepoints first.")
         return
 
     scatter_data = _scatter_collect_agg_data(
-        app,
-        stat_x,
-        stat_y,
-        selected_timepoints,
-        well_colors=[],  # Not needed for export
+        app, stat_x, stat_y, selected_timepoints,
+        well_colors=[],
         aggregate_with_threshold=rt.aggregate_with_threshold,
     )
 
@@ -364,7 +351,7 @@ def export_scatter_agg_data(app) -> None:
         tp = data['timepoint']
 
         rows_out.append({
-            "replicate_well": label.split("_tp")[0],  # Remove timepoint suffix
+            "replicate_well": label.split("_tp")[0],
             "timepoint_h": f"{tp:.4f}",
             stat_x: f"{x_val:.6f}",
             f"{stat_x}_error": f"{x_err:.6f}",
@@ -373,21 +360,16 @@ def export_scatter_agg_data(app) -> None:
         })
 
     if not rows_out:
-        rt.messagebox.showwarning("Export", "No data to export for the current selection.", parent=app)
+        _warn(app, "Export", "No data to export for the current selection.")
         return
 
-    # Create timepoint range string for filename
     tp_range = f"t{min(selected_timepoints):.1f}-{max(selected_timepoints):.1f}"
     stat_x_safe = stat_x.replace(" ", "_").lower()
     stat_y_safe = stat_y.replace(" ", "_").lower()
 
-    out_path = rt.filedialog.asksaveasfilename(
-        parent=app,
-        title="Export aggregate scatter plot data",
-        defaultextension=".csv",
-        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        initialfile=f"scatter_agg_{stat_x_safe}_vs_{stat_y_safe}_{tp_range}.csv",
-        initialdir=str(app._data_dir) if app._data_dir else None,
+    out_path = _ask_save_csv(
+        app, "Export aggregate scatter plot data",
+        f"scatter_agg_{stat_x_safe}_vs_{stat_y_safe}_{tp_range}.csv",
     )
     if not out_path:
         return
@@ -395,9 +377,9 @@ def export_scatter_agg_data(app) -> None:
     try:
         with open(out_path, "w", newline="") as fh:
             fieldnames = ["replicate_well", "timepoint_h", stat_x, f"{stat_x}_error", stat_y, f"{stat_y}_error"]
-            writer = rt.csv.DictWriter(fh, fieldnames=fieldnames)
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} datapoint(s) → {Path(out_path).name}")
     except OSError as exc:
-        rt.messagebox.showerror("Export failed", str(exc), parent=app)
+        _error(app, "Export failed", str(exc))

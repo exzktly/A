@@ -3,8 +3,20 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Tuple
-import tkinter as tk
-from tkinter import ttk
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+)
 
 from well_viewer.image_resolver import (
     normalize_row_filename,
@@ -20,8 +32,8 @@ def _lookup_filename_from_row_value(filename: str) -> str:
     return normalize_row_filename(filename)
 
 
-class ScatterCellViewer(tk.Toplevel):
-    """Modal window for viewing a single cell's fluorescence images.
+class ScatterCellViewer(QDialog):
+    """Modal dialog for viewing a single cell's fluorescence images.
 
     Shows one channel at a time, cropped to the cell's boundaries from the mask.
     Uses filename and nuclear_id from CSV to locate images.
@@ -30,17 +42,16 @@ class ScatterCellViewer(tk.Toplevel):
     def __init__(
         self,
         parent,
-        app: WellViewerApp,
+        app: "WellViewerApp",
         well_label: str,
         filename: str,
         nuclear_id: str,
         row_idx: int,
     ):
         super().__init__(parent)
-        self.title("Cell Viewer - Scatter Plot")
-        self.geometry("600x650")
-        self.resizable(True, True)
-        self.grab_set()
+        self.setWindowTitle("Cell Viewer - Scatter Plot")
+        self.resize(600, 650)
+        self.setModal(True)
 
         self.app = app
         self.well_label = well_label
@@ -48,134 +59,103 @@ class ScatterCellViewer(tk.Toplevel):
         self.nuclear_id = nuclear_id
         self.row_idx = row_idx
 
-        self._cell_bounds: Optional[Tuple[int, int, int, int]] = None  # (y_min, x_min, y_max, x_max)
-        self._cell_images: dict[str, Optional] = {}  # channel → cropped array
-        self._cell_outline_mask = None  # bool array (cropped) for selected cell boundary overlay
+        self._cell_bounds: Optional[Tuple[int, int, int, int]] = None
+        self._cell_images: dict[str, Optional] = {}
+        self._cell_outline_mask = None
         self._current_channel = None
         self._current_lut: Tuple[float, float] = (0.0, 100.0)
-        self._channel_luts: dict[str, Tuple[float, float]] = {}  # channel → (lo, hi)
+        self._channel_luts: dict[str, Tuple[float, float]] = {}
         self._debug_lines: list[str] = []
+        self._pixmap_cache: Optional[QPixmap] = None
 
-        # Build UI
         self._build_ui()
-
-        # Load data
         self._load_cell_data()
 
     def _build_ui(self) -> None:
-        """Build the UI."""
-        # Title
-        title_label = tk.Label(
-            self,
-            text=f"Cell Viewer: {self.well_label}",
-            font=("TkDefaultFont", 10, "bold"),
-        )
-        title_label.pack(pady=5)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 5, 10, 10)
 
-        # Channel selector
-        control_frame = tk.Frame(self)
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
+        self._title_label = QLabel(f"Cell Viewer: {self.well_label}")
+        tfont = self._title_label.font()
+        tfont.setBold(True)
+        self._title_label.setFont(tfont)
+        self._title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._title_label)
 
-        tk.Label(control_frame, text="Channel:", font=("TkDefaultFont", 9)).pack(side=tk.LEFT)
+        ctrl_row = QHBoxLayout()
+        ctrl_row.addWidget(QLabel("Channel:"))
+        self._channel_dropdown = QComboBox()
+        self._channel_dropdown.setEditable(False)
+        self._channel_dropdown.currentIndexChanged.connect(self._on_channel_changed)
+        ctrl_row.addWidget(self._channel_dropdown)
+        ctrl_row.addStretch(1)
+        layout.addLayout(ctrl_row)
 
-        self._channel_var = tk.StringVar()
-        self._channel_dropdown = ttk.Combobox(
-            control_frame,
-            textvariable=self._channel_var,
-            state="readonly",
-            width=15,
-        )
-        self._channel_dropdown.pack(side=tk.LEFT, padx=5)
-        self._channel_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_channel_changed())
+        self._img_label = QLabel("Loading...")
+        self._img_label.setAlignment(Qt.AlignCenter)
+        self._img_label.setMinimumSize(300, 300)
+        layout.addWidget(self._img_label, 1)
 
-        # Image display
-        self._img_label = tk.Label(self, text="Loading...")
-        self._img_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        lut_row = QHBoxLayout()
+        lut_row.addWidget(QLabel("LUT min:"))
+        self._lut_min_edit = QLineEdit("0")
+        self._lut_min_edit.setFixedWidth(70)
+        self._lut_min_edit.editingFinished.connect(self._on_lut_change)
+        lut_row.addWidget(self._lut_min_edit)
+        lut_row.addSpacing(10)
+        lut_row.addWidget(QLabel("max:"))
+        self._lut_max_edit = QLineEdit("100")
+        self._lut_max_edit.setFixedWidth(70)
+        self._lut_max_edit.editingFinished.connect(self._on_lut_change)
+        lut_row.addWidget(self._lut_max_edit)
+        auto_btn = QPushButton("Auto")
+        auto_btn.clicked.connect(self._auto_lut)
+        lut_row.addWidget(auto_btn)
+        lut_row.addStretch(1)
+        layout.addLayout(lut_row)
 
-        # Bind to window resize to redraw image at new size
-        self.bind("<Configure>", self._on_window_resize)
+        diag_group = QGroupBox("Diagnostics")
+        diag_layout = QVBoxLayout(diag_group)
+        self._debug_text = QTextEdit()
+        self._debug_text.setReadOnly(True)
+        self._debug_text.setMinimumHeight(140)
+        diag_layout.addWidget(self._debug_text)
+        layout.addWidget(diag_group)
 
-        # LUT controls
-        lut_frame = tk.Frame(self)
-        lut_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        tk.Label(lut_frame, text="LUT min:", font=("TkDefaultFont", 8)).pack(side=tk.LEFT)
-        self._lut_min_var = tk.StringVar(value="0")
-        tk.Entry(lut_frame, textvariable=self._lut_min_var, width=8, font=("TkDefaultFont", 8)).pack(
-            side=tk.LEFT, padx=2
-        )
-        self._lut_min_var.trace("w", lambda *args: self._on_lut_change())
-
-        tk.Label(lut_frame, text="max:", font=("TkDefaultFont", 8)).pack(side=tk.LEFT, padx=(10, 2))
-        self._lut_max_var = tk.StringVar(value="100")
-        tk.Entry(lut_frame, textvariable=self._lut_max_var, width=8, font=("TkDefaultFont", 8)).pack(
-            side=tk.LEFT, padx=2
-        )
-        self._lut_max_var.trace("w", lambda *args: self._on_lut_change())
-
-        tk.Button(lut_frame, text="Auto", font=("TkDefaultFont", 8), command=self._auto_lut).pack(
-            side=tk.LEFT, padx=2
-        )
-
-        # Diagnostics output
-        diag_frame = tk.LabelFrame(self, text="Diagnostics", padx=5, pady=5)
-        diag_frame.pack(fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
-
-        self._debug_text = tk.Text(diag_frame, height=10, wrap=tk.WORD, font=("TkFixedFont", 8))
-        self._debug_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._debug_text.config(state=tk.DISABLED)
-
-        diag_scroll = tk.Scrollbar(diag_frame, command=self._debug_text.yview)
-        diag_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._debug_text.config(yscrollcommand=diag_scroll.set)
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._current_channel and self._cell_images.get(self._current_channel) is not None:
+            self._display_current_image()
 
     def _debug(self, message: str) -> None:
-        """Append a diagnostic line and mirror it in the diagnostics text box."""
         line = str(message)
         self._debug_lines.append(line)
-        if hasattr(self, "_debug_text") and self.winfo_exists():
-            try:
-                self._debug_text.config(state=tk.NORMAL)
-                self._debug_text.insert(tk.END, line + "\n")
-                self._debug_text.see(tk.END)
-                self._debug_text.config(state=tk.DISABLED)
-            except tk.TclError:
-                pass
+        if getattr(self, "_debug_text", None) is not None:
+            self._debug_text.append(line)
 
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask."""
         self._channel_luts = {}
         self._cell_outline_mask = None
         self._debug_lines = []
-        if hasattr(self, "_debug_text") and self.winfo_exists():
-            try:
-                self._debug_text.config(state=tk.NORMAL)
-                self._debug_text.delete("1.0", tk.END)
-                self._debug_text.config(state=tk.DISABLED)
-            except tk.TclError:
-                pass
+        if getattr(self, "_debug_text", None) is not None:
+            self._debug_text.clear()
         self._debug(f"well_label={self.well_label!r}, row_idx={self.row_idx}, filename={self.filename!r}, nuclear_id={self.nuclear_id!r}")
         try:
             nuclear_id = int(float(self.nuclear_id))
         except (ValueError, TypeError):
-            if self.winfo_exists():
-                self._img_label.config(text="Invalid nuclear_id")
+            self._img_label.setText("Invalid nuclear_id")
             self._debug("Failed to parse nuclear_id as int.")
             return
         self._debug(f"parsed_nuclear_id={nuclear_id}")
 
         rows = self.app._get_rows(self.well_label)
         if self.row_idx >= len(rows):
-            if self.winfo_exists():
-                self._img_label.config(text="Invalid row index")
+            self._img_label.setText("Invalid row index")
             self._debug(f"row_idx out of bounds: row_idx={self.row_idx}, rows={len(rows)}")
             return
 
         row = rows[self.row_idx]
-
-        # The 'channel' field in the CSV identifies the nuclear channel token
-        # that appears in self.filename (e.g. "NIR", "DAPI").  Used to swap
-        # in the correct fluor token when loading input images.
         self._nuclear_token = str(row.get("channel") or "").strip()
         self._debug(f"csv.channel={self._nuclear_token!r}")
         self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")
@@ -183,8 +163,7 @@ class ScatterCellViewer(tk.Toplevel):
         mask_arr, mask_path = self._load_output_image_by_filename("mask")
         self._cell_bounds = self._get_cell_bounds(mask_arr, nuclear_id, padding_px=25)
         if not self._cell_bounds:
-            if self.winfo_exists():
-                self._img_label.config(text=f"Cell {nuclear_id} not found in mask")
+            self._img_label.setText(f"Cell {nuclear_id} not found in mask")
             self._debug("No bounds found for requested nuclear_id.")
             return
         self._debug(f"cell_bounds={self._cell_bounds}")
@@ -201,14 +180,11 @@ class ScatterCellViewer(tk.Toplevel):
             self._cell_outline_mask = None
             self._debug(f"failed to compute cell outline mask: {e!r}")
 
-        # Load and crop fluorescence images for all channels
         for ch in sorted(self.app._fluor_channels):
             arr = self._load_and_crop_channel(ch)
             if arr is not None:
                 self._cell_images[ch] = arr
 
-        # Load and crop nuclear/segmentation channel image (self.filename is the nuclear image).
-        # Key by the actual nuclear token (e.g. "nir") so the dropdown shows the channel name.
         nuc_key = self._nuclear_token.lower() if self._nuclear_token else "nuclear_fluor"
         arr = self._load_and_crop_nuclear()
         if arr is not None:
@@ -218,23 +194,22 @@ class ScatterCellViewer(tk.Toplevel):
         if arr is not None:
             self._cell_images["nuclear"] = arr
 
-        # Window may have been closed during the (potentially slow) image loads above.
-        if not self.winfo_exists():
-            return
-
-        # Populate dropdown: fluor channels, then segmentation channel, then mask
         available_channels = [ch for ch in sorted(self.app._fluor_channels) if self._cell_images.get(ch) is not None]
         if nuc_key in self._cell_images and nuc_key not in available_channels:
             available_channels.append(nuc_key)
         if "nuclear" in self._cell_images:
             available_channels.append("nuclear")
-        self._channel_dropdown.config(values=available_channels)
+
+        self._channel_dropdown.blockSignals(True)
+        self._channel_dropdown.clear()
+        self._channel_dropdown.addItems(available_channels)
+        self._channel_dropdown.blockSignals(False)
 
         if available_channels:
-            self._channel_var.set(available_channels[0])
+            self._channel_dropdown.setCurrentIndex(0)
             self._on_channel_changed()
         else:
-            self._img_label.config(text="No images could be loaded")
+            self._img_label.setText("No images could be loaded")
             self._debug("No channels were successfully loaded.")
 
     def _load_output_image_by_filename(self, image_type: str):
@@ -288,7 +263,6 @@ class ScatterCellViewer(tk.Toplevel):
                             self._debug(f"loaded {image_type} from zip: {zip_path}::{member}")
                             return arr, f"{zip_path}::{member}"
 
-            # Fallback: raw files on disk
             search_dirs = [d for d in (data_dir, in_dir) if d and d.is_dir()]
             self._debug(f"output disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
@@ -307,7 +281,6 @@ class ScatterCellViewer(tk.Toplevel):
             return None, f"exception: {e}"
 
     def _well_token_variants(self, name: str) -> list[str]:
-        """Return alternate names with leading well token padded/unpadded."""
         import re as _re
 
         m = _re.match(r"^([A-Ha-h])(\d{1,2})(.*)$", name)
@@ -329,7 +302,6 @@ class ScatterCellViewer(tk.Toplevel):
         return out
 
     def _filename_variants(self, filename: str) -> list[str]:
-        """Return filename variants that differ only by well-token padding."""
         from pathlib import Path as _Path
 
         p = _Path(filename)
@@ -344,10 +316,6 @@ class ScatterCellViewer(tk.Toplevel):
         return variants
 
     def _get_cell_bounds(self, mask_arr, nuclear_id: int, padding_px: int = 0) -> Optional[Tuple[int, int, int, int]]:
-        """Get cell pixel boundaries from mask file.
-
-        Returns (y_min, x_min, y_max, x_max) or None if not found.
-        """
         try:
             import numpy as np
 
@@ -387,7 +355,6 @@ class ScatterCellViewer(tk.Toplevel):
             return None
 
     def _compute_outline_mask(self, cell_mask):
-        """Compute 1px boundary mask for a binary cell mask."""
         import numpy as np
 
         if cell_mask is None:
@@ -411,7 +378,6 @@ class ScatterCellViewer(tk.Toplevel):
         return cell_mask & ~interior
 
     def _load_and_crop_channel(self, channel: str) -> Optional:
-        """Load and crop image for a channel."""
         try:
             if channel in ("mask", "overlay"):
                 arr, src = self._load_output_image_by_filename(channel)
@@ -430,7 +396,6 @@ class ScatterCellViewer(tk.Toplevel):
             return None
 
     def _load_and_crop_nuclear(self) -> Optional:
-        """Load and crop the nuclear channel image (self.filename) from the input folder."""
         try:
             import zipfile
             from pathlib import Path as _Path
@@ -481,7 +446,6 @@ class ScatterCellViewer(tk.Toplevel):
                                 y_min, x_min, y_max, x_max = self._cell_bounds
                                 return arr[y_min:y_max, x_min:x_max]
 
-            # Fallback: disk
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             self._debug(f"nuclear image disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
@@ -501,7 +465,6 @@ class ScatterCellViewer(tk.Toplevel):
             return None
 
     def _load_input_channel_by_filename(self, channel_token: str) -> Optional:
-        """Load a channel image from the input folder via canonical filename resolver."""
         try:
             import zipfile
             from pathlib import Path as _Path
@@ -547,7 +510,6 @@ class ScatterCellViewer(tk.Toplevel):
                             self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{member}")
                             return open_imgref_as_array(ref=ref, greyscale=True)
 
-            # Fallback: raw files on disk
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             self._debug(f"channel={channel_token}: disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
@@ -563,17 +525,14 @@ class ScatterCellViewer(tk.Toplevel):
             self._debug(f"_load_input_channel_by_filename exception for {channel_token}: {e!r}")
             return None
 
-    def _on_channel_changed(self) -> None:
-        """Handle channel selection change."""
-        if not self.winfo_exists():
-            return
-        self._current_channel = self._channel_var.get()
+    def _on_channel_changed(self, *_args) -> None:
+        self._current_channel = self._channel_dropdown.currentText()
         if not self._current_channel:
             return
 
         arr = self._cell_images.get(self._current_channel)
         if arr is None:
-            self._img_label.config(text="Image not found")
+            self._img_label.setText("Image not found")
             return
 
         if self._current_channel in self._channel_luts:
@@ -590,18 +549,15 @@ class ScatterCellViewer(tk.Toplevel):
             self._channel_luts[self._current_channel] = (lo, hi)
 
         self._current_lut = (lo, hi)
-        self._lut_min_var.set(f"{lo:.1f}")
-        self._lut_max_var.set(f"{hi:.1f}")
+        self._lut_min_edit.setText(f"{lo:.1f}")
+        self._lut_max_edit.setText(f"{hi:.1f}")
 
         self._display_current_image()
 
     def _on_lut_change(self) -> None:
-        """Handle LUT value change."""
-        if not self.winfo_exists():
-            return
         try:
-            lo = float(self._lut_min_var.get())
-            hi = float(self._lut_max_var.get())
+            lo = float(self._lut_min_edit.text())
+            hi = float(self._lut_max_edit.text())
             self._current_lut = (lo, hi)
             if self._current_channel:
                 self._channel_luts[self._current_channel] = (lo, hi)
@@ -610,7 +566,6 @@ class ScatterCellViewer(tk.Toplevel):
             pass
 
     def _auto_lut(self) -> None:
-        """Auto-scale LUT to image range."""
         arr = self._cell_images.get(self._current_channel)
         if arr is None:
             return
@@ -626,43 +581,21 @@ class ScatterCellViewer(tk.Toplevel):
         self._current_lut = (lo, hi)
         if self._current_channel:
             self._channel_luts[self._current_channel] = (lo, hi)
-        self._lut_min_var.set(f"{lo:.1f}")
-        self._lut_max_var.set(f"{hi:.1f}")
+        self._lut_min_edit.setText(f"{lo:.1f}")
+        self._lut_max_edit.setText(f"{hi:.1f}")
         self._display_current_image()
 
-    def _on_window_resize(self, event) -> None:
-        """Handle window resize event to redraw image at new size."""
-        if not self.winfo_exists():
-            return
-        if self._current_channel and self._cell_images.get(self._current_channel) is not None:
-            self._display_current_image()
-
     def _display_current_image(self) -> None:
-        """Display the current channel image with current LUT."""
-        if not self.winfo_exists():
-            return
         arr = self._cell_images.get(self._current_channel)
         if arr is None:
-            self._img_label.config(text="No image")
+            self._img_label.setText("No image")
             return
 
-        self.update_idletasks()
-        if not self.winfo_exists():
-            return
-
-        label_width = self._img_label.winfo_width()
-        label_height = self._img_label.winfo_height()
-
-        if label_width <= 1:
-            label_width = self.winfo_width() - 40
-        if label_height <= 1:
-            label_height = self.winfo_height() - 200
-
-        label_width = max(label_width, 300)
-        label_height = max(label_height, 300)
+        label_width = max(self._img_label.width(), 300)
+        label_height = max(self._img_label.height(), 300)
 
         lo, hi = self._current_lut
-        photo = self._make_magnified_thumb(
+        pixmap = self._make_magnified_thumb(
             arr,
             label_width,
             label_height,
@@ -671,18 +604,15 @@ class ScatterCellViewer(tk.Toplevel):
             outline_mask=self._cell_outline_mask,
         )
 
-        if photo is not None:
-            self._img_label.config(image=photo, text="")
-            self._img_label.image = photo
+        if pixmap is not None:
+            self._pixmap_cache = pixmap
+            self._img_label.setPixmap(pixmap)
         else:
-            self._img_label.config(text="Failed to render image")
+            self._img_label.setText("Failed to render image")
 
-    def _make_magnified_thumb(self, arr, sz_w: int, sz_h: int, lo, hi, outline_mask=None):
-        """Render a greyscale array as a magnified thumbnail that scales UP to fit."""
+    def _make_magnified_thumb(self, arr, sz_w: int, sz_h: int, lo, hi, outline_mask=None) -> Optional[QPixmap]:
         try:
             import numpy as np
-            from PIL import Image as _PILImage
-            from PIL import ImageTk as _PILImageTk
 
             arr = np.asarray(arr, dtype=np.float32)
             alo = lo if lo is not None else float(arr.min())
@@ -698,23 +628,22 @@ class ScatterCellViewer(tk.Toplevel):
                 if outline.shape == disp.shape:
                     rgb[outline] = np.array([255, 0, 0], dtype=np.uint8)
 
-            img = _PILImage.fromarray(rgb, mode="RGB")
-
-            iw, ih = img.size
-            scale = min(sz_w / iw, sz_h / ih)
-            new_w = max(1, int(iw * scale))
-            new_h = max(1, int(ih * scale))
-            img = img.resize((new_w, new_h), _PILImage.LANCZOS)
-
-            return _PILImageTk.PhotoImage(img)
+            h, w, _ = rgb.shape
+            rgb_c = np.ascontiguousarray(rgb)
+            qimg = QImage(rgb_c.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+            pixmap = QPixmap.fromImage(qimg)
+            return pixmap.scaled(
+                int(sz_w), int(sz_h),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
         except Exception:
             return None
 
     def update_cell(self, well_label: str, filename: str, nuclear_id: str, row_idx: int) -> None:
-        """Update viewer to show a different cell."""
         self.well_label = well_label
         self.filename = _lookup_filename_from_row_value(filename)
         self.nuclear_id = nuclear_id
         self.row_idx = row_idx
-        self.title(f"Cell Viewer - Scatter Plot: {well_label}")
+        self.setWindowTitle(f"Cell Viewer - Scatter Plot: {well_label}")
         self._load_cell_data()
