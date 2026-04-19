@@ -1467,104 +1467,90 @@ class _SubsetEntry:
 # CellGatingTab lives in well_viewer/cell_gating_tab.py
 from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
 
-class WellViewerApp(tk.Frame):
+class WellViewerApp(QWidget):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
-        # Support both embedded use (parent is a tk.Frame/Notebook tab)
-        # and standalone use (parent is None → create a tk.Tk root).
-        if parent is None:
-            self._tk_root = tk.Tk()
-            self._tk_root.title("Well Viewer")
-            self._tk_root.configure(bg=BG_APP)
-            self._tk_root.minsize(1000, 800)
-            self._position_root_on_screen(self._tk_root, preferred_w=1600, preferred_h=960)
-            super().__init__(self._tk_root)
-            self._tk_root.protocol("WM_DELETE_WINDOW", self._on_close)
-        else:
-            self._tk_root = None
-            super().__init__(parent)
-        self.configure(bg=BG_APP)
+        super().__init__(parent)
+        self._tk_root = None
         self._NP_AVAILABLE = _NP_AVAILABLE
         self._np = _np
         self._theme_name = "Dark"
 
         # Data state
-        self._data_dir:   Optional[Path]        = None   # dir with CSVs (and out-zips)
-        self._in_dir:     Optional[Path]        = None   # dir with input well zips (fluor)
+        self._data_dir:   Optional[Path]        = None
+        self._in_dir:     Optional[Path]        = None
         self._tmp_dir:    Optional[Path]        = None
         self._well_paths: Dict[str, Path]       = {}
         self._cache:      Dict[str, List[dict]] = {}
         self._all_timepoints_cache: List[float] = []
         self._all_fovs_cache: List[str] = []
         self._last_sel:   Optional[str]         = None
-        self._prev_sel:   set                   = set()   # tracks prior selection for diffing
+        self._prev_sel:   set                   = set()
         self._sidebar_map_refresh_pending: bool = False
 
         # Active fluorescent channel (set when CSVs are loaded)
-        self._fluor_channels: List[str] = []          # e.g. ["gfp", "mcherry"]
+        self._fluor_channels: List[str] = []
         self._review_image_channels: List[str] = []
-        self._smfish_channels: set[str] = set()       # channels with smfish_count data
-        self._active_channel: str       = "gfp"       # plot/metric column prefix (overwritten on CSV load)
-        self._active_image_channel: str = "gfp"       # image-display channel for Movie Montage / Review Image
-        self._active_metric: str        = "mean_intensity"  # "mean_intensity" or "smfish_count"
-        self._active_val_col: str       = "gfp_mean_intensity"  # overwritten on CSV load
+        self._smfish_channels: set[str] = set()
+        self._active_channel: str       = "gfp"
+        self._active_image_channel: str = "gfp"
+        self._active_metric: str        = "mean_intensity"
+        self._active_val_col: str       = "gfp_mean_intensity"
 
-        # Plot controls
+        # Plot controls — widgets are assigned in _build_ui; keep placeholders
+        # until then so callers can inspect default state.
         self._threshold_min = 0.0
         self._threshold_max = 1.0
         self._threshold     = 50.0
-        self._use_sem       = tk.BooleanVar(value=True)
-        # Per-axes legend visibility; True = show, False = hidden
+        # Qt: concrete widgets are assigned in _build_ui() / view builders.
+        # Provide plain-Python defaults so early callers before _build_ui get sane values.
+        self._use_sem_cb = None        # QCheckBox in sidebar
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
-        self._plot_chan_var = tk.StringVar(value="GFP")  # selected channel on plot tabs
-        self._montage_chan_var = tk.StringVar(value="GFP")  # selected channel on Movie Montage tab
-        self._review_image_chan_var = tk.StringVar(value="GFP")  # selected channel on Review Image tab
-        # Back-compat shared channel variable for older view code paths.
-        self._chan_var = self._plot_chan_var
-        self._bar_tp_var    = tk.StringVar(value="—")  # selected timepoint for bar plots
-        self._bar_swarm     = tk.BooleanVar(value=False)  # beeswarm mode toggle
-        self._bar_violin    = tk.BooleanVar(value=False)  # violin mode toggle
-        self._violin_bw     = tk.DoubleVar(value=0.4)     # KDE bandwidth (smoothing)
-        self._bar_log_scale = tk.BooleanVar(value=False)  # log y-axis (beeswarm)
-        self._bar_ylim_mean_lo = tk.StringVar(value="")   # fluor axis lower limit (auto="")
-        self._bar_ylim_mean_hi = tk.StringVar(value="")   # fluor axis upper limit
-        self._bar_ylim_frac_lo = tk.StringVar(value="")   # Fraction axis lower limit
-        self._bar_ylim_frac_hi = tk.StringVar(value="")   # Fraction axis upper limit
-        self._bar_order: Optional[List] = None            # custom bar ordering (None = natural)
-        self._rep_sets:          List[ReplicateSet] = []  # global pool of replicate sets
-        self._active_rep_idx:    int               = -1   # selected ReplicateSet in panel
-        self._rep_hidden:        set               = set()  # indices of hidden rep-sets
-        self._well_labels:       Dict[str, str]    = {}   # tok -> custom display label
-        self._bar_groups:        List[BarGroup]    = []   # grouping definitions
-        self._bar_active_grp:    int               = -1   # index of group being edited
-        # Quick replicate arrangement preferences
-        self._rep_quick_pair_dir   = "row"   # "row" or "col" — how pairs are formed
-        self._rep_quick_iter_order = "row"   # "row" or "col" — iteration direction
-        # Quick bar group arrangement preferences
-        self._bar_quick_pair_dir   = "row"   # "row" or "col" — how pairs are formed
-        self._bar_quick_iter_order = "row"   # "row" or "col" — iteration direction
-        self._entry_var     = tk.StringVar(value="50.0")
-        self._cdf_xmin_var  = tk.StringVar(value="0")
-        self._cdf_xmax_var  = tk.StringVar(value="300")
-        self._thr_dragging  = False   # True while the threshold line is being dragged
+        # Channel / timepoint comboboxes are assigned to these attrs in the view builders.
+        self._plot_chan_cb = None
+        self._montage_chan_cb = None
+        self._review_image_chan_cb = None
+        self._bar_tp_cb = None
+        self._bar_swarm_cb = None
+        self._bar_violin_cb = None
+        self._violin_bw_edit = None
+        self._bar_log_scale_cb = None
+        self._bar_ylim_mean_lo_edit = None
+        self._bar_ylim_mean_hi_edit = None
+        self._bar_ylim_frac_lo_edit = None
+        self._bar_ylim_frac_hi_edit = None
+        self._bar_order: Optional[List] = None
+        self._rep_sets:          List[ReplicateSet] = []
+        self._active_rep_idx:    int               = -1
+        self._rep_hidden:        set               = set()
+        self._well_labels:       Dict[str, str]    = {}
+        self._bar_groups:        List[BarGroup]    = []
+        self._bar_active_grp:    int               = -1
+        self._rep_quick_pair_dir   = "row"
+        self._rep_quick_iter_order = "row"
+        self._bar_quick_pair_dir   = "row"
+        self._bar_quick_iter_order = "row"
+        self._entry_edit = None
+        self._cdf_xmin_edit = None
+        self._cdf_xmax_edit = None
+        self._thr_dragging  = False
 
         # Plate-map well selection
-        self._selected_wells: set  = set()   # set of well tokens currently selected
-        self._tok_to_label:   Dict[str, str] = {}   # e.g. "B03" -> "gfp_measurements_B03" (display only)
+        self._selected_wells: set  = set()
+        self._tok_to_label:   Dict[str, str] = {}
 
         # Preview state
-        self._fov_tp_extractor = None          # set by _load_path from pipeline_info.json
+        self._fov_tp_extractor = None
         self._pipeline_info: Dict[str, object] = {}
-        self._preview_selected_well: Optional[str] = None  # preview tab single selection
-        self._preview_fov_var = tk.StringVar(value="—")     # selected FOV for montage
-        self._montage_photos: List[object] = []             # keep PhotoImage refs alive
-        self._preview_fov_var = tk.StringVar(value="—")
+        self._preview_selected_well: Optional[str] = None
+        self._preview_fov_cb = None
+        self._montage_photos: List[object] = []
         self._preview_fluor:   Dict[Tuple[str,str], _ImgRef] = {}
         self._preview_overlay: Dict[Tuple[str,str], _ImgRef] = {}
         self._preview_mask:    Dict[Tuple[str,str], _ImgRef] = {}
-        self._review_image_tp_var = tk.StringVar(value="—")
+        self._review_image_tp_cb = None
         self._review_image_selected_nucleus: Optional[int] = None
         self._review_image_nucleus_to_iid: Dict[int, str] = {}
         self._review_image_include_edit_mode: bool = False
@@ -1586,17 +1572,12 @@ class WellViewerApp(tk.Frame):
         self._apply_theme()
 
         if data_path is not None:
-            # Defer until after mainloop() so the window is mapped and
-            # the progress bar can actually render during the load.
-            self.after(100, lambda: self._load_path(data_path))
+            QTimer.singleShot(100, lambda: self._load_path(data_path))
 
     @staticmethod
-    def _position_root_on_screen(root: tk.Tk, *, preferred_w: int, preferred_h: int) -> None:
-        """Size and place root so it starts fully visible on screen."""
-        root.update_idletasks()
-        sw = max(1, int(root.winfo_screenwidth()))
-        sh = max(1, int(root.winfo_screenheight()))
-        margin = 40  # leave room for WM borders/titlebars
+    def _position_root_on_screen(root, *, preferred_w: int, preferred_h: int) -> None:
+        """Qt: no-op; window placement handled by QMainWindow / QWidget defaults."""
+        return
         w = min(preferred_w, max(1000, sw - margin))
         h = min(preferred_h, max(800, sh - margin))
         x = max(0, (sw - w) // 2)
