@@ -1663,77 +1663,85 @@ class WellViewerApp(QWidget):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
         # Topbar
-        top = tk.Frame(self, bg=BG_APP, pady=8, padx=14)
-        top.pack(side=tk.TOP, fill=tk.X)
+        top = QWidget()
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(14, 8, 14, 8)
         self._top_bar = top
-        self._dir_label = tk.Label(top, text="No data loaded", font=FM_UI, fg=TXT_MUT, bg=BG_APP)
-        self._dir_label.pack(side=tk.LEFT)
+        self._dir_label = QLabel("No data loaded")
+        self._dir_label.setObjectName("Muted")
+        top_layout.addWidget(self._dir_label)
+        top_layout.addStretch(1)
+        open_btn = QPushButton("Open\u2026")
+        open_btn.setProperty("variant", "primary")
+        open_btn.clicked.connect(self._browse)
+        top_layout.addWidget(open_btn)
+        outer.addWidget(top)
 
-        # Single "Open…" button – accepts directory or archive
-        ttk.Button(top, text="Open…", command=self._browse,
-                   style="PrimaryDark.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+        self._top_sep = QFrame()
+        self._top_sep.setFrameShape(QFrame.HLine)
+        outer.addWidget(self._top_sep)
 
-        self._top_sep = tk.Frame(self, bg=BORDER, height=1)
-        self._top_sep.pack(fill=tk.X)
+        # ── Horizontal splitter: sidebar | plots ───────────────────────────
+        self._h_pane = QSplitter(Qt.Horizontal)
+        outer.addWidget(self._h_pane, 1)
 
-        # Status + log — MUST be packed side=BOTTOM before the expanding
-        # paned window so it claims its space first.
-        self._build_bottom()
+        sidebar = QWidget()
+        sidebar.setFixedWidth(340)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ── Horizontal PanedWindow: sidebar | plots ────────────────────────
-        self._h_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        self._h_pane.pack(fill=tk.BOTH, expand=True)
+        self._sidebar_main_frame = QWidget()
+        QVBoxLayout(self._sidebar_main_frame).setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.addWidget(self._sidebar_main_frame, 1)
 
-        # Sidebar — contains two swappable panels:
-        #   _sidebar_line_frame: well picker (used by Line Graphs tab)
-        #   _sidebar_bar_frame:  group picker (used by Bar Plots tab)
-        sidebar = tk.Frame(self._h_pane, bg=BG_SIDE, width=340)
-        sidebar.pack_propagate(False)
-        self._h_pane.add(sidebar, weight=0)
-
-        # Single persistent well picker — shown for Line Graphs and Bar Plots.
-        self._sidebar_main_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Keep _sidebar_line_frame as an alias so nothing else breaks.
         self._sidebar_line_frame = self._sidebar_main_frame
+        # Off-screen companion frames kept so legacy callers can check existence.
+        self._sidebar_groups_frame = QWidget()
+        self._sidebar_bar_frame = QWidget()
+        self._sidebar_preview_frame = QWidget()
+        self._sidebar_sample_frame = QWidget()
+        self._sidebar_stats_frame = QWidget()
+        for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
+                  self._sidebar_preview_frame, self._sidebar_sample_frame,
+                  self._sidebar_stats_frame):
+            w.setParent(sidebar)
+            w.hide()
 
-        # Off-screen frame used to build bar-map widgets that are now unused
-        # in the sidebar (bar plot uses the unified picker instead).
-        self._sidebar_groups_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_bar_frame    = tk.Frame(sidebar, bg=BG_SIDE)
-
-        self._sidebar_preview_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_sample_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_stats_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        # Not packed yet — shown only when tab-specific sidebars are active
-
+        self._h_pane.addWidget(sidebar)
         self._build_sidebar(self._sidebar_main_frame)
-        # Groups panel and preview picker built inside _build_centre.
 
         # Centre plots
-        centre = tk.Frame(self._h_pane, bg=BG_APP)
-        self._h_pane.add(centre, weight=3)
+        centre = QWidget()
+        QVBoxLayout(centre).setContentsMargins(0, 0, 0, 0)
+        self._h_pane.addWidget(centre)
+        self._h_pane.setStretchFactor(0, 0)
+        self._h_pane.setStretchFactor(1, 3)
         self._build_centre(centre)
 
-    def _build_sidebar(self, parent: tk.Frame) -> None:
+        # Status + log — packed last so it sits below the splitter.
+        self._build_bottom()
+
+    def _build_sidebar(self, parent) -> None:
         from well_viewer.views.sidebar_view import build_sidebar as _build_sidebar_view
         _build_sidebar_view(self, parent)
 
-    def _build_centre(self, parent: tk.Frame) -> None:
+    def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
-
         _build_centre_view(self, parent)
 
     # ── Statistics tab ────────────────────────────────────────────────────────
 
-    def _build_stats_tab(self, parent: tk.Frame) -> None:
+    def _build_stats_tab(self, parent) -> None:
         _build_stats_tab_view(self, parent, bg_app=BG_APP, bg_side=BG_SIDE)
 
     # ── Stats left: group editor ──────────────────────────────────────────────
 
-    def _build_stats_group_editor(self, parent: tk.Frame) -> None:
+    def _build_stats_group_editor(self, parent) -> None:
         _build_stats_group_editor_view(
             self,
             parent,
@@ -2336,8 +2344,7 @@ class WellViewerApp(QWidget):
         def _ok():
             sel = lb.curselection()
             if not sel:
-                messagebox.showwarning("No wells", "Select at least one well.",
-                                       parent=dlg)
+                QMessageBox.warning(dlg, "No wells", "Select at least one well.")
                 return
             wells = [available[i] for i in sel]
             name  = name_var.get().strip() or f"Rep {len(self._rep_sets)+1}"
@@ -2422,10 +2429,13 @@ class WellViewerApp(QWidget):
     def _rep_clear_all(self) -> None:
         if not self._rep_sets:
             return
-        if messagebox.askyesno("Clear all replicate sets?",
-                               f"Remove all {len(self._rep_sets)} set(s)?\n"
-                               "Groups referencing them will also lose those members.",
-                               parent=self):
+        resp = QMessageBox.question(
+            self, "Clear all replicate sets?",
+            f"Remove all {len(self._rep_sets)} set(s)?\n"
+            "Groups referencing them will also lose those members.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if resp == QMessageBox.Yes:
             for grp in self._bar_groups:
                 grp.members.clear()
             self._rep_sets.clear()
@@ -2617,9 +2627,12 @@ class WellViewerApp(QWidget):
         """Remove all bar groups after confirmation."""
         if not self._bar_groups:
             return
-        if messagebox.askyesno("Clear all groups?",
-                               f"Remove all {len(self._bar_groups)} group(s)?",
-                               parent=self):
+        resp = QMessageBox.question(
+            self, "Clear all groups?",
+            f"Remove all {len(self._bar_groups)} group(s)?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if resp == QMessageBox.Yes:
             self._bar_groups.clear()
             self._bar_active_grp = -1
             self._bar_active_rep  = -1
@@ -2658,9 +2671,8 @@ class WellViewerApp(QWidget):
         assigned = {w for rset in grp.replicates for w in rset.wells}
         available = [lbl for lbl in self._well_paths if lbl not in assigned]
         if not available:
-            messagebox.showinfo("All assigned",
-                                "All loaded wells are already in a replicate set.",
-                                parent=self)
+            QMessageBox.information(self, "All assigned",
+                                    "All loaded wells are already in a replicate set.")
             return
 
         dlg = tk.Toplevel(self)
@@ -2705,8 +2717,8 @@ class WellViewerApp(QWidget):
         def _ok():
             sel = lb.curselection()
             if not sel:
-                messagebox.showwarning("No wells selected",
-                                       "Select at least one well.", parent=dlg)
+                QMessageBox.warning(dlg, "No wells selected",
+                                    "Select at least one well.")
                 return
             wells = [available[i] for i in sel]
             name  = name_var.get().strip() or f"R{len(grp.replicates)+1}"
@@ -2993,11 +3005,13 @@ class WellViewerApp(QWidget):
         if not new_sets:
             return
         if self._rep_sets:
-            if not messagebox.askyesno(
-                    "Replace replicate sets?",
-                    f"This will replace the current {len(self._rep_sets)} "
-                    "replicate set(s). Continue?",
-                    parent=self):
+            resp = QMessageBox.question(
+                self, "Replace replicate sets?",
+                f"This will replace the current {len(self._rep_sets)} "
+                "replicate set(s). Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
                 return
             for grp in self._bar_groups:
                 grp.members.clear()
@@ -3207,21 +3221,18 @@ class WellViewerApp(QWidget):
     def _bar_save_groups(self) -> None:
         """Write current bar groups to a JSON file chosen by the user."""
         if not self._bar_groups:
-            messagebox.showwarning(
-                "Nothing to save",
+            QMessageBox.warning(
+                self, "Nothing to save",
                 "Define at least one group before saving.",
-                parent=self,
             )
             return
         out_dir = self._app._data_dir if self._app._data_dir else None
-        path_str = filedialog.asksaveasfilename(
-            parent=self,
-            title="Save bar group definitions",
-            defaultextension=".json",
-            filetypes=[("Group definitions JSON", "*.json"),
-                       ("All files", "*.*")],
-            initialfile="bar_groups.json",
-            initialdir=str(out_dir) if out_dir else None,
+        init_dir = str(out_dir) if out_dir else ""
+        init_path = str(Path(init_dir) / "bar_groups.json") if init_dir else "bar_groups.json"
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Save bar group definitions",
+            init_path,
+            "Group definitions JSON (*.json);;All files (*.*)",
         )
         if not path_str:
             return
@@ -3230,17 +3241,16 @@ class WellViewerApp(QWidget):
                 json.dump(self._bar_groups_to_dict(), fh, indent=2)
             _logger.info("Bar groups saved to %s", path_str)
         except OSError as exc:
-            messagebox.showerror("Save failed", str(exc), parent=self)
+            QMessageBox.critical(self, "Save failed", str(exc))
 
     def _bar_load_groups(self) -> None:
         """Load bar groups from a previously saved JSON file."""
         out_dir = self._app._data_dir if self._app._data_dir else None
-        path_str = filedialog.askopenfilename(
-            parent=self,
-            title="Load bar group definitions",
-            filetypes=[("Group definitions JSON", "*.json"),
-                       ("All files", "*.*")],
-            initialdir=str(out_dir) if out_dir else None,
+        init_dir = str(out_dir) if out_dir else ""
+        path_str, _ = QFileDialog.getOpenFileName(
+            self, "Load bar group definitions",
+            init_dir,
+            "Group definitions JSON (*.json);;All files (*.*)",
         )
         if not path_str:
             return
@@ -3250,19 +3260,19 @@ class WellViewerApp(QWidget):
             if not isinstance(data, list):
                 raise ValueError("Expected a JSON array at the top level.")
         except (OSError, json.JSONDecodeError, ValueError) as exc:
-            messagebox.showerror(
-                "Load failed",
+            QMessageBox.critical(
+                self, "Load failed",
                 f"Could not read group definitions:\n{exc}",
-                parent=self,
             )
             return
         if self._bar_groups:
-            if not messagebox.askyesno(
-                "Replace existing groups?",
+            resp = QMessageBox.question(
+                self, "Replace existing groups?",
                 f"Loading will replace the current {len(self._bar_groups)} "
                 f"group(s).  Continue?",
-                parent=self,
-            ):
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
                 return
         self._bar_groups_from_dict(data)
         self._bar_rebuild_groups()
@@ -3779,10 +3789,10 @@ class WellViewerApp(QWidget):
 
     def _browse(self) -> None:
         """Open a directory picker. Expects in/ + out/ subdirs or a flat CSV dir."""
-        d = filedialog.askdirectory(title="Open results directory")
+        d = QFileDialog.getExistingDirectory(self, "Open results directory")
         if d:
             # Defer so the dialog closes and the window repaints before load
-            self.after(50, lambda: self._load_path(Path(d)))
+            QTimer.singleShot(50, lambda: self._load_path(Path(d)))
 
     def _load_path(self, path):
         _load_path_controller(self, path)
@@ -5149,7 +5159,7 @@ class WellViewerApp(QWidget):
 
     def _open_batch_export(self) -> None:
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -6374,7 +6384,7 @@ class WellViewerApp(QWidget):
     def _open_bar_batch_export(self) -> None:
         """Switch Batch Export tab to the inline bar-plot export builder."""
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Bar Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Bar Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -6384,7 +6394,7 @@ class WellViewerApp(QWidget):
     def _open_scatter_cells_batch_export(self) -> None:
         """Switch Batch Export tab to the inline scatter-cells export builder."""
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Scatter Cells Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Scatter Cells Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -6394,7 +6404,7 @@ class WellViewerApp(QWidget):
     def _open_scatter_agg_batch_export(self) -> None:
         """Switch Batch Export tab to the inline aggregate-scatter export builder."""
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Scatter Aggregate Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Scatter Aggregate Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
