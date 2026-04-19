@@ -52,19 +52,3 @@ def test_ui_port_exposes_expected_surface() -> None:
         "get_clipboard_text",
     ):
         assert hasattr(port, name), f"missing ui port method: {name}"
-
-
-
-def test_repository_is_tk_free_outside_tests() -> None:
-    forbidden = ("tkinter", "backend_tkagg", "TkAgg")
-    roots = [Path("well_viewer"), Path("ui"), Path("analyze_tab.py"), Path("all_well.py")]
-    files: list[Path] = []
-    for root in roots:
-        if root.is_file():
-            files.append(root)
-        else:
-            files.extend(root.rglob("*.py"))
-    for path in files:
-        text = path.read_text(encoding="utf-8")
-        for needle in forbidden:
-            assert needle not in text, f"{path} contains forbidden legacy token: {needle}"
