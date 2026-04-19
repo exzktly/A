@@ -6,8 +6,11 @@ import csv
 import math
 from pathlib import Path
 
+from ui.theme.styles import get_color
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
+from well_viewer.plot_utils import aggregate_with_threshold
+from well_viewer.viewer_state import extract_well_token
 
 _CSV_FILTER = "CSV files (*.csv);;All files (*.*)"
 
@@ -28,8 +31,6 @@ def _error(app, title: str, msg: str) -> None:
 
 
 def export_plot_data(app) -> None:
-    from well_viewer import runtime_app as rt
-
     selected = app._selected_labels()
     if not selected:
         _warn(app, "Export", "No wells selected.")
@@ -41,7 +42,7 @@ def export_plot_data(app) -> None:
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
     for label in selected:
-        pts = rt.aggregate_with_threshold(
+        pts = aggregate_with_threshold(
             app._get_rows(label), threshold,
             use_sem=False, val_col=app._active_val_col,
             cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates,
@@ -184,14 +185,17 @@ def export_raw_data_csv(app) -> None:
 
 
 def save_montage_figure(app) -> None:
+    try:
+        import numpy as _np
+    except Exception:
+        _np = None
     from matplotlib.figure import Figure as _Figure
-    from well_viewer import runtime_app as rt
 
     if not app._montage_fluor_arrays:
         _warn(app, "Nothing to save", "Load a well in the Preview tab first.")
         return
     fov = app._preview_fov_cb.currentText()
-    well = rt._extract_well_token(app._preview_selected_well or "") or "well"
+    well = extract_well_token(app._preview_selected_well or "") or "well"
     n = len(app._montage_fluor_arrays)
     try:
         lo = float(app._mon_lmin_edit.text())
@@ -205,25 +209,28 @@ def save_montage_figure(app) -> None:
     use_display = tophat_on and hasattr(app, "_montage_fluor_display_arrays") and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
     fluor_source = app._montage_fluor_display_arrays if use_display else app._montage_fluor_arrays
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
-    fig = _Figure(figsize=(max(4, n * 2.5), 5), dpi=300, facecolor=rt.PLOT_BG)
+    plot_bg = get_color("PLOT_BG")
+    txt_pri = get_color("TXT_PRI")
+    txt_mut = get_color("TXT_MUT")
+    fig = _Figure(figsize=(max(4, n * 2.5), 5), dpi=300, facecolor=plot_bg)
     for ci, ((tp, _), display_arr, ov_arr) in enumerate(zip(tp_list, fluor_source, app._montage_overlay_arrays)):
         ax_g = fig.add_subplot(2, n, ci + 1)
         ax_o = fig.add_subplot(2, n, n + ci + 1)
-        if display_arr is not None and rt._NP_AVAILABLE:
-            arr = rt._np.asarray(display_arr, dtype=rt._np.float32)
+        if display_arr is not None and _np is not None:
+            arr = _np.asarray(display_arr, dtype=_np.float32)
             alo = lo if lo is not None else float(arr.min())
             ahi = hi if hi is not None else float(arr.max())
             if ahi <= alo:
                 ahi = alo + 1.0
             ax_g.imshow(arr, cmap="gray", vmin=alo, vmax=ahi, aspect="auto")
         else:
-            ax_g.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_g.transAxes, color=rt.TXT_MUT)
-        ax_g.set_title(tp, fontsize=6, color=rt.TXT_PRI)
+            ax_g.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_g.transAxes, color=txt_mut)
+        ax_g.set_title(tp, fontsize=6, color=txt_pri)
         ax_g.axis("off")
         if ci == 0:
-            ax_g.set_ylabel(app._active_channel.upper(), fontsize=7, color=rt.TXT_PRI)
-        if ov_arr is not None and rt._NP_AVAILABLE:
-            arr = rt._np.asarray(ov_arr)
+            ax_g.set_ylabel(app._active_channel.upper(), fontsize=7, color=txt_pri)
+        if ov_arr is not None and _np is not None:
+            arr = _np.asarray(ov_arr)
             if arr.ndim == 2:
                 lo_o, hi_o = float(arr.min()), float(arr.max())
                 if hi_o <= lo_o:
@@ -231,16 +238,16 @@ def save_montage_figure(app) -> None:
                 ax_o.imshow(arr, cmap="gray", vmin=lo_o, vmax=hi_o, aspect="auto")
             elif arr.ndim == 3:
                 a = arr[:, :, :3]
-                if a.dtype != rt._np.uint8:
+                if a.dtype != _np.uint8:
                     rng = max(a.max() - a.min(), 1)
-                    a = ((a.astype(rt._np.float32) - a.min()) / rng * 255).astype(rt._np.uint8)
+                    a = ((a.astype(_np.float32) - a.min()) / rng * 255).astype(_np.uint8)
                 ax_o.imshow(a, aspect="auto")
         else:
-            ax_o.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_o.transAxes, color=rt.TXT_MUT)
+            ax_o.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_o.transAxes, color=txt_mut)
         ax_o.axis("off")
         if ci == 0:
-            ax_o.set_ylabel("overlay", fontsize=7, color=rt.TXT_PRI)
-    fig.suptitle(f"{well}  FOV: {fov}", fontsize=9, fontweight="bold", color=rt.TXT_PRI, y=1.01)
+            ax_o.set_ylabel("overlay", fontsize=7, color=txt_pri)
+    fig.suptitle(f"{well}  FOV: {fov}", fontsize=9, fontweight="bold", color=txt_pri, y=1.01)
     fig.tight_layout()
     app._save_matplotlib_fig(fig, f"montage_{well}_{fov}.png")
 
@@ -310,7 +317,6 @@ def export_scatter_data(app) -> None:
 
 def export_scatter_agg_data(app) -> None:
     """Export aggregate scatter plot data to CSV."""
-    from well_viewer import runtime_app as rt
     from well_viewer.scatter_controller import collect_scatter_agg_data as _scatter_collect_agg_data
 
     try:
@@ -339,7 +345,7 @@ def export_scatter_agg_data(app) -> None:
     scatter_data = _scatter_collect_agg_data(
         app, stat_x, stat_y, selected_timepoints,
         well_colors=[],
-        aggregate_with_threshold=rt.aggregate_with_threshold,
+        aggregate_with_threshold=aggregate_with_threshold,
     )
 
     rows_out = []
