@@ -44,7 +44,7 @@ class _GUILogHandler(logging.Handler):
 
 def build_bottom(app) -> None:
     """Build the persistent status/log footer strip."""
-    from well_viewer import runtime_app as rt
+    logger = logging.getLogger("well_viewer")
 
     # Root layout on app must accept a bottom strip — we place it as a child.
     bottom = QWidget(app)
@@ -139,6 +139,6 @@ def build_bottom(app) -> None:
     handler.setFormatter(logging.Formatter(
         "%(asctime)s  %(levelname)-7s  %(message)s", datefmt="%H:%M:%S"))
     handler.setLevel(logging.DEBUG)
-    rt._logger.addHandler(handler)
-    rt._logger.setLevel(logging.DEBUG)
-    rt._logger.propagate = False
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False

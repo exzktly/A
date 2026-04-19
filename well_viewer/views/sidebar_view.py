@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
+from well_viewer.plate_layout import PLATE_COLS, PLATE_ROWS
+
 
 def build_sidebar(app, parent: QWidget) -> None:
     """Build the 8x12 plate-map well selector in the sidebar.
@@ -19,7 +21,6 @@ def build_sidebar(app, parent: QWidget) -> None:
       - Selected-well count label
       - Group-mode hint label
     """
-    from well_viewer.runtime_app import _PLATE_ROWS, _PLATE_COLS
     from well_viewer.views.well_button import build_plate_grid
 
     # Ensure parent has a vertical layout
@@ -49,13 +50,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     row_lbl = QLabel("Row:", row_frame)
     row_lbl.setObjectName("Muted")
     row_grid.addWidget(row_lbl, 0, 0)
-    for ci, r in enumerate(_PLATE_ROWS):
+    for ci, r in enumerate(PLATE_ROWS):
         b = QPushButton(r, row_frame)
         b.setProperty("variant", "quick")
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, row=r: app._select_row(row))
         row_grid.addWidget(b, 0, ci + 1)
-    for ci in range(1, len(_PLATE_ROWS) + 1):
+    for ci in range(1, len(PLATE_ROWS) + 1):
         row_grid.setColumnStretch(ci, 1)
     rc_layout.addWidget(row_frame)
 
@@ -66,13 +67,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     col_lbl = QLabel("Col:", col_frame)
     col_lbl.setObjectName("Muted")
     col_grid.addWidget(col_lbl, 0, 0)
-    for ci, c in enumerate(_PLATE_COLS):
+    for ci, c in enumerate(PLATE_COLS):
         b = QPushButton(c.lstrip("0") or "0", col_frame)
         b.setProperty("variant", "quick")
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, col=c: app._select_col(col))
         col_grid.addWidget(b, 0, ci + 1)
-    for ci in range(1, len(_PLATE_COLS) + 1):
+    for ci in range(1, len(PLATE_COLS) + 1):
         col_grid.setColumnStretch(ci, 1)
     rc_layout.addWidget(col_frame)
 

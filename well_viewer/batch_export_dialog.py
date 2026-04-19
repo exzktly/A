@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import csv
 import json
+import logging
 import math
 import re
 from pathlib import Path
@@ -34,30 +35,34 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from well_viewer.runtime_app import (
-    PLOT_BG,
-    PLOT_SPN,
-    TXT_MUT,
-    TXT_PRI,
-    WARN,
-    WELL_COLORS,
-    _PLATE_COLS,
-    _PLATE_ROWS,
-    _all_fluor_values,
-    _extract_well_token,
-    _groups_with_loaded_wells,
-    _logger,
-    _read_pipeline_info_shared,
-    aggregate_with_threshold,
-    apply_ax_style,
-)
+from ui.theme.styles import _WELL_COLORS, get_color
 from well_viewer.batch_models import BarGroup
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
+from well_viewer.plate_layout import PLATE_COLS, PLATE_ROWS
+from well_viewer.plot_utils import (
+    aggregate_with_threshold,
+    all_fluor_values as _all_fluor_values,
+    apply_ax_style,
+)
 from well_viewer.scatter_controller import (
     collect_scatter_data as _collect_scatter_data,
     collect_scatter_agg_data as _collect_scatter_agg_data,
 )
 from well_viewer.ui_helpers import ask_name_dialog, btn_card, btn_danger, btn_primary, btn_secondary
+from well_viewer.viewer_state import (
+    extract_well_token as _extract_well_token,
+    groups_with_loaded_wells as _groups_with_loaded_wells,
+    read_pipeline_info as _read_pipeline_info_shared,
+)
+
+
+_logger = logging.getLogger("well_viewer")
+PLOT_BG = get_color("PLOT_BG")
+PLOT_SPN = get_color("PLOT_SPN")
+TXT_MUT = get_color("TXT_MUT")
+TXT_PRI = get_color("TXT_PRI")
+WARN = get_color("WARN")
+WELL_COLORS = list(_WELL_COLORS.values())
 
 
 _CLR_DANGER = "#d2453d"
@@ -208,15 +213,15 @@ class BatchExportPanel(QWidget):
         map_grid = QGridLayout(map_widget)
         map_grid.setSpacing(2)
         map_grid.setContentsMargins(4, 2, 4, 2)
-        for ci, col in enumerate(_PLATE_COLS):
+        for ci, col in enumerate(PLATE_COLS):
             lbl = QLabel(col)
             lbl.setAlignment(Qt.AlignCenter)
             map_grid.addWidget(lbl, 0, ci + 1)
-        for ri, row in enumerate(_PLATE_ROWS):
+        for ri, row in enumerate(PLATE_ROWS):
             rlbl = QLabel(row)
             rlbl.setAlignment(Qt.AlignCenter)
             map_grid.addWidget(rlbl, ri + 1, 0)
-            for ci, col in enumerate(_PLATE_COLS):
+            for ci, col in enumerate(PLATE_COLS):
                 tok = f"{row}{col}"
                 btn = _WellGridButton(tok)
                 self._map_btns[tok] = btn
@@ -651,7 +656,7 @@ class BatchExportPanel(QWidget):
         self._groups.clear()
         self._auto_named_group_ids.clear()
         self._active_grp = -1
-        for row_ltr in _PLATE_ROWS:
+        for row_ltr in PLATE_ROWS:
             row_rsets = [r for r in self._app._rep_sets
                          if any(w[0].upper() == row_ltr for w in r.wells)]
             assigned_wells = {w for r in row_rsets for w in r.wells}
@@ -669,7 +674,7 @@ class BatchExportPanel(QWidget):
         self._groups.clear()
         self._auto_named_group_ids.clear()
         self._active_grp = -1
-        for col in _PLATE_COLS:
+        for col in PLATE_COLS:
             col_rsets = [r for r in self._app._rep_sets
                          if any(w[1:] == col for w in r.wells)]
             assigned_wells = {w for r in col_rsets for w in r.wells}
