@@ -89,6 +89,10 @@ Run the app:
     mamba activate allwell
     python all_well.py
 
+PySide6 sanity check:
+
+    python -c "import PySide6; print('PySide6 OK')"
+
 You can also run the components individually:
 
     python -m well_viewer.runtime_app  # Review tab only

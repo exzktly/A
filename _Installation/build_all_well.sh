@@ -61,7 +61,7 @@ python - << 'CHECKS'
 import sys, importlib, platform
 
 checks = [
-    ("tkinter",     "tkinter"),
+    ("PySide6",     "PySide6"),
     ("matplotlib",  "matplotlib"),
     ("numpy",       "numpy"),
     ("scipy",       "scipy"),
@@ -107,21 +107,13 @@ except ImportError:
         print("    pip install tensorflow>=2.12,<2.16")
     ok = False
 
-# tkinter functional test
+# PySide6 functional import test
 try:
-    import tkinter as tk
-    root = tk.Tk(); root.withdraw(); root.destroy()
-    print(f"  ✓ tkinter {tk.TkVersion} functional")
+    from PySide6 import QtCore
+    print(f"  ✓ PySide6 {QtCore.__version__} functional")
 except Exception as e:
-    print(f"  ✗ tkinter failed: {e}")
+    print(f"  ✗ PySide6 failed: {e}")
     ok = False
-
-# PIL.ImageTk (optional)
-try:
-    from PIL import ImageTk
-    print("  ✓ PIL.ImageTk available")
-except ImportError:
-    print("  ! PIL.ImageTk unavailable — preview montage will be disabled")
 
 if not ok:
     sys.exit(1)
@@ -143,8 +135,12 @@ REQUIRED=(
     "all_well.py"
     "all_well_launcher.py"
     "analyze_tab.py"
+    "analyze_tab_qt.py"
     "process_microscopy_v2.py"
     "WellPlateZipper.py"
+    "ui/qt_theme.py"
+    "ui/qt_plot_host.py"
+    "well_viewer/runtime_app_qt.py"
     "_Installation/all_well.spec"
     "_Installation/hooks/hook-stardist.py"
     "_Installation/hooks/hook-csbdeep.py"
@@ -168,7 +164,7 @@ if [ "$MISSING" -gt 0 ]; then
     echo "Repository root: $REPO_ROOT"
     echo ""
     echo "Ensure you:"
-    echo "  1. Have all core files in repository root: all_well.py, analyze_tab.py, etc."
+    echo "  1. Have all core files in repository root: all_well.py, analyze_tab.py, analyze_tab_qt.py, etc."
     echo "  2. Have _Installation/hooks/ subdirectory with PyInstaller hooks"
     echo "  3. Have _Docs/requirements.txt with pip dependencies"
     exit 1

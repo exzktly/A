@@ -13,7 +13,7 @@ This guide is intended for future contributors (including AI coding sessions) wh
 ## Prerequisites
 - Python 3.10+ (3.11 works well in development)
 - `pip` and virtualenv support
-- On macOS, `python-tk`/Tk support for Tkinter UI
+- `PySide6` runtime support for the desktop UI
 
 ### Create and activate a virtual environment
 ```bash
@@ -40,7 +40,7 @@ If `csbdeep`/`stardist` are missing, the pipeline now fails fast with a clear ru
 
 ### Quick dependency smoke checks
 ```bash
-python -c "import tkinter; print('tk ok')"
+python -c "import PySide6; print('pyside ok')"
 python -c "import tifffile, scipy, skimage; print('image stack ok')"
 python -c "import csbdeep, stardist; print('stardist deps ok')"
 ```
@@ -227,4 +227,3 @@ Each exposes `build_{name}_tab(app, parent: tk.Frame) -> None`.
 - Tkinter/Matplotlib UI code is stateful and event-driven; many callbacks mutate app instance fields.
 - Some logic remains intentionally duplicated between `runtime_app.py` methods and extracted callback modules for compatibility while migration stabilizes.
 - Analyze runtime depends on heavyweight scientific stack; environment mismatch is a common failure mode.
-

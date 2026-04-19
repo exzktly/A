@@ -8,6 +8,8 @@ This repository is organized around package-owned runtime modules under `well_vi
   - Multi-tab desktop entry point for analysis + review workflows.
 - `well_viewer/runtime_app.py`
   - Canonical runtime implementation of `WellViewerApp`.
+- `well_viewer/runtime_app_qt.py`
+  - Qt-native review/runtime slice host used by the PySide6 shell.
 - `well_viewer/app.py`
   - Package-facing app entry (`from well_viewer import WellViewerApp`).
 

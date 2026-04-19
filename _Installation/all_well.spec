@@ -40,8 +40,13 @@ _parent = _here.parent   # repository root (one level up)
 sibling_scripts = [
     (str(_parent / "all_well.py"),              "."),
     (str(_parent / "analyze_tab.py"),           "."),
+    (str(_parent / "analyze_tab_qt.py"),        "."),
     (str(_parent / "process_microscopy_v2.py"), "."),
     (str(_parent / "WellPlateZipper.py"),       "."),
+    (str(_parent / "ui/qt_theme.py"),           "ui"),
+    (str(_parent / "ui/qt_plot_host.py"),       "ui"),
+    (str(_parent / "ui/qt_ui.py"),              "ui"),
+    (str(_parent / "well_viewer/runtime_app_qt.py"), "well_viewer"),
 ]
 
 # matplotlib ships fonts, styles, and mpl-data at runtime
@@ -114,8 +119,7 @@ hiddenimports = [
     "skimage.util.dtype",
 
     # matplotlib backends
-    "matplotlib.backends.backend_tkagg",
-    "matplotlib.backends._backend_tk",
+    "matplotlib.backends.backend_qtagg",
     "matplotlib.backends.backend_agg",
     "matplotlib.figure",
     "matplotlib.patches",
@@ -127,7 +131,6 @@ hiddenimports = [
     # PIL / Pillow
     "PIL",
     "PIL.Image",
-    "PIL.ImageTk",
     "PIL.ImageOps",
     "PIL.TiffImagePlugin",
     "PIL.PngImagePlugin",
@@ -140,11 +143,11 @@ hiddenimports = [
     # imagecodecs — optional but prevents codec errors on compressed TIFFs
     "imagecodecs",
 
-    # tkinter
-    "tkinter",
-    "tkinter.ttk",
-    "tkinter.filedialog",
-    "tkinter.messagebox",
+    # Qt runtime
+    "PySide6",
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
 
     # standard library PyInstaller sometimes misses
     "zipfile",
@@ -301,7 +304,6 @@ a = Analysis(
         "PyQt5",
         "PyQt6",
         "PySide2",
-        "PySide6",
         "wx",
         "gtk",
         # Dead/moved skimage submodule — raises ModuleNotFoundError on import

@@ -1,30 +1,28 @@
-"""Viewer package app entry/composition module."""
+"""Qt-first viewer app entry/composition module."""
 
 from __future__ import annotations
 
-import tkinter as tk
 from pathlib import Path
 
-from .viewer_state import ViewerAppState
+from .runtime_app_qt import WellViewerRuntimeQt
 
 
-class WellViewerApp:
-    """Package-facing app class with lazy runtime import."""
+class WellViewerApp(WellViewerRuntimeQt):
+    """Backward-compatible app class name bound to Qt runtime implementation."""
 
     def __init__(self, parent=None, data_path: Path | None = None) -> None:
-        self._app_state = ViewerAppState(data_path=Path(data_path) if data_path else None)
-        from .runtime_app import WellViewerApp as _RuntimeWellViewerApp
-
-        self._impl = _RuntimeWellViewerApp(parent=parent, data_path=data_path)
-
-    def __getattr__(self, name: str):
-        return getattr(self._impl, name)
+        super().__init__()
+        if data_path is not None:
+            self._load_path(Path(data_path))
 
 
-def main(data_path: Path | None = None) -> None:
-    app = WellViewerApp(data_path=data_path)
-    app.pack(fill=tk.BOTH, expand=True)
-    app._tk_root.mainloop()
+def main(data_path: Path | None = None) -> int:
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    runtime = WellViewerApp(data_path=data_path)
+    runtime.widget.show()
+    return app.exec()
 
 
 __all__ = ["WellViewerApp", "main"]
