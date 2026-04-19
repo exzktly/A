@@ -6,15 +6,10 @@ Strategy: break each large file into ≤200-line write chunks to avoid stream ti
 
 ## Controllers (thin — one write each) ✓ DONE
 
-## Callbacks + Services
-- [x] preview_callbacks.py — written, uncommitted
-- [ ] scatter_callbacks.py (720 LoC) — 2 parts
-- [ ] plot_orchestrator.py (137 LoC)
-- [ ] export_service.py (403 LoC)
-- [ ] ui_helpers.py — verify Qt-clean
+## Callbacks + Services ✓ DONE
 
 ## Monoliths
-- [ ] batch_export_dialog.py (2030 LoC) — 4 parts
+- [x] batch_export_dialog.py (2030 LoC) — 4 parts
 - [ ] runtime_app.py (6941 LoC) — 10+ parts
 
 ## Final

@@ -1,61 +1,55 @@
-"""Batch-export dialog classes and launch helpers extracted from well_viewer3."""
+"""Batch-export dialog panels (PySide6 port)."""
 
 from __future__ import annotations
 
-# Dialogs still rely on shared legacy UI constants/utilities while extraction is in progress.
+import copy
+import csv
+import json
+import math
+import re
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
 from well_viewer.runtime_app import (
-    ACCENT,
-    ACCENT_DARK,
-    BG_APP,
-    BG_CELL,
-    BG_HOVER,
-    BG_PANEL,
-    BG_SIDE,
-    BORDER,
-    CLR_AVAIL_HOVER,
-    CLR_AVAIL_WELL,
-    CLR_DANGER,
-    CLR_DANGER_BG,
-    CLR_DANGER_HOVER,
-    CLR_DISABLED_WELL,
-    CLR_ERR_BAR,
-    CLR_PLACEHOLDER,
-    CLR_SUCCESS,
-    CLR_SUCCESS_DARK,
-    CLR_WHITE,
-    FM_BOLD,
-    FM_MONO,
-    FM_TINY,
     PLOT_BG,
     PLOT_SPN,
     TXT_MUT,
     TXT_PRI,
-    TXT_SEC,
     WARN,
     WELL_COLORS,
     _PLATE_COLS,
     _PLATE_ROWS,
     _all_fluor_values,
-    _bind_drag,
     _extract_well_token,
     _groups_with_loaded_wells,
     _logger,
     _read_pipeline_info_shared,
-    _selected_listbox_values,
     aggregate_with_threshold,
     apply_ax_style,
-    ask_name_dialog,
-    build_plate_grid,
-    make_scrollable_canvas,
-    copy,
-    csv,
-    filedialog,
-    json,
-    math,
-    messagebox,
-    re,
-    tk,
-    ttk,
 )
 from well_viewer.batch_models import BarGroup
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
@@ -63,39 +57,56 @@ from well_viewer.scatter_controller import (
     collect_scatter_data as _collect_scatter_data,
     collect_scatter_agg_data as _collect_scatter_agg_data,
 )
-from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
-from pathlib import Path
-from typing import Dict, List, Optional
+from well_viewer.ui_helpers import ask_name_dialog, btn_card, btn_danger, btn_primary, btn_secondary
 
 
-class BatchExportPanel(tk.Frame):
-    """
-    Batch export dialog — defines export groups and runs the export.
+_CLR_DANGER = "#d2453d"
+_CLR_SUCCESS_DARK = "#2e7d32"
+_CLR_PLACEHOLDER = "#9aa0a6"
+_CLR_DISABLED_WELL = "#404040"
+_CLR_ERR_BAR = "#333333"
+_CLR_WHITE = "#ffffff"
 
-    The interactive group creator lives here (not in the main Groups tab).
-    A group is a named collection of ReplicateSets (or solo wells) that will
-    appear together on a single exported figure — one line per member.
 
-    Statistics:
-      - Within a ReplicateSet: wells are averaged → one mean fluorescence value per set.
-      - Across members of a group: NO combined stat is computed.
-        Each member gets its own line on the combined figure.
+def _parse_rc(tok: str):
+    m = re.match(r"^([A-H])(\d{1,2})$", tok, re.I)
+    if not m:
+        return ("?", "?")
+    return (m.group(1).upper(), f"{int(m.group(2)):02d}")
 
-    Layout
-    ------
-    Left  : Group editor — plate map + group card list (Quick Setup rows/cols,
-            Save, Load).
-    Right : Output settings + Run.
-    """
+
+class _WellGridButton(QPushButton):
+    """Small flat plate-map button used inside batch-export group editor."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(text, parent)
+        self.setFixedSize(34, 24)
+        self.setFlat(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self._base_color = ""
+        self._active = False
+
+    def set_colors(self, bg: str, fg: str, active: bool = False, enabled: bool = True) -> None:
+        self.setEnabled(enabled)
+        self._base_color = bg
+        self._active = active
+        border = "2px solid #1976d2" if active else "1px solid #444"
+        self.setStyleSheet(
+            f"QPushButton {{ background: {bg}; color: {fg}; border: {border}; padding: 0px; }}"
+        )
+
+
+class BatchExportPanel(QWidget):
+    """Batch export panel — defines export groups and runs the export."""
 
     def __init__(
         self,
-        app: "WellViewerApp",
-        parent: tk.Widget,
+        app,
+        parent: Optional[QWidget] = None,
         *,
         use_sidebar_groups: bool = False,
     ) -> None:
-        super().__init__(parent, bg=BG_APP)
+        super().__init__(parent)
         self._app = app
         self._use_sidebar_groups = bool(use_sidebar_groups)
 
@@ -105,211 +116,309 @@ class BatchExportPanel(tk.Frame):
         if default_fmt not in {"png", "svg", "eps", "pdf"}:
             default_fmt = "png"
         default_profile = str(export_prefs.get("export_profile", "Custom"))
-        self._out_dir_var = tk.StringVar(value=default_out)
-        self._fmt_var     = tk.StringVar(value=default_fmt)
-        self._export_profile_var = tk.StringVar(value=default_profile)
-        self._active_grp  = -1   # index of selected export group
 
-        # Initialise groups from rep-sets (one group per set).
-        # Falls back to a deep-copy of _bar_groups if rep-sets are empty,
-        # for backward compatibility with saved sessions.
-        self._groups: List["BarGroup"] = self._groups_from_rep_sets()
+        self._out_dir_value: str = default_out
+        self._fmt_value: str = default_fmt
+        self._export_profile_value: str = default_profile
+        self._active_grp = -1
+
+        self._groups: List[BarGroup] = self._groups_from_rep_sets()
         self._auto_named_group_ids: set[int] = set()
+        self._map_btns: Dict[str, _WellGridButton] = {}
+        self._drag_adding = True
+        self._drag_visited: set = set()
 
         self._build_ui()
         if not self._use_sidebar_groups:
             self._refresh_group_list()
 
-    # ── UI ────────────────────────────────────────────────────────────────────
-
     def _build_ui(self) -> None:
-        tk.Frame(self, bg=BORDER, height=1).pack(side=tk.TOP, fill=tk.X)
-
-        # Body: left = group editor, right = output + run (or right-only when
-        # group editing is delegated to the app sidebar).
-        body = tk.Frame(self, bg=BG_APP)
-        body.pack(fill=tk.BOTH, expand=True)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
         if self._use_sidebar_groups:
-            self._build_output_panel(body)
+            right = QWidget()
+            right_layout = QVBoxLayout(right)
+            right_layout.setContentsMargins(0, 0, 0, 0)
+            self._build_output_panel(right_layout)
+            outer.addWidget(right, 1)
             return
 
-        # ── Left: group editor ────────────────────────────────────────────────
-        left = tk.Frame(body, bg=BG_SIDE, width=520)
-        left.pack(side=tk.LEFT, fill=tk.Y)
-        left.pack_propagate(False)
-        self._build_group_editor(left)
+        left = QWidget()
+        left.setFixedWidth(520)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        self._build_group_editor(left_layout)
+        outer.addWidget(left)
 
-        tk.Frame(body, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Plain)
+        outer.addWidget(sep)
 
-        # ── Right: output settings + run ──────────────────────────────────────
-        right = tk.Frame(body, bg=BG_APP)
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._build_output_panel(right)
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        self._build_output_panel(right_layout)
+        outer.addWidget(right, 1)
 
-    def _build_group_editor(self, parent: tk.Frame) -> None:
-        """Left panel: plate map + group card list."""
-        # Header row 1: title + add/clear
-        hdr1 = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-        hdr1.pack(fill=tk.X)
-        tk.Label(hdr1, text="EXPORT GROUPS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-        btn_primary(hdr1, "+ Add", self._grp_add).pack(side=tk.RIGHT)
-        btn_secondary(hdr1, "Clear All", self._grp_clear_all).pack(side=tk.RIGHT, padx=(0, 4))
+    def _build_group_editor(self, layout: QVBoxLayout) -> None:
+        hdr1 = QHBoxLayout()
+        hdr1.setContentsMargins(8, 4, 8, 4)
+        title = QLabel("EXPORT GROUPS")
+        f = title.font()
+        f.setBold(True)
+        title.setFont(f)
+        hdr1.addWidget(title)
+        hdr1.addStretch(1)
+        clear_btn = btn_secondary(None, "Clear All", self._grp_clear_all)
+        add_btn = btn_primary(None, "+ Add", self._grp_add)
+        hdr1.addWidget(clear_btn)
+        hdr1.addWidget(add_btn)
+        layout.addLayout(hdr1)
 
-        # Header row 2: Quick Setup + Save + Load
-        hdr2 = tk.Frame(parent, bg=BG_SIDE, pady=2, padx=8)
-        hdr2.pack(fill=tk.X)
-        qs_btn = ttk.Menubutton(hdr2, text="Quick Setup ▾", style="TButton")
-        qs_btn.pack(side=tk.LEFT)
-        qs_menu = tk.Menu(qs_btn, tearoff=False)
-        qs_menu.add_command(
-            label="One group per row  (Row A = all A wells, …)",
-            command=self._quick_by_row)
-        qs_menu.add_command(
-            label="One group per column  (Col 01 = all col-01 wells, …)",
-            command=self._quick_by_col)
-        qs_btn["menu"] = qs_menu
-        btn_secondary(hdr2, "Save…", self._save_groups).pack(side=tk.LEFT, padx=(8, 2))
-        btn_secondary(hdr2, "Load…", self._load_groups).pack(side=tk.LEFT, padx=(0, 2))
-        btn_secondary(hdr2, "Sync from app", self._sync_from_app).pack(side=tk.LEFT, padx=(8, 0))
+        hdr2 = QHBoxLayout()
+        hdr2.setContentsMargins(8, 2, 8, 2)
+        qs_btn = QToolButton()
+        qs_btn.setText("Quick Setup \u25be")
+        qs_btn.setPopupMode(QToolButton.InstantPopup)
+        qs_menu = QMenu(qs_btn)
+        qs_menu.addAction("One group per row  (Row A = all A wells, \u2026)", self._quick_by_row)
+        qs_menu.addAction("One group per column  (Col 01 = all col-01 wells, \u2026)", self._quick_by_col)
+        qs_btn.setMenu(qs_menu)
+        hdr2.addWidget(qs_btn)
+        hdr2.addWidget(btn_secondary(None, "Save\u2026", self._save_groups))
+        hdr2.addWidget(btn_secondary(None, "Load\u2026", self._load_groups))
+        hdr2.addSpacing(12)
+        hdr2.addWidget(btn_secondary(None, "Sync from app", self._sync_from_app))
+        hdr2.addStretch(1)
+        layout.addLayout(hdr2)
 
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-        tk.Label(parent,
-                 text="Left-drag wells onto the plate map to add them to the selected group.",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, pady=3,
-                 anchor="w", wraplength=490).pack(fill=tk.X, padx=6)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep)
 
-        # Plate map
-        map_frame = tk.Frame(parent, bg=BG_SIDE)
-        map_frame.pack(fill=tk.X, padx=4)
-        self._map_btns: Dict[str, tk.Button] = {}
-        build_plate_grid(map_frame, self._map_btns)
+        hint = QLabel("Left-drag wells onto the plate map to add them to the selected group.")
+        hint.setWordWrap(True)
+        hint.setContentsMargins(6, 2, 6, 2)
+        layout.addWidget(hint)
 
-        # Drag state
-        self._drag_adding:  bool = True
-        self._drag_visited: set  = set()
+        map_widget = QWidget()
+        map_grid = QGridLayout(map_widget)
+        map_grid.setSpacing(2)
+        map_grid.setContentsMargins(4, 2, 4, 2)
+        for ci, col in enumerate(_PLATE_COLS):
+            lbl = QLabel(col)
+            lbl.setAlignment(Qt.AlignCenter)
+            map_grid.addWidget(lbl, 0, ci + 1)
+        for ri, row in enumerate(_PLATE_ROWS):
+            rlbl = QLabel(row)
+            rlbl.setAlignment(Qt.AlignCenter)
+            map_grid.addWidget(rlbl, ri + 1, 0)
+            for ci, col in enumerate(_PLATE_COLS):
+                tok = f"{row}{col}"
+                btn = _WellGridButton(tok)
+                self._map_btns[tok] = btn
+                map_grid.addWidget(btn, ri + 1, ci + 1)
 
-        def _tok_at(event) -> Optional[str]:
-            sx = event.widget.winfo_rootx() + event.x
-            sy = event.widget.winfo_rooty() + event.y
-            w  = event.widget.winfo_containing(sx, sy)
-            for tok, btn in self._map_btns.items():
-                if btn is w:
-                    return tok
-            return None
+        map_widget.mousePressEvent = self._plate_press
+        map_widget.mouseMoveEvent = self._plate_move
+        map_widget.mouseReleaseEvent = self._plate_release
+        layout.addWidget(map_widget)
 
-        def _press(event):
-            tok = _tok_at(event)
-            if tok is None or tok not in self._app._well_paths:
-                return
-            grp = self._active_group()
-            if grp is None:
-                return
-            self._drag_adding  = tok not in grp.wells
-            self._drag_visited = set()
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep2)
+
+        self._grp_scroll = QScrollArea()
+        self._grp_scroll.setWidgetResizable(True)
+        self._grp_inner = QWidget()
+        self._grp_inner_layout = QVBoxLayout(self._grp_inner)
+        self._grp_inner_layout.setContentsMargins(4, 2, 4, 2)
+        self._grp_inner_layout.addStretch(1)
+        self._grp_scroll.setWidget(self._grp_inner)
+        layout.addWidget(self._grp_scroll, 1)
+
+    def _tok_at(self, global_pos) -> Optional[str]:
+        for tok, btn in self._map_btns.items():
+            if btn.isVisible() and btn.rect().contains(btn.mapFromGlobal(global_pos)):
+                return tok
+        return None
+
+    def _plate_press(self, event) -> None:
+        tok = self._tok_at(event.globalPosition().toPoint())
+        if tok is None or tok not in self._app._well_paths:
+            return
+        grp = self._active_group()
+        if grp is None:
+            return
+        self._drag_adding = tok not in grp.wells
+        self._drag_visited = set()
+        self._apply_drag(tok)
+
+    def _plate_move(self, event) -> None:
+        if not (event.buttons() & Qt.LeftButton):
+            return
+        tok = self._tok_at(event.globalPosition().toPoint())
+        if tok and tok not in self._drag_visited:
             self._apply_drag(tok)
 
-        def _drag(event):
-            tok = _tok_at(event)
-            if tok and tok not in self._drag_visited:
-                self._apply_drag(tok)
+    def _plate_release(self, _event) -> None:
+        if self._drag_visited:
+            self._refresh_map()
+            self._refresh_group_list()
+        self._drag_visited = set()
 
-        def _release(_event):
-            if self._drag_visited:
-                self._refresh_map()
-                self._refresh_group_list()
-            self._drag_visited = set()
+    def _build_output_panel(self, layout: QVBoxLayout) -> None:
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(12, 4, 12, 4)
+        t = QLabel("OUTPUT SETTINGS")
+        f = t.font(); f.setBold(True); t.setFont(f)
+        hdr.addWidget(t); hdr.addStretch(1)
+        layout.addLayout(hdr)
 
-        _bind_drag(map_frame, self._map_btns, _press, _drag, _release)
+        out_row = QHBoxLayout()
+        out_row.setContentsMargins(12, 6, 12, 6)
+        lbl = QLabel("Folder:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        out_row.addWidget(lbl)
+        self._out_dir_edit = QLineEdit(self._out_dir_value)
+        self._out_dir_edit.setMinimumWidth(240)
+        out_row.addWidget(self._out_dir_edit, 1)
+        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
+        layout.addLayout(out_row)
 
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, pady=(4, 0))
+        fmt_row = QHBoxLayout()
+        fmt_row.setContentsMargins(12, 2, 12, 2)
+        flbl = QLabel("Format:")
+        f = flbl.font(); f.setBold(True); flbl.setFont(f)
+        fmt_row.addWidget(flbl)
+        self._fmt_cb = QComboBox()
+        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
+        self._fmt_cb.setCurrentText(self._fmt_value)
+        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
+        fmt_row.addWidget(self._fmt_cb)
+        self._fmt_hint = QLabel("300 DPI raster")
+        fmt_row.addWidget(self._fmt_hint)
+        fmt_row.addStretch(1)
+        layout.addLayout(fmt_row)
 
-        # Scrollable group card list
-        sf = tk.Frame(parent, bg=BG_SIDE)
-        sf.pack(fill=tk.BOTH, expand=True)
-        self._grp_canvas, self._grp_inner = make_scrollable_canvas(sf, bg=BG_SIDE)
+        self._build_export_profile_row(layout)
 
-    def _build_output_panel(self, parent: tk.Frame) -> None:
-        """Right panel: export settings and Run button."""
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=12)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="OUTPUT SETTINGS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep)
 
-        out_row = tk.Frame(parent, bg=BG_APP, pady=6, padx=12)
-        out_row.pack(fill=tk.X)
-        tk.Label(out_row, text="Folder:", font=FM_BOLD,
-                 fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(out_row, textvariable=self._out_dir_var,
-                 font=FM_TINY, fg=TXT_PRI, bg=BG_PANEL,
-                 relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
-                 anchor="w", padx=6, width=30).pack(side=tk.LEFT)
-        btn_secondary(out_row, "Browse…", self._browse_out_dir,
-                      padx=8).pack(side=tk.LEFT, padx=(6, 0))
-
-        fmt_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
-        fmt_row.pack(fill=tk.X)
-        tk.Label(fmt_row, text="Format:", font=FM_BOLD,
-                 fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        fmt_cb = ttk.Combobox(fmt_row, textvariable=self._fmt_var,
-                              values=["png", "svg", "eps", "pdf"],
-                              state="readonly", width=6, font=FM_TINY)
-        fmt_cb.pack(side=tk.LEFT)
-        self._fmt_hint = tk.Label(fmt_row, text="300 DPI raster",
-                                  font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
-        self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
-        fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
-        self._build_export_profile_row(parent)
-
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
-
-        info = tk.Label(parent,
-                        text=("Each export group produces:\n"
-                              "  \u2022 One figure with one line per group member\n"
-                              "    (ReplicateSet = mean of its wells, Solo well = raw)\n"
-                              "  \u2022 One CSV with per-member time-series data\n\n"
-                              f"{'Groups come from Sample Definitions in the left sidebar.' if self._use_sidebar_groups else 'Groups are defined in the left panel.'}\n"
-                              "No statistics are computed across group members.\n"
-                              "SD/SEM is only computed within a ReplicateSet."),
-                        font=FM_TINY, fg=TXT_SEC, bg=BG_APP,
-                        justify=tk.LEFT, anchor="w")
-        info.pack(anchor="w", padx=12)
-
-        run_row = tk.Frame(parent, bg=BG_APP, pady=12, padx=12)
-        run_row.pack(fill=tk.X)
-        self._run_btn = ttk.Button(
-            run_row,
-            text="▶  Run Batch Export",
-            command=self._run_batch,
-            style="TButton",
-            padding=(16, 6),
+        info = QLabel(
+            "Each export group produces:\n"
+            "  \u2022 One figure with one line per group member\n"
+            "    (ReplicateSet = mean of its wells, Solo well = raw)\n"
+            "  \u2022 One CSV with per-member time-series data\n\n"
+            + ("Groups come from Sample Definitions in the left sidebar.\n" if self._use_sidebar_groups else "Groups are defined in the left panel.\n")
+            + "No statistics are computed across group members.\n"
+              "SD/SEM is only computed within a ReplicateSet."
         )
-        self._run_btn.pack(side=tk.LEFT)
-        self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
-                                  fg=TXT_MUT, bg=BG_APP)
-        self._prog_lbl.pack(side=tk.LEFT, padx=12)
-        self._prog_bar = ttk.Progressbar(run_row, orient=tk.HORIZONTAL,
-                                          mode="determinate", length=180)
-        self._prog_bar.pack(side=tk.LEFT)
-        self._prog_bar.pack_forget()
+        info.setWordWrap(True)
+        info.setContentsMargins(12, 4, 12, 4)
+        layout.addWidget(info)
 
-    # ── Group editor helpers ──────────────────────────────────────────────────
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(12, 8, 12, 8)
+        self._run_btn = QPushButton("\u25b6  Run Batch Export")
+        self._run_btn.setProperty("variant", "primary")
+        self._run_btn.clicked.connect(self._run_batch)
+        run_row.addWidget(self._run_btn)
+        self._prog_lbl = QLabel("")
+        run_row.addWidget(self._prog_lbl)
+        self._prog_bar = QProgressBar()
+        self._prog_bar.setFixedWidth(180)
+        self._prog_bar.setVisible(False)
+        run_row.addWidget(self._prog_bar)
+        run_row.addStretch(1)
+        layout.addLayout(run_row)
+        layout.addStretch(1)
 
-    def _active_group(self) -> Optional["BarGroup"]:
+    def _build_export_profile_row(self, layout: QVBoxLayout) -> None:
+        row = QHBoxLayout()
+        row.setContentsMargins(12, 2, 12, 2)
+        lbl = QLabel("Style Preset:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        row.addWidget(lbl)
+        self._profile_combo = QComboBox()
+        self._profile_combo.addItems(self._export_profile_names())
+        if self._export_profile_value not in self._export_profile_names():
+            self._export_profile_value = "Custom"
+        self._profile_combo.setCurrentText(self._export_profile_value)
+        self._profile_combo.currentTextChanged.connect(self._on_export_profile_selected)
+        row.addWidget(self._profile_combo)
+        row.addStretch(1)
+        layout.addLayout(row)
+        self._apply_export_profile_to_prefs(self._export_profile_value)
+
+    def _export_profile_names(self) -> List[str]:
+        from well_viewer.figure_export_editor import _get_all_profile_names
+
+        names = _get_all_profile_names(self._app)
+        return names or ["Custom"]
+
+    def _refresh_export_profile_choices(self) -> None:
+        names = self._export_profile_names()
+        self._profile_combo.blockSignals(True)
+        self._profile_combo.clear()
+        self._profile_combo.addItems(names)
+        current = self._export_profile_value if self._export_profile_value in names else "Custom"
+        self._profile_combo.setCurrentText(current)
+        self._profile_combo.blockSignals(False)
+
+    def _apply_export_profile_to_prefs(self, profile_name: str) -> None:
+        from well_viewer.figure_export_editor import (
+            EXPORT_PROFILES,
+            _ensure_custom_export_profiles,
+            _ensure_export_style_prefs,
+        )
+
+        name = str(profile_name or "Custom")
+        prefs = _ensure_export_style_prefs(self._app)
+        custom_profiles = _ensure_custom_export_profiles(self._app)
+        overrides = EXPORT_PROFILES.get(name) or custom_profiles.get(name) or {}
+        prefs["export_profile"] = name
+        for key, value in overrides.items():
+            prefs[key] = value
+        fmt = str(prefs.get("format", self._fmt_cb.currentText() or "png")).lower()
+        if fmt in {"png", "svg", "eps", "pdf"}:
+            self._fmt_cb.setCurrentText(fmt)
+            self._on_fmt_change(fmt)
+
+    def _on_export_profile_selected(self, text: str) -> None:
+        self._export_profile_value = text
+        self._apply_export_profile_to_prefs(text)
+
+    def _on_fmt_change(self, text: str = None) -> None:
+        if text is None:
+            text = self._fmt_cb.currentText()
+        hints = {"png": "300 DPI raster", "svg": "vector \u2014 text editable",
+                 "eps": "vector \u2014 text editable", "pdf": "vector"}
+        self._fmt_hint.setText(hints.get(text, ""))
+
+    def _browse_out_dir(self) -> None:
+        current = self._out_dir_edit.text() or ""
+        chosen = QFileDialog.getExistingDirectory(self, "Select output directory", current)
+        if chosen:
+            self._out_dir_edit.setText(chosen)
+
+    def _active_group(self) -> Optional[BarGroup]:
         if 0 <= self._active_grp < len(self._groups):
             return self._groups[self._active_grp]
         return None
 
-    def _default_group_name(self, grp: "BarGroup") -> str:
-        """Build a default name from current member elements."""
+    def _default_group_name(self, grp: BarGroup) -> str:
         labels = [r.name for r in grp.members]
         labels.extend(grp.solo_wells)
         if not labels:
             return "New Group"
         return ", ".join(labels)
 
-    def _refresh_auto_group_name(self, grp: Optional["BarGroup"]) -> None:
+    def _refresh_auto_group_name(self, grp: Optional[BarGroup]) -> None:
         if grp is None:
             return
         if id(grp) in self._auto_named_group_ids:
@@ -322,10 +431,8 @@ class BatchExportPanel(tk.Frame):
         grp = self._active_group()
         if grp is None or tok not in self._app._well_paths:
             return
-        # Find if tok belongs to a ReplicateSet in the pool
         rset = next((r for r in self._app._rep_sets if tok in r.wells), None)
         if rset is not None:
-            # Add/remove the whole ReplicateSet
             if self._drag_adding:
                 if rset not in grp.members:
                     grp.members.append(rset)
@@ -333,7 +440,6 @@ class BatchExportPanel(tk.Frame):
                 if rset in grp.members:
                     grp.members.remove(rset)
         else:
-            # Solo well (not in any ReplicateSet)
             if self._drag_adding:
                 if tok not in grp.solo_wells:
                     grp.solo_wells.append(tok)
@@ -344,24 +450,18 @@ class BatchExportPanel(tk.Frame):
         self._refresh_single_btn(tok)
 
     def _refresh_single_btn(self, tok: str) -> None:
-        grp = self._active_group()
         btn = self._map_btns.get(tok)
-        if btn is None:
+        if btn is None or tok not in self._app._well_paths:
             return
-        if tok not in self._app._well_paths:
-            return
-        # Find group index that owns this well
         for gi, g in enumerate(self._groups):
             if tok in g.wells:
                 c = WELL_COLORS[gi % len(WELL_COLORS)]
-                btn.config(bg=c, fg=CLR_WHITE, activebackground=c)
+                btn.set_colors(c, _CLR_WHITE)
                 return
-        btn.config(bg=CLR_AVAIL_WELL, fg=TXT_PRI,
-                   activebackground=CLR_AVAIL_HOVER)
+        btn.set_colors("#2a2a2a", TXT_PRI)
 
     def _refresh_map(self) -> None:
         avail = set(self._app._well_paths.keys())
-        # Build tok -> (color) from all groups
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._groups):
             c = WELL_COLORS[gi % len(WELL_COLORS)]
@@ -372,96 +472,111 @@ class BatchExportPanel(tk.Frame):
         if grp:
             for w in grp.wells:
                 active_wells.add(w)
-
         for tok, btn in self._map_btns.items():
             if tok not in avail:
-                btn.config(bg=BG_CELL, fg=TXT_MUT, state=tk.DISABLED, cursor="arrow")
+                btn.set_colors("#222", TXT_MUT, enabled=False)
             elif tok in tok_color:
-                c = tok_color[tok]
-                relief = tk.SUNKEN if tok in active_wells else tk.FLAT
-                btn.config(bg=c, fg=CLR_WHITE, state=tk.NORMAL,
-                           relief=relief, cursor="hand2", activebackground=c)
+                btn.set_colors(tok_color[tok], _CLR_WHITE, active=(tok in active_wells))
             else:
-                btn.config(bg=CLR_AVAIL_WELL, fg=TXT_PRI, state=tk.NORMAL,
-                           relief=tk.FLAT, cursor="hand2",
-                           activebackground=CLR_AVAIL_HOVER)
+                btn.set_colors("#2a2a2a", TXT_PRI)
+
+    def _clear_layout(self, layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            else:
+                inner = item.layout()
+                if inner is not None:
+                    self._clear_layout(inner)
 
     def _refresh_group_list(self) -> None:
-        for w in self._grp_inner.winfo_children():
-            w.destroy()
+        # Remove everything except the trailing stretch
+        while self._grp_inner_layout.count() > 1:
+            item = self._grp_inner_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            else:
+                inner = item.layout()
+                if inner is not None:
+                    self._clear_layout(inner)
+
         if not self._groups:
-            tk.Label(self._grp_inner,
-                     text="No export groups.  Click + Add or use Quick Setup.",
-                     font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE,
-                     pady=8).pack(anchor="w", padx=8)
+            empty = QLabel("No export groups.  Click + Add or use Quick Setup.")
+            empty.setContentsMargins(8, 8, 8, 8)
+            self._grp_inner_layout.insertWidget(0, empty)
             self._refresh_map()
             return
 
         for gi, grp in enumerate(self._groups):
-            is_sel = (gi == self._active_grp)
-            color  = WELL_COLORS[gi % len(WELL_COLORS)]
-            bg     = BG_HOVER if is_sel else BG_PANEL
-            card   = tk.Frame(self._grp_inner, bg=bg, highlightthickness=1,
-                              highlightbackground=ACCENT if is_sel else BORDER)
-            card.pack(fill=tk.X, padx=4, pady=2)
-
-            hdr = tk.Frame(card, bg=bg)
-            hdr.pack(fill=tk.X, padx=6, pady=(4, 2))
-            tk.Label(hdr, text="●", font=FM_BOLD, fg=color,
-                     bg=bg).pack(side=tk.LEFT, padx=(0, 4))
-            tk.Label(hdr, text=grp.name, font=FM_BOLD, fg=TXT_PRI,
-                     bg=bg).pack(side=tk.LEFT)
-            n_mem = len(grp.members)
-            n_sol = len(grp.solo_wells)
-            parts = []
-            if n_mem: parts.append(f"{n_mem} set{'s' if n_mem!=1 else ''}")
-            if n_sol: parts.append(f"{n_sol} solo well{'s' if n_sol!=1 else ''}")
-            if not parts: parts = ["empty"]
-            tk.Label(hdr, text=f"  ({', '.join(parts)})",
-                     font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-
-            bf = tk.Frame(hdr, bg=bg)
-            bf.pack(side=tk.RIGHT)
-            btn_card(bf, "Rename", lambda i=gi: self._grp_rename(i)).pack(side=tk.LEFT, padx=1)
-            btn_card(bf, "Clear", lambda i=gi: self._grp_clear(i)).pack(side=tk.LEFT, padx=1)
-            btn_danger(bf, "✕", lambda i=gi: self._grp_delete(i)).pack(side=tk.LEFT, padx=1)
-
-            # Members: replicate sets + solo wells
-            if grp.members or grp.solo_wells:
-                mem_fr = tk.Frame(card, bg=bg)
-                mem_fr.pack(fill=tk.X, padx=6, pady=(0, 4))
-                for rset in grp.members:
-                    mrow = tk.Frame(mem_fr, bg=bg)
-                    mrow.pack(fill=tk.X, pady=1)
-                    tk.Label(mrow, text=f"[{rset.name}]", font=FM_TINY,
-                             fg=color, bg=bg, padx=2).pack(side=tk.LEFT)
-                    for w in rset.wells:
-                        tk.Label(mrow, text=w, font=FM_TINY, bg=color,
-                                 fg=CLR_WHITE, padx=3, pady=1
-                                 ).pack(side=tk.LEFT, padx=(0, 2))
-                    if is_sel:
-                        btn_danger(mrow, "−", lambda g=gi, r=rset: self._grp_remove_member(g, r),
-                                   padx=3).pack(side=tk.LEFT, padx=(4, 0))
-                for w in grp.solo_wells:
-                    srow = tk.Frame(mem_fr, bg=bg)
-                    srow.pack(fill=tk.X, pady=1)
-                    tk.Label(srow, text=f"[solo] {w}", font=FM_TINY,
-                             fg=color, bg=bg).pack(side=tk.LEFT)
-                    if is_sel:
-                        btn_danger(srow, "−", lambda g=gi, wl=w: self._grp_remove_solo(g, wl),
-                                   padx=3).pack(side=tk.LEFT, padx=(4, 0))
-
-            sel_cb = lambda _e, i=gi: self._grp_select(i)
-            def _bind_grp_card(widget, cb):
-                if not isinstance(widget, tk.Button):
-                    widget.bind("<Button-1>", cb)
-                for child in widget.winfo_children():
-                    _bind_grp_card(child, cb)
-            _bind_grp_card(card, sel_cb)
+            card = self._build_group_card(gi, grp)
+            self._grp_inner_layout.insertWidget(gi, card)
 
         self._refresh_map()
 
-    # ── Group CRUD ────────────────────────────────────────────────────────────
+    def _build_group_card(self, gi: int, grp: BarGroup) -> QWidget:
+        is_sel = (gi == self._active_grp)
+        color = WELL_COLORS[gi % len(WELL_COLORS)]
+        card = QFrame()
+        card.setFrameShape(QFrame.StyledPanel)
+        if is_sel:
+            card.setStyleSheet(f"QFrame {{ border: 2px solid {color}; background: #2a2a2a; }}")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(6, 4, 6, 4)
+
+        hdr = QHBoxLayout()
+        dot = QLabel("\u25cf")
+        dot.setStyleSheet(f"color: {color};")
+        hdr.addWidget(dot)
+        name_lbl = QLabel(grp.name)
+        f = name_lbl.font(); f.setBold(True); name_lbl.setFont(f)
+        hdr.addWidget(name_lbl)
+        n_mem, n_sol = len(grp.members), len(grp.solo_wells)
+        parts = []
+        if n_mem:
+            parts.append(f"{n_mem} set{'s' if n_mem != 1 else ''}")
+        if n_sol:
+            parts.append(f"{n_sol} solo well{'s' if n_sol != 1 else ''}")
+        if not parts:
+            parts = ["empty"]
+        summary = QLabel(f"  ({', '.join(parts)})")
+        hdr.addWidget(summary)
+        hdr.addStretch(1)
+        hdr.addWidget(btn_card(None, "Rename", lambda i=gi: self._grp_rename(i)))
+        hdr.addWidget(btn_card(None, "Clear", lambda i=gi: self._grp_clear(i)))
+        hdr.addWidget(btn_danger(None, "\u2715", lambda i=gi: self._grp_delete(i)))
+        card_layout.addLayout(hdr)
+
+        if grp.members or grp.solo_wells:
+            for rset in grp.members:
+                mrow = QHBoxLayout()
+                name_tag = QLabel(f"[{rset.name}]")
+                name_tag.setStyleSheet(f"color: {color};")
+                mrow.addWidget(name_tag)
+                for w in rset.wells:
+                    chip = QLabel(w)
+                    chip.setStyleSheet(f"background: {color}; color: {_CLR_WHITE}; padding: 1px 3px;")
+                    mrow.addWidget(chip)
+                if is_sel:
+                    mrow.addWidget(btn_danger(None, "\u2212", lambda g=gi, r=rset: self._grp_remove_member(g, r)))
+                mrow.addStretch(1)
+                card_layout.addLayout(mrow)
+            for w in grp.solo_wells:
+                srow = QHBoxLayout()
+                s_lbl = QLabel(f"[solo] {w}")
+                s_lbl.setStyleSheet(f"color: {color};")
+                srow.addWidget(s_lbl)
+                if is_sel:
+                    srow.addWidget(btn_danger(None, "\u2212", lambda g=gi, wl=w: self._grp_remove_solo(g, wl)))
+                srow.addStretch(1)
+                card_layout.addLayout(srow)
+
+        def _on_click(_event, _idx=gi):
+            self._grp_select(_idx)
+        card.mousePressEvent = _on_click
+        return card
 
     def _grp_select(self, idx: int) -> None:
         self._active_grp = idx
@@ -477,7 +592,10 @@ class BatchExportPanel(tk.Frame):
 
     def _grp_rename(self, idx: int) -> None:
         if 0 <= idx < len(self._groups):
-            name = ask_name_dialog(self, default=self._groups[idx].name)
+            name = ask_name_dialog(
+                self, title="Rename group", prompt="Group name:",
+                default=self._groups[idx].name,
+            )
             if name:
                 grp = self._groups[idx]
                 grp.name = name
@@ -502,15 +620,18 @@ class BatchExportPanel(tk.Frame):
     def _grp_clear_all(self) -> None:
         if not self._groups:
             return
-        if messagebox.askyesno("Clear all groups?",
-                               f"Remove all {len(self._groups)} group(s)?",
-                               parent=self):
+        ret = QMessageBox.question(
+            self, "Clear all groups?",
+            f"Remove all {len(self._groups)} group(s)?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
             self._groups.clear()
             self._auto_named_group_ids.clear()
             self._active_grp = -1
             self._refresh_group_list()
 
-    def _grp_remove_member(self, grp_idx: int, rset: "ReplicateSet") -> None:
+    def _grp_remove_member(self, grp_idx: int, rset) -> None:
         if 0 <= grp_idx < len(self._groups):
             grp = self._groups[grp_idx]
             if rset in grp.members:
@@ -526,15 +647,11 @@ class BatchExportPanel(tk.Frame):
             self._refresh_auto_group_name(grp)
             self._refresh_group_list()
 
-    # ── Quick Setup ───────────────────────────────────────────────────────────
-
     def _quick_by_row(self) -> None:
-        """One export group per plate row — all loaded wells in that row."""
         self._groups.clear()
         self._auto_named_group_ids.clear()
         self._active_grp = -1
         for row_ltr in _PLATE_ROWS:
-            # Collect rep-sets whose wells are in this row, plus solo wells in the row
             row_rsets = [r for r in self._app._rep_sets
                          if any(w[0].upper() == row_ltr for w in r.wells)]
             assigned_wells = {w for r in row_rsets for w in r.wells}
@@ -542,15 +659,13 @@ class BatchExportPanel(tk.Frame):
                          if tok[0].upper() == row_ltr and tok not in assigned_wells]
             if not row_rsets and not row_solos:
                 continue
-            grp = BarGroup(f"Row {row_ltr}", members=row_rsets,
-                           solo_wells=row_solos)
+            grp = BarGroup(f"Row {row_ltr}", members=row_rsets, solo_wells=row_solos)
             self._groups.append(grp)
         if self._groups:
             self._active_grp = 0
         self._refresh_group_list()
 
     def _quick_by_col(self) -> None:
-        """One export group per plate column — all loaded wells in that column."""
         self._groups.clear()
         self._auto_named_group_ids.clear()
         self._active_grp = -1
@@ -562,27 +677,19 @@ class BatchExportPanel(tk.Frame):
                          if tok[1:] == col and tok not in assigned_wells]
             if not col_rsets and not col_solos:
                 continue
-            grp = BarGroup(f"Col {col}", members=col_rsets,
-                           solo_wells=col_solos)
+            grp = BarGroup(f"Col {col}", members=col_rsets, solo_wells=col_solos)
             self._groups.append(grp)
         if self._groups:
             self._active_grp = 0
         self._refresh_group_list()
 
     def _sync_from_app(self) -> None:
-        """Re-build groups from the app's current replicate sets (one group per set)."""
         self._groups = self._groups_from_rep_sets()
         self._auto_named_group_ids.clear()
         self._active_grp = 0 if self._groups else -1
         self._refresh_group_list()
 
-    def _groups_from_rep_sets(self) -> "List[BarGroup]":
-        """Build one BarGroup per loaded replicate set.
-
-        Each group contains its replicate set as its sole member.  This gives a
-        sensible starting layout for batch export that the user can then merge
-        or rearrange.  Falls back to a copy of _bar_groups if no rep-sets exist.
-        """
+    def _groups_from_rep_sets(self) -> List[BarGroup]:
         loaded = self._app._rep_sets_loaded()
         if loaded:
             groups = []
@@ -591,18 +698,12 @@ class BatchExportPanel(tk.Frame):
                 grp.members.append(rset)
                 groups.append(grp)
             return groups
-        # Legacy fallback
         return copy.deepcopy(self._app._bar_groups)
 
-    # ── Persistence ───────────────────────────────────────────────────────────
-
     def _save_groups(self) -> None:
-        """Serialise the dialog's local group list to a JSON file."""
         if not self._groups:
-            messagebox.showwarning("Nothing to save",
-                                   "No groups defined yet.", parent=self)
+            QMessageBox.warning(self, "Nothing to save", "No groups defined yet.")
             return
-        # Build the same schema as _bar_groups_to_dict but from self._groups
         rep_set_names: List[str] = []
         seen_sets: set = set()
         grp_list = []
@@ -614,49 +715,44 @@ class BatchExportPanel(tk.Frame):
                     seen_sets.add(rset.name)
                     rep_set_names.append(rset.name)
             grp_list.append({
-                "name":       grp.name,
-                "hidden":     grp.hidden,
-                "members":    members_names,
+                "name": grp.name,
+                "hidden": grp.hidden,
+                "members": members_names,
                 "solo_wells": list(grp.solo_wells),
             })
-        # Also save the rep-set definitions so they can be restored on load
         rep_list = []
         for rset in self._app._rep_sets:
-            rep_list.append({
-                "name":  rset.name,
-                "wells": list(rset.wells),
-            })
+            rep_list.append({"name": rset.name, "wells": list(rset.wells)})
         data = {"rep_sets": rep_list, "groups": grp_list}
 
-        path_str = filedialog.asksaveasfilename(
-            parent=self, title="Save export groups",
-            defaultextension=".json",
-            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
-            initialfile="export_groups.json")
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Save export groups",
+            "export_groups.json",
+            "JSON (*.json);;All files (*.*)",
+        )
         if not path_str:
             return
         try:
             with open(path_str, "w") as fh:
                 json.dump(data, fh, indent=2)
-            self._prog_lbl.config(text=f"Saved → {Path(path_str).name}")
+            self._prog_lbl.setText(f"Saved \u2192 {Path(path_str).name}")
         except OSError as exc:
-            messagebox.showerror("Save failed", str(exc), parent=self)
+            QMessageBox.critical(self, "Save failed", str(exc))
 
     def _load_groups(self) -> None:
-        """Load group definitions from a JSON file into the dialog's local list."""
-        path_str = filedialog.askopenfilename(
-            parent=self, title="Load export groups",
-            filetypes=[("JSON", "*.json"), ("All files", "*.*")])
+        path_str, _ = QFileDialog.getOpenFileName(
+            self, "Load export groups", "",
+            "JSON (*.json);;All files (*.*)",
+        )
         if not path_str:
             return
         try:
             with open(path_str) as fh:
                 data = json.load(fh)
         except Exception as exc:
-            messagebox.showerror("Load failed", str(exc), parent=self)
+            QMessageBox.critical(self, "Load failed", str(exc))
             return
 
-        # Resolve tokens to well labels using the app's tok_to_label map
         def _norm(tok: str) -> str:
             tok = tok.strip().upper()
             m = re.match(r"^([A-H])(\d{1,2})$", tok, re.I)
@@ -666,12 +762,9 @@ class BatchExportPanel(tk.Frame):
             n = _norm(raw)
             return n if n in self._app._well_paths else None
 
-        # Build a name → ReplicateSet map from the app's pool
         rep_by_name = {r.name: r for r in self._app._rep_sets}
 
-        # If the file contains rep_set definitions not in the app pool, skip them
-        # (they were saved from a different session)
-        new_groups: List["BarGroup"] = []
+        new_groups: List[BarGroup] = []
         if isinstance(data, dict):
             for item in data.get("groups", []):
                 grp = BarGroup(item.get("name", "Group"),
@@ -685,10 +778,9 @@ class BatchExportPanel(tk.Frame):
                         grp.solo_wells.append(n)
                 new_groups.append(grp)
         elif isinstance(data, list):
-            # Legacy schema
             for item in data:
                 name = str(item.get("name", "Group"))
-                grp  = BarGroup(name, hidden=bool(item.get("hidden", False)))
+                grp = BarGroup(name, hidden=bool(item.get("hidden", False)))
                 for rdata in item.get("replicates", []):
                     rname = rdata.get("name", "R")
                     if rname in rep_by_name:
@@ -696,137 +788,69 @@ class BatchExportPanel(tk.Frame):
                 new_groups.append(grp)
 
         if not new_groups:
-            messagebox.showwarning(
-                "No groups loaded",
+            QMessageBox.warning(
+                self, "No groups loaded",
                 "The file contained no groups that could be matched to the "
                 "currently loaded wells and replicate sets.",
-                parent=self)
+            )
             return
 
         self._groups = new_groups
         self._auto_named_group_ids.clear()
         self._active_grp = 0
         self._refresh_group_list()
-        self._prog_lbl.config(
-            text=f"Loaded {len(self._groups)} group(s) from {Path(path_str).name}")
-
-    # ── Output helpers ────────────────────────────────────────────────────────
-
-    def _browse_out_dir(self) -> None:
-        chosen = filedialog.askdirectory(title="Select output directory",
-                                         parent=self,
-                                         initialdir=self._out_dir_var.get() or None)
-        if chosen:
-            self._out_dir_var.set(chosen)
-
-    def _on_fmt_change(self, _e=None) -> None:
-        hints = {"png": "300 DPI raster", "svg": "vector — text editable",
-                 "eps": "vector — text editable", "pdf": "vector"}
-        self._fmt_hint.config(text=hints.get(self._fmt_var.get(), ""))
-
-    def _build_export_profile_row(self, parent: tk.Frame) -> None:
-        row = tk.Frame(parent, bg=BG_APP, padx=12, pady=2)
-        row.pack(fill=tk.X)
-        tk.Label(row, text="Style Preset:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        self._profile_combo = ttk.Combobox(
-            row,
-            textvariable=self._export_profile_var,
-            values=self._export_profile_names(),
-            state="readonly",
-            width=20,
-            font=FM_TINY,
-            postcommand=self._refresh_export_profile_choices,
-        )
-        self._profile_combo.pack(side=tk.LEFT)
-        self._profile_combo.bind("<<ComboboxSelected>>", self._on_export_profile_selected)
-        self._refresh_export_profile_choices()
-        if self._export_profile_var.get() not in self._export_profile_names():
-            self._export_profile_var.set("Custom")
-        self._apply_export_profile_to_prefs(self._export_profile_var.get())
-
-    def _export_profile_names(self) -> "List[str]":
-        from well_viewer.figure_export_editor import _get_all_profile_names
-
-        names = _get_all_profile_names(self._app)
-        return names or ["Custom"]
-
-    def _refresh_export_profile_choices(self) -> None:
-        names = self._export_profile_names()
-        if hasattr(self, "_profile_combo"):
-            self._profile_combo.configure(values=names)
-        if self._export_profile_var.get() not in names:
-            self._export_profile_var.set("Custom")
-
-    def _apply_export_profile_to_prefs(self, profile_name: str) -> None:
-        from well_viewer.figure_export_editor import (
-            EXPORT_PROFILES,
-            _ensure_custom_export_profiles,
-            _ensure_export_style_prefs,
-        )
-
-        name = str(profile_name or "Custom")
-        prefs = _ensure_export_style_prefs(self._app)
-        custom_profiles = _ensure_custom_export_profiles(self._app)
-        overrides = EXPORT_PROFILES.get(name) or custom_profiles.get(name) or {}
-        prefs["export_profile"] = name
-        for key, value in overrides.items():
-            prefs[key] = value
-        fmt = str(prefs.get("format", self._fmt_var.get() or "png")).lower()
-        if fmt in {"png", "svg", "eps", "pdf"}:
-            self._fmt_var.set(fmt)
-            if hasattr(self, "_fmt_hint"):
-                self._on_fmt_change()
-
-    def _on_export_profile_selected(self, _e=None) -> None:
-        self._apply_export_profile_to_prefs(self._export_profile_var.get())
+        self._prog_lbl.setText(f"Loaded {len(self._groups)} group(s) from {Path(path_str).name}")
 
     def _resolve_out_dir(self) -> Optional[Path]:
-        val = self._out_dir_var.get().strip()
+        val = self._out_dir_edit.text().strip()
         if val:
             p = Path(val)
             try:
                 p.mkdir(parents=True, exist_ok=True)
                 return p
             except OSError as exc:
-                messagebox.showerror("Output directory error",
-                                     f"Cannot create:\n{p}\n{exc}", parent=self)
+                QMessageBox.critical(self, "Output directory error",
+                                     f"Cannot create:\n{p}\n{exc}")
                 return None
         d = self._app._data_dir
         if d and d.is_dir():
             return d
-        messagebox.showerror("No output directory",
-                             "Load data or choose an output folder.", parent=self)
+        QMessageBox.critical(self, "No output directory",
+                             "Load data or choose an output folder.")
         return None
 
     def _run_batch_jobs(
-        self,
-        *,
-        jobs: list,
-        progress_text_fn,
-        run_job_fn,
-        success_text: str,
-        status_text: str,
+        self, *, jobs: list, progress_text_fn, run_job_fn,
+        success_text: str, status_text: str,
     ) -> None:
-        self._prog_bar.pack(side=tk.LEFT)
-        self._prog_bar.config(maximum=max(len(jobs), 1))
-        self._run_btn.config(state=tk.DISABLED)
+        from PySide6.QtWidgets import QApplication
+
+        self._prog_bar.setVisible(True)
+        self._prog_bar.setMaximum(max(len(jobs), 1))
+        self._prog_bar.setValue(0)
+        self._run_btn.setEnabled(False)
         errors: List[str] = []
-        for step, job in enumerate(jobs, 1):
-            self._prog_lbl.config(text=progress_text_fn(job, step, len(jobs)))
-            self._prog_bar["value"] = step - 1
-            self.update_idletasks()
-            err = run_job_fn(job)
-            if err:
-                errors.append(err)
-        self._prog_bar["value"] = len(jobs)
-        self._run_btn.config(state=tk.NORMAL)
-        self._prog_bar.pack_forget()
+        try:
+            for step, job in enumerate(jobs, 1):
+                self._prog_lbl.setText(progress_text_fn(job, step, len(jobs)))
+                self._prog_bar.setValue(step - 1)
+                QApplication.processEvents()
+                err = run_job_fn(job)
+                if err:
+                    errors.append(err)
+            self._prog_bar.setValue(len(jobs))
+        finally:
+            self._run_btn.setEnabled(True)
+            self._prog_bar.setVisible(False)
+
         if errors:
-            self._prog_lbl.config(text=f"Done with {len(errors)} error(s). See log.", fg=CLR_DANGER)
+            self._prog_lbl.setText(f"Done with {len(errors)} error(s). See log.")
+            self._prog_lbl.setStyleSheet(f"color: {_CLR_DANGER};")
             for err in errors:
                 _logger.error("Batch export error: %s", err)
             return
-        self._prog_lbl.config(text=success_text, fg=CLR_SUCCESS_DARK)
+        self._prog_lbl.setText(success_text)
+        self._prog_lbl.setStyleSheet(f"color: {_CLR_SUCCESS_DARK};")
         self._app._set_status(status_text)
 
     def _save_figure(self, fig, fig_path: Path, fmt: str) -> None:
@@ -855,20 +879,15 @@ class BatchExportPanel(tk.Frame):
             _mpl.rcParams["ps.fonttype"] = orig_ps
             _plt.close(fig)
 
-    # ── Export execution ──────────────────────────────────────────────────────
-
-    def _groups_for_export(self) -> "List[BarGroup]":
+    def _groups_for_export(self) -> List[BarGroup]:
         if self._use_sidebar_groups:
             sidebar_groups = copy.deepcopy(getattr(self._app, "_bar_groups", []))
             if sidebar_groups and any(g.wells for g in sidebar_groups):
                 return sidebar_groups
-            # Fallback for Sample Definitions states that only define
-            # ReplicateSets without explicit bar-group cards.
             return self._groups_from_rep_sets()
         return list(self._groups)
 
     def _run_batch(self) -> None:
-        """Export each group: CSV + combined figure (one line per member)."""
         groups_with_data = [g for g in self._groups_for_export()
                             if any(w in self._app._well_paths for w in g.wells)]
         if not groups_with_data:
@@ -877,8 +896,7 @@ class BatchExportPanel(tk.Frame):
                 if self._use_sidebar_groups
                 else "Define at least one non-empty group."
             )
-            messagebox.showwarning("No groups", msg,
-                                   parent=self)
+            QMessageBox.warning(self, "No groups", msg)
             return
         self._log_sample_definitions_snapshot(groups_with_data)
         out_dir = self._resolve_out_dir()
@@ -886,71 +904,67 @@ class BatchExportPanel(tk.Frame):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem   = self._app._use_sem.get()
-        band_lbl  = "SEM" if use_sem else "SD"
-        fmt       = self._fmt_var.get()
-        def _progress(grp: "BarGroup", step: int, total: int) -> str:
-            return f"Exporting '{grp.name}' ({step}/{total})…"
+        use_sem = self._app._use_sem_cb.isChecked()
+        band_lbl = "SEM" if use_sem else "SD"
+        fmt = self._fmt_cb.currentText()
 
-        def _run_group(grp: "BarGroup") -> Optional[str]:
-            safe     = re.sub(r"[^A-Za-z0-9_\-]", "_", grp.name)
+        def _progress(grp: BarGroup, step: int, total: int) -> str:
+            return f"Exporting '{grp.name}' ({step}/{total})\u2026"
+
+        def _run_group(grp: BarGroup) -> Optional[str]:
+            safe = re.sub(r"[^A-Za-z0-9_\-]", "_", grp.name)
             csv_path = out_dir / f"batch_{safe}.csv"
             fig_path = out_dir / f"batch_{safe}.{fmt}"
 
-            # ── CSV: per-member, per-timepoint data ──────────────────────────
             try:
                 rows_out: List[dict] = []
-                # Each ReplicateSet → one "member" row (mean across its wells)
                 for rset in grp.members:
                     valid_wells = [w for w in rset.wells if w in self._app._well_paths]
                     if not valid_wells:
                         continue
-                    # Collect all timepoints from the first valid well
                     all_rows: List[dict] = []
                     for w in valid_wells:
                         all_rows.extend(self._app._get_rows(w))
                     _val_col = self._app._active_val_col
-                    _ch      = self._app._active_channel
+                    _ch = self._app._active_channel
                     _cell_area_threshold = self._app._get_cell_area_threshold()
                     _fluor_gates = self._app._get_all_fluor_gates()
-                    pts = aggregate_with_threshold(all_rows, threshold, use_sem=use_sem,
-                                                   val_col=_val_col, cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates)
+                    pts = aggregate_with_threshold(
+                        all_rows, threshold, use_sem=use_sem,
+                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                        fluor_gates=_fluor_gates,
+                    )
                     for t, mean, sd, frac, n_above, n_total in pts:
                         rows_out.append({
-                            "group":        grp.name,
-                            "member":       rset.name,
-                            "member_type":  "replicate_set",
-                            "wells":        ";".join(valid_wells),
-                            "n_wells":      len(valid_wells),
-                            "time_h":       f"{t:.4f}",
-                            f"mean_{_ch}":  f"{mean:.6f}" if not math.isnan(mean) else "",
+                            "group": grp.name, "member": rset.name,
+                            "member_type": "replicate_set",
+                            "wells": ";".join(valid_wells), "n_wells": len(valid_wells),
+                            "time_h": f"{t:.4f}",
+                            f"mean_{_ch}": f"{mean:.6f}" if not math.isnan(mean) else "",
                             f"{'sem' if use_sem else 'sd'}_{_ch}": f"{sd:.6f}",
                             "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
-                            "threshold":    f"{threshold:.4f}",
+                            "threshold": f"{threshold:.4f}",
                         })
-                # Solo wells → their own rows
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
                         continue
                     _val_col = self._app._active_val_col
-                    _ch      = self._app._active_channel
+                    _ch = self._app._active_channel
                     _cell_area_threshold = self._app._get_cell_area_threshold()
                     _fluor_gates = self._app._get_all_fluor_gates()
                     pts = aggregate_with_threshold(
                         self._app._get_rows(w), threshold, use_sem=use_sem,
-                        val_col=_val_col, cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates)
+                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                        fluor_gates=_fluor_gates,
+                    )
                     for t, mean, sd, frac, n_above, n_total in pts:
                         rows_out.append({
-                            "group":        grp.name,
-                            "member":       w,
-                            "member_type":  "solo_well",
-                            "wells":        w,
-                            "n_wells":      1,
-                            "time_h":       f"{t:.4f}",
-                            f"mean_{_ch}":  f"{mean:.6f}" if not math.isnan(mean) else "",
+                            "group": grp.name, "member": w, "member_type": "solo_well",
+                            "wells": w, "n_wells": 1, "time_h": f"{t:.4f}",
+                            f"mean_{_ch}": f"{mean:.6f}" if not math.isnan(mean) else "",
                             f"{'sem' if use_sem else 'sd'}_{_ch}": f"{sd:.6f}",
                             "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
-                            "threshold":    f"{threshold:.4f}",
+                            "threshold": f"{threshold:.4f}",
                         })
                 if rows_out:
                     _ch = self._app._active_channel
@@ -965,7 +979,6 @@ class BatchExportPanel(tk.Frame):
             except OSError as exc:
                 return f"{grp.name} CSV: {exc}"
 
-            # ── Figure: one line per member ───────────────────────────────────
             try:
                 fig = self._render_group_figure(grp, threshold, use_sem, band_lbl)
                 self._save_figure(fig, fig_path, fmt)
@@ -983,7 +996,7 @@ class BatchExportPanel(tk.Frame):
             status_text=f"Batch export: {len(groups_with_data)} group(s) \u2192 {out_dir}",
         )
 
-    def _log_sample_definitions_snapshot(self, groups_for_export: "List[BarGroup]") -> None:
+    def _log_sample_definitions_snapshot(self, groups_for_export: List[BarGroup]) -> None:
         rep_sets = getattr(self._app, "_rep_sets", [])
         bar_groups = getattr(self._app, "_bar_groups", [])
         rep_summary = [f"{r.name}={len(r.wells)}w" for r in rep_sets]
@@ -991,43 +1004,27 @@ class BatchExportPanel(tk.Frame):
         export_summary = [f"{g.name}={len(g.wells)}w" for g in groups_for_export]
         _logger.info(
             "Run Batch Export clicked | rep_sets=%s | bar_groups=%s | groups_for_export=%s",
-            rep_summary,
-            grp_summary,
-            export_summary,
+            rep_summary, grp_summary, export_summary,
         )
 
     def _render_group_figure(
-        self,
-        grp: "BarGroup",
-        threshold: float,
-        use_sem: bool,
-        band_lbl: str,
-    ) -> "Figure":
-        """
-        Render a combined line-graph figure for one export group.
-
-        One line per group member:
-          - ReplicateSet  →  mean of its wells ± SD/SEM (stats within the set)
-          - Solo well     →  raw per-cell mean ± within-well SD/SEM
-
-        No statistics are computed across members.
-        """
+        self, grp: BarGroup, threshold: float, use_sem: bool, band_lbl: str,
+    ):
         from matplotlib.figure import Figure as _Figure
 
         fig = _Figure(figsize=(10, 11), dpi=300, facecolor=PLOT_BG)
         ax_mean = fig.add_subplot(3, 1, 1)
         ax_frac = fig.add_subplot(3, 1, 2, sharex=ax_mean)
-        ax_cdf  = fig.add_subplot(3, 1, 3)
+        ax_cdf = fig.add_subplot(3, 1, 3)
         fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.07, left=0.13, right=0.97)
         fig.suptitle(grp.name, fontsize=11, fontweight="bold", color=TXT_PRI, y=0.97)
 
         legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=PLOT_BG,
                          edgecolor=PLOT_SPN, labelcolor=TXT_PRI)
         _ch = self._app._active_channel.upper()
-        apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
-                       f"Mean {_ch}")
+        apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) \u00b1 {band_lbl}", f"Mean {_ch}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
-        apply_ax_style(ax_cdf,  f"{_ch} Value CDF", "Cumulative fraction")
+        apply_ax_style(ax_cdf, f"{_ch} Value CDF", "Cumulative fraction")
         ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)
         ax_frac.set_ylim(-0.05, 1.05)
         ax_cdf.set_xlabel(f"{_ch} mean intensity", fontsize=8, labelpad=5)
@@ -1036,9 +1033,6 @@ class BatchExportPanel(tk.Frame):
         any_ts = any_cdf = False
         all_fluor_vals: List[float] = []
 
-        # Build member list aligned with runtime line-plot semantics:
-        # replicate sets use _compute_rep_stats at each timepoint; solo wells
-        # use aggregate_with_threshold directly on their rows.
         members: List[tuple] = []
         for rset in grp.members:
             valid = [w for w in rset.wells if w in self._app._well_paths]
@@ -1057,33 +1051,23 @@ class BatchExportPanel(tk.Frame):
             color = WELL_COLORS[mi % len(WELL_COLORS)]
             if member_type == "replicate":
                 rset = member_key
-                all_tps: set[float] = set()
+                all_tps: set = set()
                 fluor_vals_raw: List[float] = []
                 for lbl in valid_wells:
                     rows = self._app._get_rows(lbl)
                     for t, *_ in aggregate_with_threshold(
-                        rows,
-                        threshold,
-                        use_sem=False,
-                        val_col=_val_col,
-                        cell_area_threshold=_cell_area_threshold,
+                        rows, threshold, use_sem=False,
+                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     ):
                         all_tps.add(t)
-                    fluor_vals_raw.extend(
-                        _all_fluor_values(rows, val_col=_val_col)
-                    )
-                agg_times: List[float] = []
-                agg_means: List[float] = []
-                agg_errs: List[float] = []
-                agg_fracs: List[float] = []
+                    fluor_vals_raw.extend(_all_fluor_values(rows, val_col=_val_col))
+                agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
                 for t in sorted(all_tps):
                     gm, gerr, gf, _ = self._app._compute_rep_stats(rset, t, threshold, use_sem)
                     if not math.isnan(gm):
-                        agg_times.append(t)
-                        agg_means.append(gm)
-                        agg_errs.append(gerr)
-                        agg_fracs.append(gf)
+                        agg_times.append(t); agg_means.append(gm)
+                        agg_errs.append(gerr); agg_fracs.append(gf)
 
                 if agg_times:
                     ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o",
@@ -1092,9 +1076,7 @@ class BatchExportPanel(tk.Frame):
                         agg_times,
                         [m - e for m, e in zip(agg_means, agg_errs)],
                         [m + e for m, e in zip(agg_means, agg_errs)],
-                        color=color,
-                        alpha=0.15,
-                        zorder=2,
+                        color=color, alpha=0.15, zorder=2,
                     )
                     vf = [(t, f) for t, f in zip(agg_times, agg_fracs) if not math.isnan(f)]
                     if vf:
@@ -1108,11 +1090,8 @@ class BatchExportPanel(tk.Frame):
             else:
                 rows = self._app._get_rows(member_key)
                 pts = aggregate_with_threshold(
-                    rows,
-                    threshold,
-                    use_sem=use_sem,
-                    val_col=_val_col,
-                    cell_area_threshold=_cell_area_threshold,
+                    rows, threshold, use_sem=use_sem,
+                    val_col=_val_col, cell_area_threshold=_cell_area_threshold,
                     fluor_gates=_fluor_gates,
                 )
                 if pts:
@@ -1126,9 +1105,7 @@ class BatchExportPanel(tk.Frame):
                             vt,
                             [m - s for m, s in zip(vmm, vs)],
                             [m + s for m, s in zip(vmm, vs)],
-                            color=color,
-                            alpha=0.15,
-                            zorder=2,
+                            color=color, alpha=0.15, zorder=2,
                         )
                     vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
                     if vf:
@@ -1165,157 +1142,137 @@ class BatchExportPanel(tk.Frame):
 
 
 class BarBatchExportPanel(BatchExportPanel):
-    """
-    Bar-plot batch export — same group editor as the line-graph BatchExportDialog,
-    with an added timepoint selector on the right panel.
-
-    Inherits entirely:
-      _build_group_editor, all CRUD methods, quick setup, save/load, drag handlers.
-
-    Overrides:
-      _build_output_panel, _run_batch
-    """
+    """Bar-plot batch export — same group editor + timepoint multi-select."""
 
     def __init__(
         self,
-        app: "WellViewerApp",
-        parent: tk.Widget,
+        app,
+        parent: Optional[QWidget] = None,
         *,
         use_sidebar_groups: bool = False,
     ) -> None:
         super().__init__(app, parent, use_sidebar_groups=use_sidebar_groups)
 
-    # ── Right panel ────────────────────────────────────────────────────────────
+    def _build_output_panel(self, layout: QVBoxLayout) -> None:
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(12, 4, 12, 4)
+        t = QLabel("OUTPUT SETTINGS")
+        f = t.font(); f.setBold(True); t.setFont(f)
+        hdr.addWidget(t); hdr.addStretch(1)
+        layout.addLayout(hdr)
 
-    def _build_output_panel(self, parent: tk.Frame) -> None:
-        """Same as parent but adds a timepoint multi-select."""
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=12)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="OUTPUT SETTINGS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
+        out_row = QHBoxLayout()
+        out_row.setContentsMargins(12, 6, 12, 6)
+        lbl = QLabel("Folder:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        out_row.addWidget(lbl)
+        self._out_dir_edit = QLineEdit(self._out_dir_value)
+        self._out_dir_edit.setMinimumWidth(240)
+        out_row.addWidget(self._out_dir_edit, 1)
+        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
+        layout.addLayout(out_row)
 
-        out_row = tk.Frame(parent, bg=BG_APP, pady=6, padx=12)
-        out_row.pack(fill=tk.X)
-        tk.Label(out_row, text="Folder:", font=FM_BOLD,
-                 fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(out_row, textvariable=self._out_dir_var,
-                 font=FM_TINY, fg=TXT_PRI, bg=BG_PANEL,
-                 relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER,
-                 anchor="w", padx=6, width=30).pack(side=tk.LEFT)
-        btn_secondary(out_row, "Browse…", self._browse_out_dir,
-                      padx=8).pack(side=tk.LEFT, padx=(6, 0))
+        fmt_row = QHBoxLayout()
+        fmt_row.setContentsMargins(12, 2, 12, 2)
+        flbl = QLabel("Format:")
+        f = flbl.font(); f.setBold(True); flbl.setFont(f)
+        fmt_row.addWidget(flbl)
+        self._fmt_cb = QComboBox()
+        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
+        self._fmt_cb.setCurrentText(self._fmt_value)
+        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
+        fmt_row.addWidget(self._fmt_cb)
+        self._fmt_hint = QLabel("300 DPI raster")
+        fmt_row.addWidget(self._fmt_hint)
+        fmt_row.addStretch(1)
+        layout.addLayout(fmt_row)
+        self._build_export_profile_row(layout)
 
-        fmt_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
-        fmt_row.pack(fill=tk.X)
-        tk.Label(fmt_row, text="Format:", font=FM_BOLD,
-                 fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        fmt_cb = ttk.Combobox(fmt_row, textvariable=self._fmt_var,
-                              values=["png", "svg", "eps", "pdf"],
-                              state="readonly", width=6, font=FM_TINY)
-        fmt_cb.pack(side=tk.LEFT)
-        self._fmt_hint = tk.Label(fmt_row, text="300 DPI raster",
-                                  font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
-        self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
-        fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
-        self._build_export_profile_row(parent)
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep)
 
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
+        tp_hdr = QHBoxLayout()
+        tp_hdr.setContentsMargins(12, 0, 12, 2)
+        tlbl = QLabel("TIMEPOINTS")
+        f = tlbl.font(); f.setBold(True); tlbl.setFont(f)
+        tp_hdr.addWidget(tlbl)
+        tp_hdr.addStretch(1)
+        tp_hdr.addWidget(btn_secondary(None, "All", self._tp_select_all))
+        tp_hdr.addWidget(btn_secondary(None, "None", self._tp_clear_all))
+        layout.addLayout(tp_hdr)
 
-        # ── Timepoint selector ────────────────────────────────────────────────
-        tp_hdr = tk.Frame(parent, bg=BG_APP, padx=12)
-        tp_hdr.pack(fill=tk.X, pady=(0, 2))
-        tk.Label(tp_hdr, text="TIMEPOINTS", font=FM_BOLD,
-                 fg=TXT_MUT, bg=BG_APP).pack(side=tk.LEFT)
-        tk.Button(tp_hdr, text="None",
-                  command=lambda: self._tp_lb.select_clear(0, tk.END),
-                  font=FM_TINY, bg=ACCENT_DARK, fg=CLR_WHITE,
-                  relief=tk.FLAT, padx=6, cursor="hand2",
-                  activebackground=ACCENT,
-                  activeforeground=CLR_WHITE, bd=0, highlightthickness=0).pack(side=tk.RIGHT)
-        tk.Button(tp_hdr, text="All",
-                  command=lambda: self._tp_lb.select_set(0, tk.END),
-                  font=FM_TINY, bg=ACCENT_DARK, fg=CLR_WHITE,
-                  relief=tk.FLAT, padx=6, cursor="hand2",
-                  activebackground=ACCENT,
-                  activeforeground=CLR_WHITE, bd=0, highlightthickness=0).pack(side=tk.RIGHT, padx=(0, 4))
+        self._tp_lb = QListWidget()
+        self._tp_lb.setSelectionMode(QAbstractItemView.MultiSelection)
+        self._tp_lb.setMinimumHeight(120)
+        layout.addWidget(self._tp_lb, 1)
 
-        tp_frame = tk.Frame(parent, bg=BG_APP, padx=12)
-        tp_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
-        vsb = tk.Scrollbar(tp_frame, relief=tk.FLAT, width=7,
-                           bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tp_lb = tk.Listbox(
-            tp_frame, selectmode=tk.MULTIPLE,
-            bg=BG_PANEL, fg=TXT_PRI, font=FM_MONO,
-            selectbackground=ACCENT, selectforeground=CLR_WHITE,
-            activestyle="none", relief=tk.FLAT,
-            highlightthickness=1, highlightcolor=ACCENT,
-            highlightbackground=BORDER, yscrollcommand=vsb.set,
-            exportselection=False, borderwidth=0)
-        self._tp_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=self._tp_lb.yview)
-        # Ensure the timepoint menu is populated (may not have been if the
-        # Bar Plots tab hasn't been viewed yet).
         self._app._update_bar_tp_menu()
-        # _bar_tp_cb["values"] returns the tuple of values (subscript, not .get())
-        tp_vals = self._app._bar_tp_cb["values"]
+        tp_vals = [self._app._bar_tp_cb.itemText(i)
+                   for i in range(self._app._bar_tp_cb.count())]
         for tp in tp_vals:
-            if tp and tp != "—":
-                self._tp_lb.insert(tk.END, tp)
-        if self._tp_lb.size() > 0:
-            self._tp_lb.select_set(0, tk.END)
+            if tp and tp != "\u2014":
+                item = QListWidgetItem(tp)
+                self._tp_lb.addItem(item)
+        self._tp_select_all()
 
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(4, 4))
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep2)
 
-        info = tk.Label(parent,
-                        text=("Each group \u00d7 timepoint produces:\n"
-                              "  \u2022 One bar figure (one bar per replicate set or well)\n"
-                              "  \u2022 One CSV row per member at that timepoint\n\n"
-                              f"{'Groups come from Sample Definitions in the left sidebar.' if self._use_sidebar_groups else 'Groups are defined in the left panel.'}\n"
-                              "SD/SEM is computed within each ReplicateSet only."),
-                        font=FM_TINY, fg=TXT_SEC, bg=BG_APP,
-                        justify=tk.LEFT, anchor="w")
-        info.pack(anchor="w", padx=12, pady=(0, 4))
-
-        run_row = tk.Frame(parent, bg=BG_APP, pady=8, padx=12)
-        run_row.pack(fill=tk.X)
-        self._run_btn = ttk.Button(
-            run_row,
-            text="▶  Run Batch Export",
-            command=self._run_batch,
-            style="TButton",
-            padding=(16, 6),
+        info = QLabel(
+            "Each group \u00d7 timepoint produces:\n"
+            "  \u2022 One bar figure (one bar per replicate set or well)\n"
+            "  \u2022 One CSV row per member at that timepoint\n\n"
+            + ("Groups come from Sample Definitions in the left sidebar.\n"
+               if self._use_sidebar_groups
+               else "Groups are defined in the left panel.\n")
+            + "SD/SEM is computed within each ReplicateSet only."
         )
-        self._run_btn.pack(side=tk.LEFT)
-        self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY,
-                                  fg=TXT_MUT, bg=BG_APP)
-        self._prog_lbl.pack(side=tk.LEFT, padx=12)
-        self._prog_bar = ttk.Progressbar(run_row, orient=tk.HORIZONTAL,
-                                          mode="determinate", length=180)
-        self._prog_bar.pack(side=tk.LEFT)
-        self._prog_bar.pack_forget()
+        info.setWordWrap(True)
+        info.setContentsMargins(12, 4, 12, 4)
+        layout.addWidget(info)
 
-    # ── Export execution ──────────────────────────────────────────────────────
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(12, 8, 12, 8)
+        self._run_btn = QPushButton("\u25b6  Run Batch Export")
+        self._run_btn.setProperty("variant", "primary")
+        self._run_btn.clicked.connect(self._run_batch)
+        run_row.addWidget(self._run_btn)
+        self._prog_lbl = QLabel("")
+        run_row.addWidget(self._prog_lbl)
+        self._prog_bar = QProgressBar()
+        self._prog_bar.setFixedWidth(180)
+        self._prog_bar.setVisible(False)
+        run_row.addWidget(self._prog_bar)
+        run_row.addStretch(1)
+        layout.addLayout(run_row)
+
+    def _tp_select_all(self) -> None:
+        for i in range(self._tp_lb.count()):
+            self._tp_lb.item(i).setSelected(True)
+
+    def _tp_clear_all(self) -> None:
+        self._tp_lb.clearSelection()
+
+    def _selected_tps(self) -> List[str]:
+        return [it.text() for it in self._tp_lb.selectedItems()]
 
     def _run_batch(self) -> None:
-        """Export: for each group, one bar figure + CSV per selected timepoint."""
-        groups_with_data = _groups_with_loaded_wells(self._groups_for_export(), self._app._well_paths)
+        groups_with_data = _groups_with_loaded_wells(
+            self._groups_for_export(), self._app._well_paths,
+        )
         if not groups_with_data:
             msg = (
                 "Define at least one non-empty group in Sample Definitions."
                 if self._use_sidebar_groups
                 else "Define at least one non-empty group."
             )
-            messagebox.showwarning("No groups",
-                                   msg,
-                                   parent=self)
+            QMessageBox.warning(self, "No groups", msg)
             return
         self._log_sample_definitions_snapshot(groups_with_data)
 
-        selected_tps = _selected_listbox_values(self._tp_lb)
+        selected_tps = self._selected_tps()
         if not selected_tps:
-            messagebox.showwarning("No timepoints",
-                                   "Select at least one timepoint.", parent=self)
+            QMessageBox.warning(self, "No timepoints", "Select at least one timepoint.")
             return
 
         out_dir = self._resolve_out_dir()
@@ -1323,9 +1280,9 @@ class BarBatchExportPanel(BatchExportPanel):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem   = self._app._use_sem.get()
-        band_lbl  = "SEM" if use_sem else "SD"
-        fmt       = self._fmt_var.get()
+        use_sem = self._app._use_sem_cb.isChecked()
+        band_lbl = "SEM" if use_sem else "SD"
+        fmt = self._fmt_cb.currentText()
         jobs = [(grp, tp_str) for grp in groups_with_data for tp_str in selected_tps]
 
         def _progress(job, step: int, total: int) -> str:
@@ -1356,50 +1313,47 @@ class BarBatchExportPanel(BatchExportPanel):
                     combined: List[dict] = []
                     for w in valid:
                         combined.extend(self._app._get_rows(w))
-                    pts = aggregate_with_threshold(combined, threshold, use_sem=use_sem, val_col=_val_col, cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates)
-                    matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-                    if matched:
-                        _, m, s, f, *_ = matched[0]
-                        rows_csv.append(
-                            {
-                                "group": grp.name,
-                                "member": rset.name,
-                                "member_type": "replicate_set",
-                                "n_wells": len(valid),
-                                "timepoint_h": tp_str,
-                                f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
-                                f"{band_lbl.lower()}_{_ch}": f"{s:.6f}",
-                                "fraction_above": f"{f:.6f}" if not math.isnan(f) else "",
-                                "threshold": f"{threshold:.4f}",
-                            }
-                        )
-                for w in grp.solo_wells:
-                    if w not in self._app._well_paths:
-                        continue
                     pts = aggregate_with_threshold(
-                        self._app._get_rows(w),
-                        threshold,
-                        use_sem=use_sem,
-                        val_col=_val_col,
-                        cell_area_threshold=_cell_area_threshold,
+                        combined, threshold, use_sem=use_sem,
+                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
                     matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
                     if matched:
                         _, m, s, f, *_ = matched[0]
-                        rows_csv.append(
-                            {
-                                "group": grp.name,
-                                "member": w,
-                                "member_type": "solo_well",
-                                "n_wells": 1,
-                                "timepoint_h": tp_str,
-                                f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
-                                f"{band_lbl.lower()}_{_ch}": f"{s:.6f}",
-                                "fraction_above": f"{f:.6f}" if not math.isnan(f) else "",
-                                "threshold": f"{threshold:.4f}",
-                            }
-                        )
+                        rows_csv.append({
+                            "group": grp.name,
+                            "member": rset.name,
+                            "member_type": "replicate_set",
+                            "n_wells": len(valid),
+                            "timepoint_h": tp_str,
+                            f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
+                            f"{band_lbl.lower()}_{_ch}": f"{s:.6f}",
+                            "fraction_above": f"{f:.6f}" if not math.isnan(f) else "",
+                            "threshold": f"{threshold:.4f}",
+                        })
+                for w in grp.solo_wells:
+                    if w not in self._app._well_paths:
+                        continue
+                    pts = aggregate_with_threshold(
+                        self._app._get_rows(w), threshold, use_sem=use_sem,
+                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                        fluor_gates=_fluor_gates,
+                    )
+                    matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+                    if matched:
+                        _, m, s, f, *_ = matched[0]
+                        rows_csv.append({
+                            "group": grp.name,
+                            "member": w,
+                            "member_type": "solo_well",
+                            "n_wells": 1,
+                            "timepoint_h": tp_str,
+                            f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
+                            f"{band_lbl.lower()}_{_ch}": f"{s:.6f}",
+                            "fraction_above": f"{f:.6f}" if not math.isnan(f) else "",
+                            "threshold": f"{threshold:.4f}",
+                        })
                 if rows_csv:
                     fnames = list(rows_csv[0].keys())
                     with open(str(base) + ".csv", "w", newline="") as fh:
@@ -1410,7 +1364,9 @@ class BarBatchExportPanel(BatchExportPanel):
                 return f"{grp.name} t={tp_str} CSV: {exc}"
 
             try:
-                fig = self._render_bar_group_figure(grp, target_t, tp_str, threshold, use_sem, band_lbl)
+                fig = self._render_bar_group_figure(
+                    grp, target_t, tp_str, threshold, use_sem, band_lbl,
+                )
                 self._save_figure(fig, Path(str(base) + f".{fmt}"), fmt)
             except Exception as exc:
                 return f"{grp.name} t={tp_str} figure: {exc}"
@@ -1420,20 +1376,14 @@ class BarBatchExportPanel(BatchExportPanel):
             jobs=jobs,
             progress_text_fn=_progress,
             run_job_fn=_run_job,
-            success_text=f"✓ {len(groups_with_data)}g × {len(selected_tps)}t → {out_dir.name}/",
-            status_text=f"Bar batch export complete → {out_dir}",
+            success_text=f"\u2713 {len(groups_with_data)}g \u00d7 {len(selected_tps)}t \u2192 {out_dir.name}/",
+            status_text=f"Bar batch export complete \u2192 {out_dir}",
         )
 
     def _render_bar_group_figure(
-        self,
-        grp: "BarGroup",
-        target_t: float,
-        tp_str: str,
-        threshold: float,
-        use_sem: bool,
-        band_lbl: str,
-    ) -> "Figure":
-        """One bar per group member at *target_t* using shared bar renderer."""
+        self, grp: BarGroup, target_t: float, tp_str: str,
+        threshold: float, use_sem: bool, band_lbl: str,
+    ):
         from matplotlib.figure import Figure as _Figure
 
         fig = _Figure(figsize=(8, 7), dpi=300, facecolor=PLOT_BG)
@@ -1441,14 +1391,13 @@ class BarBatchExportPanel(BatchExportPanel):
         ax_frac = fig.add_subplot(2, 1, 2)
         fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.12,
                             left=0.13, right=0.97)
-        fig.suptitle(f"{grp.name}  —  t = {tp_str} h",
+        fig.suptitle(f"{grp.name}  \u2014  t = {tp_str} h",
                      fontsize=10, fontweight="bold", color=TXT_PRI, y=0.97)
         _ch = self._app._active_channel.upper()
         apply_ax_style(ax_mean,
-                       f"Mean {_ch} (above threshold) ± {band_lbl}",
+                       f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
                        f"Mean {_ch}")
-        apply_ax_style(ax_frac, "Fraction of Cells Above Threshold",
-                       "Fraction")
+        apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         ax_frac.set_ylim(-0.05, 1.05)
 
         members: List[tuple] = []
@@ -1459,9 +1408,7 @@ class BarBatchExportPanel(BatchExportPanel):
             combined: List[dict] = []
             for w in valid:
                 combined.extend(self._app._get_rows(w))
-            members.append((
-                self._app._replicate_display_label(rset),
-                combined))
+            members.append((self._app._replicate_display_label(rset), combined))
         for w in grp.solo_wells:
             if w not in self._app._well_paths:
                 continue
@@ -1476,7 +1423,10 @@ class BarBatchExportPanel(BatchExportPanel):
         xlabels: List[str] = []
         for i, (name, rows) in enumerate(members):
             color = WELL_COLORS[i % len(WELL_COLORS)]
-            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates)
+            pts = aggregate_with_threshold(
+                rows, threshold, use_sem=use_sem,
+                cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates,
+            )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             xlabels.append(name)
             if matched:
@@ -1496,12 +1446,11 @@ class BarBatchExportPanel(BatchExportPanel):
             threshold=threshold,
             well_colors=WELL_COLORS,
             warn_color=WARN,
-            border_color=BORDER,
-            placeholder_color=CLR_PLACEHOLDER,
-            disabled_well_color=CLR_DISABLED_WELL,
-            err_bar_color=CLR_ERR_BAR,
+            border_color="#333",
+            placeholder_color=_CLR_PLACEHOLDER,
+            disabled_well_color=_CLR_DISABLED_WELL,
+            err_bar_color=_CLR_ERR_BAR,
         )
-
         return fig
 
 
@@ -1510,8 +1459,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
 
     def __init__(
         self,
-        app: "WellViewerApp",
-        parent: tk.Widget,
+        app,
+        parent: Optional[QWidget] = None,
         *,
         scatter_mode: str = "cells",
         use_sidebar_groups: bool = False,
@@ -1519,109 +1468,136 @@ class ScatterBatchExportPanel(BatchExportPanel):
         self._scatter_mode = "aggregate" if scatter_mode == "aggregate" else "cells"
         super().__init__(app, parent, use_sidebar_groups=use_sidebar_groups)
 
-    def _build_output_panel(self, parent: tk.Frame) -> None:
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=12)
-        hdr.pack(fill=tk.X)
-        title = "OUTPUT SETTINGS — SCATTER CELLS" if self._scatter_mode == "cells" else "OUTPUT SETTINGS — SCATTER AGGREGATE"
-        tk.Label(hdr, text=title, font=FM_BOLD, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
+    def _build_output_panel(self, layout: QVBoxLayout) -> None:
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(12, 4, 12, 4)
+        title = "OUTPUT SETTINGS \u2014 SCATTER CELLS" if self._scatter_mode == "cells" else "OUTPUT SETTINGS \u2014 SCATTER AGGREGATE"
+        t = QLabel(title)
+        f = t.font(); f.setBold(True); t.setFont(f)
+        hdr.addWidget(t); hdr.addStretch(1)
+        layout.addLayout(hdr)
 
-        out_row = tk.Frame(parent, bg=BG_APP, pady=6, padx=12)
-        out_row.pack(fill=tk.X)
-        tk.Label(out_row, text="Folder:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(out_row, textvariable=self._out_dir_var, font=FM_TINY, fg=TXT_PRI, bg=BG_PANEL, relief=tk.FLAT,
-                 highlightthickness=1, highlightbackground=BORDER, anchor="w", padx=6, width=30).pack(side=tk.LEFT)
-        btn_secondary(out_row, "Browse…", self._browse_out_dir, padx=8).pack(side=tk.LEFT, padx=(6, 0))
+        out_row = QHBoxLayout()
+        out_row.setContentsMargins(12, 6, 12, 6)
+        lbl = QLabel("Folder:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        out_row.addWidget(lbl)
+        self._out_dir_edit = QLineEdit(self._out_dir_value)
+        self._out_dir_edit.setMinimumWidth(240)
+        out_row.addWidget(self._out_dir_edit, 1)
+        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
+        layout.addLayout(out_row)
 
-        fmt_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
-        fmt_row.pack(fill=tk.X)
-        tk.Label(fmt_row, text="Format:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT, padx=(0, 6))
-        fmt_cb = ttk.Combobox(fmt_row, textvariable=self._fmt_var, values=["png", "svg", "eps", "pdf"],
-                              state="readonly", width=6, font=FM_TINY)
-        fmt_cb.pack(side=tk.LEFT)
-        self._fmt_hint = tk.Label(fmt_row, text="300 DPI raster", font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
-        self._fmt_hint.pack(side=tk.LEFT, padx=(6, 0))
-        fmt_cb.bind("<<ComboboxSelected>>", self._on_fmt_change)
-        self._build_export_profile_row(parent)
+        fmt_row = QHBoxLayout()
+        fmt_row.setContentsMargins(12, 2, 12, 2)
+        flbl = QLabel("Format:")
+        f = flbl.font(); f.setBold(True); flbl.setFont(f)
+        fmt_row.addWidget(flbl)
+        self._fmt_cb = QComboBox()
+        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
+        self._fmt_cb.setCurrentText(self._fmt_value)
+        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
+        fmt_row.addWidget(self._fmt_cb)
+        self._fmt_hint = QLabel("300 DPI raster")
+        fmt_row.addWidget(self._fmt_hint)
+        fmt_row.addStretch(1)
+        layout.addLayout(fmt_row)
+        self._build_export_profile_row(layout)
 
-        opt_row = tk.Frame(parent, bg=BG_APP, padx=12, pady=4)
-        opt_row.pack(fill=tk.X)
+        opt_row = QHBoxLayout()
+        opt_row.setContentsMargins(12, 2, 12, 2)
         if self._scatter_mode == "cells":
-            tk.Label(opt_row, text="X:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT)
-            self._sc_cells_x_var = tk.StringVar()
-            self._sc_cells_y_var = tk.StringVar()
-            self._sc_cells_x_cb = ttk.Combobox(opt_row, textvariable=self._sc_cells_x_var, state="readonly", width=18, font=FM_TINY)
-            self._sc_cells_x_cb.pack(side=tk.LEFT, padx=(4, 8))
-            tk.Label(opt_row, text="Y:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT)
-            self._sc_cells_y_cb = ttk.Combobox(opt_row, textvariable=self._sc_cells_y_var, state="readonly", width=18, font=FM_TINY)
-            self._sc_cells_y_cb.pack(side=tk.LEFT, padx=(4, 0))
+            xlbl = QLabel("X:")
+            f = xlbl.font(); f.setBold(True); xlbl.setFont(f)
+            opt_row.addWidget(xlbl)
+            self._sc_cells_x_cb = QComboBox()
+            self._sc_cells_x_cb.setMinimumWidth(140)
+            opt_row.addWidget(self._sc_cells_x_cb)
+            ylbl = QLabel("Y:")
+            f = ylbl.font(); f.setBold(True); ylbl.setFont(f)
+            opt_row.addWidget(ylbl)
+            self._sc_cells_y_cb = QComboBox()
+            self._sc_cells_y_cb.setMinimumWidth(140)
+            opt_row.addWidget(self._sc_cells_y_cb)
             self._init_scatter_cells_axes()
         else:
-            tk.Label(opt_row, text="Stat X:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT)
-            self._sc_agg_x_var = tk.StringVar()
-            self._sc_agg_y_var = tk.StringVar()
-            self._sc_agg_x_cb = ttk.Combobox(opt_row, textvariable=self._sc_agg_x_var, state="readonly", width=24, font=FM_TINY)
-            self._sc_agg_x_cb.pack(side=tk.LEFT, padx=(4, 8))
-            tk.Label(opt_row, text="Stat Y:", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(side=tk.LEFT)
-            self._sc_agg_y_cb = ttk.Combobox(opt_row, textvariable=self._sc_agg_y_var, state="readonly", width=24, font=FM_TINY)
-            self._sc_agg_y_cb.pack(side=tk.LEFT, padx=(4, 0))
+            xlbl = QLabel("Stat X:")
+            f = xlbl.font(); f.setBold(True); xlbl.setFont(f)
+            opt_row.addWidget(xlbl)
+            self._sc_agg_x_cb = QComboBox()
+            self._sc_agg_x_cb.setMinimumWidth(180)
+            opt_row.addWidget(self._sc_agg_x_cb)
+            ylbl = QLabel("Stat Y:")
+            f = ylbl.font(); f.setBold(True); ylbl.setFont(f)
+            opt_row.addWidget(ylbl)
+            self._sc_agg_y_cb = QComboBox()
+            self._sc_agg_y_cb.setMinimumWidth(180)
+            opt_row.addWidget(self._sc_agg_y_cb)
             self._init_scatter_agg_stats()
+        opt_row.addStretch(1)
+        layout.addLayout(opt_row)
 
-        tp_hdr = tk.Frame(parent, bg=BG_APP, padx=12)
-        tp_hdr.pack(fill=tk.X, pady=(4, 2))
-        tk.Label(tp_hdr, text="TIMEPOINTS", font=FM_BOLD, fg=TXT_MUT, bg=BG_APP).pack(side=tk.LEFT)
-        tk.Button(tp_hdr, text="None",
-                  command=lambda: self._tp_lb.select_clear(0, tk.END),
-                  font=FM_TINY, bg=ACCENT_DARK, fg=CLR_WHITE, relief=tk.FLAT, padx=6,
-                  cursor="hand2", activebackground=ACCENT, activeforeground=CLR_WHITE,
-                  bd=0, highlightthickness=0).pack(side=tk.RIGHT)
-        tk.Button(tp_hdr, text="All",
-                  command=lambda: self._tp_lb.select_set(0, tk.END),
-                  font=FM_TINY, bg=ACCENT_DARK, fg=CLR_WHITE, relief=tk.FLAT, padx=6,
-                  cursor="hand2", activebackground=ACCENT, activeforeground=CLR_WHITE,
-                  bd=0, highlightthickness=0).pack(side=tk.RIGHT, padx=(0, 4))
+        tp_hdr = QHBoxLayout()
+        tp_hdr.setContentsMargins(12, 4, 12, 2)
+        tlbl = QLabel("TIMEPOINTS")
+        f = tlbl.font(); f.setBold(True); tlbl.setFont(f)
+        tp_hdr.addWidget(tlbl)
+        tp_hdr.addStretch(1)
+        tp_hdr.addWidget(btn_secondary(None, "All", self._tp_select_all))
+        tp_hdr.addWidget(btn_secondary(None, "None", self._tp_clear_all))
+        layout.addLayout(tp_hdr)
 
-        tp_frame = tk.Frame(parent, bg=BG_APP, padx=12)
-        tp_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
-        vsb = tk.Scrollbar(tp_frame, relief=tk.FLAT, width=7, bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tp_lb = tk.Listbox(
-            tp_frame, selectmode=tk.MULTIPLE, bg=BG_PANEL, fg=TXT_PRI, font=FM_MONO,
-            selectbackground=ACCENT, selectforeground=CLR_WHITE, activestyle="none", relief=tk.FLAT,
-            highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BORDER,
-            yscrollcommand=vsb.set, exportselection=False, borderwidth=0)
-        self._tp_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=self._tp_lb.yview)
+        self._tp_lb = QListWidget()
+        self._tp_lb.setSelectionMode(QAbstractItemView.MultiSelection)
+        self._tp_lb.setMinimumHeight(120)
+        layout.addWidget(self._tp_lb, 1)
         self._init_timepoint_dropdown()
 
-        mode_row = tk.Frame(parent, bg=BG_APP, padx=12)
-        mode_row.pack(fill=tk.X, pady=(0, 4))
-        self._scatter_split_tp_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            mode_row,
-            text="Separate file per selected timepoint (otherwise combine all selected timepoints per group)",
-            variable=self._scatter_split_tp_var,
-        ).pack(side=tk.LEFT, anchor="w")
-
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=(8, 4))
-        info = tk.Label(
-            parent,
-            text=(
-                "Each group × timepoint produces one scatter figure and one CSV.\n"
-                "Groups are selected with the same Batch Export group picker."
-            ),
-            font=FM_TINY, fg=TXT_SEC, bg=BG_APP, justify=tk.LEFT, anchor="w",
+        mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(12, 0, 12, 4)
+        self._scatter_split_tp_cb = QCheckBox(
+            "Separate file per selected timepoint (otherwise combine all selected timepoints per group)"
         )
-        info.pack(anchor="w", padx=12, pady=(0, 4))
+        self._scatter_split_tp_cb.setChecked(True)
+        mode_row.addWidget(self._scatter_split_tp_cb)
+        mode_row.addStretch(1)
+        layout.addLayout(mode_row)
 
-        run_row = tk.Frame(parent, bg=BG_APP, pady=8, padx=12)
-        run_row.pack(fill=tk.X)
-        self._run_btn = ttk.Button(run_row, text="▶  Run Scatter Batch Export", command=self._run_batch, style="TButton", padding=(16, 6))
-        self._run_btn.pack(side=tk.LEFT)
-        self._prog_lbl = tk.Label(run_row, text="", font=FM_TINY, fg=TXT_MUT, bg=BG_APP)
-        self._prog_lbl.pack(side=tk.LEFT, padx=12)
-        self._prog_bar = ttk.Progressbar(run_row, orient=tk.HORIZONTAL, mode="determinate", length=180)
-        self._prog_bar.pack(side=tk.LEFT)
-        self._prog_bar.pack_forget()
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep)
+
+        info = QLabel(
+            "Each group \u00d7 timepoint produces one scatter figure and one CSV.\n"
+            "Groups are selected with the same Batch Export group picker."
+        )
+        info.setWordWrap(True)
+        info.setContentsMargins(12, 4, 12, 4)
+        layout.addWidget(info)
+
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(12, 8, 12, 8)
+        self._run_btn = QPushButton("\u25b6  Run Scatter Batch Export")
+        self._run_btn.setProperty("variant", "primary")
+        self._run_btn.clicked.connect(self._run_batch)
+        run_row.addWidget(self._run_btn)
+        self._prog_lbl = QLabel("")
+        run_row.addWidget(self._prog_lbl)
+        self._prog_bar = QProgressBar()
+        self._prog_bar.setFixedWidth(180)
+        self._prog_bar.setVisible(False)
+        run_row.addWidget(self._prog_bar)
+        run_row.addStretch(1)
+        layout.addLayout(run_row)
+
+    def _tp_select_all(self) -> None:
+        for i in range(self._tp_lb.count()):
+            self._tp_lb.item(i).setSelected(True)
+
+    def _tp_clear_all(self) -> None:
+        self._tp_lb.clearSelection()
+
+    def _selected_tps(self) -> List[str]:
+        return [it.text() for it in self._tp_lb.selectedItems()]
 
     def _init_timepoint_dropdown(self) -> None:
         timepoints = sorted(set(getattr(self._app, "_all_timepoints_cache", []) or []))
@@ -1636,11 +1612,10 @@ class ScatterBatchExportPanel(BatchExportPanel):
                         timepoints.append(tp)
             timepoints = sorted(set(timepoints))
         tp_vals = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0.0"]
-        self._tp_lb.delete(0, tk.END)
+        self._tp_lb.clear()
         for tp in tp_vals:
-            self._tp_lb.insert(tk.END, tp)
-        if self._tp_lb.size() > 0:
-            self._tp_lb.select_set(0, tk.END)
+            self._tp_lb.addItem(QListWidgetItem(tp))
+        self._tp_select_all()
 
     def _init_scatter_cells_axes(self) -> None:
         channels = list(self._app._fluor_channels) if self._app._fluor_channels else ["gfp"]
@@ -1652,10 +1627,12 @@ class ScatterBatchExportPanel(BatchExportPanel):
                 options.append(f"{ch} (spots)")
         if not options:
             options = ["gfp"]
-        self._sc_cells_x_cb.config(values=options)
-        self._sc_cells_y_cb.config(values=options)
-        self._sc_cells_x_var.set(options[0])
-        self._sc_cells_y_var.set(options[1] if len(options) > 1 else options[0])
+        self._sc_cells_x_cb.clear()
+        self._sc_cells_x_cb.addItems(options)
+        self._sc_cells_y_cb.clear()
+        self._sc_cells_y_cb.addItems(options)
+        self._sc_cells_x_cb.setCurrentText(options[0])
+        self._sc_cells_y_cb.setCurrentText(options[1] if len(options) > 1 else options[0])
 
     def _init_scatter_agg_stats(self) -> None:
         channels = list(self._app._fluor_channels) if self._app._fluor_channels else ["gfp"]
@@ -1667,22 +1644,26 @@ class ScatterBatchExportPanel(BatchExportPanel):
             stats.append(f"Fraction On {up}")
             if ch in smfish_channels:
                 stats.append(f"smFISH Count {up}")
-        self._sc_agg_x_cb.config(values=stats)
-        self._sc_agg_y_cb.config(values=stats)
-        self._sc_agg_x_var.set(stats[0])
-        self._sc_agg_y_var.set(stats[1] if len(stats) > 1 else stats[0])
+        self._sc_agg_x_cb.clear()
+        self._sc_agg_x_cb.addItems(stats)
+        self._sc_agg_y_cb.clear()
+        self._sc_agg_y_cb.addItems(stats)
+        self._sc_agg_x_cb.setCurrentText(stats[0])
+        self._sc_agg_y_cb.setCurrentText(stats[1] if len(stats) > 1 else stats[0])
 
     def _run_batch(self) -> None:
-        groups_with_data = _groups_with_loaded_wells(self._groups_for_export(), self._app._well_paths)
+        groups_with_data = _groups_with_loaded_wells(
+            self._groups_for_export(), self._app._well_paths,
+        )
         if not groups_with_data:
-            messagebox.showwarning("No groups", "Define at least one non-empty group.", parent=self)
+            QMessageBox.warning(self, "No groups", "Define at least one non-empty group.")
             return
         out_dir = self._resolve_out_dir()
         if out_dir is None:
             return
-        selected_tps = _selected_listbox_values(self._tp_lb)
+        selected_tps = self._selected_tps()
         if not selected_tps:
-            messagebox.showwarning("No timepoint", "Select a valid timepoint.", parent=self)
+            QMessageBox.warning(self, "No timepoint", "Select a valid timepoint.")
             return
         timepoints: List[float] = []
         for tp_str in selected_tps:
@@ -1691,10 +1672,10 @@ class ScatterBatchExportPanel(BatchExportPanel):
             except ValueError:
                 continue
         if not timepoints:
-            messagebox.showwarning("No timepoint", "Select at least one valid timepoint.", parent=self)
+            QMessageBox.warning(self, "No timepoint", "Select at least one valid timepoint.")
             return
-        fmt = self._fmt_var.get()
-        split_by_tp = bool(self._scatter_split_tp_var.get())
+        fmt = self._fmt_cb.currentText()
+        split_by_tp = self._scatter_split_tp_cb.isChecked()
         if split_by_tp:
             jobs = [(grp, tp) for grp in groups_with_data for tp in timepoints]
 
@@ -1704,7 +1685,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
 
             def _run_job(job) -> Optional[str]:
                 grp, tp_h = job
-                safe_grp = re.sub(r"[^A-Za-z0-9_\\-]", "_", grp.name)
+                safe_grp = re.sub(r"[^A-Za-z0-9_\-]", "_", grp.name)
                 safe_tp = f"{tp_h:.1f}".replace(".", "_")
                 stem = f"scatter_{self._scatter_mode}_{safe_grp}_t{safe_tp}"
                 csv_path = out_dir / f"{stem}.csv"
@@ -1721,7 +1702,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
 
             def _run_job(job) -> Optional[str]:
                 grp = job
-                safe_grp = re.sub(r"[^A-Za-z0-9_\\-]", "_", grp.name)
+                safe_grp = re.sub(r"[^A-Za-z0-9_\-]", "_", grp.name)
                 stem = f"scatter_{self._scatter_mode}_{safe_grp}_all_tps"
                 csv_path = out_dir / f"{stem}.csv"
                 fig_path = out_dir / f"{stem}.{fmt}"
@@ -1733,25 +1714,24 @@ class ScatterBatchExportPanel(BatchExportPanel):
             jobs=jobs,
             progress_text_fn=_progress,
             run_job_fn=_run_job,
-            success_text=f"✓ {len(jobs)} group(s) → {out_dir.name}/",
-            status_text=f"Scatter batch export ({self._scatter_mode}): {len(jobs)} group(s) → {out_dir}",
+            success_text=f"\u2713 {len(jobs)} group(s) \u2192 {out_dir.name}/",
+            status_text=f"Scatter batch export ({self._scatter_mode}): {len(jobs)} group(s) \u2192 {out_dir}",
         )
 
-    def _run_scatter_cells_job(self, grp: "BarGroup", tp_h: float, csv_path: Path, fig_path: Path, fmt: str) -> Optional[str]:
-        col_x = self._app._col_for_scatter_entry(self._sc_cells_x_var.get())
-        col_y = self._app._col_for_scatter_entry(self._sc_cells_y_var.get())
+    def _run_scatter_cells_job(
+        self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
+    ) -> Optional[str]:
+        col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
+        col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
         old_rep_sets = self._app._rep_sets
         old_selected = self._app._selected_wells
         try:
             self._app._rep_sets = list(grp.members)
             self._app._selected_wells = set(grp.solo_wells)
-            ch_x_base = self._sc_cells_x_var.get().split(" ")[0]
-            ch_y_base = self._sc_cells_y_var.get().split(" ")[0]
+            ch_x_base = self._sc_cells_x_cb.currentText().split(" ")[0]
+            ch_y_base = self._sc_cells_y_cb.currentText().split(" ")[0]
             scatter_data = _collect_scatter_data(
-                self._app,
-                col_x,
-                col_y,
-                tp_h,
+                self._app, col_x, col_y, tp_h,
                 well_colors=WELL_COLORS,
                 cell_area_threshold=self._app._get_cell_area_threshold(),
                 fluor_gate_x=self._app._get_fluor_gate(ch_x_base),
@@ -1768,14 +1748,10 @@ class ScatterBatchExportPanel(BatchExportPanel):
                 for x, y, meta in zip(data["x"], data["y"], data["metadata"]):
                     well, filename, nuclear_id, _row_idx = meta
                     rows.append({
-                        "group": grp.name,
-                        "member": label,
-                        "well": well,
+                        "group": grp.name, "member": label, "well": well,
                         "timepoint_h": f"{tp_h:.4f}",
-                        "x": f"{x:.8g}",
-                        "y": f"{y:.8g}",
-                        "filename": filename,
-                        "nucleus_id": nuclear_id,
+                        "x": f"{x:.8g}", "y": f"{y:.8g}",
+                        "filename": filename, "nucleus_id": nuclear_id,
                     })
             with open(csv_path, "w", newline="") as fh:
                 fieldnames = ["group", "member", "well", "timepoint_h", "x", "y", "filename", "nucleus_id"]
@@ -1789,10 +1765,11 @@ class ScatterBatchExportPanel(BatchExportPanel):
             fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
             ax = fig.add_subplot(1, 1, 1)
             for label, data in scatter_data.items():
-                ax.scatter(data["x"], data["y"], label=label, color=data["color"], alpha=0.6, s=26, edgecolors="none")
+                ax.scatter(data["x"], data["y"], label=label, color=data["color"],
+                           alpha=0.6, s=26, edgecolors="none")
             ax.set_xlabel(col_x)
             ax.set_ylabel(col_y)
-            ax.set_title(f"{grp.name} — Scatter Cells (t={tp_h:.1f}h)")
+            ax.set_title(f"{grp.name} \u2014 Scatter Cells (t={tp_h:.1f}h)")
             ax.grid(True, alpha=0.3)
             ax.legend(loc="best", fontsize=8)
             self._save_figure(fig, fig_path, fmt)
@@ -1800,19 +1777,18 @@ class ScatterBatchExportPanel(BatchExportPanel):
             return f"{grp.name} scatter-cells figure: {exc}"
         return None
 
-    def _run_scatter_agg_job(self, grp: "BarGroup", tp_h: float, csv_path: Path, fig_path: Path, fmt: str) -> Optional[str]:
-        stat_x = self._sc_agg_x_var.get()
-        stat_y = self._sc_agg_y_var.get()
+    def _run_scatter_agg_job(
+        self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
+    ) -> Optional[str]:
+        stat_x = self._sc_agg_x_cb.currentText()
+        stat_y = self._sc_agg_y_cb.currentText()
         old_rep_sets = self._app._rep_sets
         old_selected = self._app._selected_wells
         try:
             self._app._rep_sets = list(grp.members)
             self._app._selected_wells = set(grp.solo_wells)
             scatter_data = _collect_scatter_agg_data(
-                self._app,
-                stat_x,
-                stat_y,
-                [tp_h],
+                self._app, stat_x, stat_y, [tp_h],
                 well_colors=WELL_COLORS,
                 aggregate_with_threshold=aggregate_with_threshold,
             )
@@ -1846,20 +1822,15 @@ class ScatterBatchExportPanel(BatchExportPanel):
             ax = fig.add_subplot(1, 1, 1)
             for data in scatter_data.values():
                 ax.errorbar(
-                    data["x"],
-                    data["y"],
-                    xerr=data["x_err"],
-                    yerr=data["y_err"],
+                    data["x"], data["y"],
+                    xerr=data["x_err"], yerr=data["y_err"],
                     label=data.get("label", ""),
-                    color=data["color"],
-                    marker=data.get("marker", "o"),
-                    linestyle="none",
-                    capsize=5,
-                    alpha=0.75,
+                    color=data["color"], marker=data.get("marker", "o"),
+                    linestyle="none", capsize=5, alpha=0.75,
                 )
             ax.set_xlabel(stat_x)
             ax.set_ylabel(stat_y)
-            ax.set_title(f"{grp.name} — Scatter Aggregate (t={tp_h:.1f}h)")
+            ax.set_title(f"{grp.name} \u2014 Scatter Aggregate (t={tp_h:.1f}h)")
             ax.grid(True, alpha=0.3)
             ax.legend(loc="best", fontsize=8)
             self._save_figure(fig, fig_path, fmt)
@@ -1868,30 +1839,23 @@ class ScatterBatchExportPanel(BatchExportPanel):
         return None
 
     def _run_scatter_cells_multi_tp_job(
-        self,
-        grp: "BarGroup",
-        timepoints: List[float],
-        csv_path: Path,
-        fig_path: Path,
-        fmt: str,
+        self, grp: BarGroup, timepoints: List[float],
+        csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
         combined_rows: List[dict] = []
-        combined_series: List[tuple[float, str, dict]] = []
+        combined_series: List[tuple] = []
         for tp_h in sorted(timepoints):
-            col_x = self._app._col_for_scatter_entry(self._sc_cells_x_var.get())
-            col_y = self._app._col_for_scatter_entry(self._sc_cells_y_var.get())
+            col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
+            col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
             old_rep_sets = self._app._rep_sets
             old_selected = self._app._selected_wells
             try:
                 self._app._rep_sets = list(grp.members)
                 self._app._selected_wells = set(grp.solo_wells)
-                ch_x_base = self._sc_cells_x_var.get().split(" ")[0]
-                ch_y_base = self._sc_cells_y_var.get().split(" ")[0]
+                ch_x_base = self._sc_cells_x_cb.currentText().split(" ")[0]
+                ch_y_base = self._sc_cells_y_cb.currentText().split(" ")[0]
                 scatter_data = _collect_scatter_data(
-                    self._app,
-                    col_x,
-                    col_y,
-                    tp_h,
+                    self._app, col_x, col_y, tp_h,
                     well_colors=WELL_COLORS,
                     cell_area_threshold=self._app._get_cell_area_threshold(),
                     fluor_gate_x=self._app._get_fluor_gate(ch_x_base),
@@ -1907,12 +1871,9 @@ class ScatterBatchExportPanel(BatchExportPanel):
                     combined_rows.append({
                         "group": grp.name,
                         "timepoint_h": f"{tp_h:.4f}",
-                        "member": label,
-                        "well": well,
-                        "x": f"{x:.8g}",
-                        "y": f"{y:.8g}",
-                        "filename": filename,
-                        "nucleus_id": nuclear_id,
+                        "member": label, "well": well,
+                        "x": f"{x:.8g}", "y": f"{y:.8g}",
+                        "filename": filename, "nucleus_id": nuclear_id,
                     })
         if not combined_rows:
             return f"{grp.name}: no scatter-cells data for selected timepoints"
@@ -1929,10 +1890,12 @@ class ScatterBatchExportPanel(BatchExportPanel):
             fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
             ax = fig.add_subplot(1, 1, 1)
             for tp_h, label, data in combined_series:
-                ax.scatter(data["x"], data["y"], label=f"{label} @ t={tp_h:.1f}h", alpha=0.55, s=24)
-            ax.set_xlabel(self._app._col_for_scatter_entry(self._sc_cells_x_var.get()))
-            ax.set_ylabel(self._app._col_for_scatter_entry(self._sc_cells_y_var.get()))
-            ax.set_title(f"{grp.name} — Scatter Cells (all selected tps)")
+                ax.scatter(data["x"], data["y"],
+                           label=f"{label} @ t={tp_h:.1f}h",
+                           alpha=0.55, s=24)
+            ax.set_xlabel(self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText()))
+            ax.set_ylabel(self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText()))
+            ax.set_title(f"{grp.name} \u2014 Scatter Cells (all selected tps)")
             ax.grid(True, alpha=0.3)
             ax.legend(loc="best", fontsize=7)
             self._save_figure(fig, fig_path, fmt)
@@ -1941,25 +1904,18 @@ class ScatterBatchExportPanel(BatchExportPanel):
         return None
 
     def _run_scatter_agg_multi_tp_job(
-        self,
-        grp: "BarGroup",
-        timepoints: List[float],
-        csv_path: Path,
-        fig_path: Path,
-        fmt: str,
+        self, grp: BarGroup, timepoints: List[float],
+        csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
-        stat_x = self._sc_agg_x_var.get()
-        stat_y = self._sc_agg_y_var.get()
+        stat_x = self._sc_agg_x_cb.currentText()
+        stat_y = self._sc_agg_y_cb.currentText()
         old_rep_sets = self._app._rep_sets
         old_selected = self._app._selected_wells
         try:
             self._app._rep_sets = list(grp.members)
             self._app._selected_wells = set(grp.solo_wells)
             scatter_data = _collect_scatter_agg_data(
-                self._app,
-                stat_x,
-                stat_y,
-                sorted(timepoints),
+                self._app, stat_x, stat_y, sorted(timepoints),
                 well_colors=WELL_COLORS,
                 aggregate_with_threshold=aggregate_with_threshold,
             )
@@ -1993,13 +1949,15 @@ class ScatterBatchExportPanel(BatchExportPanel):
             ax = fig.add_subplot(1, 1, 1)
             for data in scatter_data.values():
                 ax.errorbar(
-                    data["x"], data["y"], xerr=data["x_err"], yerr=data["y_err"],
-                    label=data.get("label", ""), marker=data.get("marker", "o"),
+                    data["x"], data["y"],
+                    xerr=data["x_err"], yerr=data["y_err"],
+                    label=data.get("label", ""),
+                    marker=data.get("marker", "o"),
                     linestyle="none", capsize=5, alpha=0.75,
                 )
             ax.set_xlabel(stat_x)
             ax.set_ylabel(stat_y)
-            ax.set_title(f"{grp.name} — Scatter Aggregate (all selected tps)")
+            ax.set_title(f"{grp.name} \u2014 Scatter Aggregate (all selected tps)")
             ax.grid(True, alpha=0.3)
             ax.legend(loc="best", fontsize=7)
             self._save_figure(fig, fig_path, fmt)
@@ -2008,23 +1966,10 @@ class ScatterBatchExportPanel(BatchExportPanel):
         return None
 
 
-# Backwards-compatible aliases while call sites migrate away from dialog naming.
 BatchExportDialog = BatchExportPanel
 BarBatchExportDialog = BarBatchExportPanel
 
 
-# ---------------------------------------------------------------------------
-# pipeline_info.json reader
-# ---------------------------------------------------------------------------
-
 def _read_pipeline_info(out_dir: Path):
-    """
-    Read the pipeline_info.json sidecar written by analyze_tab.py and return
-    (extractor, fluor_tokens) where extractor is a callable(stem) -> (fov, tp)
-    suitable for passing to find_well_images_and_masks, and fluor_tokens is a
-    list of lowercase channel token strings.
-
-    Returns (None, []) when the file is absent (legacy output directory — the
-    caller falls back to the classic _FNAME_RE regex in that case).
-    """
+    """Read pipeline_info.json sidecar; returns (extractor, fluor_tokens)."""
     return _read_pipeline_info_shared(out_dir, logger=_logger, check_parent=True)
