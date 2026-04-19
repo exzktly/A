@@ -20,7 +20,7 @@ class BoolHolder:
     """Tiny tk-compatible shim with ``get()``/``set()`` around a bool flag.
 
     Cross-module callers (runtime_app, export_service, plot_orchestrator) treat
-    ``_scatter_agg_tp_selections`` values as tk.BooleanVars; this keeps them
+    ``_scatter_agg_tp_selections`` values as bool holders; this keeps them
     happy during the Qt port without changing those call sites yet.
     """
 

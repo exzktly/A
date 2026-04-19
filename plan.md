@@ -130,26 +130,130 @@ High-DPI / Retina — call QApplication.setHighDpiScaleFactorRoundingPolicy(Pass
 Bundle size — PySide6 + Qt adds ~150–200 MB. If needed, exclude unused Qt modules (PySide6.QtWebEngine*, PySide6.Qt3D*, etc.) via --exclude-module.
 macOS menu bar — call QMainWindow.setMenuBar(None) to avoid an empty native menu bar, unless promoting existing actions into a real menu.
 
-# PySide6 Migration — Port Progress
+# PySide6 Migration — Port Progress (live)
 
-Strategy: break each large file into ≤200-line write chunks to avoid stream timeouts.
+Last updated: 2026-04-19 (UTC).
 
-## analyze_tab.py (1399 → ~480 LoC) ✓ DONE
+Strategy used so far: migrate runtime behavior into Qt tab/view builders and service/controller entry points while preserving public method names expected by cross-module callers.
 
-## Controllers (thin — one write each) ✓ DONE
+## Completed
 
-## Callbacks + Services ✓ DONE
+- [x] Foundation shell and theming migration (`all_well.py`, `ui/theme/*.qss`, launcher backend switch)
+- [x] Qt port for core tab/view modules under `well_viewer/views/*` and `well_viewer/tabs/*`
+- [x] `runtime_app.py` migration to Qt runtime shell:
+  - [x] `WellViewerApp` now subclasses `QWidget`
+  - [x] Qt tab composition wired through migrated tab builders
+  - [x] Runtime export/review/batch handlers wired to existing service/controller functions
+  - [x] Qt `main()` entrypoint
 
-## Monoliths
-- [x] batch_export_dialog.py (2030 LoC) — 4 parts
-- [ ] runtime_app.py (6941 LoC)
-    - [x] imports + module-level helpers (make_fluor_thumb, make_overlay_thumb, ask_name_dialog, _bind_drag, save/load_json)
-    - [ ] WellViewerApp.__init__ + tk.Variable attrs (23)
-    - [ ] WellViewerApp UI build methods (plate grid, tabs, sidebar, preview, montage, LUT editor)
-    - [ ] WellViewerApp controller/callback methods (~5000 LoC of tk.bind / widget plumbing)
-    - [ ] main()
+## Remaining before merge
 
-## Final
-- [ ] Acceptance grep sweep (0 hits for tkinter/ttk/messagebox/filedialog/after/bind/StringVar)
-- [ ] pytest tests/
-- [ ] Commit + push
+- [ ] End-to-end runtime feature parity verification against checklist (plots, review image interactions, batch export flows, pipeline handoff)
+- [x] Repository-wide acceptance grep sweep with all target patterns at zero
+- [ ] Environment-stable green test run (`PYTHONPATH=. pytest -q tests`) in an environment with required runtime deps installed
+- [ ] Packaging/bundle completion (`_Installation/all_well.spec`, PyInstaller app smoke run) — deferred with Phase 4
+
+# Step-by-step execution checklist (completion path)
+
+This section is the actionable sequence to finish the port and remove all legacy tkinter code.
+Work top-to-bottom; do not skip acceptance checks between phases.
+
+## Phase 0 — Baseline + guardrails
+
+- [x] Confirm working tree is clean and capture current migration baseline:
+  - [x] `git status --short`
+  - [x] `rg -n "^import tkinter|^from tkinter|customtkinter|FigureCanvasTkAgg|NavigationToolbar2Tk|backend_tkagg|tk\\.StringVar|tk\\.IntVar|tk\\.BooleanVar|tk\\.DoubleVar|messagebox\\.|filedialog\\.|\\.after\\(|\\.bind\\(\"<|\\bttk\\." --glob '*.py'`
+  - [x] `PYTHONPATH=. pytest -q tests` (record any environment-limited failures separately from code failures)
+- [x] Create/update a migration tracking note with:
+  - [x] Remaining Tk hit counts by pattern
+  - [x] List of files containing each pattern
+  - [x] Current blockers (missing deps, failing tests, etc.)
+
+## Phase 1 — Restore testability boundaries (no GUI imports in service tests)
+
+- [x] Identify tests that import Qt-dependent modules indirectly.
+- [ ] Move pure helper logic used by tests into GUI-free modules (or add GUI-free helper wrappers).
+- [ ] Update tests to import only GUI-free modules for non-UI behaviors.
+- [ ] Ensure `tests/` collection succeeds without requiring app launch.
+- [x] Re-run `PYTHONPATH=. pytest -q tests` and document exact remaining failures.
+
+## Phase 2 — runtime_app.py core de-tkification (largest remaining surface)
+
+- [x] Port `WellViewerApp.__init__` state to Qt/native runtime state holders.
+- [x] Replace scheduling/event plumbing in runtime shell (`QTimer.singleShot` in startup load path).
+- [x] Replace runtime dialog paths with `QMessageBox` / `QFileDialog`.
+- [x] Remove direct `ttk` usage from `runtime_app.py`.
+- [x] Remove Tk-named matplotlib aliases from runtime shell.
+- [x] Preserve expected cross-module runtime method surface and wire key handlers to controller/service entry points.
+
+## Phase 3 — Remaining module cleanup pass
+
+- [x] Sweep controllers/callbacks/services for any residual Tk references:
+  - [x] `load_controller.py`
+  - [x] `stats_controller.py`
+  - [x] `grouping_controller.py`
+  - [x] `montage_controller.py`
+  - [x] `preview_controller.py`
+  - [x] `barplot_controller.py`
+  - [x] `lineplot_controller.py`
+  - [x] `scatter_controller.py`
+  - [x] `selection_controller.py`
+  - [x] `review_image_controller.py`
+  - [x] `preview_callbacks.py`
+  - [x] `scatter_callbacks.py`
+  - [x] `plot_orchestrator.py`
+  - [x] `export_service.py`
+  - [x] `ui_helpers.py`
+- [x] Remove any now-obsolete compatibility shims introduced solely for interim Tk parity.
+
+## Phase 4 — Packaging + launcher completion
+
+Status: deferred for now per user instruction (2026-04-19). Skip this phase temporarily and continue with later phases.
+
+- [ ] Update `_Installation/all_well.spec`:
+  - [ ] Remove tkinter and Tk backend hiddenimports
+  - [ ] Add PySide6/Qt hiddenimports as specified
+  - [ ] Update excludes to forbid tkinter/_tkinter, not PySide6
+- [ ] Confirm `all_well_launcher.py` remains QtAgg-first before pyplot import.
+- [ ] Validate bundle-time dependency resolution for Qt platform plugins.
+
+## Phase 5 — Acceptance grep gate (must be zero)
+
+- [x] Run acceptance sweep and require **0** matches for each:
+  - [x] `^import tkinter` / `^from tkinter`
+  - [x] `customtkinter`
+  - [x] `FigureCanvasTkAgg`, `NavigationToolbar2Tk`, `backend_tkagg`
+  - [x] `tk.StringVar`, `tk.IntVar`, `tk.BooleanVar`, `tk.DoubleVar`
+  - [x] `messagebox.`, `filedialog.`
+  - [x] `.after(`, `.bind("<`
+  - [x] `ttk.`
+- [x] If any match remains, block merge and return to relevant prior phase.
+
+## Phase 6 — Functional verification (feature parity)
+
+- [ ] `python all_well.py` launches and both tabs populate.
+- [ ] Theme toggle (Dark/Light) repaints all panels cleanly.
+- [ ] `python all_well.py --data_dir /path/to/results` loads dataset on startup.
+- [ ] Plate-map click+drag select works and state survives theme switch.
+- [ ] Plot tabs render (bar/line/scatter-cells/scatter-agg/review-csv/batch-export) with working toolbar pan/zoom.
+- [ ] Image panel LUT min/max editor works; pixel tooltip works.
+- [ ] Save/open dialogs return valid paths through `QFileDialog`.
+- [ ] Invalid-path flows surface `QMessageBox`.
+- [ ] Analyze end-to-end run switches to Review and loads output.
+
+## Phase 7 — Build verification (PyInstaller/macOS bundle)
+
+- [ ] `cd _Installation && pyinstaller all_well.spec` succeeds.
+- [ ] Launch `dist/AllWell.app` and repeat core smoke checks from Phase 6.
+- [ ] If bundle fails for Qt plugins, add targeted plugin collection fallback and re-test.
+
+## Phase 8 — Final hardening + delivery
+
+- [ ] Final `PYTHONPATH=. pytest -q tests` is green.
+- [x] Re-run acceptance grep gate (all zeros) immediately before merge.
+- [ ] Sanity-check docs/todos reflect final migrated state (remove stale Tk references).
+- [ ] Prepare final PR summary with:
+  - [ ] What was ported
+  - [ ] What was deleted
+  - [ ] Acceptance grep proof
+  - [ ] Test/build evidence
