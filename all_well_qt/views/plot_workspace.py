@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import numpy as np
+import logging
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect
@@ -20,6 +21,8 @@ from PySide6.QtWidgets import (
 
 from ..widgets.chip_group import ChipGroup
 from ..widgets.field import Field
+
+_log = logging.getLogger("all_well_qt.plot_workspace")
 
 
 class LegendRow(QWidget):
@@ -66,12 +69,26 @@ class ChartFrame(QFrame):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._canvas = None
 
+        self._empty_lbl = QLabel("Load a dataset to view charts")
+        self._empty_lbl.setAlignment(Qt.AlignCenter)
+        self._empty_lbl.setObjectName("muted")
+        self._layout.addWidget(self._empty_lbl)
+
     def set_canvas(self, canvas: QWidget) -> None:
         if self._canvas:
             self._layout.removeWidget(self._canvas)
             self._canvas.setParent(None)
+        self._empty_lbl.hide()
         self._canvas = canvas
         self._layout.addWidget(canvas)
+
+    def show_empty(self, message: str = "Load a dataset to view charts") -> None:
+        if self._canvas:
+            self._layout.removeWidget(self._canvas)
+            self._canvas.setParent(None)
+            self._canvas = None
+        self._empty_lbl.setText(message)
+        self._empty_lbl.show()
 
 
 class PlotWorkspace(QWidget):
@@ -192,79 +209,43 @@ class PlotWorkspace(QWidget):
         card_layout.addWidget(content, 1)
         layout.addWidget(card, 1)
 
-        # Real-data state (set by ReviewView after dataset load)
+        # State
         self._data_dir: str = ""
-        self._live_groups: dict = {}   # group_id → {wells, color, name}
-        self._renderer = None          # PlotRenderer, created on first set_data_dir
-
-        # Build initial demo chart
-        self._render_chart()
-        self._populate_demo_legend()
+        self._live_groups: dict = {}
+        self._renderer = None
 
     # ── Public API ────────────────────────────────────────────────────
     def set_data_dir(self, path: str) -> None:
-        """Point PlotWorkspace at a real results directory.
-
-        Triggers a chart rebuild.  If the renderer finds no usable CSVs it
-        falls back to the demo dataset and logs a warning.
-        """
         self._data_dir = path
         try:
             from ..adapters.plot_renderer import PlotRenderer
             self._renderer = PlotRenderer(path)
         except Exception:
+            _log.exception("Failed to create PlotRenderer for %s", path)
             self._renderer = None
         self._render_chart()
 
     def set_live_groups(self, groups: dict) -> None:
-        """Update the group→wells mapping used for real-data chart rendering.
-
-        *groups* maps group_id → {"wells": [...], "color": "#hex", "name": "..."}
-        """
+        """Update group→wells mapping; re-renders if a dataset is loaded."""
         self._live_groups = groups
         if self._data_dir:
             self._render_chart()
 
-    # ── Demo data ─────────────────────────────────────────────────────
-    # Shape: (3 groups, 49 time-points, 6 replicate wells)
-    _DEMO_GROUPS = [
-        ("Control (DMSO)",     "#0E6B52"),
-        ("PF-562271 · 100 nM", "#E25C3A"),
-        ("PF-562271 · 1 µM",   "#C08A2E"),
-    ]
-
-    @staticmethod
-    def _demo_raw() -> tuple[np.ndarray, np.ndarray]:
-        """Return (t, data[group, time, replicate]) for the demo dataset."""
-        rng = np.random.default_rng(42)
-        t = np.linspace(0, 12, 49)
-        bases = [
-            np.exp(-0.05 * t),
-            1 + 0.5 * np.sin(t * 0.6),
-            1 + 1.2 * np.sin(t * 0.5),
-        ]
-        data = np.stack([
-            b[:, None] + rng.normal(0, 0.06, (len(t), 6))
-            for b in bases
-        ])  # (3, 49, 6)
-        return t, data
-
     # ── Internal ──────────────────────────────────────────────────────
     def _render_chart(self) -> None:
-        import logging
-        _log = logging.getLogger("all_well_qt.plot_workspace")
+        metric = self._metric_chips.current_label()
+        normalize = self._norm_chip.isChecked()
+        channel = self._channel_field.value.strip()
 
-        metric = self._metric_chips.current_label() if hasattr(self, "_metric_chips") else "Mean"
-        normalize = self._norm_chip.isChecked() if hasattr(self, "_norm_chip") else False
-        channel = self._channel_field.value.strip() if hasattr(self, "_channel_field") else ""
-
-        # Attempt real-data rendering first
         renderer = getattr(self, "_renderer", None)
-        groups = getattr(self, "_live_groups", {})
+        if renderer is None:
+            self._chart_frame.show_empty()
+            return
 
-        # If renderer has data but no groups are defined yet, synthesize a single
-        # "All wells" group so the chart shows immediately after a dataset is loaded.
-        if renderer is not None and renderer.available_wells() and not groups:
+        groups = dict(self._live_groups)
+
+        # When data is loaded but no groups assigned yet, treat all wells as one group.
+        if not groups and renderer.available_wells():
             groups = {
                 "_all": {
                     "wells": renderer.available_wells(),
@@ -273,111 +254,40 @@ class PlotWorkspace(QWidget):
                 }
             }
 
-        if renderer is not None and groups:
-            try:
-                from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-                fig = renderer.render_kinetics(
-                    groups, metric=metric, normalize=normalize, channel=channel
-                )
-                if fig is not None:
-                    canvas = FigureCanvasQTAgg(fig)
-                    canvas.setStyleSheet("background: transparent;")
-                    self._chart_frame.set_canvas(canvas)
-                    self._populate_live_legend(groups)
-                    return
-                _log.warning("render_kinetics returned None (no matching wells/channels?)")
-            except Exception:
-                _log.exception("render_kinetics failed, falling back to demo")
-
-        try:
-            import matplotlib
-            matplotlib.use("QtAgg")
-            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-            from matplotlib.figure import Figure
-        except Exception:
-            placeholder = QLabel("matplotlib not available")
-            placeholder.setAlignment(Qt.AlignCenter)
-            self._chart_frame._layout.addWidget(placeholder)
+        if not groups:
+            self._chart_frame.show_empty("No wells loaded")
             return
 
-        t, data = self._demo_raw()
-
-        # Apply metric reduction across replicates axis
-        if metric == "Mean":
-            y_all = data.mean(axis=2)
-        elif metric == "Median":
-            y_all = np.median(data, axis=2)
-        elif metric == "Sum":
-            y_all = data.sum(axis=2)
-        else:  # CDF — show cumulative distribution at final time point; fall back to mean
-            y_all = data.mean(axis=2)
-
-        if normalize:
-            baseline = y_all[:, :1]
-            denom = np.where(np.abs(baseline) < 1e-9, 1.0, baseline)
-            y_all = y_all / denom
-
         try:
-            from ..theme.manager import ThemeManager
-            t_map = ThemeManager.instance().tokens
-            spine_color = t_map["line"]
-            tick_color = t_map["mut"]
-            ann_color = t_map["warn"]
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            fig = renderer.render_kinetics(
+                groups, metric=metric, normalize=normalize, channel=channel
+            )
         except Exception:
-            spine_color, tick_color, ann_color = "#DED5C2", "#7C786D", "#C08A2E"
+            _log.exception("render_kinetics failed")
+            self._chart_frame.show_empty("Chart render error — check log")
+            return
 
-        fig = Figure(facecolor="none")
-        ax = fig.add_subplot(111)
-        ax.set_facecolor("none")
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.spines["bottom"].set_color(spine_color)
-        ax.spines["left"].set_color(spine_color)
-        ax.tick_params(colors=tick_color, labelsize=9)
-        ylabel = ("Fold change (norm.)" if normalize else "Fold change") if metric != "Sum" else "Sum"
-        ax.set_xlabel("Time (h)", color=tick_color, fontsize=9)
-        ax.set_ylabel(ylabel, color=tick_color, fontsize=9)
-        ax.axvline(6, color=ann_color, linestyle="--", linewidth=0.8, alpha=0.6)
-        ax.text(6.15, ax.get_ylim()[0] if ax.get_ylim()[0] != 0 else 0.02,
-                "drug added · t=6h", color=ann_color, fontsize=7.5)
+        if fig is None:
+            self._chart_frame.show_empty("No data matched the selected channel / wells")
+            return
 
-        for i, (name, color) in enumerate(self._DEMO_GROUPS):
-            y = y_all[i]
-            ax.plot(t, y, color=color, linewidth=1.5, label=name)
-            ax.fill_between(t, y, alpha=0.06, color=color)
-            ax.plot(t[-1], y[-1], "o", color=color, markersize=5)
-
-        fig.tight_layout(pad=0.8)
         canvas = FigureCanvasQTAgg(fig)
         canvas.setStyleSheet("background: transparent;")
         self._chart_frame.set_canvas(canvas)
+        self._populate_legend(groups)
 
     def _clear_legend(self) -> None:
-        while self._legend_layout.count() > 1:  # keep the trailing stretch
+        while self._legend_layout.count() > 1:
             item = self._legend_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-    def _populate_live_legend(self, groups: dict) -> None:
+    def _populate_legend(self, groups: dict) -> None:
         self._clear_legend()
-        idx = 0
-        for gid, spec in groups.items():
+        for idx, (gid, spec) in enumerate(groups.items()):
             row = LegendRow(gid, spec.get("name", gid), spec.get("color", "#888"))
             self._legend_layout.insertWidget(idx, row)
-            idx += 1
-
-    def _populate_demo_legend(self) -> None:
-        groups = [
-            ("ctrl",  "Control (DMSO)",     "#0E6B52"),
-            ("dose1", "PF-562271 · 100 nM", "#E25C3A"),
-            ("dose2", "PF-562271 · 1 µM",   "#C08A2E"),
-            ("ripk",  "RIPK1 kd",           "#7A4AB5"),
-            ("ripa",  "RIPA co-treat",      "#1F6FB8"),
-        ]
-        idx = self._legend_layout.count() - 1
-        for gid, name, color in groups:
-            row = LegendRow(gid, name, color)
-            self._legend_layout.insertWidget(idx, row)
-            idx += 1
 
     def _on_tab_changed(self, idx: int) -> None:
         titles = ["Kinetics — fold change", "Bar plots", "Scatter (cells)",

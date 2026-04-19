@@ -181,9 +181,6 @@ class Sidebar(QWidget):
         # well_id → GroupSpec for the full plate mapping
         self._well_group_map: dict[str, GroupSpec] = {}
 
-        # Seed demo groups
-        self._seed_demo_groups()
-
     def _on_load_dataset(self) -> None:
         from PySide6.QtWidgets import QFileDialog
         path = QFileDialog.getExistingDirectory(self, "Select results directory")
@@ -245,22 +242,3 @@ class Sidebar(QWidget):
         }
         self.plate_map.set_groups(self._well_group_map)
 
-    def _seed_demo_groups(self) -> None:
-        from ..theme.manager import ThemeManager
-        try:
-            tokens = ThemeManager.instance().tokens
-        except RuntimeError:
-            return
-        groups = [
-            ("ctrl",  "Control (DMSO)",     ["A01","A02","A03","B01","B02","B03"]),
-            ("dose1", "PF-562271 · 100 nM", ["A05","A06","A07","B05","B06","B07"]),
-            ("dose2", "PF-562271 · 1 µM",   ["A09","A10","A11","B09","B10","B11"]),
-            ("ripk",  "RIPK1 kd",           ["D02","D03","D04","E02","E03","E04"]),
-            ("ripa",  "RIPA co-treat",      ["D07","D08","D09","E07","E08","E09"]),
-        ]
-        for i, (gid, name, wells) in enumerate(groups):
-            color = tokens["wells"][i % len(tokens["wells"])]
-            self.sample_groups.add_group(gid, name, color, len(wells))
-            for w in wells:
-                self._well_group_map[w] = GroupSpec(color=color, name=name, id=gid)
-        self.plate_map.set_groups(self._well_group_map)
