@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -30,6 +31,7 @@ from well_viewer.export_service import (
     export_scatter_data as _export_scatter_data_service,
 )
 from well_viewer.figure_export_editor import launch_export_editor
+from well_viewer.plot_utils import aggregate_with_threshold
 from well_viewer.review_image_controller import (
     on_review_csv_row_double_click as _on_review_csv_row_double_click_controller,
 )
@@ -67,6 +69,9 @@ class WellViewerApp(QWidget):
         self._active_metric = "mean_intensity"
         self._active_val_col = "gfp_mean_intensity"
         self._fluor_channels = ["gfp"]
+        self._rep_sets = []
+        self._rep_hidden: set[int] = set()
+        self._bar_groups = []
 
         # compatibility holders used across tab builders/controllers
         self._plot_chan_var = _Var("GFP")
@@ -381,6 +386,50 @@ class WellViewerApp(QWidget):
 
     def _selected_labels(self) -> list[str]:
         return sorted(self._selected_wells, key=self._parse_rc)
+
+    def _rep_sets_loaded(self) -> list:
+        loaded = []
+        for rset in self._rep_sets:
+            wells = [w for w in getattr(rset, "wells", []) if w in self._well_paths]
+            if wells:
+                loaded.append(rset)
+        return loaded
+
+    def _rep_sets_active(self) -> list:
+        loaded = self._rep_sets_loaded()
+        return [r for i, r in enumerate(loaded) if i not in self._rep_hidden]
+
+    def _rep_idx_for_label(self, label: str) -> int | None:
+        for i, rset in enumerate(self._rep_sets_loaded()):
+            if label in getattr(rset, "wells", []):
+                return i
+        return None
+
+    def _replicate_display_label(self, rset) -> str:
+        return str(getattr(rset, "name", "Replicate"))
+
+    def _well_display_label(self, label: str) -> str:
+        return str(label)
+
+    def _invalidate_stats_cache(self) -> None:
+        return
+
+    def _compute_rep_stats(self, rset, target_t: float, threshold: float, use_sem: bool):
+        all_rows: list[dict] = []
+        for w in getattr(rset, "wells", []):
+            all_rows.extend(self._get_rows(w))
+        pts = aggregate_with_threshold(
+            all_rows,
+            threshold,
+            use_sem=use_sem,
+            val_col=self._active_val_col,
+            cell_area_threshold=self._get_cell_area_threshold(),
+            fluor_gates=self._get_all_fluor_gates(),
+        )
+        for t, mean_v, err_v, frac_v, _na, _nt in pts:
+            if abs(t - target_t) < 1e-6:
+                return mean_v, err_v, frac_v, 0.0
+        return math.nan, 0.0, math.nan, 0.0
 
     def _get_rows(self, label: str) -> list[dict]:
         if label in self._cache:
