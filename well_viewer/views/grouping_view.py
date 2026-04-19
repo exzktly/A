@@ -1,301 +1,324 @@
-"""Replicate/group card-list UI builders extracted from runtime_app."""
+"""Replicate/group card-list UI builders (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
+)
 
-from well_viewer.ui_helpers import btn_card, btn_danger
+from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
+
+
+def _clear_layout(layout):
+    while layout.count():
+        item = layout.takeAt(0)
+        w = item.widget()
+        if w is not None:
+            w.setParent(None)
+            w.deleteLater()
 
 
 def rep_panel_refresh(app) -> None:
-    from well_viewer import runtime_app as rt
-    from ui.theme import get_color
-
-    compact_threshold = 8
     if not hasattr(app, "_rep_inner"):
         return
-    for w in app._rep_inner.winfo_children():
-        w.destroy()
-
-    # Get current theme colors
-    txt_mut = get_color("TXT_MUT")
-    bg_app = get_color("BG_APP")
-    bg_panel = get_color("BG_PANEL")
-    bg_hover = get_color("BG_HOVER")
-    accent = get_color("ACCENT")
-    border = get_color("BORDER")
-    txt_pri = get_color("TXT_PRI")
-    clr_white = get_color("CLR_WHITE")
+    inner = app._rep_inner
+    inner_layout = inner.layout()
+    if inner_layout is None:
+        inner_layout = QVBoxLayout(inner)
+        inner.setLayout(inner_layout)
+    _clear_layout(inner_layout)
 
     if not app._rep_sets:
-        rt.tk.Label(app._rep_inner, text="No replicate sets defined yet.\nClick + Add to create one.", font=rt.FM_TINY, fg=txt_mut, bg=bg_app, justify=rt.tk.LEFT).pack(anchor="w", padx=8, pady=8)
-        app._rep_refresh_map()
+        msg = QLabel(
+            "No replicate sets defined yet.\nClick + Add to create one.",
+            inner,
+        )
+        msg.setObjectName("Muted")
+        inner_layout.addWidget(msg)
+        inner_layout.addStretch(1)
+        if hasattr(app, "_rep_refresh_map"):
+            app._rep_refresh_map()
         return
-    compact = len(app._rep_sets) > compact_threshold
+
     for si, rset in enumerate(app._rep_sets):
         is_sel = si == app._active_rep_idx
-        bg = bg_hover if is_sel else bg_panel
-        use_full = is_sel or not compact
-        card = rt.tk.Frame(app._rep_inner, bg=bg, highlightthickness=1, highlightbackground=accent if is_sel else border)
-        card.pack(fill=rt.tk.X, padx=4, pady=1)
-        if use_full:
-            hdr = rt.tk.Frame(card, bg=bg)
-            hdr.pack(fill=rt.tk.X, padx=6, pady=(4, 2))
-            rt.tk.Label(hdr, text=rset.name, font=rt.FM_BOLD, fg=txt_pri, bg=bg).pack(side=rt.tk.LEFT)
-            n = len(rset.wells)
-            rt.tk.Label(hdr, text=f"  {n} well{'s' if n!=1 else ''}", font=rt.FM_TINY, fg=txt_mut, bg=bg).pack(side=rt.tk.LEFT)
-            bf = rt.tk.Frame(hdr, bg=bg)
-            bf.pack(side=rt.tk.RIGHT)
-            btn_card(bf, "Rename", lambda i=si: app._rep_rename(i)).pack(side=rt.tk.LEFT, padx=1)
-            btn_card(bf, "Edit wells", lambda i=si: app._rep_edit_wells(i)).pack(side=rt.tk.LEFT, padx=1)
-            btn_danger(bf, "\u2715", lambda i=si: app._rep_delete(i)).pack(side=rt.tk.LEFT, padx=1)
-            if rset.wells:
-                chips = rt.tk.Frame(card, bg=bg)
-                chips.pack(fill=rt.tk.X, padx=6, pady=(0, 4))
-                for w in rset.wells:
-                    rt.tk.Label(chips, text=w, font=rt.FM_TINY, bg=accent, fg=clr_white, padx=4, pady=1).pack(side=rt.tk.LEFT, padx=(0, 2), pady=1)
-        else:
-            row = rt.tk.Frame(card, bg=bg)
-            row.pack(fill=rt.tk.X, padx=6, pady=2)
-            color = rt.WELL_COLORS[si % len(rt.WELL_COLORS)]
-            rt.tk.Label(row, text="\u25cf", font=rt.FM_TINY, fg=color, bg=bg).pack(side=rt.tk.LEFT, padx=(0, 4))
-            rt.tk.Label(row, text=rset.name, font=rt.FM_TINY, fg=txt_pri, bg=bg).pack(side=rt.tk.LEFT)
-            n = len(rset.wells)
-            rt.tk.Label(row, text=f"  ({n}w)", font=rt.FM_TINY, fg=txt_mut, bg=bg).pack(side=rt.tk.LEFT)
-        sel_cb = lambda _e, i=si: app._rep_select(i)
-        card.bind("<Button-1>", sel_cb)
-        for child in card.winfo_children():
-            if not isinstance(child, rt.tk.Button):
-                child.bind("<Button-1>", sel_cb)
-    app._rep_refresh_map()
+        card = QWidget(inner)
+        card.setProperty("variant", "group_row")
+        card.setProperty("active", "true" if is_sel else "false")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(6, 4, 6, 4)
+
+        hdr = QWidget(card)
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(0, 0, 0, 0)
+        name_lbl = QLabel(rset.name, hdr)
+        hl.addWidget(name_lbl)
+        n = len(rset.wells)
+        count_lbl = QLabel(f"  {n} well{'s' if n != 1 else ''}", hdr)
+        count_lbl.setObjectName("Muted")
+        hl.addWidget(count_lbl)
+        hl.addStretch(1)
+        hl.addWidget(btn_card(hdr, "Rename", lambda i=si: app._rep_rename(i)))
+        hl.addWidget(btn_card(hdr, "Edit wells", lambda i=si: app._rep_edit_wells(i)))
+        hl.addWidget(btn_danger(hdr, "✕", lambda i=si: app._rep_delete(i)))
+        cl.addWidget(hdr)
+
+        if rset.wells:
+            chips = QWidget(card)
+            ch_l = QHBoxLayout(chips)
+            ch_l.setContentsMargins(0, 0, 0, 0)
+            for w in rset.wells:
+                chip = QLabel(w, chips)
+                chip.setProperty("variant", "chip")
+                ch_l.addWidget(chip)
+            ch_l.addStretch(1)
+            cl.addWidget(chips)
+
+        def _select(_e, i=si):
+            app._rep_select(i)
+        card.mousePressEvent = _select
+        inner_layout.addWidget(card)
+
+    inner_layout.addStretch(1)
+    if hasattr(app, "_rep_refresh_map"):
+        app._rep_refresh_map()
 
 
 def grp_panel_refresh(app) -> None:
     """Rebuild the group card list in the Sample Definitions tab."""
-    from well_viewer.runtime_app import (
-        FM_BOLD, FM_TINY, WELL_COLORS, CLR_MUTED_DISABLED, BG_HOVER, BG_PANEL,
-        ACCENT, BORDER, TXT_MUT, TXT_PRI, BG_APP, BG_CELL,
-        CLR_SUCCESS, CLR_WARN_TEXT, CLR_WARN_BG, CLR_WHITE,
-        _extract_well_token, _btn_card, _btn_danger,
-    )
-
     if not hasattr(app, "_grp_inner"):
         return
-    for w in app._grp_inner.winfo_children():
-        w.destroy()
+    inner = app._grp_inner
+    inner_layout = inner.layout()
+    if inner_layout is None:
+        inner_layout = QVBoxLayout(inner)
+        inner.setLayout(inner_layout)
+    _clear_layout(inner_layout)
 
     if not app._bar_groups:
-        tk.Label(app._grp_inner,
-                 text="No groups defined.\nClick + Add to create one.",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-                 justify=tk.LEFT).pack(anchor="w", padx=8, pady=8)
+        msg = QLabel(
+            "No groups defined.\nClick + Add to create one.",
+            inner,
+        )
+        msg.setObjectName("Muted")
+        inner_layout.addWidget(msg)
+        inner_layout.addStretch(1)
         return
 
     for gi, grp in enumerate(app._bar_groups):
-        is_sel = (gi == app._bar_active_grp)
-        color  = WELL_COLORS[gi % len(WELL_COLORS)]
-        dot_c  = CLR_MUTED_DISABLED if grp.hidden else color
-        bg     = BG_HOVER if is_sel else BG_PANEL
+        is_sel = gi == app._bar_active_grp
+        card = QWidget(inner)
+        card.setProperty("variant", "group_row")
+        card.setProperty("active", "true" if is_sel else "false")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(6, 4, 6, 4)
 
-        card = tk.Frame(app._grp_inner, bg=bg,
-                        highlightthickness=1,
-                        highlightbackground=ACCENT if is_sel else BORDER)
-        card.pack(fill=tk.X, padx=4, pady=2)
+        hdr = QWidget(card)
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(0, 0, 0, 0)
+        dot = QLabel("●", hdr)
+        hl.addWidget(dot)
 
-        hdr = tk.Frame(card, bg=bg)
-        hdr.pack(fill=tk.X, padx=6, pady=(4, 2))
-        tk.Label(hdr, text="●", font=FM_BOLD, fg=dot_c,
-                 bg=bg).pack(side=tk.LEFT, padx=(0, 4))
-        name_fg = TXT_MUT if grp.hidden else TXT_PRI
-        name_var = tk.StringVar(value=grp.name)
-        name_ent = tk.Entry(
-            hdr,
-            textvariable=name_var,
-            font=FM_BOLD,
-            fg=name_fg,
-            bg=bg,
-            relief=tk.FLAT,
-            insertbackground=name_fg,
-            highlightthickness=1,
-            highlightbackground=ACCENT if is_sel else BORDER,
-            highlightcolor=ACCENT,
-            width=max(10, len(grp.name) + 2),
-        )
-        name_ent.pack(side=tk.LEFT, padx=(0, 4))
+        name_edit = QLineEdit(grp.name, hdr)
+        hl.addWidget(name_edit)
 
-        def _commit_name(_e=None, i=gi, var=name_var):
-            new_name = str(var.get() or "").strip()
+        def _commit_name(i=gi, ed=name_edit):
+            new_name = (ed.text() or "").strip()
             if not new_name:
-                var.set(app._bar_groups[i].name)
+                ed.setText(app._bar_groups[i].name)
                 return
             if new_name != app._bar_groups[i].name:
                 app._bar_groups[i].name = new_name
                 app._rebuild_all()
 
-        name_ent.bind("<Return>", _commit_name)
-        name_ent.bind("<FocusOut>", _commit_name)
+        name_edit.editingFinished.connect(_commit_name)
+
         if getattr(app, "_grp_inline_edit_idx", -1) == gi:
             app._grp_inline_edit_idx = -1
+            QTimer.singleShot(0, lambda ed=name_edit: (ed.setFocus(), ed.selectAll()))
 
-            def _focus_inline_editor(ent=name_ent):
-                try:
-                    ent.focus_set()
-                    ent.select_range(0, tk.END)
-                    ent.icursor(tk.END)
-                except Exception:
-                    pass
-
-            app.after_idle(_focus_inline_editor)
         if grp.hidden:
-            tk.Label(hdr, text="[hidden]", font=FM_TINY,
-                     fg=TXT_MUT, bg=bg).pack(side=tk.LEFT, padx=(4, 0))
+            hid = QLabel("[hidden]", hdr)
+            hid.setObjectName("Muted")
+            hl.addWidget(hid)
 
-        n_sets  = len(grp.members)
+        n_sets = len(grp.members)
         n_wells = len(grp.wells)
-        tk.Label(hdr,
-                 text=f"  {n_sets} set{'s' if n_sets!=1 else ''}  ·  "
-                      f"{n_wells} well{'s' if n_wells!=1 else ''}",
-                 font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
+        cnt = QLabel(
+            f"  {n_sets} set{'s' if n_sets != 1 else ''}  ·  "
+            f"{n_wells} well{'s' if n_wells != 1 else ''}",
+            hdr,
+        )
+        cnt.setObjectName("Muted")
+        hl.addWidget(cnt)
+        hl.addStretch(1)
 
-        bf = tk.Frame(hdr, bg=bg)
-        bf.pack(side=tk.RIGHT)
-        vis_txt = "Show" if grp.hidden else "Hide"
-        vis_bg  = BG_CELL if grp.hidden else CLR_WARN_BG
-        vis_fg  = CLR_SUCCESS if grp.hidden else CLR_WARN_TEXT
-        tk.Button(bf, text=vis_txt,
-                  command=lambda i=gi: app._grp_toggle_visibility(i),
-                  font=FM_TINY, bg=vis_bg, fg=vis_fg,
-                  relief=tk.FLAT, padx=4, cursor="hand2",
-                  activebackground=BG_HOVER).pack(side=tk.LEFT, padx=1)
-        _btn_danger(bf, "✕", lambda i=gi: app._grp_delete(i)).pack(side=tk.LEFT, padx=1)
+        hl.addWidget(btn_card(
+            hdr, "Show" if grp.hidden else "Hide",
+            lambda i=gi: app._grp_toggle_visibility(i),
+        ))
+        hl.addWidget(btn_danger(hdr, "✕", lambda i=gi: app._grp_delete(i)))
+        cl.addWidget(hdr)
 
-        # Members: replicate sets
         if grp.members or grp.solo_wells:
-            mem_frame = tk.Frame(card, bg=bg)
-            mem_frame.pack(fill=tk.X, padx=6, pady=(2, 2))
+            mem = QWidget(card)
+            ml = QVBoxLayout(mem)
+            ml.setContentsMargins(0, 0, 0, 0)
             for rset in grp.members:
-                mrow = tk.Frame(mem_frame, bg=bg)
-                mrow.pack(fill=tk.X, pady=1)
-                tk.Label(mrow, text=f"[{rset.name}]", font=FM_TINY,
-                         fg=dot_c, bg=bg, padx=2).pack(side=tk.LEFT)
+                mrow = QWidget(mem)
+                mrl = QHBoxLayout(mrow)
+                mrl.setContentsMargins(0, 0, 0, 0)
+                mrl.addWidget(QLabel(f"[{rset.name}]", mrow))
                 for w in rset.wells:
-                    tk.Label(mrow, text=w, font=FM_TINY,
-                             bg=dot_c, fg=CLR_WHITE,
-                             padx=3, pady=1).pack(side=tk.LEFT, padx=(0, 2))
+                    chip = QLabel(w, mrow)
+                    chip.setProperty("variant", "chip")
+                    mrl.addWidget(chip)
                 if is_sel:
-                    _btn_danger(mrow, "−", lambda g=gi, r=rset: app._grp_remove_member(g, r),
-                                padx=3).pack(side=tk.LEFT, padx=(4, 0))
+                    mrl.addWidget(btn_danger(
+                        mrow, "−",
+                        lambda g=gi, r=rset: app._grp_remove_member(g, r),
+                    ))
+                mrl.addStretch(1)
+                ml.addWidget(mrow)
             for w in grp.solo_wells:
-                srow = tk.Frame(mem_frame, bg=bg)
-                srow.pack(fill=tk.X, pady=1)
-                tk.Label(srow, text=f"[solo] {w}", font=FM_TINY,
-                         fg=dot_c, bg=bg).pack(side=tk.LEFT)
+                srow = QWidget(mem)
+                srl = QHBoxLayout(srow)
+                srl.setContentsMargins(0, 0, 0, 0)
+                srl.addWidget(QLabel(f"[solo] {w}", srow))
                 if is_sel:
-                    _btn_danger(srow, "−", lambda g=gi, wl=w: app._grp_remove_solo(g, wl),
-                                padx=3).pack(side=tk.LEFT, padx=(4, 0))
+                    srl.addWidget(btn_danger(
+                        srow, "−",
+                        lambda g=gi, wl=w: app._grp_remove_solo(g, wl),
+                    ))
+                srl.addStretch(1)
+                ml.addWidget(srow)
+            cl.addWidget(mem)
         else:
-            tk.Label(card, text="Empty — add replicate sets or wells below",
-                     font=FM_TINY, fg=TXT_MUT, bg=bg,
-                     padx=6).pack(anchor="w", padx=6, pady=(0, 2))
+            empty = QLabel("Empty — add replicate sets or wells below", card)
+            empty.setObjectName("Muted")
+            cl.addWidget(empty)
 
-        # Active group: add replicate sets and/or individual wells
         if is_sel:
-            act_rep = tk.Frame(card, bg=bg)
-            act_rep.pack(fill=tk.X, padx=6, pady=(2, 0))
             if app._rep_sets:
-                tk.Label(act_rep, text="+ Set:", font=FM_TINY,
-                         fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
+                act_rep = QWidget(card)
+                arl = QHBoxLayout(act_rep)
+                arl.setContentsMargins(0, 0, 0, 0)
+                lbl = QLabel("+ Set:", act_rep)
+                lbl.setObjectName("Muted")
+                arl.addWidget(lbl)
                 for rset in app._rep_sets:
                     if rset not in grp.members:
-                        _btn_card(act_rep, rset.name,
-                                  lambda r=rset, g=gi: app._grp_add_member(g, r)
-                                  ).pack(side=tk.LEFT, padx=2)
+                        arl.addWidget(btn_card(
+                            act_rep, rset.name,
+                            lambda r=rset, g=gi: app._grp_add_member(g, r),
+                        ))
+                arl.addStretch(1)
+                cl.addWidget(act_rep)
             else:
-                tk.Label(act_rep,
-                         text="(No replicate sets — define them in the left panel)",
-                         font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
+                lbl = QLabel(
+                    "(No replicate sets — define them in the left panel)",
+                    card,
+                )
+                lbl.setObjectName("Muted")
+                cl.addWidget(lbl)
 
             assigned_wells = set(grp.wells)
-            unassigned = [tok for tok in sorted(
-                              app._well_paths.keys(),
-                              key=lambda t: app._parse_rc(t))
-                          if tok not in assigned_wells]
+            unassigned = [
+                tok for tok in sorted(
+                    app._well_paths.keys(),
+                    key=lambda t: app._parse_rc(t),
+                )
+                if tok not in assigned_wells
+            ]
             if unassigned:
-                act_well = tk.Frame(card, bg=bg)
-                act_well.pack(fill=tk.X, padx=6, pady=(2, 4))
-                tk.Label(act_well, text="+ Well:", font=FM_TINY,
-                         fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
+                act_well = QWidget(card)
+                awl = QHBoxLayout(act_well)
+                awl.setContentsMargins(0, 0, 0, 0)
+                lbl = QLabel("+ Well:", act_well)
+                lbl.setObjectName("Muted")
+                awl.addWidget(lbl)
                 for tok in unassigned:
-                    _btn_card(act_well, tok,
-                              lambda wl=tok, g=gi: app._grp_add_solo_well(g, wl)
-                              ).pack(side=tk.LEFT, padx=2)
-            else:
-                tk.Frame(card, bg=bg, height=4).pack()  # spacing
+                    awl.addWidget(btn_card(
+                        act_well, tok,
+                        lambda wl=tok, g=gi: app._grp_add_solo_well(g, wl),
+                    ))
+                awl.addStretch(1)
+                cl.addWidget(act_well)
 
-        sel_cb = lambda _e, i=gi: app._grp_select(i)
-        for widget in [card, hdr, bf]:
-            widget.bind("<Button-1>", sel_cb)
+        def _sel(_e, i=gi):
+            app._grp_select(i)
+        card.mousePressEvent = _sel
+        inner_layout.addWidget(card)
+
+    inner_layout.addStretch(1)
 
 
-def build_group_def_panel(app, parent: tk.Frame) -> None:
-    """Right panel of Sample Definitions tab: combine ReplicateSets into BarGroups."""
-    from well_viewer.runtime_app import (
-        BORDER, BG_SIDE, FM_BOLD, TXT_MUT, FM_TINY, TXT_PRI, BG_APP,
-        _btn_primary, _btn_secondary, make_scrollable_canvas,
+def build_group_def_panel(app, parent: QWidget) -> None:
+    """Right panel of Sample Definitions tab."""
+    from well_viewer.ui_helpers import make_scrollable_canvas
+
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+
+    sep = QFrame(parent)
+    sep.setObjectName("Separator")
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFixedHeight(1)
+    layout.addWidget(sep)
+
+    hdr = QWidget(parent)
+    hdr.setObjectName("Sidebar")
+    hl = QHBoxLayout(hdr)
+    hl.setContentsMargins(8, 4, 8, 4)
+    title = QLabel("GROUPS", hdr)
+    title.setProperty("role", "section")
+    hl.addWidget(title)
+    hl.addStretch(1)
+    hl.addWidget(btn_secondary(hdr, "Clear All", app._grp_clear_all))
+    hl.addWidget(btn_primary(hdr, "+ Add", app._grp_add))
+    layout.addWidget(hdr)
+
+    hdr2 = QWidget(parent)
+    hdr2.setObjectName("Sidebar")
+    h2 = QHBoxLayout(hdr2)
+    h2.setContentsMargins(8, 4, 8, 4)
+    h2.addWidget(QLabel("Pair:", hdr2))
+    app._bar_quick_pair_dir_cb = QComboBox(hdr2)
+    app._bar_quick_pair_dir_cb.addItems(["Rows (A01+A02)", "Columns (A01+B01)"])
+    h2.addWidget(app._bar_quick_pair_dir_cb)
+    h2.addWidget(QLabel("Order:", hdr2))
+    app._bar_quick_iter_order_cb = QComboBox(hdr2)
+    app._bar_quick_iter_order_cb.addItems(["Across rows", "Down columns"])
+    h2.addWidget(app._bar_quick_iter_order_cb)
+    h2.addStretch(1)
+    layout.addWidget(hdr2)
+
+    btn_row = QWidget(parent)
+    btn_row.setObjectName("Sidebar")
+    br = QHBoxLayout(btn_row)
+    br.setContentsMargins(8, 2, 8, 2)
+    br.addWidget(btn_primary(btn_row, "Apply Quick Groups",
+                             app._bar_quick_groups_from_dropdowns))
+    br.addWidget(btn_secondary(btn_row, "Save…", app._bar_save_groups))
+    br.addWidget(btn_secondary(btn_row, "Load…", app._bar_load_groups))
+    br.addStretch(1)
+    layout.addWidget(btn_row)
+
+    help_lbl = QLabel(
+        "Each group produces one bar/line on the plot. "
+        "Add replicate sets or individual wells to a group.",
+        parent,
     )
+    help_lbl.setObjectName("Muted")
+    help_lbl.setWordWrap(True)
+    layout.addWidget(help_lbl)
 
-    tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-
-    hdr = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-    hdr.pack(fill=tk.X)
-    tk.Label(hdr, text="GROUPS", font=FM_BOLD,
-             fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-    _btn_primary(hdr, "+ Add", app._grp_add).pack(side=tk.RIGHT)
-    _btn_secondary(hdr, "Clear All", app._grp_clear_all).pack(side=tk.RIGHT, padx=(0, 4))
-
-    # Second row: Quick Groups dropdowns (full setup: replicates + groups)
-    hdr2g = tk.Frame(parent, bg=BG_SIDE, pady=4, padx=8)
-    hdr2g.pack(fill=tk.X)
-
-    # Pair direction dropdown
-    tk.Label(hdr2g, text="Pair:", font=FM_TINY, fg=TXT_PRI,
-             bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-    app._bar_quick_pair_dir_var = tk.StringVar(value="Rows (A01+A02)")
-    pair_dir_cb_bar = ttk.Combobox(
-        hdr2g,
-        textvariable=app._bar_quick_pair_dir_var,
-        values=["Rows (A01+A02)", "Columns (A01+B01)"],
-        state="readonly",
-        width=18)
-    pair_dir_cb_bar.pack(side=tk.LEFT, padx=(0, 8))
-
-    # Iteration order dropdown
-    tk.Label(hdr2g, text="Order:", font=FM_TINY, fg=TXT_PRI,
-             bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-    app._bar_quick_iter_order_var = tk.StringVar(value="Across rows")
-    iter_order_cb_bar = ttk.Combobox(
-        hdr2g,
-        textvariable=app._bar_quick_iter_order_var,
-        values=["Across rows", "Down columns"],
-        state="readonly",
-        width=14)
-    iter_order_cb_bar.pack(side=tk.LEFT, padx=(0, 4))
-
-    # Apply button on separate row below dropdowns
-    btn_row_bar = tk.Frame(parent, bg=BG_SIDE, pady=2, padx=8)
-    btn_row_bar.pack(fill=tk.X)
-    _btn_primary(btn_row_bar, "Apply Quick Groups", app._bar_quick_groups_from_dropdowns).pack(side=tk.LEFT, padx=(0, 4))
-    _btn_secondary(btn_row_bar, "Save…", app._bar_save_groups).pack(side=tk.LEFT, padx=(0, 2))
-    _btn_secondary(btn_row_bar, "Load…", app._bar_load_groups).pack(side=tk.LEFT, padx=(0, 2))
-
-    tk.Label(parent,
-             text="Each group produces one bar/line on the plot. "
-                  "Add replicate sets or individual wells to a group.",
-             font=FM_TINY, fg=TXT_MUT, bg=BG_APP,
-             wraplength=280, justify=tk.LEFT).pack(
-             fill=tk.X, padx=8, pady=(4, 2))
-
-    sf = tk.Frame(parent, bg=BG_APP)
-    sf.pack(fill=tk.BOTH, expand=True)
-    app._grp_canvas, app._grp_inner = make_scrollable_canvas(sf, bg=BG_APP)
+    sa, inner = make_scrollable_canvas(parent)
+    layout.addWidget(sa, 1)
+    app._grp_canvas = sa
+    app._grp_inner = inner

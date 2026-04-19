@@ -1,75 +1,83 @@
-"""Statistics-tab UI builders extracted from well_viewer3."""
+"""Statistics-tab UI builders (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
-from typing import Dict, Optional
+from typing import Optional
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QTextEdit,
+    QVBoxLayout, QWidget,
+)
 
 from well_viewer.ui_helpers import btn_primary, btn_secondary
-from ui.theme import get_color
 
 
-def build_stats_tab(app, parent: tk.Frame, *, bg_app: str, bg_side: str) -> None:
-    """Build statistics results area (group editor lives in sidebar)."""
+def build_stats_tab(app, parent: QWidget, **_kw) -> None:
     app._stats_groups = []
     app._stats_active_grp = -1
     app._build_stats_results_panel(parent)
 
 
-def build_stats_group_editor(
-    app,
-    parent: tk.Frame,
-    *,
-    fm_bold,
-    fm_tiny,
-    txt_mut: str,
-    txt_sec: str,
-    txt_pri: str,
-    bg_side: str,
-    bg_panel: str,
-    bg_cell: str,
-    bg_hover: str,
-    accent: str,
-    border: str,
-    clr_white: str,
-    clr_avail_well: str,
-    clr_avail_hover: str,
-    well_colors: list[str],
-    bind_drag_fn,
-    build_plate_grid_fn,
-    make_scrollable_canvas_fn,
-    extract_well_token_fn,
-) -> None:
+def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     """Build the left-hand statistics group editor."""
-    hdr1 = tk.Frame(parent, bg=bg_side, pady=4, padx=8)
-    hdr1.pack(fill=tk.X)
-    tk.Label(hdr1, text="COMPARISON GROUPS", font=fm_bold, fg=txt_mut, bg=bg_side).pack(side=tk.LEFT)
-    btn_primary(hdr1, "+ Add", app._stats_grp_add).pack(side=tk.RIGHT)
-    btn_secondary(hdr1, "Clear All", app._stats_grp_clear_all).pack(side=tk.RIGHT, padx=(0, 4))
+    from well_viewer.ui_helpers import make_scrollable_canvas
+    from well_viewer.views.well_button import build_plate_grid
 
-    tk.Frame(parent, bg=border, height=1).pack(fill=tk.X)
-    tk.Label(parent, text="Drag wells to assign them to a group.  Select a group card first.", font=fm_tiny, fg=txt_mut, bg=bg_side, pady=3, anchor="w", wraplength=360).pack(fill=tk.X, padx=6)
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
 
-    map_frame = tk.Frame(parent, bg=bg_side)
-    map_frame.pack(fill=tk.X, padx=4)
+    hdr = QWidget(parent)
+    hdr.setObjectName("Sidebar")
+    hl = QHBoxLayout(hdr)
+    hl.setContentsMargins(8, 4, 8, 4)
+    title = QLabel("COMPARISON GROUPS", hdr)
+    title.setProperty("role", "section")
+    hl.addWidget(title)
+    hl.addStretch(1)
+    hl.addWidget(btn_secondary(hdr, "Clear All", app._stats_grp_clear_all))
+    hl.addWidget(btn_primary(hdr, "+ Add", app._stats_grp_add))
+    layout.addWidget(hdr)
+
+    sep1 = QFrame(parent)
+    sep1.setObjectName("Separator")
+    sep1.setFrameShape(QFrame.HLine)
+    sep1.setFixedHeight(1)
+    layout.addWidget(sep1)
+
+    help_lbl = QLabel(
+        "Drag wells to assign them to a group. Select a group card first.",
+        parent,
+    )
+    help_lbl.setObjectName("Muted")
+    help_lbl.setWordWrap(True)
+    layout.addWidget(help_lbl)
+
+    map_frame = QWidget(parent)
+    layout.addWidget(map_frame)
     app._stats_map_btns = {}
-    build_plate_grid_fn(map_frame, app._stats_map_btns)
+    build_plate_grid(map_frame, app._stats_map_btns)
 
     app._stats_drag_adding = True
     app._stats_drag_visited = set()
 
-    def _tok_at(event) -> Optional[str]:
-        sx = event.widget.winfo_rootx() + event.x
-        sy = event.widget.winfo_rooty() + event.y
-        w = event.widget.winfo_containing(sx, sy)
+    # Drag state machine on the map frame
+    def _tok_at(pos):
+        child = map_frame.childAt(pos)
+        if child is None:
+            return None
         for tok, btn in app._stats_map_btns.items():
-            if btn is w:
+            if btn is child or btn is child.parent():
                 return tok
         return None
 
     def _press(event):
-        tok = _tok_at(event)
+        pos = event.position().toPoint()
+        tok = _tok_at(pos)
         if tok is None or tok not in app._well_paths:
             return
         grp = app._stats_active_group()
@@ -79,8 +87,9 @@ def build_stats_group_editor(
         app._stats_drag_visited = set()
         app._stats_apply_drag(tok)
 
-    def _drag(event):
-        tok = _tok_at(event)
+    def _move(event):
+        pos = event.position().toPoint()
+        tok = _tok_at(pos)
         if tok and tok not in app._stats_drag_visited:
             app._stats_apply_drag(tok)
 
@@ -90,87 +99,103 @@ def build_stats_group_editor(
             app._stats_refresh_group_list()
         app._stats_drag_visited = set()
 
-    bind_drag_fn(map_frame, app._stats_map_btns, _press, _drag, _release)
+    map_frame.setMouseTracking(True)
+    map_frame.mousePressEvent = _press
+    map_frame.mouseMoveEvent = _move
+    map_frame.mouseReleaseEvent = _release
 
-    tk.Frame(parent, bg=border, height=1).pack(fill=tk.X, pady=(4, 0))
-    sf = tk.Frame(parent, bg=bg_side)
-    sf.pack(fill=tk.BOTH, expand=True)
-    app._stats_grp_canvas, app._stats_grp_inner = make_scrollable_canvas_fn(sf, bg=bg_side)
+    sep2 = QFrame(parent)
+    sep2.setObjectName("Separator")
+    sep2.setFrameShape(QFrame.HLine)
+    sep2.setFixedHeight(1)
+    layout.addWidget(sep2)
+
+    sa, inner = make_scrollable_canvas(parent)
+    layout.addWidget(sa, 1)
+    app._stats_grp_canvas = sa
+    app._stats_grp_inner = inner
 
     app._stats_refresh_map()
     app._stats_refresh_group_list()
 
 
-def build_stats_results_panel(
-    app,
-    parent: tk.Frame,
-    *,
-    fm_bold,
-    fm_tiny,
-    txt_mut: str,
-    txt_sec: str,
-    txt_pri: str,
-    bg_app: str,
-    bg_side: str,
-    bg_panel: str,
-    border: str,
-    accent: str,
-    clr_white: str,
-) -> None:
+def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
     """Build the right-hand stats controls/results panel."""
-    app._stats_hdr = tk.Frame(parent, bg=bg_side, pady=4, padx=12)
-    app._stats_hdr.pack(fill=tk.X)
-    app._stats_hdr_label = tk.Label(app._stats_hdr, text="STATISTICAL TEST", font=fm_bold, fg=txt_mut, bg=bg_side)
-    app._stats_hdr_label.pack(side=tk.LEFT)
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
 
-    app._stats_ctrl = tk.Frame(parent, bg=bg_app, pady=6, padx=12)
-    app._stats_ctrl.pack(fill=tk.X)
+    app._stats_hdr = QWidget(parent)
+    app._stats_hdr.setObjectName("Sidebar")
+    hl = QHBoxLayout(app._stats_hdr)
+    hl.setContentsMargins(12, 4, 12, 4)
+    app._stats_hdr_label = QLabel("STATISTICAL TEST", app._stats_hdr)
+    app._stats_hdr_label.setProperty("role", "section")
+    hl.addWidget(app._stats_hdr_label)
+    hl.addStretch(1)
+    layout.addWidget(app._stats_hdr)
 
-    app._stats_test_label = tk.Label(app._stats_ctrl, text="Test:", font=fm_tiny, fg=txt_sec, bg=bg_app)
-    app._stats_test_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
-    app._stats_test_var = tk.StringVar(value="t-test")
-    _TEST_OPTIONS = ["t-test (Fisher)", "Wilcoxon rank-sum", "Mann-Whitney U", "KS test (2 wells only)"]
-    test_cb = ttk.Combobox(app._stats_ctrl, textvariable=app._stats_test_var, values=_TEST_OPTIONS, state="readonly", width=26, font=fm_tiny)
-    test_cb.grid(row=0, column=1, sticky="w")
-    test_cb.bind("<<ComboboxSelected>>", lambda _e: app._stats_on_test_change())
+    app._stats_ctrl = QWidget(parent)
+    cl = QGridLayout(app._stats_ctrl)
+    cl.setContentsMargins(12, 6, 12, 6)
 
-    app._stats_tp_label = tk.Label(app._stats_ctrl, text="Timepoint:", font=fm_tiny, fg=txt_sec, bg=bg_app)
-    app._stats_tp_label.grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(6, 0))
-    app._stats_tp_var = tk.StringVar(value="—")
-    app._stats_tp_cb = ttk.Combobox(app._stats_ctrl, textvariable=app._stats_tp_var, values=["—"], state="readonly", width=12, font=fm_tiny)
-    app._stats_tp_cb.grid(row=1, column=1, sticky="w", pady=(6, 0))
+    app._stats_test_label = QLabel("Test:", app._stats_ctrl)
+    cl.addWidget(app._stats_test_label, 0, 0, Qt.AlignLeft)
 
-    btn_primary(app._stats_ctrl, "Run test", app._stats_run, padx=10, pady=3).grid(row=0, column=2, rowspan=2, padx=(16, 0), sticky="ns")
-    app._stats_sep = tk.Frame(parent, bg=border, height=1)
-    app._stats_sep.pack(fill=tk.X, padx=12, pady=(4, 0))
-
-    app._stats_fig_frame = tk.Frame(parent, bg=bg_app)
-    from matplotlib.figure import Figure as _StatsFigure
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _StatsFCA
-
-    app._stats_fig = _StatsFigure(figsize=(5, 2.8), dpi=96, facecolor=bg_app)
-    app._stats_ax = app._stats_fig.add_subplot(111)
-    app._stats_canvas_widget = _StatsFCA(app._stats_fig, master=app._stats_fig_frame)
-    app._stats_canvas_widget.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-    app._stats_res_frame = tk.Frame(parent, bg=bg_app)
-    app._stats_res_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
-    app._stats_result_text = tk.Text(
-        app._stats_res_frame,
-        font=fm_tiny,
-        bg=bg_panel,
-        fg=txt_pri,
-        relief=tk.FLAT,
-        highlightthickness=1,
-        highlightbackground=border,
-        wrap=tk.WORD,
-        state=tk.DISABLED,
-        padx=8,
-        pady=6,
+    app._stats_test_cb = QComboBox(app._stats_ctrl)
+    app._stats_test_cb.addItems([
+        "t-test (Fisher)",
+        "Wilcoxon rank-sum",
+        "Mann-Whitney U",
+        "KS test (2 wells only)",
+    ])
+    app._stats_test_cb.setCurrentText("t-test (Fisher)")
+    app._stats_test_cb.currentIndexChanged.connect(
+        lambda _i: app._stats_on_test_change()
     )
-    app._stats_scrollbar = tk.Scrollbar(app._stats_res_frame, orient=tk.VERTICAL, command=app._stats_result_text.yview)
-    app._stats_result_text.configure(yscrollcommand=app._stats_scrollbar.set)
-    app._stats_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    app._stats_result_text.pack(fill=tk.BOTH, expand=True)
+    cl.addWidget(app._stats_test_cb, 0, 1, Qt.AlignLeft)
 
-    app._stats_update_tp_menu()
+    app._stats_tp_label = QLabel("Timepoint:", app._stats_ctrl)
+    cl.addWidget(app._stats_tp_label, 1, 0, Qt.AlignLeft)
+
+    app._stats_tp_cb = QComboBox(app._stats_ctrl)
+    app._stats_tp_cb.addItems(["—"])
+    cl.addWidget(app._stats_tp_cb, 1, 1, Qt.AlignLeft)
+
+    run_btn = btn_primary(app._stats_ctrl, "Run test", app._stats_run)
+    cl.addWidget(run_btn, 0, 2, 2, 1)
+    layout.addWidget(app._stats_ctrl)
+
+    app._stats_sep = QFrame(parent)
+    app._stats_sep.setObjectName("Separator")
+    app._stats_sep.setFrameShape(QFrame.HLine)
+    app._stats_sep.setFixedHeight(1)
+    layout.addWidget(app._stats_sep)
+
+    app._stats_fig_frame = QWidget(parent)
+    ff_l = QVBoxLayout(app._stats_fig_frame)
+    ff_l.setContentsMargins(0, 0, 0, 0)
+
+    from matplotlib.figure import Figure as _StatsFigure
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _StatsFCA
+
+    app._stats_fig = _StatsFigure(figsize=(5, 2.8), dpi=96)
+    app._stats_ax = app._stats_fig.add_subplot(111)
+    app._stats_canvas_widget = _StatsFCA(app._stats_fig)
+    ff_l.addWidget(app._stats_canvas_widget)
+    layout.addWidget(app._stats_fig_frame)
+
+    app._stats_res_frame = QWidget(parent)
+    rl = QVBoxLayout(app._stats_res_frame)
+    rl.setContentsMargins(12, 6, 12, 6)
+    app._stats_result_text = QTextEdit(app._stats_res_frame)
+    app._stats_result_text.setReadOnly(True)
+    app._stats_result_text.setLineWrapMode(QTextEdit.WidgetWidth)
+    rl.addWidget(app._stats_result_text)
+    layout.addWidget(app._stats_res_frame, 1)
+
+    if hasattr(app, "_stats_update_tp_menu"):
+        app._stats_update_tp_menu()

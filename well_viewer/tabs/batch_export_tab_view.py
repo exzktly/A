@@ -1,11 +1,10 @@
-"""Inline Batch Export tab content builders."""
+"""Inline Batch Export tab content builders (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from well_viewer.runtime_app import BG_APP, FM_BOLD, FM_TINY, TXT_MUT, TXT_SEC
-from well_viewer.tabs import _make_action_button
+from well_viewer.ui_helpers import btn_primary
 from well_viewer.batch_export_dialog import (
     BatchExportPanel,
     BarBatchExportPanel,
@@ -22,79 +21,65 @@ def _show_batch_mode(app, mode: str) -> None:
         mode = "line"
 
     host = state["host"]
+    host_layout = host.layout()
     panels = state["panels"]
     if mode not in panels:
-        panel_cls = {
-            "line": BatchExportPanel,
-            "bar": BarBatchExportPanel,
-            "scatter_cells": lambda app, host, use_sidebar_groups=False: ScatterBatchExportPanel(
-                app,
-                host,
-                scatter_mode="cells",
-                use_sidebar_groups=use_sidebar_groups,
-            ),
-            "scatter_agg": lambda app, host, use_sidebar_groups=False: ScatterBatchExportPanel(
-                app,
-                host,
-                scatter_mode="aggregate",
-                use_sidebar_groups=use_sidebar_groups,
-            ),
-        }[mode]
-        panel = panel_cls(app, host, use_sidebar_groups=False)
-        panel.pack(fill=tk.BOTH, expand=True)
+        if mode == "line":
+            panel = BatchExportPanel(app, host, use_sidebar_groups=False)
+        elif mode == "bar":
+            panel = BarBatchExportPanel(app, host, use_sidebar_groups=False)
+        elif mode == "scatter_cells":
+            panel = ScatterBatchExportPanel(
+                app, host, scatter_mode="cells", use_sidebar_groups=False,
+            )
+        else:
+            panel = ScatterBatchExportPanel(
+                app, host, scatter_mode="aggregate", use_sidebar_groups=False,
+            )
+        host_layout.addWidget(panel)
         panels[mode] = panel
     for key, panel in panels.items():
-        if key == mode:
-            panel.pack(fill=tk.BOTH, expand=True)
-        else:
-            panel.pack_forget()
+        panel.setVisible(key == mode)
 
     state["mode"] = mode
 
 
-def build_batch_export_tab(app, parent: tk.Frame) -> None:
-    """Render inline line/bar batch export builders inside the tab body."""
-    wrap = tk.Frame(parent, bg=BG_APP, padx=12, pady=12)
-    wrap.pack(fill=tk.BOTH, expand=True)
+def build_batch_export_tab(app, parent: QWidget) -> None:
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(12, 12, 12, 12)
 
-    tk.Label(wrap, text="Batch Export", font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(anchor="w")
-    tk.Label(
-        wrap,
-        text="Configure and run inline line/bar batch export workflows from this tab.",
-        font=FM_TINY,
-        fg=TXT_MUT,
-        bg=BG_APP,
-    ).pack(anchor="w", pady=(2, 10))
+    title = QLabel("Batch Export", parent)
+    title.setProperty("role", "section")
+    layout.addWidget(title)
 
-    switch_row = tk.Frame(wrap, bg=BG_APP)
-    switch_row.pack(fill=tk.X, pady=(0, 8))
-    _make_action_button(
-        switch_row,
-        text="Line Batch Builder",
-        command=lambda: app._open_batch_export(),
-        style="ActionIndigo.TButton",
-    ).pack(side=tk.LEFT, padx=(0, 6))
-    _make_action_button(
-        switch_row,
-        text="Bar Batch Builder",
-        command=lambda: app._open_bar_batch_export(),
-        style="ActionIndigo.TButton",
-    ).pack(side=tk.LEFT)
-    _make_action_button(
-        switch_row,
-        text="Scatter Cells Batch",
-        command=lambda: app._open_scatter_cells_batch_export(),
-        style="ActionIndigo.TButton",
-    ).pack(side=tk.LEFT, padx=(6, 0))
-    _make_action_button(
-        switch_row,
-        text="Scatter Aggregate Batch",
-        command=lambda: app._open_scatter_agg_batch_export(),
-        style="ActionIndigo.TButton",
-    ).pack(side=tk.LEFT, padx=(6, 0))
+    subtitle = QLabel(
+        "Configure and run inline line/bar batch export workflows from this tab.",
+        parent,
+    )
+    subtitle.setObjectName("Muted")
+    subtitle.setWordWrap(True)
+    layout.addWidget(subtitle)
 
-    host = tk.Frame(wrap, bg=BG_APP)
-    host.pack(fill=tk.BOTH, expand=True)
+    switch_row = QWidget(parent)
+    sr = QHBoxLayout(switch_row)
+    sr.setContentsMargins(0, 0, 0, 8)
+    sr.addWidget(btn_primary(switch_row, "Line Batch Builder",
+                             lambda: app._open_batch_export()))
+    sr.addWidget(btn_primary(switch_row, "Bar Batch Builder",
+                             lambda: app._open_bar_batch_export()))
+    sr.addWidget(btn_primary(switch_row, "Scatter Cells Batch",
+                             lambda: app._open_scatter_cells_batch_export()))
+    sr.addWidget(btn_primary(switch_row, "Scatter Aggregate Batch",
+                             lambda: app._open_scatter_agg_batch_export()))
+    sr.addStretch(1)
+    layout.addWidget(switch_row)
+
+    host = QWidget(parent)
+    QVBoxLayout(host)
+    layout.addWidget(host, 1)
 
     app._batch_export_inline_state = {"host": host, "panels": {}, "mode": "line"}
     app._batch_export_set_mode = lambda mode="line": _show_batch_mode(app, mode)

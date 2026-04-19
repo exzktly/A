@@ -1,311 +1,98 @@
-"""Centre notebook/tab builder extracted from runtime_app.
+"""Centre notebook/tab builder (Qt port).
 
-``build_centre`` is the single entry point.  It creates each tab frame,
-registers it with the custom notebook, and delegates content-building to the
-relevant module:
-
-  Plot tabs (have figures):
-    well_viewer/tabs/line_graphs_tab_view.py
-    well_viewer/tabs/bar_plots_tab_view.py
-    well_viewer/tabs/scatter_cells_tab_view.py
-    well_viewer/tabs/scatter_agg_tab_view.py
-
-  Workflow tab (buttons only):
-    well_viewer/tabs/batch_export_tab_view.py
-
-  Tabs that stay inline (class instantiation or single method call):
-    Movie Montage      → app._build_right_panel / app._build_preview_picker
-    Review CSV         → app._build_review_csv_tab
-    smFISH             → well_viewer/smfish_tab.py  (SmfishTab)
-    Statistics         → app._build_stats_tab / app._build_stats_group_editor
-    Cell Gating        → well_viewer/cell_gating_tab.py  (CellGatingTab)
-    Sample Definitions → app._build_groups_centre / app._build_replicate_panel
-                         / app._build_bar_group_panel
+``build_centre`` is the entry point. Replaces the tk-based ``CustomNotebook``
+hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
 """
 
-import tkinter as tk
-from tkinter import ttk
+from __future__ import annotations
 
-from well_viewer.runtime_app import BG_APP, BG_SIDE, BORDER, FM_TINY, TXT_MUT, TXT_PRI
-
-
-def _bind_if_supported(widget: tk.Misc, sequence: str, callback, *, add: str = "+") -> None:
-    """Bind an event sequence while tolerating Tk builds without extra mouse buttons."""
-    try:
-        widget.bind(sequence, callback, add=add)
-    except tk.TclError:
-        # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
-        pass
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 
-class CustomNotebook(tk.Frame):
-    """Drop-in replacement for ttk.Notebook with custom tab bar.
-
-    Features:
-    - Custom header with tab buttons and visual separators
-    - Full control over tab appearance and grouping
-    - Maintains ttk.Notebook compatibility interface
-    """
-
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        self._bg_side = BG_SIDE
-        self._bg_app = BG_APP
-        self._txt_pri = TXT_PRI
-
-        # Header with horizontally scrollable tab buttons
-        header_wrap = tk.Frame(self, bg=self._bg_side, height=35)
-        header_wrap.pack(fill=tk.X, padx=0, pady=0)
-        header_wrap.pack_propagate(False)
-
-        self._header_canvas = tk.Canvas(
-            header_wrap,
-            bg=self._bg_side,
-            height=35,
-            xscrollincrement=20,
-            highlightthickness=0,
-            bd=0,
-        )
-        self._header_canvas.pack(side=tk.TOP, fill=tk.X, expand=True)
-        self._header_xsb = tk.Scrollbar(
-            header_wrap,
-            orient=tk.HORIZONTAL,
-            command=self._header_canvas.xview,
-        )
-        self._header_xsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self._header_canvas.configure(xscrollcommand=self._header_xsb.set)
-        self.header = tk.Frame(self._header_canvas, bg=self._bg_side, height=35)
-        self._header_window = self._header_canvas.create_window((0, 0), window=self.header, anchor="nw")
-        self.header.bind("<Configure>", self._on_header_configure)
-        self._header_canvas.bind("<Configure>", self._on_header_canvas_configure)
-        for target in (header_wrap, self._header_canvas, self.header):
-            _bind_if_supported(target, "<MouseWheel>", self._on_header_wheel)
-            _bind_if_supported(target, "<Shift-MouseWheel>", self._on_header_wheel)
-            _bind_if_supported(target, "<Button-4>", self._on_header_wheel)
-            _bind_if_supported(target, "<Button-5>", self._on_header_wheel)
-            _bind_if_supported(target, "<Button-6>", self._on_header_wheel)
-            _bind_if_supported(target, "<Button-7>", self._on_header_wheel)
-
-        # Content area with single visible frame at a time
-        self.content = tk.Frame(self, bg=BG_APP)
-        self.content.pack(fill=tk.BOTH, expand=True)
-
-        self._tabs = {}              # {text: frame}
-        self._tab_buttons = {}       # {text: label widget}
-        self._separators = []        # list[tk.Frame]
-        self._current_text = None
-        self._callbacks = []
-
-    def add(self, frame, text):
-        """Add a tab with the given text and frame (mimics ttk.Notebook.add)"""
-        self._tabs[text] = frame
-
-        # Create tab button in header
-        btn = tk.Label(
-            self.header,
-            text=text,
-            font=(FM_TINY[0], FM_TINY[1]),
-            fg=self._txt_pri,
-            bg=self._bg_side,
-            padx=12,
-            pady=6,
-            relief=tk.FLAT,
-            cursor="hand2",
-        )
-        btn.pack(side=tk.LEFT, padx=0, pady=0)
-        btn.bind("<Button-1>", lambda e: self.select_by_text(text))
-        _bind_if_supported(btn, "<MouseWheel>", self._on_header_wheel)
-        _bind_if_supported(btn, "<Shift-MouseWheel>", self._on_header_wheel)
-        _bind_if_supported(btn, "<Button-4>", self._on_header_wheel)
-        _bind_if_supported(btn, "<Button-5>", self._on_header_wheel)
-        _bind_if_supported(btn, "<Button-6>", self._on_header_wheel)
-        _bind_if_supported(btn, "<Button-7>", self._on_header_wheel)
-        self._tab_buttons[text] = btn
-
-    def add_separator(self):
-        """Add a thin vertical separator in the tab bar"""
-        sep = tk.Frame(self.header, bg=BORDER, width=1, height=25)
-        sep.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=5)
-        self._separators.append(sep)
-
-    def refresh_theme_colors(self, *, bg_side: str, bg_app: str, border: str, txt_pri: str) -> None:
-        """Refresh notebook chrome colors after a runtime theme switch."""
-        self._bg_side = bg_side
-        self._bg_app = bg_app
-        self._txt_pri = txt_pri
-        self.configure(bg=bg_app)
-        self._header_canvas.configure(bg=bg_side)
-        self.header.configure(bg=bg_side)
-        self.content.configure(bg=bg_app)
-        for sep in self._separators:
-            sep.configure(bg=border)
-        for text, btn in self._tab_buttons.items():
-            is_active = (text == self._current_text)
-            btn.configure(
-                bg=bg_app if is_active else bg_side,
-                fg=txt_pri,
-                relief=tk.SUNKEN if is_active else tk.FLAT,
-            )
-
-    def select_by_text(self, text):
-        """Show the tab with the given text"""
-        if text not in self._tabs:
-            return
-
-        # Hide current tab
-        if self._current_text and self._current_text in self._tabs:
-            self._tabs[self._current_text].pack_forget()
-            # Unhighlight old button
-            old_btn = self._tab_buttons[self._current_text]
-            old_btn.configure(bg=self._bg_side, fg=self._txt_pri, relief=tk.FLAT)
-
-        # Show new tab (pack it into the content area)
-        self._tabs[text].pack(in_=self.content, fill=tk.BOTH, expand=True)
-        self._current_text = text
-
-        # Highlight new button
-        new_btn = self._tab_buttons[text]
-        new_btn.configure(bg=self._bg_app, fg=self._txt_pri, relief=tk.SUNKEN)
-
-        # Trigger callbacks
-        for cb in self._callbacks:
-            cb(text)
-
-    def select(self):
-        """Return index of currently selected tab (mimics ttk.Notebook)"""
-        if self._current_text is None:
-            return 0
-        tab_list = list(self._tabs.keys())
-        try:
-            return tab_list.index(self._current_text)
-        except ValueError:
-            return 0
-
-    def tab(self, index, key):
-        """Return tab info (mimics ttk.Notebook.tab)"""
-        if key == "text":
-            tab_list = list(self._tabs.keys())
-            if 0 <= index < len(tab_list):
-                return tab_list[index]
-        return None
-
-    def bind(self, event, callback):
-        """Bind to tab change events (mimics ttk.Notebook)"""
-        if event == "<<NotebookTabChanged>>":
-            # Store callback to call when tab changes
-            self._callbacks.append(lambda text: callback(None))
-        else:
-            super().bind(event, callback)
-
-    def _on_header_configure(self, _event=None) -> None:
-        self._header_canvas.configure(scrollregion=self._header_canvas.bbox("all"))
-
-    def _on_header_canvas_configure(self, event=None) -> None:
-        if event is not None:
-            self._header_canvas.itemconfigure(self._header_window, height=event.height)
-            self._header_canvas.configure(scrollregion=self._header_canvas.bbox("all"))
-
-    def _on_header_wheel(self, event) -> None:
-        num = getattr(event, "num", None)
-        if num in (4, 7):
-            self._header_canvas.xview_scroll(-1, "units")
-            return
-        if num in (5, 6):
-            self._header_canvas.xview_scroll(1, "units")
-            return
-
-        delta = int(getattr(event, "delta", 0) or 0)
-        if delta == 0:
-            return
-        units = max(1, abs(delta) // 120)
-        self._header_canvas.xview_scroll(-units if delta > 0 else units, "units")
-
-
-def build_centre(app, parent: tk.Frame) -> None:
-    from well_viewer.smfish_tab import SmfishTab
+def build_centre(app, parent: QWidget) -> None:
     from well_viewer.cell_gating_tab import CellGatingTab
-    from well_viewer.tabs.line_graphs_tab_view import build_line_graphs_tab
+    from well_viewer.smfish_tab import SmfishTab
     from well_viewer.tabs.bar_plots_tab_view import build_bar_plots_tab
     from well_viewer.tabs.batch_export_tab_view import build_batch_export_tab
-    from well_viewer.tabs.scatter_cells_tab_view import build_scatter_cells_tab
+    from well_viewer.tabs.line_graphs_tab_view import build_line_graphs_tab
     from well_viewer.tabs.scatter_agg_tab_view import build_scatter_agg_tab
+    from well_viewer.tabs.scatter_cells_tab_view import build_scatter_cells_tab
 
-    # Create custom notebook (replaces ttk.Notebook)
-    app._notebook = CustomNotebook(parent)
-    app._notebook.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
-    app._notebook.bind("<<NotebookTabChanged>>", app._on_tab_change)
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
 
-    # ── Tab 1: Line Graphs ────────────────────────────────────────────────
-    tab_line = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_line, text="Line Graphs")
+    app._notebook = QTabWidget(parent)
+    app._notebook.setObjectName("CentreTabs")
+    app._notebook.setMovable(False)
+    app._notebook.currentChanged.connect(lambda _i: app._on_tab_change(None))
+    layout.addWidget(app._notebook, 1)
+
+    def _new_tab(title: str) -> QWidget:
+        frame = QWidget(app._notebook)
+        QVBoxLayout(frame).setContentsMargins(0, 0, 0, 0)
+        app._notebook.addTab(frame, title)
+        return frame
+
+    # Line Graphs
+    tab_line = _new_tab("Line Graphs")
     build_line_graphs_tab(app, tab_line)
 
-    # ── Tab 2: Sample Definitions (frame created now, added last) ─────────
-    # Frame must exist early so _build_bar_group_panel and sidebar frames
-    # that reference it can be built; the notebook.add call is deferred so
-    # the tab appears at the end of the tab bar.
-    tab_groups = tk.Frame(app._notebook, bg=BG_APP)
+    # Sample Definitions centre built now, tab added last
+    tab_groups = QWidget(app._notebook)
+    QVBoxLayout(tab_groups).setContentsMargins(0, 0, 0, 0)
     app._build_groups_centre(tab_groups)
     app._build_replicate_panel(app._sidebar_sample_frame)
     app._build_bar_group_panel(app._sidebar_groups_frame)
 
-    # ── Tab 3: Bar Plots ──────────────────────────────────────────────────
-    tab_bar = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_bar, text="Bar Plots")
+    # Bar Plots
+    tab_bar = _new_tab("Bar Plots")
     build_bar_plots_tab(app, tab_bar)
 
-    # ── Tab 4: Scatter Plot: Cells ────────────────────────────────────────
-    tab_scatter = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_scatter, text="Scatter Plot: Cells")
+    # Scatter: Cells
+    tab_scatter = _new_tab("Scatter Plot: Cells")
     build_scatter_cells_tab(app, tab_scatter)
 
-    # ── Tab 5: Scatter Plot: Aggregate ────────────────────────────────────
-    tab_scatter_agg = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_scatter_agg, text="Scatter Plot: Aggregate")
+    # Scatter: Aggregate
+    tab_scatter_agg = _new_tab("Scatter Plot: Aggregate")
     build_scatter_agg_tab(app, tab_scatter_agg)
 
-    # Visual separator between left and middle tab groups
-    app._notebook.add_separator()
-
-    # ── Middle group: Movie Montage / Statistics / smFISH ──────────────────
-    tab_preview = tk.Frame(app._notebook, bg=BG_SIDE)
-    app._notebook.add(tab_preview, text="Movie Montage")
+    # Movie Montage
+    tab_preview = _new_tab("Movie Montage")
     app._build_right_panel(tab_preview)
     app._build_preview_picker(app._sidebar_preview_frame)
 
-    tab_review_image = tk.Frame(app._notebook, bg=BG_SIDE)
-    app._notebook.add(tab_review_image, text="Review Image")
+    # Review Image
+    tab_review_image = _new_tab("Review Image")
     app._build_review_image_panel(tab_review_image)
 
-    tab_stats = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_stats, text="Statistics")
+    # Statistics
+    tab_stats = _new_tab("Statistics")
     app._build_stats_tab(tab_stats)
     app._build_stats_group_editor(app._sidebar_stats_frame)
 
-    tab_smfish = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_smfish, text="smFISH")
+    # smFISH
+    tab_smfish = _new_tab("smFISH")
     app._smfish_tab = SmfishTab(tab_smfish, app=app)
-    app._smfish_tab.pack(fill=tk.BOTH, expand=True)
+    tab_smfish.layout().addWidget(app._smfish_tab)
 
-    # Visual separator between middle and right tab groups
-    app._notebook.add_separator()
-
-    # ── Right group: workflow/data tabs ────────────────────────────────────
-    tab_review_csv = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_review_csv, text="Review CSV")
+    # Review CSV
+    tab_review_csv = _new_tab("Review CSV")
     app._build_review_csv_tab(tab_review_csv)
 
-    tab_cell_gating = tk.Frame(app._notebook, bg=BG_APP)
-    app._notebook.add(tab_cell_gating, text="Cell Gating")
+    # Cell Gating
+    tab_cell_gating = _new_tab("Cell Gating")
     app._cell_gating_tab = CellGatingTab(tab_cell_gating, app)
-    app._cell_gating_tab.pack(fill=tk.BOTH, expand=True)
+    tab_cell_gating.layout().addWidget(app._cell_gating_tab)
 
-    tab_batch = tk.Frame(app._notebook, bg=BG_APP)
+    # Batch Export
+    tab_batch = _new_tab("Batch Export")
     app._batch_export_tab_frame = tab_batch
-    app._notebook.add(tab_batch, text="Batch Export")
     build_batch_export_tab(app, tab_batch)
 
-    app._notebook.add(tab_groups, text="Sample Definitions")
+    # Sample Definitions (added last so it appears at the end)
+    app._notebook.addTab(tab_groups, "Sample Definitions")
 
-    # Select the first tab after all tabs are built
-    app._notebook.select_by_text("Line Graphs")
+    app._notebook.setCurrentIndex(0)
