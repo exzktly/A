@@ -82,7 +82,7 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
 
 def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_colors) -> tuple:
     """Compute bar items for the active bar-plot mode (rep-set or per-well)."""
-    use_sem = app._use_sem.get()
+    use_sem = app._use_sem_cb.isChecked()
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     active_rsets = app._rep_sets_active()
@@ -219,8 +219,8 @@ def render_bar_items(
 
 def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
     """Apply user-entered y-limits and optional log scale to bar axes."""
-    def _parse(var) -> Optional[float]:
-        txt = var.get().strip()
+    def _parse(edit) -> Optional[float]:
+        txt = edit.text().strip() if hasattr(edit, "text") else str(edit).strip()
         if not txt:
             return None
         try:

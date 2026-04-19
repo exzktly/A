@@ -27,7 +27,7 @@ def redraw_line_plots(
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
         ax.cla()
 
-    use_sem = app._use_sem.get()
+    use_sem = app._use_sem_cb.isChecked()
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
@@ -136,11 +136,11 @@ def redraw_line_plots(
     if any_cdf:
         app._line_ax_cdf.axvline(threshold, color=warn, lw=1.2, ls="--", label=f"threshold={threshold:.2f}", zorder=4, picker=8)
         try:
-            cdf_lo = float(app._cdf_xmin_var.get())
+            cdf_lo = float(app._cdf_xmin_edit.text())
         except (ValueError, AttributeError):
             cdf_lo = 0.0
         try:
-            cdf_hi = float(app._cdf_xmax_var.get())
+            cdf_hi = float(app._cdf_xmax_edit.text())
         except (ValueError, AttributeError):
             cdf_hi = 300.0
         if cdf_hi <= cdf_lo:

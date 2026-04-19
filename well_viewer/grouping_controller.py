@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import messagebox
+from PySide6.QtWidgets import QMessageBox
 
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import extract_well_token as _extract_well_token
 from well_viewer.ui_helpers import tok_at_event as _tok_at_event
 
 
-def rep_map_tok_at(app, event: tk.Event):
+def rep_map_tok_at(app, event):
     return _tok_at_event(event, app._rep_map_btns)
 
 
-def rep_map_press(app, event: tk.Event) -> None:
+def rep_map_press(app, event) -> None:
     if not (0 <= app._active_rep_idx < len(app._rep_sets)):
         return
     tok = rep_map_tok_at(app, event)
@@ -26,7 +25,7 @@ def rep_map_press(app, event: tk.Event) -> None:
     app._rep_map_apply(tok)
 
 
-def rep_map_drag(app, event: tk.Event) -> None:
+def rep_map_drag(app, event) -> None:
     if not (0 <= app._active_rep_idx < len(app._rep_sets)):
         return
     tok = rep_map_tok_at(app, event)
@@ -34,7 +33,7 @@ def rep_map_drag(app, event: tk.Event) -> None:
         app._rep_map_apply(tok)
 
 
-def rep_map_release(app, _event: tk.Event) -> None:
+def rep_map_release(app, _event=None) -> None:
     if getattr(app, "_rep_drag_visited", None):
         app._rebuild_all()
     app._rep_drag_visited = set()
@@ -76,7 +75,6 @@ def grp_add(app) -> None:
 def grp_rename(app, idx: int) -> None:
     if not (0 <= idx < len(app._bar_groups)):
         return
-    # Group names are now edited inline in the Sample Definitions panel.
     app._bar_active_grp = idx
     app._groups_centre_refresh()
 
@@ -130,7 +128,11 @@ def grp_remove_solo(app, grp_idx: int, well: str) -> None:
 def grp_clear_all(app) -> None:
     if not app._bar_groups:
         return
-    if messagebox.askyesno("Clear all groups?", f"Remove all {len(app._bar_groups)} group(s)?", parent=app):
+    reply = QMessageBox.question(
+        app, "Clear all groups?", f"Remove all {len(app._bar_groups)} group(s)?",
+        QMessageBox.Yes | QMessageBox.No,
+    )
+    if reply == QMessageBox.Yes:
         app._bar_groups.clear()
         app._bar_active_grp = -1
         app._rebuild_all()

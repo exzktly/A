@@ -1,36 +1,32 @@
 """
-analyze_tab.py
---------------
-Standalone AnalyzeTab widget — submission 1 of 2 for all_well.py.
-
-Run this file directly to test the Analyze tab in isolation:
-    python analyze_tab.py
-
-In the final all_well.py this module will be imported and embedded inside
-the outer "Analyze" notebook tab.
+analyze_tab.py — AnalyzeTab widget (PySide6 port).
 
 Input-folder resolution rules (applied when Run is pressed):
-  1. Folder is named "in"           → input = folder,     output = parent/"out"
-  2. Folder contains a sub-dir "in" → input = folder/"in", output = folder/"out"
-  3. Folder has >10 TIF files       → move TIFs to folder/"in",
-                                       input = folder/"in", output = folder/"out"
-  4. Otherwise                      → error; user must supply a valid input folder
+  1. Folder named "in"           → input = folder,     output = parent/"out"
+  2. Folder contains sub-dir "in"→ input = folder/"in", output = folder/"out"
+  3. Folder has >10 TIF files    → move TIFs to folder/"in"
+  4. Otherwise                   → error
 
-process_microscopy_v2.py is located relative to this file (same directory).
-The pipeline runs as a subprocess so crashes don't affect the UI.
+process_microscopy_v2.py must live alongside this file.
 """
 
 from __future__ import annotations
 
-import csv
 import queue
-import shutil
+import re as _re_well
 import subprocess
+import sys as _sys
 import threading
-import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QSizePolicy, QSplitter, QTextEdit, QVBoxLayout, QWidget,
+)
 
 from services.input_resolution_service import resolve_input_output, tif_files_in
 from services.pipeline_service import (
@@ -41,64 +37,23 @@ from services.pipeline_service import (
     spawn_pipeline,
     write_pipeline_info,
 )
-
-# ---------------------------------------------------------------------------
-# Shared visual constants from ui.theme tokens so Analyze and Review tabs use
-# the same palette while keeping this file independently runnable.
-# ---------------------------------------------------------------------------
-import sys as _sys
 from ui.theme import (
-    ACCENT,
-    ACCENT_DARK,
-    BG_APP,
-    BG_PANEL,
-    BG_SIDE,
-    BORDER,
-    CLR_DANGER,
-    CLR_SUCCESS,
-    CLR_WHITE,
-    SANS as _SANS_TOKEN,
-    TXT_MUT,
-    TXT_PRI,
-    TXT_SEC,
-    WARN,
+    CLR_DANGER, CLR_SUCCESS, TXT_MUT, TXT_PRI, WARN,
 )
 
-_MONO = "Menlo"      if _sys.platform == "darwin" else "Consolas"
-_SANS = "SF Pro Text" if _sys.platform == "darwin" else _SANS_TOKEN
-
-FM_MONO  = (_MONO, 9)
-FM_UI    = (_SANS, 9)
-FM_BOLD  = (_SANS, 9, "bold")
-FM_TINY  = (_MONO, 8)
-FM_H2    = (_SANS, 10, "bold")
-
-CLR_ACCENT_DARK = ACCENT_DARK
-
-_HERE = Path(__file__).resolve().parent
-_PIPELINE_SCRIPT = _HERE / "process_microscopy_v2.py"
-
-
+# ---------------------------------------------------------------------------
 # Schema vocabulary — kept in sync with process_microscopy_v2.py
+# ---------------------------------------------------------------------------
 SCHEMA_FIELDS  = ("experiment", "channel", "well", "fov", "timepoint", "ignore")
 DEFAULT_SCHEMA = "experiment:channel:well:fov:timepoint"
 DEFAULT_SEP    = "_"
 
-# Human-readable labels shown in the dropdowns (same order as SCHEMA_FIELDS).
 _SCHEMA_LABELS = ("Experiment", "Channel", "Well", "FOV", "Timepoint", "— ignore —")
-# Map label → field name
 _LABEL_TO_FIELD = dict(zip(_SCHEMA_LABELS, SCHEMA_FIELDS))
-# Map field name → label
 _FIELD_TO_LABEL = dict(zip(SCHEMA_FIELDS, _SCHEMA_LABELS))
 
 
 def _validate_schema_mappings() -> None:
-    """
-    Defensive consistency check for schema dropdown mappings.
-
-    Keeps _SCHEMA_LABELS, _LABEL_TO_FIELD, and _FIELD_TO_LABEL in sync so
-    schema UI labels always round-trip to the expected parser fields.
-    """
     if len(_SCHEMA_LABELS) != len(SCHEMA_FIELDS):
         raise RuntimeError("Schema label/field length mismatch.")
     for label in _SCHEMA_LABELS:
@@ -106,14 +61,11 @@ def _validate_schema_mappings() -> None:
         if field is None:
             raise RuntimeError(f"Missing mapping for schema label: {label!r}")
         if _FIELD_TO_LABEL.get(field) != label:
-            raise RuntimeError(
-                f"Schema mapping is not invertible for label: {label!r}"
-            )
+            raise RuntimeError(f"Schema mapping not invertible for label: {label!r}")
 
 
 _validate_schema_mappings()
 
-# Representative placeholder tokens shown in the live preview.
 _PREVIEW_TOKENS = {
     "experiment": "Exp01",
     "well":       "B03",
@@ -122,17 +74,11 @@ _PREVIEW_TOKENS = {
     "ignore":     "X",
 }
 
-
-
-# Compatibility alias for local call sites
-_tif_files_in = tif_files_in
-
-import re as _re_well
 _WELL_NAME_RE = _re_well.compile(r"^[A-Ha-h]\d{1,2}$")
+_tif_files_in = tif_files_in
 
 
 def _has_well_content(folder: Path) -> bool:
-    """Return True if *folder* contains zip files OR well-named subdirectories."""
     if any(folder.glob("*.zip")):
         return True
     try:
@@ -142,557 +88,465 @@ def _has_well_content(folder: Path) -> bool:
 
 
 def _count_well_content(folder: Path) -> int:
-    """Count well zips + well-named subdirectories inside *folder*."""
     zips = list(folder.glob("*.zip"))
     folders = [p for p in folder.iterdir() if p.is_dir() and _WELL_NAME_RE.match(p.name)]
     return len(zips) or len(folders)
 
+
 # ---------------------------------------------------------------------------
 # AnalyzeTab
 # ---------------------------------------------------------------------------
-class AnalyzeTab(tk.Frame):
-    """
-    Left: pipeline options form.
-    Right: live subprocess log.
-    """
+class AnalyzeTab(QWidget):
+    """Left: pipeline options form.  Right: live subprocess log."""
+
+    _LOG_COLORS = {
+        "INFO":    TXT_PRI,
+        "WARNING": WARN,
+        "ERROR":   CLR_DANGER,
+        "DONE":    CLR_SUCCESS,
+        "CMD":     TXT_MUT,
+    }
 
     def __init__(
         self,
-        parent: tk.Widget,
+        parent: QWidget | None = None,
         *,
         on_pipeline_complete: Callable[[Path], None] | None = None,
-        **kw,
-    ):
-        super().__init__(parent, bg=BG_APP, **kw)
-        self._proc:    Optional[subprocess.Popen] = None   # type: ignore[type-arg]
-        self._log_q:   queue.Queue[str] = queue.Queue()
-        self._running  = False
-        self._well_total: int = 0   # total wells expected this run
-        self._well_done:  int = 0   # wells completed so far
+    ) -> None:
+        super().__init__(parent)
+        self._proc: Optional[subprocess.Popen] = None
+        self._log_q: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._running = False
+        self._well_total = 0
+        self._well_done  = 0
         self._on_pipeline_complete = on_pipeline_complete
         self._last_output_dir: Path | None = None
+        self._fluor_rows: list[tuple[QLineEdit, QCheckBox, QPushButton]] = []
+        self._schema_cbs: list[QComboBox] = []
 
         self._build_ui()
-        self._poll_log()   # start the Tk-safe log polling loop
+        self._poll_log()
 
     # ------------------------------------------------------------------
-    # UI construction
+    # Top-level layout
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        # Top separator line
-        tk.Frame(self, bg=BORDER, height=1).pack(fill=tk.X)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        # Main horizontal split: form (left) | log (right)
-        pane = tk.PanedWindow(self, orient=tk.HORIZONTAL,
-                              bg=BG_APP, sashwidth=5,
-                              sashrelief=tk.FLAT, bd=0)
-        pane.pack(fill=tk.BOTH, expand=True)
+        rule = QFrame(self)
+        rule.setFrameShape(QFrame.HLine)
+        rule.setObjectName("HRule")
+        outer.addWidget(rule)
 
-        # ── Left: scrollable form ──────────────────────────────────────
-        left_outer = tk.Frame(pane, bg=BG_SIDE, width=340)
-        pane.add(left_outer, minsize=280)
+        splitter = QSplitter(Qt.Horizontal, self)
+        splitter.setHandleWidth(5)
+        outer.addWidget(splitter, 1)
 
-        # Canvas + scrollbar for the form
-        form_canvas = tk.Canvas(left_outer, bg=BG_SIDE,
-                                highlightthickness=0, bd=0)
-        vsb = tk.Scrollbar(left_outer, orient=tk.VERTICAL,
-                           command=form_canvas.yview,
-                           relief=tk.FLAT, width=8,
-                           bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        form_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        form_canvas.configure(yscrollcommand=vsb.set)
+        # Left — scrollable form
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setObjectName("Sidebar")
+        scroll.setMinimumWidth(280)
+        form_host = QWidget()
+        form_host.setObjectName("Sidebar")
+        self._form_layout = QVBoxLayout(form_host)
+        self._form_layout.setContentsMargins(0, 8, 0, 8)
+        self._form_layout.setSpacing(0)
+        scroll.setWidget(form_host)
+        splitter.addWidget(scroll)
+        splitter.setStretchFactor(0, 0)
 
-        self._form = tk.Frame(form_canvas, bg=BG_SIDE)
-        self._form_win = form_canvas.create_window(
-            (0, 0), window=self._form, anchor="nw")
+        self._build_form(form_host)
 
-        def _on_configure(_e=None):
-            form_canvas.configure(scrollregion=form_canvas.bbox("all"))
-        def _on_canvas_resize(e):
-            form_canvas.itemconfig(self._form_win, width=e.width)
-
-        self._form.bind("<Configure>", _on_configure)
-        form_canvas.bind("<Configure>", _on_canvas_resize)
-
-        # ── Mousewheel scroll (macOS + Linux + Windows) ────────────────
-        def _on_mousewheel(event):
-            """Scroll the form canvas on trackpad / mousewheel events."""
-            # macOS delivers delta in units of 120 per notch on a wheel,
-            # or fractional values for trackpad momentum scrolling.
-            # Linux uses Button-4/5 instead.
-            if event.num == 4:          # Linux scroll up
-                form_canvas.yview_scroll(-1, "units")
-            elif event.num == 5:        # Linux scroll down
-                form_canvas.yview_scroll(1, "units")
-            else:                       # macOS / Windows
-                form_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        def _bind_mousewheel(widget):
-            """Recursively bind mousewheel events to *widget* and all descendants."""
-            widget.bind("<MouseWheel>", _on_mousewheel, add="+")   # macOS / Windows
-            widget.bind("<Button-4>",   _on_mousewheel, add="+")   # Linux up
-            widget.bind("<Button-5>",   _on_mousewheel, add="+")   # Linux down
-            for child in widget.winfo_children():
-                _bind_mousewheel(child)
-
-        # Bind to the canvas itself now; after the form is built we re-bind
-        # to pick up all the child widgets that don't exist yet.
-        form_canvas.bind("<MouseWheel>", _on_mousewheel, add="+")
-        form_canvas.bind("<Button-4>",   _on_mousewheel, add="+")
-        form_canvas.bind("<Button-5>",   _on_mousewheel, add="+")
-
-        # Store so _build_form can call it after all widgets are created.
-        self._bind_form_scroll = lambda: _bind_mousewheel(self._form)
-
-        self._build_form(self._form)
-
-        # Bind scroll to every widget now that the form is fully populated.
-        self._bind_form_scroll()
-
-        # ── Right: log panel ───────────────────────────────────────────
-        right = tk.Frame(pane, bg=BG_APP)
-        pane.add(right, minsize=300)
+        # Right — log panel
+        right = QWidget()
+        right.setMinimumWidth(300)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(1, 1)
         self._build_log(right)
 
-    def _section(self, parent: tk.Frame, title: str) -> tk.Frame:
-        """Return a labelled section frame."""
-        tk.Label(parent, text=title, font=FM_H2,
-                 fg=TXT_PRI, bg=BG_SIDE,
-                 padx=12).pack(fill=tk.X, anchor="w", pady=(8, 2))
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=8, pady=(0, 6))
-        body = tk.Frame(parent, bg=BG_SIDE)
-        body.pack(fill=tk.X, padx=12, pady=(0, 8))
+        splitter.setSizes([360, 600])
+
+    # ------------------------------------------------------------------
+    # Layout helpers
+    # ------------------------------------------------------------------
+    def _section(self, parent: QWidget, title: str) -> QWidget:
+        """Add a labelled section to *parent* and return its body widget."""
+        container = QWidget(parent)
+        container.setObjectName("Sidebar")
+        cl = QVBoxLayout(container)
+        cl.setContentsMargins(0, 4, 0, 4)
+        cl.setSpacing(2)
+
+        title_lbl = QLabel(title, container)
+        title_lbl.setObjectName("SectionTitle")
+        title_lbl.setContentsMargins(12, 6, 12, 2)
+        cl.addWidget(title_lbl)
+
+        rule = QFrame(container)
+        rule.setFrameShape(QFrame.HLine)
+        rule.setObjectName("HRule")
+        cl.addWidget(rule)
+
+        body = QWidget(container)
+        body.setObjectName("Sidebar")
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(12, 4, 12, 8)
+        bl.setSpacing(3)
+        cl.addWidget(body)
+
+        parent.layout().addWidget(container)
         return body
 
-    def _row(self, parent: tk.Frame, label: str) -> tk.Frame:
-        """Return a two-column label+widget row."""
-        row = tk.Frame(parent, bg=BG_SIDE)
-        row.pack(fill=tk.X, pady=2)
-        tk.Label(row, text=label, font=FM_UI, fg=TXT_SEC,
-                 bg=BG_SIDE, width=20, anchor="w").pack(side=tk.LEFT)
-        right = tk.Frame(row, bg=BG_SIDE)
-        right.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    def _row(self, parent: QWidget, label: str) -> QWidget:
+        """Append a two-column label+widget row to *parent*; return the right cell."""
+        row = QWidget(parent)
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 1, 0, 1)
+        rl.setSpacing(4)
+
+        lbl = QLabel(label, row)
+        lbl.setObjectName("Muted")
+        lbl.setFixedWidth(150)
+        rl.addWidget(lbl)
+
+        right = QWidget(row)
+        right.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        rr = QHBoxLayout(right)
+        rr.setContentsMargins(0, 0, 0, 0)
+        rr.setSpacing(4)
+        rl.addWidget(right)
+
+        parent.layout().addWidget(row)
         return right
 
-    def _entry(self, parent: tk.Frame, textvariable: tk.StringVar,
-               width: int = 10) -> tk.Entry:
-        e = tk.Entry(parent, textvariable=textvariable,
-                     font=FM_MONO, fg=ACCENT, bg=BG_PANEL,
-                     relief=tk.FLAT, highlightthickness=1,
-                     highlightcolor=ACCENT, highlightbackground=BORDER,
-                     width=width)
-        e.pack(side=tk.LEFT)
+    def _entry(self, parent: QWidget, default: str = "", width: int = 80) -> QLineEdit:
+        """Create a QLineEdit, add it to *parent*'s layout, and return it."""
+        e = QLineEdit(default, parent)
+        e.setFixedWidth(width)
+        parent.layout().addWidget(e)
         return e
 
-    def _build_form(self, parent: tk.Frame) -> None:
-        """Populate the left-side form."""
-        tk.Frame(parent, bg=BG_SIDE, height=8).pack()
+    # ------------------------------------------------------------------
+    # Form orchestration
+    # ------------------------------------------------------------------
+    def _build_form(self, parent: QWidget) -> None:
         self._build_schema_section(parent)
         self._build_channel_tokens_section(parent)
         self._build_folders_section(parent)
-        # Now that schema/channel/folder widgets exist, run the initial preview.
         self._refresh_schema_preview()
         self._build_tophat_section(parent)
         self._build_output_options_section(parent)
         self._build_compute_options_section(parent)
         self._build_run_controls(parent)
+        parent.layout().addStretch(1)
 
-    def _build_schema_section(self, parent: tk.Frame) -> None:
-        sec_schema = self._section(parent, "Filename Schema")
+    def _build_schema_section(self, parent: QWidget) -> None:
+        sec = self._section(parent, "Filename Schema")
 
-        sep_row = self._row(sec_schema, "Separator char")
-        self._filename_sep = tk.StringVar(value=DEFAULT_SEP)
-        self._entry(sep_row, self._filename_sep, width=3)
-        tk.Label(
-            sep_row,
-            text="character between fields",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        sep_row = self._row(sec, "Separator char")
+        self._filename_sep_edit = self._entry(sep_row, DEFAULT_SEP, width=30)
+        hint = QLabel("character between fields", sep_row)
+        hint.setObjectName("Muted")
+        sep_row.layout().addWidget(hint)
+        sep_row.layout().addStretch(1)
+        self._filename_sep_edit.textChanged.connect(lambda _: self._refresh_schema_preview())
 
         default_fields = DEFAULT_SCHEMA.split(":")
-        self._schema_vars = []
-        self._schema_cbs = []
         for pos_idx in range(5):
-            row = self._row(sec_schema, f"Position {pos_idx + 1}")
-            var = tk.StringVar(value=_FIELD_TO_LABEL.get(default_fields[pos_idx], "— ignore —"))
-            self._schema_vars.append(var)
-            cb = ttk.Combobox(
-                row,
-                textvariable=var,
-                values=list(_SCHEMA_LABELS),
-                state="readonly",
-                width=14,
-                font=FM_UI,
-            )
-            cb.pack(side=tk.LEFT)
+            row = self._row(sec, f"Position {pos_idx + 1}")
+            cb = QComboBox(row)
+            cb.addItems(list(_SCHEMA_LABELS))
+            cb.setCurrentText(_FIELD_TO_LABEL.get(default_fields[pos_idx], "— ignore —"))
+            cb.setFixedWidth(160)
+            row.layout().addWidget(cb)
+            row.layout().addStretch(1)
             self._schema_cbs.append(cb)
-            cb.bind("<<ComboboxSelected>>", lambda e, v=var, c=cb: self._on_combobox_selected(v, c))
-            var.trace_add("write", lambda *_: self._refresh_schema_preview())
+            cb.currentIndexChanged.connect(lambda _i, c=cb: self._on_combobox_selected(c))
 
-        self._filename_sep.trace_add("write", lambda *_: self._refresh_schema_preview())
+        schema_str_row = self._row(sec, "Schema string")
+        self._schema_str_edit = QLineEdit(DEFAULT_SCHEMA, schema_str_row)
+        self._schema_str_edit.setMinimumWidth(200)
+        schema_str_row.layout().addWidget(self._schema_str_edit)
+        schema_str_row.layout().addStretch(1)
+        self._schema_str_edit.editingFinished.connect(self._sync_dropdowns_from_string)
 
-        schema_str_row = self._row(sec_schema, "Schema string")
-        self._schema_str_var = tk.StringVar(value=DEFAULT_SCHEMA)
-        self._schema_str_entry = tk.Entry(
-            schema_str_row,
-            textvariable=self._schema_str_var,
-            font=FM_MONO,
-            fg=ACCENT,
-            bg=BG_PANEL,
-            relief=tk.FLAT,
-            highlightthickness=1,
-            highlightcolor=ACCENT,
-            highlightbackground=BORDER,
-            width=30,
-        )
-        self._schema_str_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._schema_str_entry.bind("<Return>", lambda _e: self._sync_dropdowns_from_string())
-        self._schema_str_entry.bind("<FocusOut>", lambda _e: self._sync_dropdowns_from_string())
-        self._schema_str_entry.bind("<Tab>", lambda _e: self._sync_dropdowns_from_string())
+        self._schema_err_lbl = QLabel("", sec)
+        self._schema_err_lbl.setObjectName("Error")
+        self._schema_err_lbl.setWordWrap(True)
+        sec.layout().addWidget(self._schema_err_lbl)
 
-        self._schema_err_lbl = tk.Label(
-            sec_schema,
-            text="",
-            font=FM_TINY,
-            fg=CLR_DANGER,
-            bg=BG_SIDE,
-            anchor="w",
-            wraplength=280,
-            justify=tk.LEFT,
-        )
-        self._schema_err_lbl.pack(anchor="w", pady=(2, 0))
-        self._schema_preview_lbl = tk.Label(
-            sec_schema,
-            text="",
-            font=FM_MONO,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-            anchor="w",
-            wraplength=280,
-            justify=tk.LEFT,
-        )
-        self._schema_preview_lbl.pack(anchor="w", pady=(0, 2))
+        self._schema_preview_lbl = QLabel("", sec)
+        self._schema_preview_lbl.setObjectName("Muted")
+        self._schema_preview_lbl.setWordWrap(True)
+        sec.layout().addWidget(self._schema_preview_lbl)
 
-    def _build_channel_tokens_section(self, parent: tk.Frame) -> None:
+    def _build_channel_tokens_section(self, parent: QWidget) -> None:
         sec = self._section(parent, "Channel Tokens")
-        self._segmentation_method = tk.StringVar(value="stardist_nuclei")
-        self._cytoplasm_token = tk.StringVar(value="")
-        self._min_nucleus_area_px = tk.StringVar(value="50")
 
         seg_row = self._row(sec, "Segmentation")
-        ttk.Combobox(
-            seg_row,
-            textvariable=self._segmentation_method,
-            values=("stardist_nuclei", "stardist_seeded_watershed_cell"),
-            state="readonly",
-            width=30,
-            font=FM_UI,
-        ).pack(side=tk.LEFT)
-        self._segmentation_method.trace_add("write", lambda *_: self._refresh_segmentation_hints())
+        self._seg_method_cb = QComboBox(seg_row)
+        self._seg_method_cb.addItems(["stardist_nuclei", "stardist_seeded_watershed_cell"])
+        self._seg_method_cb.setFixedWidth(240)
+        seg_row.layout().addWidget(self._seg_method_cb)
+        seg_row.layout().addStretch(1)
+        self._seg_method_cb.currentIndexChanged.connect(lambda _: self._refresh_segmentation_hints())
 
-        self._nuclear_token = tk.StringVar(value="NIR")
         nuc_row = self._row(sec, "Nuclear (seg)")
-        self._entry(nuc_row, self._nuclear_token)
-        tk.Label(
-            nuc_row,
-            text="segmentation + quantified",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        self._nuclear_token.trace_add("write", lambda *_: self._refresh_schema_preview())
-        self._nuclear_token.trace_add("write", lambda *_: self._refresh_segmentation_hints())
+        self._nuclear_token_edit = self._entry(nuc_row, "NIR")
+        nuc_hint = QLabel("segmentation + quantified", nuc_row)
+        nuc_hint.setObjectName("Muted")
+        nuc_row.layout().addWidget(nuc_hint)
+        nuc_row.layout().addStretch(1)
+        self._nuclear_token_edit.textChanged.connect(lambda _: self._refresh_schema_preview())
+        self._nuclear_token_edit.textChanged.connect(lambda _: self._refresh_segmentation_hints())
 
-        tk.Label(
-            sec,
-            text="Fluorescent channels",
-            font=FM_BOLD,
-            fg=TXT_PRI,
-            bg=BG_SIDE,
-        ).pack(anchor="w", pady=(6, 2))
-        tk.Label(
-            sec,
-            text="Mark smFISH channels with the checkbox on each row.",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-        ).pack(anchor="w", pady=(0, 2))
-        self._fluor_frame = tk.Frame(sec, bg=BG_SIDE)
-        self._fluor_frame.pack(fill=tk.X)
-        self._fluor_vars = []
-        self._fluor_smfish_vars: list[tk.BooleanVar] = []
+        fl_title = QLabel("Fluorescent channels", sec)
+        fl_title.setContentsMargins(0, 6, 0, 2)
+        sec.layout().addWidget(fl_title)
+        fl_hint = QLabel("Mark smFISH channels with the checkbox on each row.", sec)
+        fl_hint.setObjectName("Muted")
+        sec.layout().addWidget(fl_hint)
+
+        self._fluor_frame = QWidget(sec)
+        self._fluor_frame.setObjectName("Sidebar")
+        self._fluor_frame_layout = QVBoxLayout(self._fluor_frame)
+        self._fluor_frame_layout.setContentsMargins(0, 0, 0, 0)
+        self._fluor_frame_layout.setSpacing(2)
+        sec.layout().addWidget(self._fluor_frame)
         self._fluor_add_row("GFP")
-        self._fluor_add_btn = ttk.Button(sec, text="+ Add channel",
-                                         command=self._fluor_add_row,
-                                         style="SideAccent.TButton")
-        self._fluor_add_btn.pack(anchor="w", pady=(2, 0))
 
-        self._cyto_row = self._row(sec, "Cytoplasm token")
-        self._cytoplasm_entry = self._entry(self._cyto_row, self._cytoplasm_token, width=10)
-        self._cytoplasm_token.trace_add("write", lambda *_: self._refresh_segmentation_hints())
-        self._area_row = self._row(sec, "Min nucleus area")
-        self._min_nucleus_area_entry = self._entry(self._area_row, self._min_nucleus_area_px, width=6)
-        tk.Label(
-            self._area_row,
-            text="pixels (watershed)",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        self._min_nucleus_area_px.trace_add("write", lambda *_: self._refresh_segmentation_hints())
-        self._segmentation_hint_lbl = tk.Label(
-            sec,
-            text="",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-            anchor="w",
-            wraplength=280,
-            justify=tk.LEFT,
-        )
-        self._segmentation_hint_lbl.pack(anchor="w", pady=(2, 0))
+        add_btn = QPushButton("+ Add channel", sec)
+        add_btn.setProperty("variant", "secondary")
+        add_btn.clicked.connect(lambda _=False: self._fluor_add_row())
+        sec.layout().addWidget(add_btn)
+
+        # Watershed-only rows (hidden until method selected)
+        self._cyto_row_widget = QWidget(sec)
+        cr = QHBoxLayout(self._cyto_row_widget)
+        cr.setContentsMargins(0, 1, 0, 1)
+        clbl = QLabel("Cytoplasm token", self._cyto_row_widget)
+        clbl.setObjectName("Muted")
+        clbl.setFixedWidth(150)
+        cr.addWidget(clbl)
+        self._cytoplasm_edit = QLineEdit(self._cyto_row_widget)
+        self._cytoplasm_edit.setFixedWidth(80)
+        cr.addWidget(self._cytoplasm_edit)
+        cr.addStretch(1)
+        self._cytoplasm_edit.textChanged.connect(lambda _: self._refresh_segmentation_hints())
+        sec.layout().addWidget(self._cyto_row_widget)
+        self._cyto_row_widget.setVisible(False)
+
+        self._area_row_widget = QWidget(sec)
+        ar = QHBoxLayout(self._area_row_widget)
+        ar.setContentsMargins(0, 1, 0, 1)
+        albl = QLabel("Min nucleus area", self._area_row_widget)
+        albl.setObjectName("Muted")
+        albl.setFixedWidth(150)
+        ar.addWidget(albl)
+        self._min_nucleus_area_edit = QLineEdit("50", self._area_row_widget)
+        self._min_nucleus_area_edit.setFixedWidth(60)
+        ar.addWidget(self._min_nucleus_area_edit)
+        px_lbl = QLabel("pixels (watershed)", self._area_row_widget)
+        px_lbl.setObjectName("Muted")
+        ar.addWidget(px_lbl)
+        ar.addStretch(1)
+        self._min_nucleus_area_edit.textChanged.connect(lambda _: self._refresh_segmentation_hints())
+        sec.layout().addWidget(self._area_row_widget)
+        self._area_row_widget.setVisible(False)
+
+        self._segmentation_hint_lbl = QLabel("", sec)
+        self._segmentation_hint_lbl.setObjectName("Muted")
+        self._segmentation_hint_lbl.setWordWrap(True)
+        sec.layout().addWidget(self._segmentation_hint_lbl)
         self._refresh_segmentation_hints()
 
-    def _build_folders_section(self, parent: tk.Frame) -> None:
+    def _build_folders_section(self, parent: QWidget) -> None:
         sec = self._section(parent, "Folders")
-        in_row = tk.Frame(sec, bg=BG_SIDE)
-        in_row.pack(fill=tk.X, pady=2)
-        tk.Label(in_row, text="Input folder", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(anchor="w")
-        in_pick = tk.Frame(sec, bg=BG_SIDE)
-        in_pick.pack(fill=tk.X, pady=(0, 2))
-        self._input_var = tk.StringVar()
-        self._input_entry = tk.Entry(
-            in_pick,
-            textvariable=self._input_var,
-            font=FM_TINY,
-            fg=TXT_PRI,
-            bg=BG_PANEL,
-            relief=tk.FLAT,
-            highlightthickness=1,
-            highlightcolor=ACCENT,
-            highlightbackground=BORDER,
-            state=tk.DISABLED,
-        )
-        self._input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._browse_btn = ttk.Button(in_pick, text="Browse…",
-                                      command=self._browse_input,
-                                      style="Secondary.TButton",
-                                      state="disabled")
-        self._browse_btn.pack(side=tk.LEFT, padx=(4, 0))
-        self._input_var.trace_add("write", lambda *_: self._refresh_output())
 
-        self._folder_lock_lbl = tk.Label(
-            sec,
-            text="Define the filename schema above first.",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-            anchor="w",
-        )
-        self._folder_lock_lbl.pack(anchor="w", pady=(0, 2))
+        in_lbl = QLabel("Input folder", sec)
+        sec.layout().addWidget(in_lbl)
 
-        tk.Label(sec, text="Output folder (auto)", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE).pack(
-            anchor="w", pady=(6, 0)
-        )
-        self._output_var = tk.StringVar(value="—")
-        self._output_lbl = tk.Label(
-            sec,
-            textvariable=self._output_var,
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-            anchor="w",
-            wraplength=280,
-            justify=tk.LEFT,
-        )
-        self._output_lbl.pack(anchor="w")
+        in_pick = QWidget(sec)
+        ipl = QHBoxLayout(in_pick)
+        ipl.setContentsMargins(0, 0, 0, 4)
+        ipl.setSpacing(4)
+        self._input_edit = QLineEdit(in_pick)
+        self._input_edit.setReadOnly(True)
+        self._input_edit.setPlaceholderText("(not set)")
+        self._input_edit.setEnabled(False)
+        ipl.addWidget(self._input_edit, 1)
+        self._browse_btn = QPushButton("Browse…", in_pick)
+        self._browse_btn.setProperty("variant", "secondary")
+        self._browse_btn.setEnabled(False)
+        self._browse_btn.clicked.connect(self._browse_input)
+        ipl.addWidget(self._browse_btn)
+        sec.layout().addWidget(in_pick)
 
-        self._layout_lbl = tk.Label(
-            sec,
-            text="",
-            font=FM_TINY,
-            fg=CLR_DANGER,
-            bg=BG_SIDE,
-            anchor="w",
-            wraplength=280,
-            justify=tk.LEFT,
-        )
-        self._layout_lbl.pack(anchor="w", pady=(2, 0))
+        self._folder_lock_lbl = QLabel("Define the filename schema above first.", sec)
+        self._folder_lock_lbl.setObjectName("Muted")
+        sec.layout().addWidget(self._folder_lock_lbl)
 
-    def _build_tophat_section(self, parent: tk.Frame) -> None:
+        out_lbl = QLabel("Output folder (auto)", sec)
+        out_lbl.setContentsMargins(0, 6, 0, 0)
+        sec.layout().addWidget(out_lbl)
+        self._output_lbl = QLabel("—", sec)
+        self._output_lbl.setObjectName("Muted")
+        self._output_lbl.setWordWrap(True)
+        sec.layout().addWidget(self._output_lbl)
+
+        self._layout_lbl = QLabel("", sec)
+        self._layout_lbl.setWordWrap(True)
+        sec.layout().addWidget(self._layout_lbl)
+
+        self._input_edit.textChanged.connect(lambda _: self._refresh_output())
+
+    def _build_tophat_section(self, parent: QWidget) -> None:
         sec = self._section(parent, "Top-Hat Background Subtraction")
-        self._tophat_radius_nir = tk.StringVar(value="100")
-        self._tophat_radius_fluor = tk.StringVar(value="100")
-        self._no_tophat_nir = tk.BooleanVar(value=False)
-        self._no_tophat_fluor = tk.BooleanVar(value=False)
-        for lbl, rvar, dvar in (
-            ("Nuclear radius", self._tophat_radius_nir, self._no_tophat_nir),
-            ("Fluor radius", self._tophat_radius_fluor, self._no_tophat_fluor),
-        ):
-            row = self._row(sec, lbl)
-            self._entry(row, rvar, width=6)
-            tk.Checkbutton(
-                row,
-                text="Disable",
-                variable=dvar,
-                font=FM_TINY,
-                fg=TXT_MUT,
-                bg=BG_SIDE,
-                activebackground=BG_SIDE,
-                selectcolor=BG_PANEL,
-            ).pack(side=tk.LEFT, padx=(8, 0))
-        tk.Label(
-            sec,
-            text="Fluor radius applies to all fluorescent channels.",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-        ).pack(anchor="w", pady=(2, 0))
 
-    def _build_output_options_section(self, parent: tk.Frame) -> None:
+        nir_row = self._row(sec, "Nuclear radius")
+        self._tophat_radius_nir_edit = self._entry(nir_row, "100", width=60)
+        self._no_tophat_nir_cb = QCheckBox("Disable", nir_row)
+        nir_row.layout().addWidget(self._no_tophat_nir_cb)
+        nir_row.layout().addStretch(1)
+
+        fluor_row = self._row(sec, "Fluor radius")
+        self._tophat_radius_fluor_edit = self._entry(fluor_row, "100", width=60)
+        self._no_tophat_fluor_cb = QCheckBox("Disable", fluor_row)
+        fluor_row.layout().addWidget(self._no_tophat_fluor_cb)
+        fluor_row.layout().addStretch(1)
+
+        hint = QLabel("Fluor radius applies to all fluorescent channels.", sec)
+        hint.setObjectName("Muted")
+        sec.layout().addWidget(hint)
+
+    def _build_output_options_section(self, parent: QWidget) -> None:
         sec = self._section(parent, "Output Options")
-        self._compress_input_well_folders = tk.BooleanVar(value=True)
-        self._compress_output_well_folders = tk.BooleanVar(value=True)
-        self._csv_prefix = tk.StringVar(value="gfp_measurements")
-        for txt, var in (
-            ("Folder mode only: Compress input well folders to .zip", self._compress_input_well_folders),
-            ("Folder mode only: Compress output well folders to .zip", self._compress_output_well_folders),
-        ):
-            tk.Checkbutton(
-                sec,
-                text=txt,
-                variable=var,
-                font=FM_UI,
-                fg=TXT_PRI,
-                bg=BG_SIDE,
-                activebackground=BG_SIDE,
-                selectcolor=BG_PANEL,
-            ).pack(anchor="w", pady=1)
+
+        self._compress_input_cb = QCheckBox(
+            "Folder mode only: Compress input well folders to .zip", sec)
+        self._compress_input_cb.setChecked(True)
+        sec.layout().addWidget(self._compress_input_cb)
+
+        self._compress_output_cb = QCheckBox(
+            "Folder mode only: Compress output well folders to .zip", sec)
+        self._compress_output_cb.setChecked(True)
+        sec.layout().addWidget(self._compress_output_cb)
+
         r = self._row(sec, "CSV prefix")
-        self._entry(r, self._csv_prefix, width=18)
+        self._csv_prefix_edit = self._entry(r, "gfp_measurements", width=160)
+        r.layout().addStretch(1)
 
-    def _build_compute_options_section(self, parent: tk.Frame) -> None:
+    def _build_compute_options_section(self, parent: QWidget) -> None:
         sec = self._section(parent, "Compute Options")
-        self._tf_threads = tk.StringVar(value="0")
-        self._workers = tk.StringVar(value="0")
-        self._cpu_only = tk.BooleanVar(value=False)
-        self._force = tk.BooleanVar(value=False)
 
-        row = self._row(sec, "TF threads (0=auto)")
-        self._entry(row, self._tf_threads, width=4)
-        tk.Label(row, text="(0 → auto-select 4)", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(
-            side=tk.LEFT, padx=(6, 0)
-        )
-        workers_row = self._row(sec, "Workers (0=auto)")
-        self._entry(workers_row, self._workers, width=4)
-        tk.Label(workers_row, text="(process count override)", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(
-            side=tk.LEFT, padx=(6, 0)
-        )
+        tf_row = self._row(sec, "TF threads (0=auto)")
+        self._tf_threads_edit = self._entry(tf_row, "0", width=40)
+        tf_hint = QLabel("(0 → auto-select 4)", tf_row)
+        tf_hint.setObjectName("Muted")
+        tf_row.layout().addWidget(tf_hint)
+        tf_row.layout().addStretch(1)
 
-        for txt, var in (
-            ("CPU only (disable GPU)", self._cpu_only),
-            ("Force reprocess all wells", self._force),
-        ):
-            tk.Checkbutton(
-                sec,
-                text=txt,
-                variable=var,
-                font=FM_UI,
-                fg=TXT_PRI,
-                bg=BG_SIDE,
-                activebackground=BG_SIDE,
-                selectcolor=BG_PANEL,
-            ).pack(anchor="w", pady=1)
+        w_row = self._row(sec, "Workers (0=auto)")
+        self._workers_edit = self._entry(w_row, "0", width=40)
+        w_hint = QLabel("(process count override)", w_row)
+        w_hint.setObjectName("Muted")
+        w_row.layout().addWidget(w_hint)
+        w_row.layout().addStretch(1)
 
-    def _build_run_controls(self, parent: tk.Frame) -> None:
-        btn_frame = tk.Frame(parent, bg=BG_SIDE, padx=12, pady=10)
-        btn_frame.pack(fill=tk.X)
+        self._cpu_only_cb = QCheckBox("CPU only (disable GPU)", sec)
+        sec.layout().addWidget(self._cpu_only_cb)
+        self._force_cb = QCheckBox("Force reprocess all wells", sec)
+        sec.layout().addWidget(self._force_cb)
 
-        self._run_btn = ttk.Button(btn_frame, text="▶  Run Pipeline",
-                                   command=self._run, style="Run.TButton")
-        self._run_btn.pack(side=tk.LEFT)
+    def _build_run_controls(self, parent: QWidget) -> None:
+        btn_widget = QWidget(parent)
+        btn_widget.setObjectName("Sidebar")
+        bl = QHBoxLayout(btn_widget)
+        bl.setContentsMargins(12, 10, 12, 10)
+        bl.setSpacing(8)
 
-        self._stop_btn = ttk.Button(btn_frame, text="■  Stop",
-                                    command=self._stop, style="Stop.TButton",
-                                    state="disabled")
-        self._stop_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self._run_btn = QPushButton("▶  Run Pipeline", btn_widget)
+        self._run_btn.setProperty("variant", "primary")
+        self._run_btn.clicked.connect(self._run)
+        bl.addWidget(self._run_btn)
+
+        self._stop_btn = QPushButton("■  Stop", btn_widget)
+        self._stop_btn.setProperty("variant", "danger")
+        self._stop_btn.setEnabled(False)
+        self._stop_btn.clicked.connect(self._stop)
+        bl.addWidget(self._stop_btn)
+        bl.addStretch(1)
+
+        parent.layout().addWidget(btn_widget)
 
     # ------------------------------------------------------------------
-    # Fluorescent channel list helpers
+    # Fluorescent channel helpers
     # ------------------------------------------------------------------
     def _fluor_add_row(self, default_token: str = "") -> None:
-        """Append a new fluorescent channel row to the fluor frame."""
-        var = tk.StringVar(value=default_token)
-        self._fluor_vars.append(var)
-        var.trace_add("write", lambda *_: self._refresh_schema_preview())
+        row = QWidget(self._fluor_frame)
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(4)
 
-        row = tk.Frame(self._fluor_frame, bg=BG_SIDE)
-        row.pack(fill=tk.X, pady=1)
+        edit = QLineEdit(default_token, row)
+        edit.setFixedWidth(80)
+        edit.textChanged.connect(lambda _: self._refresh_schema_preview())
+        rl.addWidget(edit)
 
-        entry = tk.Entry(
-            row, textvariable=var,
-            font=FM_MONO, fg=ACCENT, bg=BG_PANEL,
-            relief=tk.FLAT, highlightthickness=1,
-            highlightcolor=ACCENT, highlightbackground=BORDER,
-            width=10)
-        entry.pack(side=tk.LEFT)
+        remove_btn = QPushButton("✕", row)
+        remove_btn.setFixedWidth(24)
+        remove_btn.setProperty("variant", "secondary")
+        rl.addWidget(remove_btn)
 
-        # Remove button — disabled when only one channel remains.
-        remove_btn = ttk.Button(row, text="✕", style="SideMuted.TButton",
-                                command=lambda r=row, v=var: self._fluor_remove_row(r, v))
-        remove_btn.pack(side=tk.LEFT, padx=(4, 0))
-        smfish_var = tk.BooleanVar(value=False)
-        self._fluor_smfish_vars.append(smfish_var)
-        tk.Checkbutton(
-            row, text="smFISH", variable=smfish_var,
-            font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE,
-            activebackground=BG_SIDE, selectcolor=BG_PANEL,
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        smfish_cb = QCheckBox("smFISH", row)
+        rl.addWidget(smfish_cb)
+        rl.addStretch(1)
 
+        self._fluor_rows.append((edit, smfish_cb, remove_btn))
+        remove_btn.clicked.connect(
+            lambda _=False, r=row, b=remove_btn: self._fluor_remove_row(r, b)
+        )
+        self._fluor_frame_layout.addWidget(row)
         self._fluor_refresh_remove_buttons()
         self._refresh_schema_preview()
-        # Bind scroll to the newly created widgets.
-        if hasattr(self, "_bind_form_scroll"):
-            self._bind_form_scroll()
 
-    def _fluor_remove_row(self, row_frame: tk.Frame, var: tk.StringVar) -> None:
-        """Remove a fluorescent channel row (never removes the last one)."""
-        if len(self._fluor_vars) <= 1:
+    def _fluor_remove_row(self, row: QWidget, remove_btn: QPushButton) -> None:
+        if len(self._fluor_rows) <= 1:
             return
-        idx = self._fluor_vars.index(var)
-        self._fluor_smfish_vars.pop(idx)
-        self._fluor_vars.remove(var)
-        row_frame.destroy()
+        self._fluor_rows = [(e, s, b) for e, s, b in self._fluor_rows if b is not remove_btn]
+        row.deleteLater()
         self._fluor_refresh_remove_buttons()
         self._refresh_schema_preview()
 
     def _fluor_refresh_remove_buttons(self) -> None:
-        """Enable/disable all remove buttons based on current channel count."""
-        only_one = len(self._fluor_vars) == 1
-        for widget in self._fluor_frame.winfo_children():
-            for child in widget.winfo_children():
-                if isinstance(child, tk.Button) and child.cget("text") == "✕":
-                    child.config(state=tk.DISABLED if only_one else tk.NORMAL)
+        only_one = len(self._fluor_rows) == 1
+        for _, _, btn in self._fluor_rows:
+            btn.setEnabled(not only_one)
 
     def _fluor_tokens_list(self) -> list[str]:
-        """Return non-empty token strings from the fluor channel list."""
-        return [v.get().strip() for v in self._fluor_vars if v.get().strip()]
+        return [e.text().strip() for e, _, _ in self._fluor_rows if e.text().strip()]
 
+    def _smfish_tokens_list(self) -> list[str]:
+        return [e.text().strip() for e, s, _ in self._fluor_rows if s.isChecked() and e.text().strip()]
+
+    # ------------------------------------------------------------------
+    # Segmentation hints
+    # ------------------------------------------------------------------
     def _segmentation_validation_errors(self) -> list[str]:
         errors: list[str] = []
-        method = self._segmentation_method.get().strip() or "stardist_nuclei"
+        method = self._seg_method_cb.currentText()
         if method == "stardist_seeded_watershed_cell":
-            cytoplasm_token = self._cytoplasm_token.get().strip()
-            nuclear_token = self._nuclear_token.get().strip()
-            if not cytoplasm_token:
+            cyto = self._cytoplasm_edit.text().strip()
+            nuc  = self._nuclear_token_edit.text().strip()
+            if not cyto:
                 errors.append("Watershed mode requires a cytoplasm token.")
-            if cytoplasm_token and cytoplasm_token == nuclear_token:
+            if cyto and cyto == nuc:
                 errors.append("Cytoplasm token must differ from nuclear token.")
             try:
-                area = int(self._min_nucleus_area_px.get().strip())
+                area = int(self._min_nucleus_area_edit.text().strip())
                 if area <= 0:
                     errors.append("Minimum nucleus area must be a positive integer.")
             except ValueError:
@@ -702,416 +556,277 @@ class AnalyzeTab(tk.Frame):
     def _refresh_segmentation_hints(self) -> None:
         if not hasattr(self, "_segmentation_hint_lbl"):
             return
-        method = self._segmentation_method.get().strip() or "stardist_nuclei"
-        controls_enabled = method == "stardist_seeded_watershed_cell"
-        if hasattr(self, "_cyto_row"):
-            cyto_row_frame = self._cyto_row.master
-            if controls_enabled and not cyto_row_frame.winfo_ismapped():
-                cyto_row_frame.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
-            elif not controls_enabled and cyto_row_frame.winfo_ismapped():
-                cyto_row_frame.pack_forget()
-        if hasattr(self, "_area_row"):
-            area_row_frame = self._area_row.master
-            if controls_enabled and not area_row_frame.winfo_ismapped():
-                area_row_frame.pack(fill=tk.X, pady=2, before=self._segmentation_hint_lbl)
-            elif not controls_enabled and area_row_frame.winfo_ismapped():
-                area_row_frame.pack_forget()
-        if hasattr(self, "_cytoplasm_entry"):
-            self._cytoplasm_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
-        if hasattr(self, "_min_nucleus_area_entry"):
-            self._min_nucleus_area_entry.config(state=tk.NORMAL if controls_enabled else tk.DISABLED)
-        if method == "stardist_seeded_watershed_cell":
+        method = self._seg_method_cb.currentText()
+        watershed = method == "stardist_seeded_watershed_cell"
+        self._cyto_row_widget.setVisible(watershed)
+        self._area_row_widget.setVisible(watershed)
+        if watershed:
             errors = self._segmentation_validation_errors()
             if errors:
-                self._segmentation_hint_lbl.config(text="  ".join(errors), fg=CLR_DANGER)
+                self._segmentation_hint_lbl.setText("  ".join(errors))
             else:
-                self._segmentation_hint_lbl.config(
-                    text="Watershed mode uses StarDist seeds + cytoplasm mask and also quantifies the cytoplasm channel.",
-                    fg=TXT_MUT,
+                self._segmentation_hint_lbl.setText(
+                    "Watershed mode uses StarDist seeds + cytoplasm mask "
+                    "and also quantifies the cytoplasm channel."
                 )
         else:
-            self._segmentation_hint_lbl.config(
-                text="Default mode: StarDist nuclei segmentation (backward compatible).",
-                fg=TXT_MUT,
+            self._segmentation_hint_lbl.setText(
+                "Default mode: StarDist nuclei segmentation (backward compatible)."
             )
-
-    def _smfish_tokens_list(self) -> list[str]:
-        return [v.get().strip() for v, sm in
-                zip(self._fluor_vars, self._fluor_smfish_vars)
-                if sm.get() and v.get().strip()]
 
     # ------------------------------------------------------------------
     # Schema helpers
     # ------------------------------------------------------------------
     def _schema_field_list(self) -> list[str]:
-        """Return the current schema as a list of field-name strings."""
-        return [_LABEL_TO_FIELD.get(v.get(), "ignore") for v in self._schema_vars]
+        return [_LABEL_TO_FIELD.get(cb.currentText(), "ignore") for cb in self._schema_cbs]
 
-    def _on_combobox_selected(self, var: tk.StringVar, cb: "ttk.Combobox") -> None:
-        """Handle a dropdown selection — update the StringVar and rebuild the
-        schema string field directly from all five dropdowns."""
-        var.set(cb.get())
-        # Rebuild string field from all dropdowns now
-        if hasattr(self, "_schema_str_var") and hasattr(self, "_schema_vars"):
+    def _on_combobox_selected(self, changed_cb: QComboBox) -> None:
+        if hasattr(self, "_schema_str_edit"):
             new_schema = ":".join(
-                _LABEL_TO_FIELD.get(v.get(), "ignore") for v in self._schema_vars
+                _LABEL_TO_FIELD.get(c.currentText(), "ignore") for c in self._schema_cbs
             )
-            self._schema_str_var.set(new_schema)
+            self._schema_str_edit.blockSignals(True)
+            self._schema_str_edit.setText(new_schema)
+            self._schema_str_edit.blockSignals(False)
         self._refresh_schema_preview()
 
-    def _sync_string_from_dropdowns(self) -> None:
-        """Update the schema string entry to reflect the current dropdown state."""
-        if not hasattr(self, "_schema_str_var"):
-            return
-        # Read directly from dropdowns (not _build_schema_arg which reads the string)
-        new_val = ":".join(self._schema_field_list())
-        if self._schema_str_var.get() != new_val:
-            self._schema_str_var.set(new_val)
-            self._schema_str_last_synced = new_val
-
     def _sync_dropdowns_from_string(self) -> None:
-        """Parse the schema string entry and update the dropdowns to match.
-
-        Called when the user commits the schema string field (Return/Tab/FocusOut).
-        Updates _schema_str_last_synced so subsequent dropdown changes don't
-        clobber the user's manually entered value.
-        """
-        if not hasattr(self, "_schema_vars") or not hasattr(self, "_schema_str_var"):
+        if not self._schema_cbs or not hasattr(self, "_schema_str_edit"):
             return
-        raw = self._schema_str_var.get().strip()
+        raw = self._schema_str_edit.text().strip()
         if not raw:
             return
-        # Parse colon-separated field names, pad/truncate to 5 slots
         parts = [p.strip().lower() for p in raw.split(":")]
         parts = (parts + ["ignore"] * 5)[:5]
-        current = self._schema_field_list()
-        if parts == current:
-            self._schema_str_last_synced = raw
-            return  # nothing changed
-        for var, field in zip(self._schema_vars, parts):
+        if parts == self._schema_field_list():
+            return
+        for cb, field in zip(self._schema_cbs, parts):
             label = _FIELD_TO_LABEL.get(field, "— ignore —")
-            if var.get() != label:
-                var.set(label)
-        # Record that this string is now in sync with the dropdowns
-        self._schema_str_last_synced = raw
+            if cb.currentText() != label:
+                cb.blockSignals(True)
+                cb.setCurrentText(label)
+                cb.blockSignals(False)
         self._refresh_schema_preview()
 
     def _schema_errors(self) -> list[str]:
-        """Return validation error strings, or [] if the schema is valid.
-        Reads from the string field (single source of truth).
-        """
         schema_str = self._build_schema_arg()
         fields = [f.strip().lower() for f in schema_str.split(":") if f.strip()]
         errors: list[str] = []
         if fields.count("channel") != 1:
-            errors.append(
-                f'"Channel" must appear exactly once '
-                f'(found {fields.count("channel")}).'
-            )
+            errors.append(f'"Channel" must appear exactly once (found {fields.count("channel")}).')
         if fields.count("well") != 1:
-            errors.append(
-                f'"Well" must appear exactly once '
-                f'(found {fields.count("well")}).'
-            )
+            errors.append(f'"Well" must appear exactly once (found {fields.count("well")}).')
         return errors
 
     def _build_schema_arg(self) -> str:
-        """Return the colon-joined schema string for the pipeline CLI.
-
-        Prefers the editable string field as the source of truth — this
-        ensures the value passed to the pipeline matches what the user
-        actually sees and can type, regardless of any Combobox sync issues.
-        Falls back to reading the dropdowns if the field isn't built yet.
-        """
-        if hasattr(self, "_schema_str_var"):
-            raw = self._schema_str_var.get().strip()
+        if hasattr(self, "_schema_str_edit"):
+            raw = self._schema_str_edit.text().strip()
             if raw:
                 return raw
         return ":".join(self._schema_field_list())
 
     def _refresh_schema_preview(self) -> None:
-        """Update the live preview label, validation message, and folder lock.
-
-        Important: this method NEVER reverts any field values.  Validation
-        errors are displayed but do not undo what the user just changed.
-        The string field is always kept in sync with the dropdowns so the
-        user can see the current schema regardless of validity.
-        """
-        # Guard: called during construction before all widgets exist — bail out.
-        if not hasattr(self, "_schema_vars") or not hasattr(self, "_schema_err_lbl"):
+        if not self._schema_cbs or not hasattr(self, "_schema_err_lbl"):
             return
-
         errors = self._schema_errors()
         fields = self._schema_field_list()
-        sep    = self._filename_sep.get() or DEFAULT_SEP
-
-        # String field is the source of truth — dropdowns never overwrite it here.
-        # Dropdowns update the string only via _on_combobox_selected.
-
+        sep = (self._filename_sep_edit.text() if hasattr(self, "_filename_sep_edit") else DEFAULT_SEP) or DEFAULT_SEP
         schema_valid = not errors
 
-        # ── Lock / unlock the folder widgets ──────────────────────────────
-        if hasattr(self, "_input_entry"):
-            folder_state = tk.NORMAL if schema_valid else tk.DISABLED
-            self._input_entry.config(state=folder_state)
-            self._browse_btn.config(state=folder_state)
-            if hasattr(self, "_folder_lock_lbl"):
-                self._folder_lock_lbl.config(
-                    text="" if schema_valid
-                    else "Define the filename schema above first.")
+        if hasattr(self, "_input_edit"):
+            self._input_edit.setEnabled(schema_valid)
+            self._browse_btn.setEnabled(schema_valid)
+        if hasattr(self, "_folder_lock_lbl"):
+            self._folder_lock_lbl.setText("" if schema_valid else "Define the filename schema above first.")
 
         if errors:
-            self._schema_err_lbl.config(text="  ".join(errors))
-            self._schema_preview_lbl.config(text="")
+            self._schema_err_lbl.setText("  ".join(errors))
+            self._schema_preview_lbl.setText("")
             if hasattr(self, "_run_btn"):
-                self._run_btn.config(state=tk.DISABLED)
+                self._run_btn.setEnabled(False)
             return
 
-        self._schema_err_lbl.config(text="")
+        self._schema_err_lbl.setText("")
         if hasattr(self, "_run_btn"):
-            self._run_btn.config(state=tk.NORMAL)
+            self._run_btn.setEnabled(True)
 
-        # Build a representative example filename from placeholder tokens.
-        nuclear_tok = (
-            self._nuclear_token.get().strip()
-            if hasattr(self, "_nuclear_token") else "NIR"
-        ) or "NIR"
-
-        fluor_toks = (
-            self._fluor_tokens_list()
-            if hasattr(self, "_fluor_vars") else ["GFP"]
-        ) or ["GFP"]
+        nuclear_tok = (self._nuclear_token_edit.text().strip() if hasattr(self, "_nuclear_token_edit") else "NIR") or "NIR"
+        fluor_toks  = self._fluor_tokens_list() if self._fluor_rows else ["GFP"]
+        fluor_toks  = fluor_toks or ["GFP"]
 
         def _make_example(chan_tok: str) -> str:
-            parts = []
-            for field in fields:
-                if field == "channel":
-                    parts.append(chan_tok)
-                else:
-                    parts.append(_PREVIEW_TOKENS.get(field, "X"))
+            parts = [chan_tok if f == "channel" else _PREVIEW_TOKENS.get(f, "X") for f in fields]
             return sep.join(parts) + ".tif"
 
-        lines = [f"e.g. {_make_example(nuclear_tok)}"]
-        for ftok in fluor_toks[:2]:
-            lines.append(f"     {_make_example(ftok)}")
-        self._schema_preview_lbl.config(text="\n".join(lines))
+        lines = [f"e.g. {_make_example(nuclear_tok)}"] + [f"     {_make_example(t)}" for t in fluor_toks[:2]]
+        self._schema_preview_lbl.setText("\n".join(lines))
 
-    def _build_log(self, parent: tk.Frame) -> None:
-        """Build the right-side log panel."""
-        hdr = tk.Frame(parent, bg=BG_SIDE, pady=6, padx=12)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="Pipeline Output", font=FM_BOLD,
-                 fg=TXT_PRI, bg=BG_SIDE).pack(side=tk.LEFT)
-        self._status_lbl = tk.Label(hdr, text="Idle", font=FM_TINY,
-                                    fg=TXT_MUT, bg=BG_SIDE)
-        self._status_lbl.pack(side=tk.LEFT, padx=(12, 0))
-        ttk.Button(hdr, text="Clear", command=self._clear_log,
-                   style="Secondary.TButton").pack(side=tk.RIGHT)
+    # ------------------------------------------------------------------
+    # Log panel
+    # ------------------------------------------------------------------
+    def _build_log(self, parent: QWidget) -> None:
+        rl = QVBoxLayout(parent)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
 
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
+        hdr = QWidget(parent)
+        hdr.setObjectName("Sidebar")
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(12, 6, 12, 6)
+        hl.addWidget(QLabel("Pipeline Output", hdr))
+        self._status_lbl = QLabel("Idle", hdr)
+        self._status_lbl.setObjectName("Muted")
+        hl.addWidget(self._status_lbl)
+        hl.addStretch(1)
+        clear_btn = QPushButton("Clear", hdr)
+        clear_btn.setProperty("variant", "secondary")
+        clear_btn.clicked.connect(self._clear_log)
+        hl.addWidget(clear_btn)
+        rl.addWidget(hdr)
 
-        # Progress bar — sits between header and log text
-        prog_frame = tk.Frame(parent, bg=BG_SIDE, padx=12, pady=6)
-        prog_frame.pack(fill=tk.X)
+        r1 = QFrame(parent); r1.setFrameShape(QFrame.HLine); r1.setObjectName("HRule")
+        rl.addWidget(r1)
 
-        self._prog_lbl = tk.Label(prog_frame, text="", font=FM_TINY,
-                                  fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-        self._prog_lbl.pack(side=tk.LEFT)
+        prog_widget = QWidget(parent)
+        prog_widget.setObjectName("Sidebar")
+        pl = QHBoxLayout(prog_widget)
+        pl.setContentsMargins(12, 6, 12, 6)
+        self._prog_lbl = QLabel("", prog_widget)
+        self._prog_lbl.setObjectName("Muted")
+        pl.addWidget(self._prog_lbl)
+        self._progress = QProgressBar(prog_widget)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setTextVisible(False)
+        pl.addWidget(self._progress, 1)
+        rl.addWidget(prog_widget)
 
-        from tkinter import ttk as _ttk
-        self._progress = _ttk.Progressbar(
-            prog_frame, orient=tk.HORIZONTAL,
-            mode="determinate", maximum=100, value=0)
-        self._progress.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(12, 0))
+        r2 = QFrame(parent); r2.setFrameShape(QFrame.HLine); r2.setObjectName("HRule")
+        rl.addWidget(r2)
 
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X)
-
-        log_frame = tk.Frame(parent, bg=BG_PANEL)
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
-        vsb = tk.Scrollbar(log_frame, relief=tk.FLAT, width=8,
-                           bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._log = tk.Text(
-            log_frame, bg=BG_PANEL, fg=TXT_PRI,
-            font=FM_MONO, relief=tk.FLAT,
-            wrap=tk.NONE, state=tk.DISABLED,
-            yscrollcommand=vsb.set,
-            selectbackground=ACCENT, selectforeground=CLR_WHITE)
-        self._log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=self._log.yview)
-
-        # Horizontal scrollbar
-        hsb = tk.Scrollbar(parent, orient=tk.HORIZONTAL, relief=tk.FLAT,
-                           width=8, bg=BORDER, troughcolor=BG_SIDE,
-                           command=self._log.xview)
-        hsb.pack(fill=tk.X, padx=4)
-        self._log.config(xscrollcommand=hsb.set)
-
-        # Tag colours for log levels
-        self._log.tag_configure("INFO",    foreground=TXT_PRI)
-        self._log.tag_configure("WARNING", foreground=WARN)
-        self._log.tag_configure("ERROR",   foreground=CLR_DANGER)
-        self._log.tag_configure("DONE",    foreground=CLR_SUCCESS, font=FM_BOLD)
-        self._log.tag_configure("CMD",     foreground=TXT_MUT)
+        self._log = QTextEdit(parent)
+        self._log.setReadOnly(True)
+        self._log.setLineWrapMode(QTextEdit.NoWrap)
+        font = self._log.font()
+        font.setFamily("Menlo" if _sys.platform == "darwin" else "Consolas")
+        font.setPointSize(9)
+        self._log.setFont(font)
+        rl.addWidget(self._log, 1)
 
     # ------------------------------------------------------------------
     # Folder resolution
     # ------------------------------------------------------------------
     def _browse_input(self) -> None:
-        d = filedialog.askdirectory(title="Select input folder")
+        d = QFileDialog.getExistingDirectory(self, "Select input folder")
         if d:
-            self._input_var.set(d)
+            self._input_edit.setText(d)
+            self._input_edit.setEnabled(True)
 
     def _refresh_output(self) -> None:
-        """Re-evaluate the in/out path and update the display labels.
-        Never runs the zipper — preview only."""
-        raw_str = self._input_var.get().strip()
+        raw_str = self._input_edit.text().strip()
         if not raw_str:
-            self._output_var.set("—")
-            self._layout_lbl.config(text="")
-            return
+            self._output_lbl.setText("—"); self._layout_lbl.setText(""); return
         raw = Path(raw_str)
         if not raw.is_dir():
-            self._output_var.set("—")
-            self._layout_lbl.config(text="Not a directory.", fg=CLR_DANGER)
-            return
-
-        # Rule 1: folder named "in"
+            self._output_lbl.setText("—"); self._layout_lbl.setText("Not a directory."); return
         if raw.name.lower() == "in":
-            self._output_var.set(str(raw.parent / "out"))
-            self._layout_lbl.config(text="✓ Using selected folder as input",
-                                    fg=CLR_SUCCESS)
-            return
-
-        # Rule 2: contains "in/" with zips or well-named subfolders
+            self._output_lbl.setText(str(raw.parent / "out"))
+            self._layout_lbl.setText("✓ Using selected folder as input"); return
         in_sub = raw / "in"
         if in_sub.is_dir() and _has_well_content(in_sub):
-            self._output_var.set(str(raw / "out"))
-            self._layout_lbl.config(text="✓ Found in/ subfolder — using as input",
-                                    fg=CLR_SUCCESS)
-            return
-
-        # Rule 3: has TIF files — will need WellPlateZipper (don't run it here)
+            self._output_lbl.setText(str(raw / "out"))
+            self._layout_lbl.setText("✓ Found in/ subfolder — using as input"); return
         tifs = _tif_files_in(raw)
         if len(tifs) > 3:
-            self._output_var.set(str(raw / "out"))
-            self._layout_lbl.config(
-                text=f"✓ Will run WellPlateZipper on {len(tifs)} TIF files → in/",
-                fg=CLR_SUCCESS)
-            return
+            self._output_lbl.setText(str(raw / "out"))
+            self._layout_lbl.setText(f"✓ Will run WellPlateZipper on {len(tifs)} TIF files → in/"); return
+        self._output_lbl.setText("—")
+        self._layout_lbl.setText("No TIF files or in/ folder found in selected directory.")
 
-        # Nothing matched
-        self._output_var.set("—")
-        self._layout_lbl.config(
-            text="No TIF files or in/ folder found in selected directory.",
-            fg=CLR_DANGER)
-
+    # ------------------------------------------------------------------
+    # Run / Stop
+    # ------------------------------------------------------------------
     def _run(self) -> None:
-        """Validate paths, build args, spawn subprocess."""
         pipeline = self._validate_run_request()
         if pipeline is None:
             return
         self._set_running_ui_state()
         opts = self._collect_run_options()
-        threading.Thread(
-            target=self._run_pipeline_thread,
-            args=(pipeline, opts),
-            daemon=True,
-        ).start()
+        threading.Thread(target=self._run_pipeline_thread, args=(pipeline, opts), daemon=True).start()
 
     def _validate_run_request(self) -> Optional[Path]:
-        raw_str = self._input_var.get().strip()
-        if not raw_str:
-            messagebox.showerror("Input Error", "No input folder selected.", parent=self)
+        if not self._input_edit.text().strip():
+            QMessageBox.critical(self, "Input Error", "No input folder selected.")
             return None
         schema_errors = self._schema_errors()
         if schema_errors:
-            messagebox.showerror(
-                "Schema Error",
-                "Invalid filename schema:\n\n" + "\n".join(schema_errors),
-                parent=self,
-            )
+            QMessageBox.critical(self, "Schema Error", "Invalid filename schema:\n\n" + "\n".join(schema_errors))
             return None
-        fluor_tokens = self._fluor_tokens_list()
-        if not fluor_tokens:
-            messagebox.showerror(
-                "Channel Error",
-                "At least one fluorescent channel token is required.",
-                parent=self,
-            )
+        if not self._fluor_tokens_list():
+            QMessageBox.critical(self, "Channel Error", "At least one fluorescent channel token is required.")
             return None
         seg_errors = self._segmentation_validation_errors()
         if seg_errors:
-            messagebox.showerror(
-                "Segmentation Error",
-                "\n".join(seg_errors),
-                parent=self,
-            )
+            QMessageBox.critical(self, "Segmentation Error", "\n".join(seg_errors))
             return None
         pipeline = find_pipeline_script()
         if pipeline is None:
-            messagebox.showerror(
-                "Configuration Error",
-                f"process_microscopy_v2.py not found.\nExpected: {_PIPELINE_SCRIPT}",
-                parent=self,
-            )
+            QMessageBox.critical(self, "Configuration Error",
+                "process_microscopy_v2.py not found next to all_well.py.")
             return None
         return pipeline
 
     def _set_running_ui_state(self) -> None:
         self._running = True
         self._well_total = 0
-        self._well_done = 0
+        self._well_done  = 0
         self._zip_mode_warning_logged = False
-        self._progress["value"] = 0
-        self._prog_lbl.config(text="Preparing…", fg=TXT_MUT)
-        self._run_btn.config(state=tk.DISABLED)
-        self._stop_btn.config(state=tk.NORMAL)
-        self._status_lbl.config(text="Running…", fg=WARN)
+        self._progress.setValue(0)
+        self._prog_lbl.setText("Preparing…")
+        self._run_btn.setEnabled(False)
+        self._stop_btn.setEnabled(True)
+        self._status_lbl.setText("Running…")
 
     def _collect_run_options(self) -> dict:
-        segmentation_method = self._segmentation_method.get().strip() or "stardist_nuclei"
-        min_area_raw = self._min_nucleus_area_px.get().strip()
+        method = self._seg_method_cb.currentText() or "stardist_nuclei"
         try:
-            min_area = int(min_area_raw) if min_area_raw else 50
+            min_area = int(self._min_nucleus_area_edit.text().strip() or "50")
         except ValueError:
             min_area = 50
-        cytoplasm_token = self._cytoplasm_token.get().strip()
-        if segmentation_method != "stardist_seeded_watershed_cell":
-            cytoplasm_token = ""
+        cyto = self._cytoplasm_edit.text().strip()
+        if method != "stardist_seeded_watershed_cell":
+            cyto = ""
         return dict(
-            raw=Path(self._input_var.get().strip()),
-            nuclear_token=self._nuclear_token.get().strip() or "NIR",
+            raw=Path(self._input_edit.text().strip()),
+            nuclear_token=self._nuclear_token_edit.text().strip() or "NIR",
             fluor_tokens=self._fluor_tokens_list(),
-            csv_prefix=self._csv_prefix.get().strip() or "gfp_measurements",
-            tophat_radius_nir=self._tophat_radius_nir.get(),
-            tophat_radius_fluor=self._tophat_radius_fluor.get(),
-            no_tophat_nir=self._no_tophat_nir.get(),
-            no_tophat_fluor=self._no_tophat_fluor.get(),
-            compress_input_well_folders=self._compress_input_well_folders.get(),
-            compress_output_well_folders=self._compress_output_well_folders.get(),
-            force=self._force.get(),
-            cpu_only=self._cpu_only.get(),
-            tf_threads=self._tf_threads.get(),
-            workers=self._workers.get(),
+            csv_prefix=self._csv_prefix_edit.text().strip() or "gfp_measurements",
+            tophat_radius_nir=self._tophat_radius_nir_edit.text(),
+            tophat_radius_fluor=self._tophat_radius_fluor_edit.text(),
+            no_tophat_nir=self._no_tophat_nir_cb.isChecked(),
+            no_tophat_fluor=self._no_tophat_fluor_cb.isChecked(),
+            compress_input_well_folders=self._compress_input_cb.isChecked(),
+            compress_output_well_folders=self._compress_output_cb.isChecked(),
+            force=self._force_cb.isChecked(),
+            cpu_only=self._cpu_only_cb.isChecked(),
+            tf_threads=self._tf_threads_edit.text(),
+            workers=self._workers_edit.text(),
             filename_schema=self._build_schema_arg(),
-            filename_sep=self._filename_sep.get() or DEFAULT_SEP,
+            filename_sep=self._filename_sep_edit.text() or DEFAULT_SEP,
             smfish_tokens=self._smfish_tokens_list(),
-            segmentation_method=segmentation_method,
-            cytoplasm_token=cytoplasm_token,
+            segmentation_method=method,
+            cytoplasm_token=cyto,
             min_nucleus_area_px=min_area,
         )
 
     def _expected_well_count(self, opts: dict) -> int:
+        import re as _re2
         raw = opts["raw"]
         in_sub = raw / "in"
         if raw.name.lower() == "in":
             return _count_well_content(raw) or 1
         if in_sub.is_dir() and _has_well_content(in_sub):
             return _count_well_content(in_sub) or 1
-        import re as _re2
-
         well_re = _re2.compile(r"[A-Ha-h]\d{1,2}", _re2.I)
         tifs = _tif_files_in(raw)
         sep = opts["filename_sep"]
@@ -1128,7 +843,7 @@ class AnalyzeTab(tk.Frame):
                 wells.add(token.upper())
         return len(wells) or len(tifs) or 1
 
-    def _resolve_run_dirs(self, opts: dict) -> tuple[Path, Path] | None:
+    def _resolve_run_dirs(self, opts: dict):
         try:
             self._log_q.put(("zipper_start", self._expected_well_count(opts)))
             input_dir, output_dir = resolve_input_output(
@@ -1146,16 +861,6 @@ class AnalyzeTab(tk.Frame):
 
     def _write_pipeline_sidecar(self, input_dir: Path, output_dir: Path, opts: dict) -> None:
         try:
-            available_timepoints = collect_available_timepoints(
-                input_dir,
-                filename_schema=opts["filename_schema"],
-                filename_sep=opts["filename_sep"],
-            )
-            available_fovs = collect_available_fovs(
-                input_dir,
-                filename_schema=opts["filename_schema"],
-                filename_sep=opts["filename_sep"],
-            )
             info_path = write_pipeline_info(
                 output_dir,
                 filename_schema=opts["filename_schema"],
@@ -1166,19 +871,21 @@ class AnalyzeTab(tk.Frame):
                 segmentation_method=opts.get("segmentation_method", "stardist_nuclei"),
                 cytoplasm_token=opts.get("cytoplasm_token", ""),
                 min_nucleus_area_px=opts.get("min_nucleus_area_px", 50),
-                available_timepoints=available_timepoints,
-                available_fovs=available_fovs,
+                available_timepoints=collect_available_timepoints(
+                    input_dir,
+                    filename_schema=opts["filename_schema"],
+                    filename_sep=opts["filename_sep"],
+                ),
+                available_fovs=collect_available_fovs(
+                    input_dir,
+                    filename_schema=opts["filename_schema"],
+                    filename_sep=opts["filename_sep"],
+                ),
                 execution_options=opts,
             )
             self._log_q.put(("line", f"[info] Wrote {info_path}\n"))
         except Exception as exc:
             self._log_q.put(("line", f"[warn] Could not write pipeline_info.json: {exc}\n"))
-
-    def _log_pipeline_command(self, args: list[str], input_dir: Path, output_dir: Path, opts: dict) -> None:
-        self._log_q.put(("line", f"$ {' '.join(args)}\n"))
-        self._log_q.put(("line", f"Input  : {input_dir}\n"))
-        self._log_q.put(("line", f"Output : {output_dir}\n"))
-        self._log_q.put(("line", f"Schema : {opts['filename_schema']}  sep={opts['filename_sep']!r}\n\n"))
 
     def _run_pipeline_subprocess(self, args: list[str]) -> None:
         try:
@@ -1202,12 +909,7 @@ class AnalyzeTab(tk.Frame):
                 return
             input_dir, output_dir = resolved
             if any(input_dir.glob("*.zip")):
-                self._log_q.put(
-                    (
-                        "line",
-                        "[warn] Zip mode detected (input contains *.zip wells); folder-mode compression options do not apply.\n",
-                    )
-                )
+                self._log_q.put(("line", "[warn] Zip mode detected; folder-mode compression options do not apply.\n"))
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
@@ -1216,34 +918,34 @@ class AnalyzeTab(tk.Frame):
             self._last_output_dir = output_dir
             self._write_pipeline_sidecar(input_dir, output_dir, opts)
             args = build_pipeline_args(pipeline, input_dir, output_dir, opts)
-            self._log_pipeline_command(args, input_dir, output_dir, opts)
+            self._log_q.put(("line", f"$ {' '.join(args)}\n"))
+            self._log_q.put(("line", f"Input  : {input_dir}\nOutput : {output_dir}\n"
+                             f"Schema : {opts['filename_schema']}  sep={opts['filename_sep']!r}\n\n"))
             self._run_pipeline_subprocess(args)
         finally:
             self._log_q.put(("finished", None))
 
     def _stop(self) -> None:
-        """Terminate the running subprocess."""
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
-            self._log_line("\n[User stopped the pipeline]\n", tag="WARNING")
+            self._log_line("\n[User stopped the pipeline]\n", "WARNING")
 
     # ------------------------------------------------------------------
     # Log helpers
     # ------------------------------------------------------------------
     def _log_line(self, text: str, tag: str = "INFO") -> None:
-        """Append *text* to the log widget (must be called from main thread)."""
-        self._log.config(state=tk.NORMAL)
-        self._log.insert(tk.END, text, tag)
-        self._log.see(tk.END)
-        self._log.config(state=tk.DISABLED)
+        cursor = self._log.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(self._LOG_COLORS.get(tag, self._LOG_COLORS["INFO"])))
+        cursor.insertText(text, fmt)
+        self._log.setTextCursor(cursor)
+        self._log.ensureCursorVisible()
 
     def _clear_log(self) -> None:
-        self._log.config(state=tk.NORMAL)
-        self._log.delete("1.0", tk.END)
-        self._log.config(state=tk.DISABLED)
+        self._log.clear()
 
     def _classify_line(self, line: str) -> str:
-        """Return a log tag based on line content."""
         ll = line.lower()
         if "error" in ll or "traceback" in ll or "exception" in ll:
             return "ERROR"
@@ -1252,69 +954,34 @@ class AnalyzeTab(tk.Frame):
         return "INFO"
 
     def _parse_progress(self, line: str) -> None:
-        """
-        Inspect a pipeline log line and update the progress bar if relevant.
-        Zipper-phase progress is handled separately via zipper_well queue messages.
-
-        Total-well signals (set denominator):
-          "Zip mode: N well(s) to process, ..."
-          "Flat mode: N well(s), ..."
-
-        Well-complete signals (increment numerator):
-          Zip mode:  "Well XX — temporary directories removed."
-          Flat mode: "Well XX -> gfp_measurements_XX.csv  (N rows)"
-        """
         import re as _re
-
-        # Skip zipper lines — those are tracked via zipper_well messages
         if line.startswith("[zipper]"):
             return
-
-        if ("Zip mode:" in line or "Zip mode complete" in line) and not getattr(
-            self, "_zip_mode_warning_logged", False
-        ):
+        if ("Zip mode:" in line or "Zip mode complete" in line) and not getattr(self, "_zip_mode_warning_logged", False):
             self._zip_mode_warning_logged = True
-            self._log_q.put(
-                (
-                    "line",
-                    "[warn] Zip mode detected (input contains *.zip wells); folder-mode compression options do not apply.\n",
-                )
-            )
-
-        # ── Worker count — log once when the pipeline announces it ───────
+            self._log_q.put(("line", "[warn] Zip mode detected; folder-mode compression options do not apply.\n"))
         m = _re.search(r"TF threads/worker\s*:\s*\d+\s+\(workers:\s*(\d+)\s+x", line)
         if m:
             self._log_q.put(("workers", int(m.group(1))))
-
-        # ── Set total ────────────────────────────────────────────────────
         if not self._well_total:
             m = _re.search(r"(?:Zip mode|Flat mode|Folder mode):\s+(\d+)\s+well", line)
             if m:
                 self._well_total = int(m.group(1))
-                self._progress["maximum"] = self._well_total
-                self._progress["value"]   = 0
-                self._prog_lbl.config(
-                    text=f"Pipeline: 0 / {self._well_total} wells", fg=TXT_MUT)
+                self._progress.setRange(0, self._well_total)
+                self._progress.setValue(0)
+                self._prog_lbl.setText(f"Pipeline: 0 / {self._well_total} wells")
                 return
-
-        # ── Increment on completion ───────────────────────────────────────
         if self._well_total:
-            completed = False
-            if "temporary directories removed" in line:
-                completed = True
-            elif _re.search(r"Well\s+\S+\s+->\s+\S+\.csv\s+\(\d+\s+rows?\)", line):
-                completed = True
-
+            completed = "temporary directories removed" in line or bool(
+                _re.search(r"Well\s+\S+\s+->\s+\S+\.csv\s+\(\d+\s+rows?\)", line)
+            )
             if completed:
                 self._well_done += 1
-                self._progress["value"] = self._well_done
+                self._progress.setValue(self._well_done)
                 pct = int(self._well_done / self._well_total * 100)
-                self._prog_lbl.config(
-                    text=f"Pipeline: {self._well_done} / {self._well_total} wells  ({pct}%)",
-                    fg=CLR_SUCCESS if self._well_done == self._well_total else TXT_MUT)
+                self._prog_lbl.setText(f"Pipeline: {self._well_done} / {self._well_total} wells  ({pct}%)")
 
     def _poll_log(self) -> None:
-        """Drain the thread-safe queue and write to the log widget."""
         try:
             while True:
                 kind, payload = self._log_q.get_nowait()
@@ -1322,78 +989,72 @@ class AnalyzeTab(tk.Frame):
                     self._parse_progress(payload)
                     self._log_line(payload, self._classify_line(payload))
                 elif kind == "zipper_start":
-                    # payload is the actual well count from the input directory
-                    n = payload if payload else 96
+                    n = payload or 96
                     self._zipper_done = 0
-                    self._progress["maximum"] = n
-                    self._progress["value"]   = 0
-                    self._prog_lbl.config(
-                        text=f"Grouping: 0 / {n} wells", fg=TXT_MUT)
+                    self._progress.setRange(0, n)
+                    self._progress.setValue(0)
+                    self._prog_lbl.setText(f"Grouping: 0 / {n} wells")
                 elif kind == "zipper_well":
-                    n_total = self._progress["maximum"] or 96
+                    n_total = self._progress.maximum() or 96
                     self._zipper_done = getattr(self, "_zipper_done", 0) + 1
-                    self._progress["value"] = self._zipper_done
+                    self._progress.setValue(self._zipper_done)
                     pct = int(self._zipper_done / n_total * 100)
-                    done = self._zipper_done == n_total
-                    self._prog_lbl.config(
-                        text=f"Grouping: {self._zipper_done} / {n_total} wells  ({pct}%)",
-                        fg=CLR_SUCCESS if done else TXT_MUT)
+                    self._prog_lbl.setText(f"Grouping: {self._zipper_done} / {n_total} wells  ({pct}%)")
                 elif kind == "zipper_done":
-                    # Reset bar for pipeline phase (maximum set when pipeline starts)
-                    self._progress["maximum"] = 100
-                    self._progress["value"]   = 0
+                    self._progress.setRange(0, 100)
+                    self._progress.setValue(0)
                     self._well_total = 0
                     self._well_done  = 0
-                    self._prog_lbl.config(
-                        text="Grouping complete — starting pipeline…", fg=CLR_SUCCESS)
+                    self._prog_lbl.setText("Grouping complete — starting pipeline…")
                 elif kind == "workers":
-                    n = payload
-                    self._log_line(
-                        f"[info] Workers: {n} parallel well(s) will be processed simultaneously.\n",
-                        "INFO")
+                    self._log_line(f"[info] Workers: {payload} parallel well(s).\n", "INFO")
                 elif kind == "done":
-                    self._progress["value"] = self._progress["maximum"] or 100
+                    self._progress.setValue(self._progress.maximum() or 100)
                     n = self._well_done or getattr(self, "_zipper_done", 0)
-                    self._prog_lbl.config(
-                        text=f"Complete — {n} well(s) processed",
-                        fg=CLR_SUCCESS)
+                    self._prog_lbl.setText(f"Complete — {n} well(s) processed")
                     self._log_line(payload, "DONE")
-                    self._log_line("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                   "  Processing Complete\n"
-                                   "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
-                                   "DONE")
+                    self._log_line(
+                        "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "  Processing Complete\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+                        "DONE",
+                    )
                     if self._on_pipeline_complete is not None and self._last_output_dir is not None:
                         try:
                             self._on_pipeline_complete(self._last_output_dir)
                         except Exception as exc:
-                            self._log_line(f"[warn] Could not open Review tab automatically: {exc}\n", "WARNING")
+                            self._log_line(f"[warn] Could not open Review tab: {exc}\n", "WARNING")
                 elif kind == "error":
                     self._log_line(payload, "ERROR")
                 elif kind == "finished":
                     self._running = False
-                    self._run_btn.config(state=tk.NORMAL)
-                    self._stop_btn.config(state=tk.DISABLED)
-                    self._status_lbl.config(text="Idle", fg=TXT_MUT)
+                    self._run_btn.setEnabled(True)
+                    self._stop_btn.setEnabled(False)
+                    self._status_lbl.setText("Idle")
                     self._proc = None
         except queue.Empty:
             pass
-        self.after(80, self._poll_log)
+        QTimer.singleShot(80, self._poll_log)
 
-    def destroy(self) -> None:
-        """Ensure subprocess is killed when the widget is destroyed."""
+    def closeEvent(self, event) -> None:
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
-        super().destroy()
+        super().closeEvent(event)
 
 
 # ---------------------------------------------------------------------------
 # Standalone test harness
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    root = tk.Tk()
-    root.title("Analyze Tab — standalone test")
-    root.geometry("1100x700")
-    root.configure(bg=BG_APP)
-    tab = AnalyzeTab(root)
-    tab.pack(fill=tk.BOTH, expand=True)
-    root.mainloop()
+    import sys
+    from PySide6.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    win = QWidget()
+    win.setWindowTitle("Analyze Tab — standalone test")
+    win.resize(1100, 700)
+    layout = QVBoxLayout(win)
+    layout.setContentsMargins(0, 0, 0, 0)
+    tab = AnalyzeTab(win)
+    layout.addWidget(tab)
+    win.show()
+    sys.exit(app.exec())

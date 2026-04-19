@@ -1,8 +1,7 @@
-"""Statistics-tab computation helpers extracted from well_viewer3."""
+"""Statistics-tab computation helpers for WellViewerApp."""
 
 from __future__ import annotations
 
-import tkinter as tk
 from typing import List, Tuple
 
 
@@ -56,7 +55,7 @@ def draw_ks_cdf(app, group_vals: List[Tuple[str, List[float]]], tp_str: str, wel
 
 def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
     """Run the selected statistical test across all group pairs."""
-    tp_str = app._stats_tp_var.get()
+    tp_str = app._stats_tp_cb.currentText()
     if tp_str in ("—", ""):
         app._stats_write_result("No timepoint selected.")
         return
@@ -71,7 +70,7 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         app._stats_write_result("Define at least 2 non-empty groups to run a test.")
         return
 
-    test = app._stats_test_var.get()
+    test = app._stats_test_cb.currentText()
     is_ks = test.startswith("KS")
 
     if is_ks:
@@ -100,7 +99,7 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
     try:
         import scipy.stats as _st
     except ImportError:
-        app._stats_write_result("scipy is required for statistical tests.\nInstall with: pip install scipy")
+        app._stats_write_result("scipy is required.\nInstall with: pip install scipy")
         return
 
     lines: List[str] = [f"Test: {test}", f"Timepoint: {tp_str} h   Threshold: {app._threshold:.1f}\n"]
@@ -142,6 +141,6 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
 
     if is_ks:
         draw_ks_cdf_fn(group_vals, tp_str)
-        app._stats_fig_frame.pack(fill=tk.X, padx=12, pady=(6, 0), before=app._stats_result_text.master)
+        app._stats_fig_frame.setVisible(True)
     else:
-        app._stats_fig_frame.pack_forget()
+        app._stats_fig_frame.setVisible(False)
