@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import btn_card, btn_secondary
+from well_viewer.ui_helpers import btn_card, btn_secondary, CheckBoxVar, ComboVar, LineEditVar
 
 
 def build_right_panel(self, parent: QWidget) -> None:
@@ -41,6 +41,7 @@ def build_right_panel(self, parent: QWidget) -> None:
         lambda _i: self._on_preview_channel_selected(None)
     )
     cl.addWidget(self._chan_cb_preview)
+    self._montage_chan_var = ComboVar(self._chan_cb_preview)
 
     cl.addWidget(QLabel("FOV:", ctrl))
     self._fov_menu = QComboBox(ctrl)
@@ -49,6 +50,7 @@ def build_right_panel(self, parent: QWidget) -> None:
         lambda _i: self._refresh_preview_montage()
     )
     cl.addWidget(self._fov_menu)
+    self._preview_fov_var = ComboVar(self._fov_menu)
     cl.addStretch(1)
     cl.addWidget(btn_secondary(ctrl, "Save Montage…", self._save_montage_figure))
     il.addWidget(ctrl)
@@ -85,12 +87,14 @@ def build_right_panel(self, parent: QWidget) -> None:
     self._mon_lmin_entry.setFixedWidth(80)
     self._mon_lmin_entry.editingFinished.connect(self._montage_redraw_at_zoom)
     lr.addWidget(self._mon_lmin_entry)
+    self._mon_lmin_var = LineEditVar(self._mon_lmin_entry)
 
     lr.addWidget(QLabel("max:", lut_row))
     self._mon_lmax_entry = QLineEdit("auto", lut_row)
     self._mon_lmax_entry.setFixedWidth(80)
     self._mon_lmax_entry.editingFinished.connect(self._montage_redraw_at_zoom)
     lr.addWidget(self._mon_lmax_entry)
+    self._mon_lmax_var = LineEditVar(self._mon_lmax_entry)
 
     lr.addWidget(btn_secondary(lut_row, "Auto LUT", self._montage_auto_lut))
 
@@ -113,6 +117,7 @@ def build_right_panel(self, parent: QWidget) -> None:
         lambda _b: self._montage_tophat_toggled()
     )
     tr.addWidget(self._th_checkbox)
+    self._mon_tophat_var = CheckBoxVar(self._th_checkbox)
 
     tr.addWidget(QLabel("   radius:", th_row))
     self._th_radius_entry = QLineEdit("50", th_row)
@@ -172,6 +177,7 @@ def build_review_image_panel(self, parent: QWidget) -> None:
         lambda _i: self._on_review_image_channel_selected(None)
     )
     cl.addWidget(self._review_image_chan_cb)
+    self._review_image_chan_var = ComboVar(self._review_image_chan_cb)
 
     cl.addWidget(QLabel("FOV:", ctrl))
     self._review_image_fov_menu = QComboBox(ctrl)
@@ -188,6 +194,7 @@ def build_review_image_panel(self, parent: QWidget) -> None:
         lambda _i: self._refresh_review_image()
     )
     cl.addWidget(self._review_image_tp_menu)
+    self._review_image_tp_var = ComboVar(self._review_image_tp_menu)
     cl.addStretch(1)
 
     cl.addWidget(btn_secondary(ctrl, "Toggle Included",
@@ -219,12 +226,14 @@ def build_review_image_panel(self, parent: QWidget) -> None:
     self._review_lmin_entry.setFixedWidth(80)
     self._review_lmin_entry.editingFinished.connect(self._review_image_commit_lut)
     lr.addWidget(self._review_lmin_entry)
+    self._review_lut_min_var = LineEditVar(self._review_lmin_entry)
 
     lr.addWidget(QLabel("max:", lut_row))
     self._review_lmax_entry = QLineEdit("auto", lut_row)
     self._review_lmax_entry.setFixedWidth(80)
     self._review_lmax_entry.editingFinished.connect(self._review_image_commit_lut)
     lr.addWidget(self._review_lmax_entry)
+    self._review_lut_max_var = LineEditVar(self._review_lmax_entry)
 
     lr.addWidget(btn_secondary(lut_row, "Auto LUT", self._review_image_auto_lut))
     lr.addStretch(1)

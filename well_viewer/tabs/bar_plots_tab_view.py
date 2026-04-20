@@ -12,7 +12,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary, btn_secondary
+from well_viewer.ui_helpers import btn_primary, btn_secondary, BoolVar, ComboVar, make_plot_with_right_dock
 
 
 def build_bar_plots_tab(app, parent: QWidget) -> None:
@@ -22,10 +22,13 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
 
+    plot_area, outer_layout, app._bar_export_dock = make_plot_with_right_dock(parent)
+    parent = plot_area
+
     bar_right = QWidget(parent)
     right_l = QVBoxLayout(bar_right)
     right_l.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(bar_right, 1)
+    outer_layout.addWidget(bar_right, 1)
 
     # Controls bar
     bar_ctrl = QWidget(bar_right)
@@ -60,6 +63,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_bars()
     )
     cl.addWidget(app._bar_tp_cb)
+    app._bar_tp_var = ComboVar(app._bar_tp_cb)
 
     cl.addStretch(1)
 
@@ -69,12 +73,14 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._swarm_btn.setCheckable(True)
     app._swarm_btn.clicked.connect(lambda _=False: app._toggle_swarm())
     cl.addWidget(app._swarm_btn)
+    app._bar_swarm = BoolVar(False)
 
     app._violin_btn = QPushButton("Violin", bar_ctrl)
     app._violin_btn.setProperty("variant", "toggle")
     app._violin_btn.setCheckable(True)
     app._violin_btn.clicked.connect(lambda _=False: app._toggle_violin())
     cl.addWidget(app._violin_btn)
+    app._bar_violin = BoolVar(False)
 
     cl.addWidget(QLabel("Smooth:", bar_ctrl))
     app._violin_slider = QSlider(Qt.Horizontal, bar_ctrl)
@@ -92,6 +98,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_log_btn.setCheckable(True)
     app._bar_log_btn.clicked.connect(lambda _=False: app._toggle_log_scale())
     cl.addWidget(app._bar_log_btn)
+    app._bar_log_scale = BoolVar(False)
 
     app._bar_reset_order_btn = QPushButton("Reset Order", bar_ctrl)
     app._bar_reset_order_btn.setProperty("variant", "toggle_muted")

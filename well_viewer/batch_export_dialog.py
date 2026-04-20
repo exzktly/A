@@ -80,7 +80,7 @@ class _WellGridButton(QPushButton):
 
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
-        self.setFixedSize(34, 24)
+        self.setFixedSize(28, 22)
         self.setFlat(True)
         self.setCursor(Qt.PointingHandCursor)
         self._base_color = ""
@@ -146,7 +146,8 @@ class BatchExportPanel(QWidget):
             return
 
         left = QWidget()
-        left.setFixedWidth(520)
+        left.setMinimumWidth(420)
+        left.setMaximumWidth(560)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         self._build_group_editor(left_layout)

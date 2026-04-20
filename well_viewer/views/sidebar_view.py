@@ -37,7 +37,7 @@ def build_sidebar(app, parent: QWidget) -> None:
     # Row / Col quick-select
     rc_frame = QWidget(parent)
     rc_layout = QVBoxLayout(rc_frame)
-    rc_layout.setContentsMargins(6, 0, 6, 4)
+    rc_layout.setContentsMargins(4, 0, 4, 2)
     rc_layout.setSpacing(2)
     layout.addWidget(rc_frame)
     app._sidebar_rc_frame = rc_frame
@@ -51,7 +51,8 @@ def build_sidebar(app, parent: QWidget) -> None:
     row_grid.addWidget(row_lbl, 0, 0)
     for ci, r in enumerate(_PLATE_ROWS):
         b = QPushButton(r, row_frame)
-        b.setProperty("variant", "quick")
+        b.setProperty("variant", "quickselect")
+        b.setFixedHeight(18)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, row=r: app._select_row(row))
         row_grid.addWidget(b, 0, ci + 1)
@@ -68,7 +69,8 @@ def build_sidebar(app, parent: QWidget) -> None:
     col_grid.addWidget(col_lbl, 0, 0)
     for ci, c in enumerate(_PLATE_COLS):
         b = QPushButton(c.lstrip("0") or "0", col_frame)
-        b.setProperty("variant", "quick")
+        b.setProperty("variant", "quickselect")
+        b.setFixedHeight(18)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, col=c: app._select_col(col))
         col_grid.addWidget(b, 0, ci + 1)
@@ -82,8 +84,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     layout.addWidget(sep)
 
     # Plate map grid
-    map_outer = QWidget(parent)
-    layout.addWidget(map_outer)
+    map_wrap = QWidget(parent)
+    mw_l = QVBoxLayout(map_wrap)
+    mw_l.setContentsMargins(4, 2, 4, 2)
+    mw_l.setSpacing(0)
+    map_outer = QWidget(map_wrap)
+    mw_l.addWidget(map_outer)
+    layout.addWidget(map_wrap)
 
     app._sidebar_btns = {}
     app._sidebar_drag_adding = True

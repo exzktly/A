@@ -11,7 +11,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary, btn_secondary
+from well_viewer.ui_helpers import btn_primary, btn_secondary, ComboVar, make_plot_with_right_dock
 
 
 def build_line_graphs_tab(app, parent: QWidget) -> None:
@@ -20,6 +20,9 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
+
+    plot_area, layout, app._line_export_dock = make_plot_with_right_dock(parent)
+    parent = plot_area
 
     line_ctrl = QWidget(parent)
     line_ctrl.setObjectName("Sidebar")
@@ -33,6 +36,9 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
         lambda _i: app._on_plot_channel_selected(None)
     )
     cl.addWidget(app._chan_cb_line)
+    if not hasattr(app, "_plot_chan_var"):
+        app._plot_chan_var = ComboVar(app._chan_cb_line)
+        app._chan_var = app._plot_chan_var
 
     app._metric_selector_frame = QWidget(line_ctrl)
     mfl = QHBoxLayout(app._metric_selector_frame)
@@ -44,6 +50,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
         lambda _i: app._on_metric_selected()
     )
     mfl.addWidget(app._metric_cb)
+    app._metric_var = ComboVar(app._metric_cb)
     cl.addWidget(app._metric_selector_frame)
     app._metric_selector_frame.hide()
 

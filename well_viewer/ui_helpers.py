@@ -75,6 +75,42 @@ def make_scrollable_canvas(parent: QWidget, **_kw) -> Tuple[QScrollArea, QWidget
     return sa, inner
 
 
+def make_plot_with_right_dock(parent: QWidget) -> Tuple[QWidget, QVBoxLayout, QWidget]:
+    """Build a ``plot | right-dock`` split container inside ``parent``.
+
+    Returns ``(plot_area, plot_layout, right_dock)`` — callers lay their
+    figure/toolbar into ``plot_layout`` and the export-style sidebar docks
+    into ``right_dock``. The dock starts empty (hidden) so it occupies no
+    space until the sidebar is shown.
+    """
+    root = parent.layout()
+    if root is None:
+        root = QVBoxLayout(parent)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+    split = QWidget(parent)
+    hbox = QHBoxLayout(split)
+    hbox.setContentsMargins(0, 0, 0, 0)
+    hbox.setSpacing(0)
+
+    plot_area = QWidget(split)
+    plot_layout = QVBoxLayout(plot_area)
+    plot_layout.setContentsMargins(0, 0, 0, 0)
+    plot_layout.setSpacing(0)
+    hbox.addWidget(plot_area, 1)
+
+    right_dock = QWidget(split)
+    right_dock_layout = QVBoxLayout(right_dock)
+    right_dock_layout.setContentsMargins(0, 0, 0, 0)
+    right_dock_layout.setSpacing(0)
+    right_dock.setVisible(False)
+    hbox.addWidget(right_dock, 0)
+
+    root.addWidget(split, 1)
+    return plot_area, plot_layout, right_dock
+
+
 def bind_mousewheel_scroll(_scroll_area) -> None:
     """No-op: QScrollArea handles wheel events natively."""
     return
@@ -87,3 +123,64 @@ def ask_name_dialog(parent: QWidget, *, title: str, prompt: str, default: str,
         return None
     text = text.strip()
     return text or None
+
+
+class ComboVar:
+    """``tk.StringVar``-shaped shim over a ``QComboBox``.
+
+    Legacy callers expect ``.get()``/``.set(value)`` semantics; this wraps the
+    current text of a combo so those call sites keep working while tabs migrate
+    to reading the widget directly.
+    """
+    __slots__ = ("_cb",)
+
+    def __init__(self, cb) -> None:
+        self._cb = cb
+
+    def get(self) -> str:
+        return self._cb.currentText()
+
+    def set(self, value: str) -> None:
+        self._cb.setCurrentText(str(value))
+
+
+class LineEditVar:
+    """tk.StringVar-shaped shim over a ``QLineEdit``."""
+    __slots__ = ("_le",)
+
+    def __init__(self, le) -> None:
+        self._le = le
+
+    def get(self) -> str:
+        return self._le.text()
+
+    def set(self, value: str) -> None:
+        self._le.setText(str(value))
+
+
+class CheckBoxVar:
+    """tk.BooleanVar-shaped shim over a ``QCheckBox``."""
+    __slots__ = ("_cb",)
+
+    def __init__(self, cb) -> None:
+        self._cb = cb
+
+    def get(self) -> bool:
+        return self._cb.isChecked()
+
+    def set(self, value: bool) -> None:
+        self._cb.setChecked(bool(value))
+
+
+class BoolVar:
+    """Plain boolean holder with tk.BooleanVar ``.get()``/``.set()`` semantics."""
+    __slots__ = ("_v",)
+
+    def __init__(self, initial: bool = False) -> None:
+        self._v = bool(initial)
+
+    def get(self) -> bool:
+        return self._v
+
+    def set(self, value: bool) -> None:
+        self._v = bool(value)

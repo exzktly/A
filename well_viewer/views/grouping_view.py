@@ -7,7 +7,9 @@ from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
+from well_viewer.ui_helpers import (
+    btn_card, btn_danger, btn_primary, btn_secondary, ComboVar,
+)
 
 
 def _clear_layout(layout):
@@ -291,10 +293,12 @@ def build_group_def_panel(app, parent: QWidget) -> None:
     app._bar_quick_pair_dir_cb = QComboBox(hdr2)
     app._bar_quick_pair_dir_cb.addItems(["Rows (A01+A02)", "Columns (A01+B01)"])
     h2.addWidget(app._bar_quick_pair_dir_cb)
+    app._bar_quick_pair_dir_var = ComboVar(app._bar_quick_pair_dir_cb)
     h2.addWidget(QLabel("Order:", hdr2))
     app._bar_quick_iter_order_cb = QComboBox(hdr2)
     app._bar_quick_iter_order_cb.addItems(["Across rows", "Down columns"])
     h2.addWidget(app._bar_quick_iter_order_cb)
+    app._bar_quick_iter_order_var = ComboVar(app._bar_quick_iter_order_cb)
     h2.addStretch(1)
     layout.addWidget(hdr2)
 

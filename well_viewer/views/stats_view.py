@@ -57,8 +57,13 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     help_lbl.setWordWrap(True)
     layout.addWidget(help_lbl)
 
-    map_frame = QWidget(parent)
-    layout.addWidget(map_frame)
+    map_wrap = QWidget(parent)
+    mw_l = QVBoxLayout(map_wrap)
+    mw_l.setContentsMargins(4, 2, 4, 2)
+    mw_l.setSpacing(0)
+    map_frame = QWidget(map_wrap)
+    mw_l.addWidget(map_frame)
+    layout.addWidget(map_wrap)
     app._stats_map_btns = {}
     build_plate_grid(map_frame, app._stats_map_btns)
 

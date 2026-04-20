@@ -253,7 +253,7 @@ class _ExportStyleSidebar(QWidget):
         close_btn = QPushButton("◂", hdr)
         close_btn.setProperty("variant", "secondary")
         close_btn.setFixedWidth(28)
-        close_btn.clicked.connect(lambda _=False: self.hide())
+        close_btn.clicked.connect(lambda _=False: self._close_dock())
         hl.addWidget(close_btn)
         root.addWidget(hdr)
 
@@ -472,6 +472,12 @@ class _ExportStyleSidebar(QWidget):
         except Exception:
             pass
 
+    def _close_dock(self) -> None:
+        self.hide()
+        dock = _resolve_export_dock(self._app, self._fig)
+        if dock is not None:
+            dock.setVisible(False)
+
     def _reset_defaults(self) -> None:
         self._updating = True
         try:
@@ -551,10 +557,25 @@ class _ExportEditorSession:
         self.sidebar = sidebar
 
 
+def _resolve_export_dock(app, fig) -> QWidget | None:
+    """Return the pre-allocated right-side dock widget for a given figure, or None."""
+    mapping = (
+        ("_line_fig", "_line_export_dock"),
+        ("_bar_fig", "_bar_export_dock"),
+        ("_scatter_fig", "_scatter_export_dock"),
+        ("_scatter_agg_fig", "_scatter_agg_export_dock"),
+    )
+    for fig_attr, dock_attr in mapping:
+        if getattr(app, fig_attr, None) is fig:
+            return getattr(app, dock_attr, None)
+    return None
+
+
 def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
                           canvas=None) -> _ExportEditorSession | None:
     try:
-        parent = canvas.parent() if canvas is not None else app
+        dock = _resolve_export_dock(app, fig)
+        parent = dock if dock is not None else (canvas.parent() if canvas is not None else app)
         if not hasattr(app, "_export_style_sidebars"):
             app._export_style_sidebars = {}
         key = id(fig)
@@ -563,15 +584,17 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
             sb = _ExportStyleSidebar(app, parent, fig, canvas, default_name=default_name)
             app._export_style_sidebars[key] = sb
 
-            # Attach sidebar into the canvas's parent layout on first show so it
-            # sits next to the figure.
-            if canvas is not None:
+            if dock is not None and dock.layout() is not None:
+                dock.layout().addWidget(sb)
+            elif canvas is not None:
                 canvas_parent = canvas.parentWidget()
                 if canvas_parent is not None:
                     parent_layout = canvas_parent.layout()
                     if parent_layout is not None and hasattr(parent_layout, "addWidget"):
                         parent_layout.addWidget(sb)
 
+        if dock is not None:
+            dock.setVisible(True)
         sb.show()
         sb.raise_()
         sb._on_fields_changed()

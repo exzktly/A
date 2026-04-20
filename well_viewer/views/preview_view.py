@@ -14,7 +14,7 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     if layout is None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
-    layout.setContentsMargins(6, 0, 6, 0)
+    layout.setContentsMargins(4, 2, 4, 2)
     layout.setSpacing(2)
 
     title = QLabel("PREVIEW WELL", parent)

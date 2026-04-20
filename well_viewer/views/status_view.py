@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from well_viewer.ui_helpers import BoolVar
+
 
 class _GUILogHandler(logging.Handler):
     """Routes logging records into a QTextEdit on the Qt main thread."""
@@ -77,6 +79,7 @@ def build_bottom(app) -> None:
     app._sem_btn.setProperty("variant", "sem")
     app._sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
     cr_l.addWidget(app._sem_btn)
+    app._use_sem = BoolVar(True)
     cr_l.addStretch(1)
 
     mid_sep = QFrame(bottom)

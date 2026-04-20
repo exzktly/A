@@ -1759,7 +1759,8 @@ class WellViewerApp(QWidget):
         outer.addWidget(self._h_pane, 1)
 
         sidebar = QWidget()
-        sidebar.setFixedWidth(340)
+        sidebar.setMinimumWidth(260)
+        sidebar.setMaximumWidth(600)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -1789,6 +1790,8 @@ class WellViewerApp(QWidget):
         self._h_pane.addWidget(centre)
         self._h_pane.setStretchFactor(0, 0)
         self._h_pane.setStretchFactor(1, 3)
+        self._h_pane.setChildrenCollapsible(False)
+        self._h_pane.setSizes([340, 1200])
         self._build_centre(centre)
 
         # Status + log — packed last so it sits below the splitter.
@@ -5516,7 +5519,7 @@ class WellViewerApp(QWidget):
         """
         if not self._well_paths:
             _set_combo_values(self._bar_tp_cb, ["—"])
-            self._bar_tp_var.set("—")
+            self._bar_tp_cb.setCurrentText("—")
             return
 
         all_tps: set = set(self._all_timepoints_cache)
@@ -5529,14 +5532,14 @@ class WellViewerApp(QWidget):
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
 
-        cur = self._bar_tp_var.get()
+        cur = self._bar_tp_cb.currentText()
         _set_combo_values(self._bar_tp_cb, tp_strs)
         if cur in tp_strs:
-            self._bar_tp_var.set(cur)
+            self._bar_tp_cb.setCurrentText(cur)
         elif tp_strs:
-            self._bar_tp_var.set(tp_strs[0])
+            self._bar_tp_cb.setCurrentText(tp_strs[0])
         else:
-            self._bar_tp_var.set("—")
+            self._bar_tp_cb.setCurrentText("—")
 
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
@@ -6829,9 +6832,7 @@ class WellViewerApp(QWidget):
         except Exception:
             lo, hi = 0.0, 300.0
         new_thr = max(lo, min(hi, event.xdata))
-        # Update the stored value and the Entry field
         self._threshold = new_thr
-        self._entry_var.set(f"{new_thr:.2f}")
         self._invalidate_stats_cache()
         # Lightweight redraw: just update the vline and axvspan positions
         self._redraw()
@@ -6850,7 +6851,7 @@ class WellViewerApp(QWidget):
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""
-        self._progress_var.set(0)
+        self._progress_bar.setValue(0)
         self._progress_bar.setMaximum(max(1, maximum))
         self._progress_bar.setVisible(True)
         if msg:
@@ -6859,7 +6860,7 @@ class WellViewerApp(QWidget):
 
     def _step_progress(self, value: int, msg: str = "") -> None:
         """Advance the progress bar to *value* and repaint immediately."""
-        self._progress_var.set(value)
+        self._progress_bar.setValue(value)
         if msg:
             self._set_status(msg)
         QApplication.processEvents()
@@ -6867,7 +6868,7 @@ class WellViewerApp(QWidget):
     def _hide_progress(self) -> None:
         """Remove the progress bar."""
         self._progress_bar.setVisible(False)
-        self._progress_var.set(0)
+        self._progress_bar.setValue(0)
 
     def _toggle_log(self) -> None:
         self._log_visible = not self._log_visible

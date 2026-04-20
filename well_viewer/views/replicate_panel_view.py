@@ -6,7 +6,9 @@ from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import btn_primary, btn_secondary, make_scrollable_canvas
+from well_viewer.ui_helpers import (
+    btn_primary, btn_secondary, ComboVar, make_scrollable_canvas,
+)
 from well_viewer.views.well_button import build_plate_grid
 
 
@@ -47,6 +49,7 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     app._rep_quick_pair_dir_cb.addItems(["Rows (A01+A02)", "Columns (A01+B01)"])
     app._rep_quick_pair_dir_cb.setCurrentText("Rows (A01+A02)")
     hdr2r_l.addWidget(app._rep_quick_pair_dir_cb)
+    app._rep_quick_pair_dir_var = ComboVar(app._rep_quick_pair_dir_cb)
 
     order_lbl = QLabel("Order:", hdr2r)
     hdr2r_l.addWidget(order_lbl)
@@ -54,6 +57,7 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     app._rep_quick_iter_order_cb.addItems(["Across rows", "Down columns"])
     app._rep_quick_iter_order_cb.setCurrentText("Across rows")
     hdr2r_l.addWidget(app._rep_quick_iter_order_cb)
+    app._rep_quick_iter_order_var = ComboVar(app._rep_quick_iter_order_cb)
     hdr2r_l.addStretch(1)
 
     btn_row = QWidget(parent)

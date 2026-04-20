@@ -10,7 +10,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary
+from well_viewer.ui_helpers import btn_primary, ComboVar, make_plot_with_right_dock
 
 
 def build_scatter_cells_tab(app, parent: QWidget) -> None:
@@ -19,6 +19,9 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
+
+    plot_area, layout, app._scatter_export_dock = make_plot_with_right_dock(parent)
+    parent = plot_area
 
     ctrl = QWidget(parent)
     ctrl.setObjectName("Sidebar")
@@ -32,6 +35,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter()
     )
     cl.addWidget(app._scatter_ch_x_cb)
+    app._scatter_ch_x_var = ComboVar(app._scatter_ch_x_cb)
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
     app._scatter_ch_y_cb = QComboBox(ctrl)
@@ -40,6 +44,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter()
     )
     cl.addWidget(app._scatter_ch_y_cb)
+    app._scatter_ch_y_var = ComboVar(app._scatter_ch_y_cb)
 
     cl.addWidget(QLabel("Timepoint:", ctrl))
     app._scatter_tp_cb = QComboBox(ctrl)
@@ -48,6 +53,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter()
     )
     cl.addWidget(app._scatter_tp_cb)
+    app._scatter_tp_var = ComboVar(app._scatter_tp_cb)
     cl.addStretch(1)
 
     style_btn = QPushButton("▸", ctrl)

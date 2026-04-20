@@ -13,7 +13,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary
+from well_viewer.ui_helpers import btn_primary, ComboVar, make_plot_with_right_dock
 
 
 class BoolHolder:
@@ -55,6 +55,9 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
 
+    plot_area, layout, app._scatter_agg_export_dock = make_plot_with_right_dock(parent)
+    parent = plot_area
+
     ctrl = QWidget(parent)
     ctrl.setObjectName("Sidebar")
     cl = QHBoxLayout(ctrl)
@@ -67,6 +70,7 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter_agg()
     )
     cl.addWidget(app._scatter_agg_stat_x_cb)
+    app._scatter_agg_stat_x_var = ComboVar(app._scatter_agg_stat_x_cb)
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
     app._scatter_agg_stat_y_cb = QComboBox(ctrl)
@@ -75,6 +79,7 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter_agg()
     )
     cl.addWidget(app._scatter_agg_stat_y_cb)
+    app._scatter_agg_stat_y_var = ComboVar(app._scatter_agg_stat_y_cb)
 
     cl.addWidget(QLabel("Timepoints:", ctrl))
 
