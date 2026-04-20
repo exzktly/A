@@ -2574,6 +2574,66 @@ class WellViewerApp(QWidget):
         except Exception:
             pass
 
+    @staticmethod
+    def _hide_compat_widget(widget: Any) -> None:
+        """Hide a widget for either Qt or tkinter-style APIs."""
+        if widget is None:
+            return
+        if hasattr(widget, "hide"):
+            widget.hide()
+        elif hasattr(widget, "pack_forget"):
+            widget.pack_forget()
+
+    @staticmethod
+    def _show_compat_widget(
+        widget: Any,
+        *,
+        fill: Optional[str] = None,
+        expand: bool = False,
+        side: Optional[str] = None,
+        padx: Any = None,
+        pady: Any = None,
+        before: Any = None,
+    ) -> None:
+        """Show a widget for either Qt or tkinter-style APIs."""
+        if widget is None:
+            return
+        if hasattr(widget, "show"):
+            widget.show()
+            return
+        if hasattr(widget, "pack"):
+            kwargs: Dict[str, Any] = {}
+            if fill is not None:
+                kwargs["fill"] = fill
+            if expand:
+                kwargs["expand"] = True
+            if side is not None:
+                kwargs["side"] = side
+            if padx is not None:
+                kwargs["padx"] = padx
+            if pady is not None:
+                kwargs["pady"] = pady
+            if before is not None:
+                kwargs["before"] = before
+            widget.pack(**kwargs)
+
+    @staticmethod
+    def _widget_is_visible(widget: Any) -> bool:
+        """Return widget visibility for either Qt or tkinter-style APIs."""
+        if widget is None:
+            return False
+        if hasattr(widget, "isVisible"):
+            try:
+                return bool(widget.isVisible())
+            except Exception:
+                return False
+        if hasattr(widget, "winfo_manager"):
+            try:
+                return bool(widget.winfo_manager())
+            except Exception:
+                return False
+        return False
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
@@ -5267,31 +5327,31 @@ class WellViewerApp(QWidget):
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))
 
-        self._sidebar_main_frame.pack_forget()
-        self._sidebar_preview_frame.pack_forget()
-        self._sidebar_sample_frame.pack_forget()
-        self._sidebar_groups_frame.pack_forget()
-        self._sidebar_stats_frame.pack_forget()
+        self._hide_compat_widget(self._sidebar_main_frame)
+        self._hide_compat_widget(self._sidebar_preview_frame)
+        self._hide_compat_widget(self._sidebar_sample_frame)
+        self._hide_compat_widget(self._sidebar_groups_frame)
+        self._hide_compat_widget(self._sidebar_stats_frame)
 
         if tab == "Movie Montage":
             self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._show_compat_widget(self._sidebar_preview_frame, fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
         elif tab == "Review Image":
             self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._show_compat_widget(self._sidebar_preview_frame, fill=tk.BOTH, expand=True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
             self._refresh_review_image()
 
         elif tab == "Sample Definitions":
-            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._show_compat_widget(self._sidebar_sample_frame, fill=tk.BOTH, expand=True)
             self._groups_centre_refresh()
 
         elif tab == "Statistics":
-            self._sidebar_stats_frame.pack(fill=tk.BOTH, expand=True)
+            self._show_compat_widget(self._sidebar_stats_frame, fill=tk.BOTH, expand=True)
             # Auto-populate from rep-sets on first visit
             if not self._stats_groups and hasattr(self, "_stats_grp_inner"):
                 self._stats_sync_from_app()
@@ -5301,27 +5361,27 @@ class WellViewerApp(QWidget):
         elif tab == "Batch Export":
             # Batch Export owns its own in-tab well/group picker, so avoid
             # showing the global sidebar well picker to prevent duplicate maps.
-            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._show_compat_widget(self._sidebar_sample_frame, fill=tk.BOTH, expand=True)
             self._groups_centre_refresh()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
                 self._batch_export_set_mode(mode)
 
         elif tab == "Review CSV":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            self._show_compat_widget(self._sidebar_main_frame, fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame") and not self._widget_is_visible(self._sidebar_rc_frame):
+                self._show_compat_widget(self._sidebar_rc_frame, fill=tk.X, padx=6, pady=(0, 4))
+            if hasattr(self, "_sidebar_allnone_frame") and not self._widget_is_visible(self._sidebar_allnone_frame):
+                self._show_compat_widget(self._sidebar_allnone_frame, fill=tk.X, padx=6, pady=(4, 6))
             self._refresh_sidebar_map()
             self._refresh_review_csv()
 
         elif tab == "smFISH":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            self._show_compat_widget(self._sidebar_main_frame, fill=tk.BOTH, expand=True)
             if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.pack_forget()
+                self._hide_compat_widget(self._sidebar_rc_frame)
             if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.pack_forget()
+                self._hide_compat_widget(self._sidebar_allnone_frame)
             if len(self._selected_wells) > 1:
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
@@ -5331,11 +5391,11 @@ class WellViewerApp(QWidget):
 
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            self._show_compat_widget(self._sidebar_main_frame, fill=tk.BOTH, expand=True)
+            if hasattr(self, "_sidebar_rc_frame") and not self._widget_is_visible(self._sidebar_rc_frame):
+                self._show_compat_widget(self._sidebar_rc_frame, fill=tk.X, padx=6, pady=(0, 4))
+            if hasattr(self, "_sidebar_allnone_frame") and not self._widget_is_visible(self._sidebar_allnone_frame):
+                self._show_compat_widget(self._sidebar_allnone_frame, fill=tk.X, padx=6, pady=(4, 6))
             self._refresh_sidebar_map()
             if tab == "Bar Plots":
                 self._update_bar_tp_menu()
