@@ -5341,9 +5341,7 @@ class WellViewerApp(QWidget):
             warn=WARN,
             well_colors=WELL_COLORS,
         )
-        from well_viewer.figure_export_editor import apply_export_style_to_current
-
-        apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
+        self._apply_export_style_if_ready("_line_fig", "_line_canvas")
 
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
@@ -6100,9 +6098,7 @@ class WellViewerApp(QWidget):
             band_lbl=band_lbl,
             use_sem=use_sem,
         )
-        from well_viewer.figure_export_editor import apply_export_style_to_current
-
-        apply_export_style_to_current(self, self._bar_fig, getattr(self, "_bar_canvas", None))
+        self._apply_export_style_if_ready("_bar_fig", "_bar_canvas")
 
     def _selected_bar_wells(self, active_rsets: "List[ReplicateSet]") -> List[str]:
         if active_rsets:
@@ -6721,9 +6717,7 @@ class WellViewerApp(QWidget):
             fluor_gate_x=fluor_gate_x,
             fluor_gate_y=fluor_gate_y,
         )
-        from well_viewer.figure_export_editor import apply_export_style_to_current
-
-        apply_export_style_to_current(self, self._scatter_fig, getattr(self, "_scatter_canvas", None))
+        self._apply_export_style_if_ready("_scatter_fig", "_scatter_canvas")
 
     def _on_scatter_click(self, event) -> None:
         """Handle click events on scatter plot datapoints."""
@@ -6886,9 +6880,7 @@ class WellViewerApp(QWidget):
             well_colors=WELL_COLORS,
             aggregate_with_threshold=aggregate_with_threshold,
         )
-        from well_viewer.figure_export_editor import apply_export_style_to_current
-
-        apply_export_style_to_current(self, self._scatter_agg_fig, getattr(self, "_scatter_agg_canvas", None))
+        self._apply_export_style_if_ready("_scatter_agg_fig", "_scatter_agg_canvas")
 
     def _export_scatter_agg_data(self) -> None:
         """Export aggregate scatter plot data to CSV."""
@@ -7042,6 +7034,15 @@ class WellViewerApp(QWidget):
     def _clear_log(self) -> None:
         if hasattr(self, "_log_text") and self._log_text is not None:
             self._log_text.clear()
+
+    def _apply_export_style_if_ready(self, fig_attr: str, canvas_attr: str) -> None:
+        """Apply export styling only when the figure object is available."""
+        fig = getattr(self, fig_attr, None)
+        if fig is None:
+            return
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+
+        apply_export_style_to_current(self, fig, getattr(self, canvas_attr, None))
 
 # =============================================================================
 # Entry point
