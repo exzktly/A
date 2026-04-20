@@ -47,7 +47,6 @@ import shutil
 import statistics
 import sys
 import threading
-import tkinter as tk
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -88,6 +87,29 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+
+class _TkCompat:
+    """Minimal tkinter-compatible constants/types without importing tkinter."""
+
+    NORMAL = "normal"
+    DISABLED = "disabled"
+    FLAT = "flat"
+    SUNKEN = "sunken"
+    END = "end"
+    BOTH = "both"
+    X = "x"
+    LEFT = "left"
+    RIGHT = "right"
+
+    class Event:
+        pass
+
+    class TclError(Exception):
+        pass
+
+
+tk = _TkCompat()
 
 import matplotlib
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvasTkAgg
@@ -6871,39 +6893,65 @@ class WellViewerApp(QWidget):
     # ── Log / status helpers ──────────────────────────────────────────────────
 
     def _set_status(self, msg: str) -> None:
-        self._status_lbl.config(text=msg)
+        if hasattr(self._status_lbl, "setText"):
+            self._status_lbl.setText(msg)
+        else:
+            self._status_lbl.config(text=msg)
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""
-        self._progress_var.set(0)
-        self._progress_bar.config(maximum=max(1, maximum))
-        # Pack before the log button (which is already packed on the right)
-        self._progress_bar.pack(side=tk.RIGHT, padx=(4, 2), pady=2,
-                                before=self._log_btn)
+        if hasattr(self._progress_bar, "setRange") and hasattr(self._progress_bar, "setValue"):
+            self._progress_bar.setRange(0, max(1, maximum))
+            self._progress_bar.setValue(0)
+            if hasattr(self._progress_bar, "show"):
+                self._progress_bar.show()
+        else:
+            self._progress_bar.config(maximum=max(1, maximum))
+            self._progress_bar.pack(side=tk.RIGHT, padx=(4, 2), pady=2, before=self._log_btn)
         if msg:
             self._set_status(msg)
         self.update()
 
     def _step_progress(self, value: int, msg: str = "") -> None:
         """Advance the progress bar to *value* and repaint immediately."""
-        self._progress_var.set(value)
+        if hasattr(self._progress_bar, "setValue"):
+            self._progress_bar.setValue(value)
+        elif hasattr(self, "_progress_var"):
+            self._progress_var.set(value)
         if msg:
             self._set_status(msg)
         self.update()
 
     def _hide_progress(self) -> None:
         """Remove the progress bar."""
-        self._progress_bar.pack_forget()
-        self._progress_var.set(0)
+        if hasattr(self._progress_bar, "hide") and hasattr(self._progress_bar, "setValue"):
+            self._progress_bar.hide()
+            self._progress_bar.setValue(0)
+        else:
+            self._progress_bar.pack_forget()
+            if hasattr(self, "_progress_var"):
+                self._progress_var.set(0)
 
     def _toggle_log(self) -> None:
         self._log_visible = not self._log_visible
         if self._log_visible:
-            self._log_frame.pack(fill=tk.X, before=self._status_lbl.master)
-            self._log_btn.config(text="Log ▼")
+            if hasattr(self._log_frame, "show"):
+                self._log_frame.show()
+            else:
+                self._log_frame.pack(fill=tk.X, before=self._status_lbl.master)
+            if hasattr(self._log_btn, "setText"):
+                self._log_btn.setText("Log ▼")
+            else:
+                self._log_btn.config(text="Log ▼")
         else:
-            self._log_frame.pack_forget()
-            self._log_btn.config(text="Log ▲")
+            if hasattr(self._log_frame, "hide"):
+                self._log_frame.hide()
+            else:
+                self._log_frame.pack_forget()
+            if hasattr(self._log_btn, "setText"):
+                self._log_btn.setText("Log ▲")
+            else:
+                self._log_btn.config(text="Log ▲")
 
     def _clear_log(self) -> None:
         if hasattr(self, "_log_text") and self._log_text is not None:
