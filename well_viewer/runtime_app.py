@@ -2050,10 +2050,8 @@ class WellViewerApp(QWidget):
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
         _set_combo_values(self._stats_tp_cb, tp_strs or ["—"])
-        if tp_strs:
-            self._stats_tp_var.set(tp_strs[0])
-        else:
-            self._stats_tp_var.set("—")
+        if hasattr(self._stats_tp_cb, "setCurrentText"):
+            self._stats_tp_cb.setCurrentText(tp_strs[0] if tp_strs else "—")
 
     def _stats_write_result(self, text: str) -> None:
         self._stats_result_text.config(state=tk.NORMAL)
