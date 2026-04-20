@@ -47,6 +47,7 @@ import shutil
 import statistics
 import sys
 import threading
+import tkinter as tk
 import zipfile
 from collections import defaultdict
 from pathlib import Path
