@@ -4764,7 +4764,9 @@ class WellViewerApp(QWidget):
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
-        selected = str(self._get_var_value("_plot_chan_var", "", "_chan_cb_line")).lower()
+        tab = self._active_tab_text()
+        widget_attr = "_chan_cb_bar" if tab == "Bar Plots" else "_chan_cb_line"
+        selected = str(self._get_var_value("_plot_chan_var", "", widget_attr)).lower()
         self._set_active_channel(selected)
 
     def _on_preview_channel_selected(self, _e=None) -> None:
@@ -4780,7 +4782,9 @@ class WellViewerApp(QWidget):
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
-        metric_label = self._get_var_value("_metric_var", "")
+        tab = self._active_tab_text()
+        widget_attr = "_metric_cb_bar" if tab == "Bar Plots" else "_metric_cb"
+        metric_label = self._get_var_value("_metric_var", "", widget_attr)
         metric = "smfish_count" if metric_label == "smFISH Count" else "mean_intensity"
         self._set_active_metric(metric)
 
@@ -7128,7 +7132,8 @@ class WellViewerApp(QWidget):
             self._scatter_cell_viewer.show()
         else:
             self._scatter_cell_viewer.update_cell(well_label, filename, nuclear_id, row_idx)
-            self._scatter_cell_viewer.lift()
+            if hasattr(self._scatter_cell_viewer, "raise_"):
+                self._scatter_cell_viewer.raise_()
             if hasattr(self._scatter_cell_viewer, "setFocus"):
                 self._scatter_cell_viewer.setFocus()
 

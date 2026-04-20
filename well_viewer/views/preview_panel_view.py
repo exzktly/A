@@ -133,6 +133,13 @@ def build_right_panel(self, parent: QWidget) -> None:
     self._montage_zoom: float = 1.0
     self._montage_base_sz: int = 120
 
+    # Back-compat aliases used by controller/runtime paths that still reference
+    # legacy widget attribute names.
+    self._mon_lmin_edit = self._mon_lmin_entry
+    self._mon_lmax_edit = self._mon_lmax_entry
+    self._mon_tophat_cb = self._th_checkbox
+    self._mon_tophat_radius_edit = self._th_radius_entry
+
     # Wheel zoom on the montage
     def _wheel(event):
         delta = event.angleDelta().y()

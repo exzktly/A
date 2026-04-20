@@ -9,6 +9,16 @@ from PySide6.QtWidgets import (
 
 
 def build_review_csv_tab(app, parent: QWidget) -> None:
+    class _LabelVar:
+        def __init__(self, label: QLabel) -> None:
+            self._label = label
+
+        def set(self, value: str) -> None:
+            self._label.setText(str(value))
+
+        def get(self) -> str:
+            return self._label.text()
+
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -64,3 +74,4 @@ def build_review_csv_tab(app, parent: QWidget) -> None:
     )
     app._review_csv_msg_lbl.setObjectName("Muted")
     layout.addWidget(app._review_csv_msg_lbl)
+    app._review_csv_msg = _LabelVar(app._review_csv_msg_lbl)
