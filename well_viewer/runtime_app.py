@@ -296,6 +296,21 @@ def ask_name_dialog(parent, title: str = "Name", prompt: str = "Name:",
     return _ui_ask_name_dialog(parent, title=title, prompt=prompt, default=default)
 
 
+def _set_combo_values(combo: object, values: List[str]) -> None:
+    """Set combobox values for both Qt and legacy widget shims."""
+    vals = [str(v) for v in values]
+    if hasattr(combo, "clear") and hasattr(combo, "addItems"):
+        block = getattr(combo, "blockSignals", None)
+        if callable(block):
+            block(True)
+        combo.clear()  # type: ignore[attr-defined]
+        combo.addItems(vals)  # type: ignore[attr-defined]
+        if callable(block):
+            block(False)
+        return
+    combo["values"] = vals  # type: ignore[index]
+
+
 # Canonical definitions live in well_viewer/views/well_button.py
 from well_viewer.views.well_button import build_plate_grid
 
@@ -2034,7 +2049,7 @@ class WellViewerApp(QWidget):
                     pass
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
-        self._stats_tp_cb["values"] = tp_strs or ["—"]
+        _set_combo_values(self._stats_tp_cb, tp_strs or ["—"])
         if tp_strs:
             self._stats_tp_var.set(tp_strs[0])
         else:
@@ -4374,12 +4389,12 @@ class WellViewerApp(QWidget):
             if hasattr(self, "_review_image_well_lbl"):
                 self._review_image_well_lbl.config(text="No well selected")
             if hasattr(self, "_fov_menu"):
-                self._fov_menu["values"] = ["—"]
+                _set_combo_values(self._fov_menu, ["—"])
                 self._preview_fov_var.set("—")
             if hasattr(self, "_review_image_fov_menu"):
-                self._review_image_fov_menu["values"] = ["—"]
+                _set_combo_values(self._review_image_fov_menu, ["—"])
             if hasattr(self, "_review_image_tp_menu"):
-                self._review_image_tp_menu["values"] = ["—"]
+                _set_combo_values(self._review_image_tp_menu, ["—"])
                 self._review_image_tp_var.set("—")
             self._preview_fluor = self._preview_overlay = self._preview_mask = {}
             if hasattr(self, "_montage_inner"):
@@ -4474,7 +4489,7 @@ class WellViewerApp(QWidget):
 
         if not (fluor or overlay or mask or tophat_fluor):
             if hasattr(self, "_fov_menu"):
-                self._fov_menu["values"] = ["—"]
+                _set_combo_values(self._fov_menu, ["—"])
                 self._preview_fov_var.set("—")
             tok = _extract_well_token(well_label) or well_label
             dirs = f"in={self._in_dir}  out={self._data_dir}"
@@ -4485,14 +4500,14 @@ class WellViewerApp(QWidget):
             return
 
         if hasattr(self, "_fov_menu"):
-            self._fov_menu["values"] = all_fovs
+            _set_combo_values(self._fov_menu, all_fovs)
             cur = self._preview_fov_var.get()
             if all_fovs:
                 self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
             else:
                 self._preview_fov_var.set("—")
         if hasattr(self, "_review_image_fov_menu"):
-            self._review_image_fov_menu["values"] = all_fovs or ["—"]
+            _set_combo_values(self._review_image_fov_menu, all_fovs or ["—"])
 
         cur = self._preview_fov_var.get()
         if all_fovs and cur not in all_fovs:
@@ -4646,7 +4661,7 @@ class WellViewerApp(QWidget):
                         k_tp,
                         getattr(ref, "full_path_str", str(ref)),
                     )
-        self._review_image_tp_menu["values"] = tp_values or ["—"]
+        _set_combo_values(self._review_image_tp_menu, tp_values or ["—"])
         if tp_values and self._review_image_tp_var.get() not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
         tp_raw = str(self._review_image_tp_var.get() or "").strip()
@@ -5290,8 +5305,8 @@ class WellViewerApp(QWidget):
         sels = sorted(self._selected_wells, key=self._parse_rc)
         if not sels:
             self._review_well_var.set("(select well(s))")
-            self._review_fov_cb["values"] = []
-            self._review_tp_cb["values"] = []
+            _set_combo_values(self._review_fov_cb, [])
+            _set_combo_values(self._review_tp_cb, [])
             self._review_fov_var.set("")
             self._review_tp_var.set("")
             self._refresh_review_csv_rows([])
@@ -5303,8 +5318,8 @@ class WellViewerApp(QWidget):
         for label in sels:
             rows.extend(self._review_load_rows(label))
         if not rows:
-            self._review_fov_cb["values"] = []
-            self._review_tp_cb["values"] = []
+            _set_combo_values(self._review_fov_cb, [])
+            _set_combo_values(self._review_tp_cb, [])
             self._review_fov_var.set("")
             self._review_tp_var.set("")
             self._refresh_review_csv_rows([])
@@ -5326,8 +5341,8 @@ class WellViewerApp(QWidget):
             seen_tps.add(norm_tp)
             tps.append(norm_tp)
         tps.sort(key=lambda tp: (parse_timepoint_hours(tp) is None, parse_timepoint_hours(tp) or 0.0, tp))
-        self._review_fov_cb["values"] = fovs
-        self._review_tp_cb["values"] = tps
+        _set_combo_values(self._review_fov_cb, fovs)
+        _set_combo_values(self._review_tp_cb, tps)
         if fovs and self._review_fov_var.get() not in fovs:
             self._review_fov_var.set(fovs[0])
         if tps and self._review_tp_var.get() not in tps:
@@ -5436,7 +5451,7 @@ class WellViewerApp(QWidget):
         but the dropdown must remain usable even when nothing is selected yet.
         """
         if not self._well_paths:
-            self._bar_tp_cb["values"] = ["—"]
+            _set_combo_values(self._bar_tp_cb, ["—"])
             self._bar_tp_var.set("—")
             return
 
@@ -5451,7 +5466,7 @@ class WellViewerApp(QWidget):
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
 
         cur = self._bar_tp_var.get()
-        self._bar_tp_cb["values"] = tp_strs
+        _set_combo_values(self._bar_tp_cb, tp_strs)
         if cur in tp_strs:
             self._bar_tp_var.set(cur)
         elif tp_strs:
