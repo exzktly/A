@@ -5200,6 +5200,8 @@ class WellViewerApp(QWidget):
 
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
+        if not hasattr(self, "_line_ax_mean"):
+            return
         tab = self._notebook.tabText(self._notebook.currentIndex())
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))

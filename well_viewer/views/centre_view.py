@@ -27,7 +27,6 @@ def build_centre(app, parent: QWidget) -> None:
     app._notebook = QTabWidget(parent)
     app._notebook.setObjectName("CentreTabs")
     app._notebook.setMovable(False)
-    app._notebook.currentChanged.connect(lambda _i: app._on_tab_change(None))
     layout.addWidget(app._notebook, 1)
 
     def _select_by_text(title: str, _nb=app._notebook) -> None:
@@ -103,3 +102,8 @@ def build_centre(app, parent: QWidget) -> None:
     app._notebook.addTab(tab_groups, "Sample Definitions")
 
     app._notebook.setCurrentIndex(0)
+
+    # Wire the tab-change handler last so it never fires during construction
+    # (the first addTab above would otherwise emit currentChanged(0) before
+    # the Line-Graphs axes exist).
+    app._notebook.currentChanged.connect(lambda _i: app._on_tab_change(None))
