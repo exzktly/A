@@ -1853,7 +1853,8 @@ class WellViewerApp(QWidget):
             if tok in g.wells:
                 grp_color = WELL_COLORS[gi % len(WELL_COLORS)]
                 is_active = gi == self._stats_active_grp
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=grp_color,
                     fg="white",
                     relief=tk.SUNKEN if is_active else tk.FLAT,
@@ -1862,7 +1863,8 @@ class WellViewerApp(QWidget):
                     disabledforeground=button_text_disabled_color,
                 )
                 return
-        btn.config(
+        self._style_plate_button(
+            btn,
             bg=button_bg_color,
             fg=button_text_color,
             relief=tk.FLAT,
@@ -1890,7 +1892,8 @@ class WellViewerApp(QWidget):
                 active_wells.add(w)
         for tok, btn in self._stats_map_btns.items():
             if tok not in avail:
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg_color,
                     fg=button_text_disabled_color,
                     state=tk.DISABLED,
@@ -1902,7 +1905,8 @@ class WellViewerApp(QWidget):
             elif tok in tok_color:
                 grp_color = tok_color[tok]
                 is_active = tok in active_wells
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=grp_color,
                     fg="white",
                     state=tk.NORMAL,
@@ -1913,7 +1917,8 @@ class WellViewerApp(QWidget):
                     disabledforeground=button_text_disabled_color,
                 )
             else:
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg_color,
                     fg=button_text_color,
                     state=tk.NORMAL,
@@ -2216,7 +2221,8 @@ class WellViewerApp(QWidget):
 
         for tok, btn in self._rep_map_btns.items():
             if tok not in self._well_paths:
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg,
                     fg=button_text_disabled,
                     state=tk.DISABLED,
@@ -2229,7 +2235,8 @@ class WellViewerApp(QWidget):
                 act = tok_active.get(tok, False)
                 # Active-set wells: solid bright colour; other sets: dimmed (70 % alpha via lighter shade)
                 grp_color = tok_color[tok]
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=grp_color,
                     fg="white",
                     state=tk.NORMAL,
@@ -2242,7 +2249,8 @@ class WellViewerApp(QWidget):
             else:
                 # Unassigned well — editable if a set is selected
                 if has_active:
-                    btn.config(
+                    self._style_plate_button(
+                        btn,
                         bg=button_bg,
                         fg=button_text,
                         state=tk.NORMAL,
@@ -2253,7 +2261,8 @@ class WellViewerApp(QWidget):
                         disabledforeground=button_text_disabled,
                     )
                 else:
-                    btn.config(
+                    self._style_plate_button(
+                        btn,
                         bg=button_bg,
                         fg=button_text,
                         state=tk.NORMAL,
@@ -2281,8 +2290,13 @@ class WellViewerApp(QWidget):
 
     def _rep_refresh_map_single(self, tok: str) -> None:
         """Update a single rep-map button (cheap mid-drag feedback)."""
+        from ui.theme import get_color
+
         if not hasattr(self, "_rep_map_btns"):
             return
+        button_bg = get_color("button_bg")
+        button_text = get_color("button_text")
+        button_text_disabled = get_color("button_text_disabled")
         btn = self._rep_map_btns.get(tok)
         if btn is None:
             return
@@ -2292,7 +2306,8 @@ class WellViewerApp(QWidget):
         for si, rset in enumerate(self._rep_sets):
             if tok in rset.wells:
                 act = (si == self._active_rep_idx)
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg,
                     fg=button_text,
                     state=tk.NORMAL,
@@ -2305,7 +2320,8 @@ class WellViewerApp(QWidget):
                 return
         # Unassigned
         has_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        btn.config(
+        self._style_plate_button(
+            btn,
             bg=button_bg,
             fg=button_text,
             state=tk.NORMAL,
@@ -3882,7 +3898,8 @@ class WellViewerApp(QWidget):
 
         for tok, btn in self._sidebar_btns.items():
             if tok not in self._well_paths:
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg_color,
                     fg=button_text_disabled_color,
                     state=tk.DISABLED,
@@ -3896,7 +3913,8 @@ class WellViewerApp(QWidget):
                 _full_c, _muted_c, _si, hidden = tok_rep[tok]
                 if hidden:
                     # Dimmed: muted colour, lighter text, FLAT relief
-                    btn.config(
+                    self._style_plate_button(
+                        btn,
                         bg=_muted_c,
                         fg="white",
                         state=tk.NORMAL,
@@ -3908,7 +3926,8 @@ class WellViewerApp(QWidget):
                     )
                 else:
                     # Visible: full colour, SUNKEN relief
-                    btn.config(
+                    self._style_plate_button(
+                        btn,
                         bg=_full_c,
                         fg="white",
                         state=tk.NORMAL,
@@ -3920,7 +3939,8 @@ class WellViewerApp(QWidget):
                     )
             elif rep_mode:
                 # Well exists but not in any rep-set — neutral
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg_color,
                     fg=button_text_color,
                     state=tk.NORMAL,
@@ -3931,7 +3951,8 @@ class WellViewerApp(QWidget):
                     relief=tk.FLAT,
                 )
             elif tok in self._selected_wells:
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=ACCENT,
                     fg="white",
                     state=tk.NORMAL,
@@ -3942,7 +3963,8 @@ class WellViewerApp(QWidget):
                     relief=tk.SUNKEN,
                 )
             else:
-                btn.config(
+                self._style_plate_button(
+                    btn,
                     bg=button_bg_color,
                     fg=button_text_color,
                     state=tk.NORMAL,
@@ -3975,6 +3997,77 @@ class WellViewerApp(QWidget):
                 self._line_group_hint.config(text="")
 
         self._sidebar_map_refresh_pending = False
+
+    def _style_plate_button(
+        self,
+        btn: Any,
+        *,
+        bg: str,
+        fg: str,
+        state: Any = tk.NORMAL,
+        cursor: str = "hand2",
+        relief: Any = tk.FLAT,
+        activebackground: Optional[str] = None,
+        activeforeground: Optional[str] = None,
+        disabledforeground: Optional[str] = None,
+    ) -> None:
+        """Apply plate-map button styling directly for Qt widgets.
+
+        Falls back to tkinter-style ``config`` for any non-Qt legacy widgets.
+        """
+        if hasattr(btn, "setStyleSheet") and hasattr(btn, "setEnabled"):
+            state_str = str(state).lower()
+            relief_str = str(relief).lower()
+            is_enabled = not state_str.endswith("disabled")
+            is_sunken = relief_str.endswith("sunken")
+
+            btn.setEnabled(is_enabled)
+            if hasattr(btn, "setCursor"):
+                btn.setCursor(Qt.PointingHandCursor if cursor == "hand2" else Qt.ArrowCursor)
+
+            hover_bg = activebackground or bg
+            hover_fg = activeforeground or fg
+            disabled_fg = disabledforeground or fg
+            border = "1px solid rgba(0,0,0,0.45)" if is_sunken else "1px solid transparent"
+
+            btn.setStyleSheet(
+                "\n".join(
+                    [
+                        (
+                            "QPushButton{"
+                            f"background-color: {bg};"
+                            f"color: {fg};"
+                            f"border: {border};"
+                            "}"
+                        ),
+                        (
+                            "QPushButton:hover{"
+                            f"background-color: {hover_bg};"
+                            f"color: {hover_fg};"
+                            "border: 1px solid transparent;"
+                            "}"
+                        ),
+                        (
+                            "QPushButton:disabled{"
+                            f"background-color: {bg};"
+                            f"color: {disabled_fg};"
+                            "}"
+                        ),
+                    ]
+                )
+            )
+            return
+
+        btn.config(
+            bg=bg,
+            fg=fg,
+            state=state,
+            cursor=cursor,
+            relief=relief,
+            activebackground=activebackground or bg,
+            activeforeground=activeforeground or fg,
+            disabledforeground=disabledforeground or fg,
+        )
 
     def _sidebar_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
         from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at
