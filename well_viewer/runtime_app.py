@@ -312,7 +312,7 @@ def _set_combo_values(combo: object, values: List[str]) -> None:
 
 
 # Canonical definitions live in well_viewer/views/well_button.py
-from well_viewer.views.well_button import build_plate_grid
+from well_viewer.views.well_button import WellButton as WellLabel, build_plate_grid
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
@@ -1438,6 +1438,31 @@ def find_well_images_and_masks(
 from well_viewer.views.image_panel_view import _label_to_rgb
 
 # =============================================================================
+# Tooltip
+# =============================================================================
+
+from PySide6.QtWidgets import QToolTip
+
+
+class _Tooltip:
+    """Lightweight pixel-tooltip helper backed by ``QToolTip``."""
+
+    def __init__(self, parent=None) -> None:
+        self._parent = parent
+
+    def show(self, x: int, y: int, text: str) -> None:
+        from PySide6.QtCore import QPoint
+        widget = self._parent
+        if widget is None:
+            QToolTip.showText(QPoint(int(x), int(y)), text)
+            return
+        global_pt = widget.mapToGlobal(QPoint(int(x), int(y)))
+        QToolTip.showText(global_pt, text, widget)
+
+    def hide(self) -> None:
+        QToolTip.hideText()
+
+# =============================================================================
 # Reusable image panel  (canonical: well_viewer/views/image_panel_view.py)
 # =============================================================================
 
@@ -2273,16 +2298,16 @@ class WellViewerApp(QWidget):
                         disabledforeground=button_text_disabled,
                     )
 
-    def _rep_map_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
+    def _rep_map_tok_at(self, event) -> Optional[str]:
         return _gc_rep_map_tok_at(self, event)
 
-    def _rep_map_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _rep_map_press(self, event) -> None:
         _gc_rep_map_press(self, event)
 
-    def _rep_map_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _rep_map_drag(self, event) -> None:
         _gc_rep_map_drag(self, event)
 
-    def _rep_map_release(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _rep_map_release(self, _event) -> None:
         _gc_rep_map_release(self, _event)
 
     def _rep_map_apply(self, tok: str) -> None:
@@ -3264,7 +3289,7 @@ class WellViewerApp(QWidget):
 
     # ── Bar-map drag helpers ──────────────────────────────────────────────────
 
-    def _bar_map_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
+    def _bar_map_tok_at(self, event) -> Optional[str]:
         sx = event.widget.winfo_rootx() + event.x
         sy = event.widget.winfo_rooty() + event.y
         w  = event.widget.winfo_containing(sx, sy)
@@ -3281,13 +3306,13 @@ class WellViewerApp(QWidget):
     # exist (a configuration that is no longer exposed in the UI but kept for
     # backward compatibility with saved session files).
 
-    def _bg_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _bg_press(self, event) -> None:
         self._sb_press(event)
 
-    def _bg_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _bg_drag(self, event) -> None:
         self._sb_drag(event)
 
-    def _bg_release(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _bg_release(self, _event) -> None:
         self._sb_release(None)
 
     def _bg_on_rep_change(self) -> None:
@@ -3680,7 +3705,7 @@ class WellViewerApp(QWidget):
     def _montage_resize_deferred(self) -> None:
         _montage_resize_deferred_controller(self)
 
-    def _on_montage_fluor_motion(self, e: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_montage_fluor_motion(self, e) -> None:
         _on_montage_fluor_motion_controller(self, e)
 
     # ── Montage zoom helpers ──────────────────────────────────────────────────
@@ -3691,10 +3716,10 @@ class WellViewerApp(QWidget):
     def _montage_zoom_fit(self) -> None:
         _montage_zoom_fit_controller(self)
 
-    def _on_montage_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_montage_wheel(self, event) -> None:
         _on_montage_wheel_controller(self, event)
 
-    def _on_montage_shift_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_montage_shift_wheel(self, event) -> None:
         _on_montage_shift_wheel_controller(self, event)
 
     def _montage_redraw_at_zoom(self) -> None:
@@ -4069,7 +4094,7 @@ class WellViewerApp(QWidget):
             disabledforeground=disabledforeground or fg,
         )
 
-    def _sidebar_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
+    def _sidebar_tok_at(self, event) -> Optional[str]:
         from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at
 
         return _sidebar_tok_at(self, event)
@@ -4123,17 +4148,17 @@ class WellViewerApp(QWidget):
 
     # ── Line-graph sidebar wrappers ───────────────────────────────────────────
 
-    def _sb_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _sb_press(self, event) -> None:
         from well_viewer.selection_controller import sb_press as _sb_press
 
         _sb_press(self, event)
 
-    def _sb_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _sb_drag(self, event) -> None:
         from well_viewer.selection_controller import sb_drag as _sb_drag
 
         _sb_drag(self, event)
 
-    def _sb_release(self, _event=None) -> None:  # type: ignore[type-arg]
+    def _sb_release(self, _event=None) -> None:
         from well_viewer.selection_controller import sb_release as _sb_release
 
         _sb_release(self)
@@ -5070,7 +5095,7 @@ class WellViewerApp(QWidget):
         self._review_image_pan_y = 0.0
         self._render_review_image_display()
 
-    def _on_review_image_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_wheel(self, event) -> None:
         direction = +1 if getattr(event, "delta", 0) > 0 else -1
         if getattr(event, "num", None) == 4:
             direction = +1
@@ -5078,12 +5103,12 @@ class WellViewerApp(QWidget):
             direction = -1
         self._review_image_zoom_step(direction)
 
-    def _on_review_image_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_press(self, event) -> None:
         self._review_image_dragging = True
         self._review_image_drag_moved = False
         self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
 
-    def _on_review_image_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_drag(self, event) -> None:
         if not getattr(self, "_review_image_dragging", False):
             return
         lx, ly = self._review_image_drag_last_xy
@@ -5096,7 +5121,7 @@ class WellViewerApp(QWidget):
         self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
         self._render_review_image_display()
 
-    def _on_review_image_release(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_release(self, event) -> None:
         was_dragging = getattr(self, "_review_image_dragging", False)
         moved = getattr(self, "_review_image_drag_moved", False)
         self._review_image_dragging = False
@@ -5180,7 +5205,7 @@ class WellViewerApp(QWidget):
         self._review_image_pan_y = (ch / 2.0) - base_y - (cy * scale)
         self._render_review_image_display()
 
-    def _on_review_csv_row_double_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_csv_row_double_click(self, event) -> None:
         _on_review_csv_row_double_click_controller(self, event)
 
     # ── Export ────────────────────────────────────────────────────────────────
