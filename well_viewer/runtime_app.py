@@ -4077,19 +4077,32 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_sel_count_lbl"):
             if rep_mode:
                 n_hid = sum(1 for i in range(n_loaded) if i in self._rep_hidden)
-                self._sel_count_lbl.config(
-                    text=(f"{n_vis}/{n_loaded} set(s) visible"
-                          if n_hid else f"{n_loaded} set(s) — all visible"))
+                txt = (
+                    f"{n_vis}/{n_loaded} set(s) visible"
+                    if n_hid else f"{n_loaded} set(s) — all visible"
+                )
+                if hasattr(self._sel_count_lbl, "setText"):
+                    self._sel_count_lbl.setText(txt)
+                else:
+                    self._sel_count_lbl.config(text=txt)
             else:
-                self._sel_count_lbl.config(
-                    text=(f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
-                          if n_vis else "No wells selected"))
+                txt = (
+                    f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
+                    if n_vis else "No wells selected"
+                )
+                if hasattr(self._sel_count_lbl, "setText"):
+                    self._sel_count_lbl.setText(txt)
+                else:
+                    self._sel_count_lbl.config(text=txt)
         if hasattr(self, "_line_group_hint"):
             if rep_mode:
-                self._line_group_hint.config(
-                    text="Click a well to toggle its set's visibility on the plot.")
+                hint_txt = "Click a well to toggle its set's visibility on the plot."
             else:
-                self._line_group_hint.config(text="")
+                hint_txt = ""
+            if hasattr(self._line_group_hint, "setText"):
+                self._line_group_hint.setText(hint_txt)
+            else:
+                self._line_group_hint.config(text=hint_txt)
 
         self._sidebar_map_refresh_pending = False
 
