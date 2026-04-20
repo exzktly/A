@@ -104,21 +104,33 @@ def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str, canvas=
 
 
 def save_line_figure(app, *, plot_bg: str) -> None:
-    _launch_editor_or_save(app, app._line_fig, "line_graphs.png", plot_bg=plot_bg, canvas=getattr(app, "_line_canvas", None))
+    fig = getattr(app, "_line_fig", None)
+    if fig is None:
+        app._set_status("Line figure is not ready yet.")
+        return
+    _launch_editor_or_save(app, fig, "line_graphs.png", plot_bg=plot_bg, canvas=getattr(app, "_line_canvas", None))
 
 
 def save_bar_figure(app, *, plot_bg: str) -> None:
+    fig = getattr(app, "_bar_fig", None)
+    if fig is None:
+        app._set_status("Bar figure is not ready yet.")
+        return
     tp = app._bar_tp_cb.currentText().replace(".", "_")
-    _launch_editor_or_save(app, app._bar_fig, f"bar_t{tp}.png", plot_bg=plot_bg, canvas=getattr(app, "_bar_canvas", None))
+    _launch_editor_or_save(app, fig, f"bar_t{tp}.png", plot_bg=plot_bg, canvas=getattr(app, "_bar_canvas", None))
 
 
 def save_scatter_figure(app, *, plot_bg: str) -> None:
+    fig = getattr(app, "_scatter_fig", None)
+    if fig is None:
+        app._set_status("Scatter figure is not ready yet.")
+        return
     ch_x = app._scatter_ch_x_cb.currentText()
     ch_y = app._scatter_ch_y_cb.currentText()
     tp = app._scatter_tp_cb.currentText().replace(".", "_")
     _launch_editor_or_save(
         app,
-        app._scatter_fig,
+        fig,
         f"scatter_{ch_x}_vs_{ch_y}_t{tp}.png",
         plot_bg=plot_bg,
         canvas=getattr(app, "_scatter_canvas", None),
@@ -126,6 +138,10 @@ def save_scatter_figure(app, *, plot_bg: str) -> None:
 
 
 def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
+    fig = getattr(app, "_scatter_agg_fig", None)
+    if fig is None:
+        app._set_status("Aggregate scatter figure is not ready yet.")
+        return
     stat_x = app._scatter_agg_stat_x_cb.currentText()
     stat_y = app._scatter_agg_stat_y_cb.currentText()
 
@@ -150,7 +166,7 @@ def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
 
     _launch_editor_or_save(
         app,
-        app._scatter_agg_fig,
+        fig,
         f"scatter_agg_{stat_x_safe}_vs_{stat_y_safe}_{tp_range}.png",
         plot_bg=plot_bg,
         canvas=getattr(app, "_scatter_agg_canvas", None),

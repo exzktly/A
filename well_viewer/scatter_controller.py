@@ -235,6 +235,10 @@ def redraw_scatter(
         fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
         fluor_gate_y: FluorGating threshold for Y channel; cells below are excluded
     """
+    required_attrs = ("_ax_scatter", "_scatter_canvas", "_selected_wells", "_well_paths")
+    if any(not hasattr(app, name) for name in required_attrs):
+        return
+
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
 
@@ -486,6 +490,10 @@ def redraw_scatter_agg(
         well_colors: List of colors for replicates/wells
         aggregate_with_threshold: Function to compute statistics
     """
+    required_attrs = ("_ax_scatter_agg", "_scatter_agg_canvas", "_selected_wells", "_well_paths")
+    if any(not hasattr(app, name) for name in required_attrs):
+        return
+
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
 
