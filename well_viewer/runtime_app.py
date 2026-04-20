@@ -2103,32 +2103,32 @@ class WellViewerApp(QWidget):
 
         # Update header frame
         if hasattr(self, "_stats_hdr"):
-            self._stats_hdr.configure(bg=bg_side)
-            self._stats_hdr_label.configure(bg=bg_side, fg=txt_mut)
+            self._set_widget_palette(self._stats_hdr, bg=bg_side)
+            self._set_widget_palette(self._stats_hdr_label, bg=bg_side, fg=txt_mut)
 
         # Update control frame
         if hasattr(self, "_stats_ctrl"):
-            self._stats_ctrl.configure(bg=bg_app)
-            self._stats_test_label.configure(bg=bg_app, fg=txt_sec)
-            self._stats_tp_label.configure(bg=bg_app, fg=txt_sec)
+            self._set_widget_palette(self._stats_ctrl, bg=bg_app)
+            self._set_widget_palette(self._stats_test_label, bg=bg_app, fg=txt_sec)
+            self._set_widget_palette(self._stats_tp_label, bg=bg_app, fg=txt_sec)
 
         # Update separator
         if hasattr(self, "_stats_sep"):
-            self._stats_sep.configure(bg=border)
+            self._set_widget_palette(self._stats_sep, bg=border)
 
         # Update figure frame and matplotlib figure
         if hasattr(self, "_stats_fig_frame"):
-            self._stats_fig_frame.configure(bg=bg_app)
+            self._set_widget_palette(self._stats_fig_frame, bg=bg_app)
         if hasattr(self, "_stats_fig"):
             self._stats_fig.set_facecolor(bg_app)
 
         # Update results frame
         if hasattr(self, "_stats_res_frame"):
-            self._stats_res_frame.configure(bg=bg_app)
+            self._set_widget_palette(self._stats_res_frame, bg=bg_app)
 
         # Update results text widget
         if hasattr(self, "_stats_result_text"):
-            self._stats_result_text.configure(bg=bg_panel, fg=txt_pri, highlightbackground=border)
+            self._set_widget_palette(self._stats_result_text, bg=bg_panel, fg=txt_pri, highlightbackground=border)
 
         # Redraw the canvas
         if hasattr(self, "_stats_canvas_widget"):
@@ -2683,6 +2683,60 @@ class WellViewerApp(QWidget):
                     widget.style().polish(widget)
                 except Exception:
                     pass
+
+    @staticmethod
+    def _set_widget_palette(widget: Any, **kwargs: str) -> None:
+        """Apply simple fg/bg-style colors for Qt/tkinter-style widgets."""
+        if widget is None:
+            return
+        if hasattr(widget, "config"):
+            widget.config(**kwargs)
+            return
+        if hasattr(widget, "setStyleSheet"):
+            css_map = {
+                "bg": "background-color",
+                "fg": "color",
+                "highlightbackground": "border-color",
+            }
+            rules = []
+            for k, v in kwargs.items():
+                css_key = css_map.get(k)
+                if css_key and v:
+                    rules.append(f"{css_key}: {v};")
+            if rules:
+                widget.setStyleSheet(" ".join(rules))
+
+    @staticmethod
+    def _set_widget_cursor(widget: Any, cursor: Any) -> None:
+        """Set cursor for Qt/tkinter-style widgets."""
+        if widget is None:
+            return
+        if hasattr(widget, "setCursor"):
+            if isinstance(cursor, str):
+                if cursor == "pirate":
+                    widget.setCursor(Qt.ForbiddenCursor)
+                elif cursor == "hand2":
+                    widget.setCursor(Qt.PointingHandCursor)
+                else:
+                    widget.setCursor(Qt.ArrowCursor)
+            else:
+                widget.setCursor(cursor)
+        elif hasattr(widget, "config"):
+            widget.config(cursor=cursor)
+
+    @staticmethod
+    def _set_widget_image(widget: Any, image: Any) -> None:
+        """Set image on Qt/tkinter-style image labels."""
+        if widget is None:
+            return
+        if hasattr(widget, "setPixmap") and image is not None and hasattr(image, "toqpixmap"):
+            try:
+                widget.setPixmap(image.toqpixmap())
+                return
+            except Exception:
+                pass
+        if hasattr(widget, "configure"):
+            widget.configure(image=image)
 
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
@@ -3493,21 +3547,19 @@ class WellViewerApp(QWidget):
         if preloaded:
             self._mon_tophat_var.set(True)
             self._set_widget_state(self._th_checkbox, tk.DISABLED)
-            self._th_label.config(
-                text="Top-hat background subtraction",
-                fg=TXT_MUT)
-            self._th_radius_label.config(fg=TXT_MUT)
-            self._th_radius_hint.config(fg=TXT_MUT)
+            self._set_widget_text(self._th_label, "Top-hat background subtraction")
+            self._set_widget_palette(self._th_label, fg=TXT_MUT)
+            self._set_widget_palette(self._th_radius_label, fg=TXT_MUT)
+            self._set_widget_palette(self._th_radius_hint, fg=TXT_MUT)
             self._set_widget_state(self._th_radius_entry, tk.DISABLED)
             self._set_widget_text(self._th_preload_badge, "● from output zip")
         else:
             self._mon_tophat_var.set(False)
             self._set_widget_state(self._th_checkbox, tk.NORMAL)
-            self._th_label.config(
-                text="Top-hat background subtraction",
-                fg=TXT_SEC)
-            self._th_radius_label.config(fg=TXT_MUT)
-            self._th_radius_hint.config(fg=TXT_MUT)
+            self._set_widget_text(self._th_label, "Top-hat background subtraction")
+            self._set_widget_palette(self._th_label, fg=TXT_SEC)
+            self._set_widget_palette(self._th_radius_label, fg=TXT_MUT)
+            self._set_widget_palette(self._th_radius_hint, fg=TXT_MUT)
             self._set_widget_state(self._th_radius_entry, tk.NORMAL)
             self._set_widget_text(self._th_preload_badge, "")
 
@@ -5228,7 +5280,7 @@ class WellViewerApp(QWidget):
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
         shown = img.resize((nw, nh), _PILImage.NEAREST)
         self._review_image_photo = _PILImageTk.PhotoImage(shown)
-        self._review_image_label.configure(image=self._review_image_photo)
+        self._set_widget_image(self._review_image_label, self._review_image_photo)
         self._review_image_scale = scale
         base_x = max(8, (cw - nw) // 2)
         base_y = max(8, (ch - nh) // 2)
@@ -5316,7 +5368,7 @@ class WellViewerApp(QWidget):
     def _set_review_image_include_mode(self, enabled: bool) -> None:
         self._review_image_include_edit_mode = bool(enabled)
         if hasattr(self, "_review_image_label"):
-            self._review_image_label.config(cursor=("pirate" if enabled else "hand2"))
+            self._set_widget_cursor(self._review_image_label, ("pirate" if enabled else "hand2"))
         if enabled:
             self._set_status("Review Image Include edit mode ON: click a cell to set Included=0.")
         else:
@@ -5901,9 +5953,8 @@ class WellViewerApp(QWidget):
         self._bar_violin.set(not self._bar_violin.get())
         on = self._bar_violin.get()
         self._set_widget_style(self._violin_btn, "ToggleActive.TButton" if on else "Toggle.TButton")
-        self._violin_slider.config(
-            state=tk.NORMAL if on else tk.DISABLED,
-            fg=TXT_SEC if on else TXT_MUT)
+        self._set_widget_state(self._violin_slider, tk.NORMAL if on else tk.DISABLED)
+        self._set_widget_palette(self._violin_slider, fg=TXT_SEC if on else TXT_MUT)
         if on and self._bar_swarm.get():
             # Mutually exclusive with beeswarm
             self._bar_swarm.set(False)
@@ -7045,21 +7096,23 @@ class WellViewerApp(QWidget):
     # ── Log / status helpers ──────────────────────────────────────────────────
 
     def _set_status(self, msg: str) -> None:
-        if hasattr(self._status_lbl, "setText"):
-            self._status_lbl.setText(msg)
-        else:
-            self._status_lbl.config(text=msg)
+        self._set_widget_text(self._status_lbl, msg)
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""
         if hasattr(self._progress_bar, "setRange") and hasattr(self._progress_bar, "setValue"):
             self._progress_bar.setRange(0, max(1, maximum))
             self._progress_bar.setValue(0)
-            if hasattr(self._progress_bar, "show"):
-                self._progress_bar.show()
+            self._show_compat_widget(self._progress_bar)
+        elif hasattr(self._progress_bar, "setMaximum") and hasattr(self._progress_bar, "setValue"):
+            self._progress_bar.setMaximum(max(1, maximum))
+            self._progress_bar.setValue(0)
+            self._show_compat_widget(self._progress_bar)
         else:
-            self._progress_bar.config(maximum=max(1, maximum))
-            self._progress_bar.pack(side=tk.RIGHT, padx=(4, 2), pady=2, before=self._log_btn)
+            progress_bar = self._progress_bar
+            if hasattr(progress_bar, "config"):
+                progress_bar.config(maximum=max(1, maximum))
+            self._show_compat_widget(self._progress_bar, side=tk.RIGHT, padx=(4, 2), pady=2, before=self._log_btn)
         if msg:
             self._set_status(msg)
         self.update()
@@ -7077,33 +7130,21 @@ class WellViewerApp(QWidget):
     def _hide_progress(self) -> None:
         """Remove the progress bar."""
         if hasattr(self._progress_bar, "hide") and hasattr(self._progress_bar, "setValue"):
-            self._progress_bar.hide()
+            self._hide_compat_widget(self._progress_bar)
             self._progress_bar.setValue(0)
         else:
-            self._progress_bar.pack_forget()
+            self._hide_compat_widget(self._progress_bar)
             if hasattr(self, "_progress_var"):
                 self._progress_var.set(0)
 
     def _toggle_log(self) -> None:
         self._log_visible = not self._log_visible
         if self._log_visible:
-            if hasattr(self._log_frame, "show"):
-                self._log_frame.show()
-            else:
-                self._log_frame.pack(fill=tk.X, before=self._status_lbl.master)
-            if hasattr(self._log_btn, "setText"):
-                self._log_btn.setText("Log ▼")
-            else:
-                self._log_btn.config(text="Log ▼")
+            self._show_compat_widget(self._log_frame, fill=tk.X, before=self._status_lbl.master)
+            self._set_widget_text(self._log_btn, "Log ▼")
         else:
-            if hasattr(self._log_frame, "hide"):
-                self._log_frame.hide()
-            else:
-                self._log_frame.pack_forget()
-            if hasattr(self._log_btn, "setText"):
-                self._log_btn.setText("Log ▲")
-            else:
-                self._log_btn.config(text="Log ▲")
+            self._hide_compat_widget(self._log_frame)
+            self._set_widget_text(self._log_btn, "Log ▲")
 
     def _clear_log(self) -> None:
         if hasattr(self, "_log_text") and self._log_text is not None:
