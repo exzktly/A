@@ -1552,7 +1552,7 @@ class WellViewerApp(QWidget):
 
     def __getattr__(self, name: str) -> Any:
         """Lazily provide harmless defaults for late-bound variable attributes."""
-        if name.endswith("_var"):
+        if name.endswith("_var") or name in {"_use_sem"}:
             fallback = _CompatVar("")
             setattr(self, name, fallback)
             return fallback
