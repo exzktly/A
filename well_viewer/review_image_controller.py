@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from well_viewer.qt_compat import combo_text
+
 
 def _select_tab_by_text(notebook, text: str) -> None:
     """Select a QTabWidget tab by its text label."""
@@ -36,9 +38,9 @@ def on_review_image_click(app, event, logger) -> None:
     if nid <= 0:
         return
     app._review_image_selected_nucleus = nid
-    fov = app._preview_fov_cb.currentText().strip()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None)).strip()
     tp_cb = getattr(app, "_review_image_tp_cb", None)
-    tp = tp_cb.currentText().strip() if tp_cb is not None else ""
+    tp = combo_text(tp_cb).strip() if tp_cb is not None else ""
     if getattr(app, "_review_image_include_edit_mode", False):
         app._set_review_cell_included(fov, tp, str(nid), "0")
         app._set_status(f"Set Included=0 for nucleus {nid} at FOV {fov}, TP {tp}.")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from well_viewer.qt_compat import combo_text
+
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QToolTip
 
@@ -18,7 +20,7 @@ def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> No
             app._mon_lmin_edit.setText(f"{lo:.0f}")
             app._mon_lmax_edit.setText(f"{hi:.0f}")
 
-    fov = app._preview_fov_cb.currentText()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     if tp_list:
         app._draw_montage_thumbs(tp_list)
@@ -48,7 +50,7 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
     app._mon_lmin_edit.setText(f"{lo:.0f}")
     app._mon_lmax_edit.setText(f"{hi:.0f}")
     if redraw:
-        fov = app._preview_fov_cb.currentText()
+        fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
         tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
         if tp_list:
             app._draw_montage_thumbs(tp_list)
@@ -68,7 +70,7 @@ def on_montage_canvas_resize(app, _e=None) -> None:
 
 def montage_resize_deferred(app) -> None:
     app._montage_resize_timer = None
-    fov = app._preview_fov_cb.currentText()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     if tp_list:
         app._draw_montage_thumbs(tp_list)
@@ -156,7 +158,7 @@ def on_montage_shift_wheel(app, event) -> None:
 
 
 def montage_redraw_at_zoom(app) -> None:
-    fov = app._preview_fov_cb.currentText()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
     if fov == "—" or not app._montage_fluor_arrays:
         return
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]

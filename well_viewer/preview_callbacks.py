@@ -7,6 +7,7 @@ import logging
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QToolTip, QVBoxLayout, QWidget
+from well_viewer.qt_compat import combo_text
 
 _logger = logging.getLogger("well_viewer")
 
@@ -128,7 +129,7 @@ def refresh_preview_montage(app) -> None:
     if well is None:
         app._montage_status.setText("Select a well in the left panel.")
         return
-    fov = app._preview_fov_cb.currentText()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
     if montage_debug:
         _logger.debug("refresh_preview_montage selected_fov=%r", fov)
     if fov == "—":
@@ -330,7 +331,7 @@ def montage_tophat_toggled(app) -> None:
     app._montage_th_status = ["pending"] * n_total
     app._montage_th_cancel = False
 
-    fov = app._preview_fov_cb.currentText()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     if tp_list:
         draw_montage_thumbs(app, tp_list)

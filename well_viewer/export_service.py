@@ -8,6 +8,8 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
+from well_viewer.qt_compat import combo_text
+
 
 _CSV_FILTER = "CSV files (*.csv);;All files (*.*)"
 
@@ -76,7 +78,7 @@ def export_plot_data(app) -> None:
 
 
 def export_bar_plot_data(app) -> None:
-    tp_str = app._bar_tp_cb.currentText()
+    tp_str = combo_text(getattr(app, "_bar_tp_cb", None), "0")
     if tp_str in ("—", ""):
         _warn(app, "Export", "Select a timepoint first.")
         return
@@ -190,7 +192,7 @@ def save_montage_figure(app) -> None:
     if not app._montage_fluor_arrays:
         _warn(app, "Nothing to save", "Load a well in the Preview tab first.")
         return
-    fov = app._preview_fov_cb.currentText()
+    fov = combo_text(getattr(app, "_preview_fov_cb", None), "—")
     well = rt._extract_well_token(app._preview_selected_well or "") or "well"
     n = len(app._montage_fluor_arrays)
     try:
@@ -250,9 +252,9 @@ def export_scatter_data(app) -> None:
     from well_viewer.scatter_controller import collect_scatter_data as _scatter_collect_data
 
     try:
-        ch_x_entry = app._scatter_ch_x_cb.currentText()
-        ch_y_entry = app._scatter_ch_y_cb.currentText()
-        tp_str = app._scatter_tp_cb.currentText()
+        ch_x_entry = combo_text(getattr(app, "_scatter_ch_x_cb", None))
+        ch_y_entry = combo_text(getattr(app, "_scatter_ch_y_cb", None))
+        tp_str = combo_text(getattr(app, "_scatter_tp_cb", None), "0")
         timepoint_h = float(tp_str) if tp_str else 0.0
     except (ValueError, AttributeError):
         _warn(app, "Export", "Select channels and timepoint first.")
@@ -314,8 +316,8 @@ def export_scatter_agg_data(app) -> None:
     from well_viewer.scatter_controller import collect_scatter_agg_data as _scatter_collect_agg_data
 
     try:
-        stat_x = app._scatter_agg_stat_x_cb.currentText()
-        stat_y = app._scatter_agg_stat_y_cb.currentText()
+        stat_x = combo_text(getattr(app, "_scatter_agg_stat_x_cb", None))
+        stat_y = combo_text(getattr(app, "_scatter_agg_stat_y_cb", None))
 
         selected_timepoints: list[float] = []
         tp_checks = getattr(app, "_scatter_agg_tp_checks", None)

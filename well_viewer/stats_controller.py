@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from well_viewer.qt_compat import combo_text
+
 from typing import List, Tuple
 
 
@@ -55,7 +57,7 @@ def draw_ks_cdf(app, group_vals: List[Tuple[str, List[float]]], tp_str: str, wel
 
 def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
     """Run the selected statistical test across all group pairs."""
-    tp_str = app._stats_tp_cb.currentText()
+    tp_str = combo_text(getattr(app, "_stats_tp_cb", None))
     if tp_str in ("—", ""):
         app._stats_write_result("No timepoint selected.")
         return
@@ -70,7 +72,7 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         app._stats_write_result("Define at least 2 non-empty groups to run a test.")
         return
 
-    test = app._stats_test_cb.currentText()
+    test = combo_text(getattr(app, "_stats_test_cb", None))
     is_ks = test.startswith("KS")
 
     if is_ks:

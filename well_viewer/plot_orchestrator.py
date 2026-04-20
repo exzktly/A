@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from well_viewer.figure_export_editor import launch_export_editor
+from well_viewer.qt_compat import combo_text
 
 
 def _qt_file_filter_from_filetypes(filetypes) -> str:
@@ -116,7 +117,7 @@ def save_bar_figure(app, *, plot_bg: str) -> None:
     if fig is None:
         app._set_status("Bar figure is not ready yet.")
         return
-    tp = app._bar_tp_cb.currentText().replace(".", "_")
+    tp = combo_text(getattr(app, "_bar_tp_cb", None), "0").replace(".", "_")
     _launch_editor_or_save(app, fig, f"bar_t{tp}.png", plot_bg=plot_bg, canvas=getattr(app, "_bar_canvas", None))
 
 
@@ -125,9 +126,9 @@ def save_scatter_figure(app, *, plot_bg: str) -> None:
     if fig is None:
         app._set_status("Scatter figure is not ready yet.")
         return
-    ch_x = app._scatter_ch_x_cb.currentText()
-    ch_y = app._scatter_ch_y_cb.currentText()
-    tp = app._scatter_tp_cb.currentText().replace(".", "_")
+    ch_x = combo_text(getattr(app, "_scatter_ch_x_cb", None))
+    ch_y = combo_text(getattr(app, "_scatter_ch_y_cb", None))
+    tp = combo_text(getattr(app, "_scatter_tp_cb", None), "0").replace(".", "_")
     _launch_editor_or_save(
         app,
         fig,
@@ -142,8 +143,8 @@ def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
     if fig is None:
         app._set_status("Aggregate scatter figure is not ready yet.")
         return
-    stat_x = app._scatter_agg_stat_x_cb.currentText()
-    stat_y = app._scatter_agg_stat_y_cb.currentText()
+    stat_x = combo_text(getattr(app, "_scatter_agg_stat_x_cb", None))
+    stat_y = combo_text(getattr(app, "_scatter_agg_stat_y_cb", None))
 
     selected_timepoints: list[float] = []
     tp_checks = getattr(app, "_scatter_agg_tp_checks", None)
