@@ -1,8 +1,17 @@
 # Attribute Call Audit (well_viewer)
 
 Total attribute call sites: **5403**\
-Flagged non-migrated: **79**\
-Heuristic: calls flagged false when using legacy tk methods (`config/configure/pack/pack_forget/winfo_*`) or direct `*_var.get/set` usage.
+Flagged non-migrated: **63**\
+Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; compat helper internals are marked migrated.
+
+## Flagged by Method
+
+- `set`: 32
+- `get`: 26
+- `config`: 2
+- `winfo_containing`: 1
+- `winfo_rootx`: 1
+- `winfo_rooty`: 1
 
 ## Full Table
 
@@ -2390,71 +2399,71 @@ Heuristic: calls flagged false when using legacy tk methods (`config/configure/p
 | well_viewer/runtime_app.py | 2492 | `self._rep_sets` | `clear` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 2494 | `self._rep_hidden` | `clear` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 2495 | `self` | `_rebuild_all` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2557 | `self._well_labels` | `clear` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2558 | `self` | `_label_panel_refresh` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2559 | `self` | `_invalidate_stats_cache` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2568 | `nb` | `currentIndex` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2570 | `nb` | `tabText` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2574 | `nb` | `tab` | false | legacy method: tab |
-| well_viewer/runtime_app.py | 2574 | `nb` | `select` | false | legacy method: select |
-| well_viewer/runtime_app.py | 2585 | `nb` | `select_by_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2591 | `nb` | `count` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2592 | `nb` | `tabText` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2593 | `nb` | `setCurrentIndex` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2604 | `widget` | `hide` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2606 | `widget` | `pack_forget` | false | legacy method: pack_forget |
-| well_viewer/runtime_app.py | 2623 | `widget` | `show` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2639 | `widget` | `pack` | false | legacy method: pack |
-| well_viewer/runtime_app.py | 2648 | `widget` | `isVisible` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2653 | `widget` | `winfo_manager` | false | legacy method: winfo_manager |
-| well_viewer/runtime_app.py | 2664 | `widget` | `setText` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2666 | `widget` | `config` | false | legacy method: config |
-| well_viewer/runtime_app.py | 2674 | `widget` | `clear` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2675 | `widget` | `addItems` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2677 | `widget` | `config` | false | legacy method: config |
-| well_viewer/runtime_app.py | 2684 | `str(state)` | `lower` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2685 | `state_str` | `endswith` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2687 | `widget` | `setEnabled` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2689 | `widget` | `config` | false | legacy method: config |
-| well_viewer/runtime_app.py | 2697 | `widget` | `configure` | false | legacy method: configure |
-| well_viewer/runtime_app.py | 2700 | `widget` | `setProperty` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2703 | `widget.style()` | `unpolish` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2703 | `widget` | `style` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2704 | `widget.style()` | `polish` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2704 | `widget` | `style` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2714 | `widget` | `config` | false | legacy method: config |
-| well_viewer/runtime_app.py | 2723 | `kwargs` | `items` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2724 | `css_map` | `get` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2726 | `rules` | `append` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2728 | `widget` | `setStyleSheet` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2728 | `' '` | `join` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2738 | `widget` | `setCursor` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2740 | `widget` | `setCursor` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2742 | `widget` | `setCursor` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2744 | `widget` | `setCursor` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2746 | `widget` | `config` | false | legacy method: config |
-| well_viewer/runtime_app.py | 2755 | `widget` | `setPixmap` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2755 | `image` | `toqpixmap` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2760 | `widget` | `configure` | false | legacy method: configure |
-| well_viewer/runtime_app.py | 2767 | `var` | `get` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2775 | `widget` | `currentText` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2780 | `widget` | `get` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2790 | `var` | `set` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2799 | `widget` | `setCurrentText` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2805 | `widget` | `set` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2814 | `widget` | `winfo_children` | false | legacy method: winfo_children |
-| well_viewer/runtime_app.py | 2817 | `widget` | `findChildren` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2827 | `widget` | `winfo_width` | false | legacy method: winfo_width |
-| well_viewer/runtime_app.py | 2830 | `widget` | `width` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2840 | `widget` | `winfo_height` | false | legacy method: winfo_height |
-| well_viewer/runtime_app.py | 2843 | `widget` | `height` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2854 | `widget` | `winfo_exists` | false | legacy method: winfo_exists |
-| well_viewer/runtime_app.py | 2867 | `self` | `_active_tab_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2870 | `self` | `_rep_panel_refresh` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2871 | `self` | `_grp_panel_refresh` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2872 | `self` | `_label_panel_refresh` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2873 | `self` | `_rep_refresh_map` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 2892 | `QTimer` | `singleShot` | true | Qt-safe/default |
+| well_viewer/runtime_app.py | 2557 | `self._well_labels` | `clear` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2558 | `self` | `_label_panel_refresh` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2559 | `self` | `_invalidate_stats_cache` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2568 | `nb` | `currentIndex` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2570 | `nb` | `tabText` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2574 | `nb` | `tab` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2574 | `nb` | `select` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2585 | `nb` | `select_by_text` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2591 | `nb` | `count` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2592 | `nb` | `tabText` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2593 | `nb` | `setCurrentIndex` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2604 | `widget` | `hide` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2606 | `widget` | `pack_forget` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2623 | `widget` | `show` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2639 | `widget` | `pack` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2648 | `widget` | `isVisible` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2653 | `widget` | `winfo_manager` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2664 | `widget` | `setText` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2666 | `widget` | `config` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2674 | `widget` | `clear` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2675 | `widget` | `addItems` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2677 | `widget` | `config` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2684 | `str(state)` | `lower` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2685 | `state_str` | `endswith` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2687 | `widget` | `setEnabled` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2689 | `widget` | `config` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2697 | `widget` | `configure` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2700 | `widget` | `setProperty` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2703 | `widget.style()` | `unpolish` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2703 | `widget` | `style` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2704 | `widget.style()` | `polish` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2704 | `widget` | `style` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2714 | `widget` | `config` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2723 | `kwargs` | `items` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2724 | `css_map` | `get` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2726 | `rules` | `append` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2728 | `widget` | `setStyleSheet` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2728 | `' '` | `join` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2738 | `widget` | `setCursor` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2740 | `widget` | `setCursor` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2742 | `widget` | `setCursor` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2744 | `widget` | `setCursor` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2746 | `widget` | `config` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2755 | `widget` | `setPixmap` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2755 | `image` | `toqpixmap` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2760 | `widget` | `configure` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2767 | `var` | `get` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2775 | `widget` | `currentText` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2780 | `widget` | `get` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2790 | `var` | `set` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2799 | `widget` | `setCurrentText` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2805 | `widget` | `set` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2814 | `widget` | `winfo_children` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2817 | `widget` | `findChildren` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2827 | `widget` | `winfo_width` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2830 | `widget` | `width` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2840 | `widget` | `winfo_height` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2843 | `widget` | `height` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2854 | `widget` | `winfo_exists` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2867 | `self` | `_active_tab_text` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2870 | `self` | `_rep_panel_refresh` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2871 | `self` | `_grp_panel_refresh` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2872 | `self` | `_label_panel_refresh` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2873 | `self` | `_rep_refresh_map` | true | compat helper internals |
+| well_viewer/runtime_app.py | 2892 | `QTimer` | `singleShot` | true | compat helper internals |
 | well_viewer/runtime_app.py | 2925 | `self` | `_invalidate_stats_cache` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 2926 | `self` | `_groups_centre_refresh` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 2927 | `self` | `_bar_rebuild_groups_ui_now` | true | Qt-safe/default |
