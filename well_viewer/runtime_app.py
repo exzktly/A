@@ -4500,6 +4500,51 @@ class WellViewerApp(QWidget):
             if hasattr(widget, "config"):
                 widget.config(values=values)
 
+        def _var_get(name: str, fallback_widget_attr: Optional[str] = None) -> str:
+            var = getattr(self, name, None)
+            if var is not None and hasattr(var, "get"):
+                try:
+                    return str(var.get() or "")
+                except Exception:
+                    pass
+            if fallback_widget_attr:
+                widget = getattr(self, fallback_widget_attr, None)
+                if widget is not None:
+                    if hasattr(widget, "currentText"):
+                        try:
+                            return str(widget.currentText() or "")
+                        except Exception:
+                            pass
+                    if hasattr(widget, "get"):
+                        try:
+                            return str(widget.get() or "")
+                        except Exception:
+                            pass
+            return ""
+
+        def _var_set(name: str, value: str, fallback_widget_attr: Optional[str] = None) -> None:
+            var = getattr(self, name, None)
+            if var is not None and hasattr(var, "set"):
+                try:
+                    var.set(value)
+                    return
+                except Exception:
+                    pass
+            if fallback_widget_attr:
+                widget = getattr(self, fallback_widget_attr, None)
+                if widget is not None:
+                    if hasattr(widget, "setCurrentText"):
+                        try:
+                            widget.setCurrentText(value)
+                            return
+                        except Exception:
+                            pass
+                    if hasattr(widget, "set"):
+                        try:
+                            widget.set(value)
+                        except Exception:
+                            pass
+
         # Update channel selector instances
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
@@ -4520,15 +4565,15 @@ class WellViewerApp(QWidget):
             return "—"
 
         # Plot tabs: only measurement channels.
-        plot_label = _pick_valid(self._plot_chan_var.get(), labels, active_label)
-        self._plot_chan_var.set(plot_label)
+        plot_label = _pick_valid(_var_get("_plot_chan_var", "_chan_cb_line"), labels, active_label)
+        _var_set("_plot_chan_var", plot_label, "_chan_cb_line")
 
         # Image tabs: each validates against its own channel universe.
         active_image_label = self._active_image_channel.upper()
-        montage_label = _pick_valid(self._montage_chan_var.get(), montage_labels, active_image_label)
-        review_label = _pick_valid(self._review_image_chan_var.get(), review_labels, active_image_label)
-        self._montage_chan_var.set(montage_label)
-        self._review_image_chan_var.set(review_label)
+        montage_label = _pick_valid(_var_get("_montage_chan_var", "_chan_cb_preview"), montage_labels, active_image_label)
+        review_label = _pick_valid(_var_get("_review_image_chan_var", "_review_image_chan_cb"), review_labels, active_image_label)
+        _var_set("_montage_chan_var", montage_label, "_chan_cb_preview")
+        _var_set("_review_image_chan_var", review_label, "_review_image_chan_cb")
 
         # Keep active image channel anchored only when the current value is invalid.
         if active_image_label not in montage_labels and active_image_label not in review_labels:
