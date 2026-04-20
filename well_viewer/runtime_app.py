@@ -80,6 +80,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QTabWidget,
+    QTableWidgetItem,
     QTextEdit,
     QToolButton,
     QTreeWidget,
@@ -2844,6 +2845,73 @@ class WellViewerApp(QWidget):
             except Exception:
                 return default
         return default
+
+    @staticmethod
+    def _table_clear_rows(table: Any) -> None:
+        """Clear all rows from either a Qt table or ttk.Treeview-like widget."""
+        if table is None:
+            return
+        if hasattr(table, "setRowCount"):
+            try:
+                table.setRowCount(0)
+                return
+            except Exception:
+                pass
+        if hasattr(table, "get_children") and hasattr(table, "delete"):
+            try:
+                for iid in table.get_children():
+                    table.delete(iid)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _table_set_columns(table: Any, cols: List[str]) -> None:
+        """Set visible columns for either a Qt table or ttk.Treeview-like widget."""
+        if table is None:
+            return
+        if hasattr(table, "setColumnCount") and hasattr(table, "setHorizontalHeaderLabels"):
+            try:
+                table.setColumnCount(len(cols))
+                table.setHorizontalHeaderLabels(cols)
+                return
+            except Exception:
+                pass
+        try:
+            table["columns"] = tuple(cols)
+        except Exception:
+            pass
+        if hasattr(table, "heading"):
+            for c in cols:
+                try:
+                    table.heading(c, text=c)
+                except Exception:
+                    continue
+        if hasattr(table, "column"):
+            for c in cols:
+                try:
+                    table.column(c, width=120, minwidth=60, stretch=True, anchor="w")
+                except Exception:
+                    continue
+
+    @staticmethod
+    def _table_append_row(table: Any, values: List[Any]) -> None:
+        """Append a row to either a Qt table or ttk.Treeview-like widget."""
+        if table is None:
+            return
+        if hasattr(table, "rowCount") and hasattr(table, "setItem") and hasattr(table, "setRowCount"):
+            try:
+                row_idx = int(table.rowCount())
+                table.setRowCount(row_idx + 1)
+                for col_idx, value in enumerate(values):
+                    table.setItem(row_idx, col_idx, QTableWidgetItem(str(value)))
+                return
+            except Exception:
+                pass
+        if hasattr(table, "insert"):
+            try:
+                table.insert("", tk.END, values=values)
+            except Exception:
+                pass
 
     @staticmethod
     def _widget_exists(widget: Any) -> bool:
@@ -5757,8 +5825,7 @@ class WellViewerApp(QWidget):
         if not hasattr(self, "_review_csv_table"):
             return
         table = self._review_csv_table
-        for iid in table.get_children():
-            table.delete(iid)
+        self._table_clear_rows(table)
 
         if rows is None:
             sels = sorted(self._selected_wells, key=self._parse_rc)
@@ -5794,7 +5861,7 @@ class WellViewerApp(QWidget):
                 fov_sel, tp_sel, len(rows),
             )
             if not rows:
-                table["columns"] = ()
+                self._table_set_columns(table, [])
                 self._review_csv_msg.set("No rows are available for the selected well(s).")
                 return
             # Fallback: if the filters are mismatched for any reason, still
@@ -5813,12 +5880,9 @@ class WellViewerApp(QWidget):
             )
 
         cols = list(filtered[0].keys())
-        table["columns"] = cols
-        for c in cols:
-            table.heading(c, text=c)
-            table.column(c, width=120, minwidth=60, stretch=True, anchor="w")
+        self._table_set_columns(table, cols)
         for row in filtered:
-            table.insert("", tk.END, values=[row.get(c, "") for c in cols])
+            self._table_append_row(table, [row.get(c, "") for c in cols])
         self._review_csv_msg.set(f"Showing {len(filtered):,} row(s).")
 
     def _review_load_rows(self, label: str) -> List[dict]:
