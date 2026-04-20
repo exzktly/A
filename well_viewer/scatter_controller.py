@@ -366,7 +366,7 @@ def collect_scatter_agg_data(
 
     ch_x, metric_x = parse_statistic(stat_x)
     ch_y, metric_y = parse_statistic(stat_y)
-    use_sem = app._use_sem_cb.isChecked()
+    use_sem = app._use_sem.get()
     threshold_x = app._get_thresh_frac_on(ch_x)  # Threshold for X channel
     threshold_y = app._get_thresh_frac_on(ch_y)  # Threshold for Y channel
     cell_area_threshold = app._get_cell_area_threshold()

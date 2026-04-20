@@ -1572,7 +1572,7 @@ class WellViewerApp(QWidget):
         self._threshold     = 50.0
         # Qt: concrete widgets are assigned in _build_ui() / view builders.
         # Provide plain-Python defaults so early callers before _build_ui get sane values.
-        self._use_sem_cb = None        # QCheckBox in sidebar
+        # _use_sem is a BoolVar created in views/status_view.py's build_bottom().
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
@@ -3341,13 +3341,13 @@ class WellViewerApp(QWidget):
         if preloaded:
             self._mon_tophat_var.set(True)
             self._th_checkbox.setEnabled(False)
-            self._th_label.setText("Top-hat background subtraction")
+            self._th_checkbox.setText("Top-hat background subtraction")
             self._th_radius_entry.setEnabled(False)
             self._th_preload_badge.setText("\u25cf from output zip")
         else:
             self._mon_tophat_var.set(False)
             self._th_checkbox.setEnabled(True)
-            self._th_label.setText("Top-hat background subtraction")
+            self._th_checkbox.setText("Top-hat background subtraction")
             self._th_radius_entry.setEnabled(True)
             self._th_preload_badge.setText("")
 
@@ -6189,6 +6189,22 @@ class WellViewerApp(QWidget):
         """All ReplicateSets that have at least one loaded well (ignores hidden)."""
         return [r for r in getattr(self, "_rep_sets", [])
                 if any(w in self._well_paths for w in r.wells)]
+
+    def _groups_from_rep_sets(self) -> "List[BarGroup]":
+        """Mirror of BatchExportPanel._groups_from_rep_sets for app-level callers.
+
+        Returns one BarGroup per loaded ReplicateSet when any are defined,
+        otherwise a deep copy of the existing _bar_groups.
+        """
+        loaded = self._rep_sets_loaded()
+        if loaded:
+            groups: "List[BarGroup]" = []
+            for rset in loaded:
+                grp = BarGroup(rset.name)
+                grp.members.append(rset)
+                groups.append(grp)
+            return groups
+        return copy.deepcopy(self._bar_groups)
 
     def _rep_sets_active(self) -> "List[ReplicateSet]":
         """Loaded ReplicateSets that are not hidden — these appear on plots."""

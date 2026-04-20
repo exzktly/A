@@ -905,7 +905,7 @@ class BatchExportPanel(QWidget):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem = self._app._use_sem_cb.isChecked()
+        use_sem = self._app._use_sem.get()
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
 
@@ -1281,7 +1281,7 @@ class BarBatchExportPanel(BatchExportPanel):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem = self._app._use_sem_cb.isChecked()
+        use_sem = self._app._use_sem.get()
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
         jobs = [(grp, tp_str) for grp in groups_with_data for tp_str in selected_tps]

@@ -10,6 +10,12 @@ QMainWindow, QWidget#AppRoot {
     background: ${BG_APP};
 }
 
+/* Baseline: any bare QWidget (tab pages, scroll-area inners, row containers)
+   gets the app background. Specific widget classes (QPushButton, QLineEdit,
+   QComboBox, QMenu, ...) and object-name rules below override this. */
+QWidget          { background: ${BG_APP}; }
+QScrollArea      { background: ${BG_APP}; border: 0; }
+
 QWidget#Sidebar   { background: ${BG_SIDE}; }
 QWidget#Panel     { background: ${BG_PANEL}; }
 QWidget#SidePanel { background: ${BG_SIDE}; }
