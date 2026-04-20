@@ -25,15 +25,32 @@ def redraw_line_plots(
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
     required_attrs = ("_line_ax_mean", "_line_ax_frac", "_line_ax_cdf", "_line_canvas")
-    missing = [name for name in required_attrs if not hasattr(app, name)]
+    missing = [name for name in required_attrs if getattr(app, name, None) is None]
     if missing:
         # Can occur transiently during UI construction / early tab-change events.
+        return
+    required_methods = (
+        "_get_thresh_frac_on",
+        "_selected_labels",
+        "_rep_sets_active",
+        "_get_cell_area_threshold",
+        "_get_all_fluor_gates",
+        "_get_rows",
+        "_compute_rep_stats",
+        "_well_display_label",
+    )
+    if any(not callable(getattr(app, name, None)) for name in required_methods):
         return
 
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
         ax.cla()
 
-    use_sem = app._use_sem_cb.isChecked()
+    sem_cb = getattr(app, "_use_sem_cb", None)
+    if sem_cb is not None and hasattr(sem_cb, "isChecked"):
+        use_sem = bool(sem_cb.isChecked())
+    else:
+        sem_var = getattr(app, "_use_sem", None)
+        use_sem = bool(sem_var.get()) if sem_var is not None and hasattr(sem_var, "get") else False
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
