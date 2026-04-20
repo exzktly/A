@@ -2806,6 +2806,56 @@ class WellViewerApp(QWidget):
                     except Exception:
                         pass
 
+    @staticmethod
+    def _widget_children(widget: Any) -> List[Any]:
+        if widget is None:
+            return []
+        if hasattr(widget, "winfo_children"):
+            return list(widget.winfo_children())
+        if hasattr(widget, "findChildren"):
+            try:
+                return list(widget.findChildren(QWidget))
+            except Exception:
+                return []
+        return []
+
+    @staticmethod
+    def _widget_width(widget: Any, default: int = 0) -> int:
+        if widget is None:
+            return default
+        if hasattr(widget, "winfo_width"):
+            return int(widget.winfo_width() or default)
+        if hasattr(widget, "width"):
+            try:
+                return int(widget.width() or default)
+            except Exception:
+                return default
+        return default
+
+    @staticmethod
+    def _widget_height(widget: Any, default: int = 0) -> int:
+        if widget is None:
+            return default
+        if hasattr(widget, "winfo_height"):
+            return int(widget.winfo_height() or default)
+        if hasattr(widget, "height"):
+            try:
+                return int(widget.height() or default)
+            except Exception:
+                return default
+        return default
+
+    @staticmethod
+    def _widget_exists(widget: Any) -> bool:
+        if widget is None:
+            return False
+        if hasattr(widget, "winfo_exists"):
+            try:
+                return bool(widget.winfo_exists())
+            except Exception:
+                return False
+        return True
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
@@ -3532,9 +3582,16 @@ class WellViewerApp(QWidget):
     # ── Bar-map drag helpers ──────────────────────────────────────────────────
 
     def _bar_map_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
-        sx = event.widget.winfo_rootx() + event.x
-        sy = event.widget.winfo_rooty() + event.y
-        w  = event.widget.winfo_containing(sx, sy)
+        if hasattr(event, "globalPosition"):
+            gp = event.globalPosition().toPoint()
+            sx, sy = int(gp.x()), int(gp.y())
+        else:
+            sx = event.widget.winfo_rootx() + event.x
+            sy = event.widget.winfo_rooty() + event.y
+        if hasattr(event.widget, "winfo_containing"):
+            w = event.widget.winfo_containing(sx, sy)
+        else:
+            w = QApplication.widgetAt(sx, sy)
         for tok, btn in self._bar_map_btns.items():
             if btn is w:
                 return tok
@@ -3645,7 +3702,7 @@ class WellViewerApp(QWidget):
             self._set_widget_text(self._montage_zoom_lbl, "100%")
 
         # Clear previous content
-        for w in self._montage_inner.winfo_children():
+        for w in self._widget_children(self._montage_inner):
             w.destroy()
         self._montage_photos.clear()
         self._montage_fluor_arrays         = []
@@ -3768,7 +3825,7 @@ class WellViewerApp(QWidget):
                 # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
                 pass
 
-        for w in self._montage_inner.winfo_children():
+        for w in self._widget_children(self._montage_inner):
             w.destroy()
         self._montage_photos.clear()
         # Overlay label refs must be rebuilt each time since all widgets are destroyed
@@ -3800,7 +3857,7 @@ class WellViewerApp(QWidget):
 
         # Compute thumb size: base size × zoom factor.
         # Base size is the width that fits all timepoints in the canvas at 1×.
-        cw = self._montage_canvas.winfo_width() or 400
+        cw = self._widget_width(self._montage_canvas, 400)
         n  = len(tp_list)
         GAP = 6
         fit_sz = max(60, (cw - GAP) // max(n, 1) - GAP)
@@ -4755,7 +4812,7 @@ class WellViewerApp(QWidget):
                 self._review_image_tp_var.set("—")
             self._preview_fluor = self._preview_overlay = self._preview_mask = {}
             if hasattr(self, "_montage_inner"):
-                for w in self._montage_inner.winfo_children():
+                for w in self._widget_children(self._montage_inner):
                     w.destroy()
                 self._montage_photos.clear()
                 self._set_widget_text(self._montage_status, "Select a well in the left panel.")
@@ -5296,8 +5353,9 @@ class WellViewerApp(QWidget):
             _logger.debug("[RI-CHSW step 7] render_review_image_display start")
         img = self._review_image_base_pil
         iw, ih = img.size
-        cw = max(1, int(getattr(self, "_review_image_canvas").winfo_width() - 16))
-        ch = max(1, int(getattr(self, "_review_image_canvas").winfo_height() - 16))
+        canvas = getattr(self, "_review_image_canvas")
+        cw = max(1, self._widget_width(canvas, 16) - 16)
+        ch = max(1, self._widget_height(canvas, 16) - 16)
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
@@ -5373,8 +5431,8 @@ class WellViewerApp(QWidget):
     def _on_review_image_hover(self, event: Any) -> None:
         if not hasattr(self, "_review_image_label"):
             return
-        self._review_image_label._sz_w = self._review_image_label.winfo_width()  # type: ignore[attr-defined]
-        self._review_image_label._sz_h = self._review_image_label.winfo_height()  # type: ignore[attr-defined]
+        self._review_image_label._sz_w = self._widget_width(self._review_image_label, 1)  # type: ignore[attr-defined]
+        self._review_image_label._sz_h = self._widget_height(self._review_image_label, 1)  # type: ignore[attr-defined]
         _show_image_pixel_tooltip_controller(
             self,
             event,
@@ -5435,8 +5493,8 @@ class WellViewerApp(QWidget):
         if img is None:
             return
         iw, ih = img.size
-        cw = max(1, int(self._review_image_canvas.winfo_width() - 16))
-        ch = max(1, int(self._review_image_canvas.winfo_height() - 16))
+        cw = max(1, self._widget_width(self._review_image_canvas, 16) - 16)
+        ch = max(1, self._widget_height(self._review_image_canvas, 16) - 16)
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
@@ -6959,7 +7017,7 @@ class WellViewerApp(QWidget):
         """Open or update the scatter cell viewer window."""
         from well_viewer.scatter_callbacks import ScatterCellViewer
 
-        if not hasattr(self, '_scatter_cell_viewer') or self._scatter_cell_viewer is None or not self._scatter_cell_viewer.winfo_exists():
+        if not hasattr(self, '_scatter_cell_viewer') or self._scatter_cell_viewer is None or not self._widget_exists(self._scatter_cell_viewer):
             self._scatter_cell_viewer = ScatterCellViewer(
                 self,
                 self,
