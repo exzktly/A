@@ -111,6 +111,19 @@ class _TkCompat:
 
 tk = _TkCompat()
 
+
+class _CompatVar:
+    """Tiny get/set holder used as a safe fallback for late-bound *_var attrs."""
+
+    def __init__(self, value: str = "") -> None:
+        self._value = value
+
+    def get(self) -> str:
+        return self._value
+
+    def set(self, value: Any) -> None:
+        self._value = "" if value is None else str(value)
+
 import matplotlib
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvasTkAgg
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar2Tk
@@ -1537,6 +1550,14 @@ from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
 
 class WellViewerApp(QWidget):
 
+    def __getattr__(self, name: str) -> Any:
+        """Lazily provide harmless defaults for late-bound variable attributes."""
+        if name.endswith("_var"):
+            fallback = _CompatVar("")
+            setattr(self, name, fallback)
+            return fallback
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
         super().__init__(parent)
         self._tk_root = None
@@ -2737,6 +2758,53 @@ class WellViewerApp(QWidget):
                 pass
         if hasattr(widget, "configure"):
             widget.configure(image=image)
+
+    def _get_var_value(self, name: str, default: str = "", widget_attr: Optional[str] = None) -> str:
+        """Read a tk/qt-style variable value safely, with optional widget fallback."""
+        var = getattr(self, name, None)
+        if var is not None and hasattr(var, "get"):
+            try:
+                return str(var.get() or default)
+            except Exception:
+                pass
+        if widget_attr:
+            widget = getattr(self, widget_attr, None)
+            if widget is not None:
+                if hasattr(widget, "currentText"):
+                    try:
+                        return str(widget.currentText() or default)
+                    except Exception:
+                        pass
+                if hasattr(widget, "get"):
+                    try:
+                        return str(widget.get() or default)
+                    except Exception:
+                        pass
+        return default
+
+    def _set_var_value(self, name: str, value: str, widget_attr: Optional[str] = None) -> None:
+        """Write a tk/qt-style variable value safely, with optional widget fallback."""
+        var = getattr(self, name, None)
+        if var is not None and hasattr(var, "set"):
+            try:
+                var.set(value)
+                return
+            except Exception:
+                pass
+        if widget_attr:
+            widget = getattr(self, widget_attr, None)
+            if widget is not None:
+                if hasattr(widget, "setCurrentText"):
+                    try:
+                        widget.setCurrentText(value)
+                        return
+                    except Exception:
+                        pass
+                if hasattr(widget, "set"):
+                    try:
+                        widget.set(value)
+                    except Exception:
+                        pass
 
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
@@ -4581,51 +4649,6 @@ class WellViewerApp(QWidget):
         montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
         review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
 
-        def _var_get(name: str, fallback_widget_attr: Optional[str] = None) -> str:
-            var = getattr(self, name, None)
-            if var is not None and hasattr(var, "get"):
-                try:
-                    return str(var.get() or "")
-                except Exception:
-                    pass
-            if fallback_widget_attr:
-                widget = getattr(self, fallback_widget_attr, None)
-                if widget is not None:
-                    if hasattr(widget, "currentText"):
-                        try:
-                            return str(widget.currentText() or "")
-                        except Exception:
-                            pass
-                    if hasattr(widget, "get"):
-                        try:
-                            return str(widget.get() or "")
-                        except Exception:
-                            pass
-            return ""
-
-        def _var_set(name: str, value: str, fallback_widget_attr: Optional[str] = None) -> None:
-            var = getattr(self, name, None)
-            if var is not None and hasattr(var, "set"):
-                try:
-                    var.set(value)
-                    return
-                except Exception:
-                    pass
-            if fallback_widget_attr:
-                widget = getattr(self, fallback_widget_attr, None)
-                if widget is not None:
-                    if hasattr(widget, "setCurrentText"):
-                        try:
-                            widget.setCurrentText(value)
-                            return
-                        except Exception:
-                            pass
-                    if hasattr(widget, "set"):
-                        try:
-                            widget.set(value)
-                        except Exception:
-                            pass
-
         # Update channel selector instances
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
@@ -4646,15 +4669,15 @@ class WellViewerApp(QWidget):
             return "—"
 
         # Plot tabs: only measurement channels.
-        plot_label = _pick_valid(_var_get("_plot_chan_var", "_chan_cb_line"), labels, active_label)
-        _var_set("_plot_chan_var", plot_label, "_chan_cb_line")
+        plot_label = _pick_valid(self._get_var_value("_plot_chan_var", "", "_chan_cb_line"), labels, active_label)
+        self._set_var_value("_plot_chan_var", plot_label, "_chan_cb_line")
 
         # Image tabs: each validates against its own channel universe.
         active_image_label = self._active_image_channel.upper()
-        montage_label = _pick_valid(_var_get("_montage_chan_var", "_chan_cb_preview"), montage_labels, active_image_label)
-        review_label = _pick_valid(_var_get("_review_image_chan_var", "_review_image_chan_cb"), review_labels, active_image_label)
-        _var_set("_montage_chan_var", montage_label, "_chan_cb_preview")
-        _var_set("_review_image_chan_var", review_label, "_review_image_chan_cb")
+        montage_label = _pick_valid(self._get_var_value("_montage_chan_var", "", "_chan_cb_preview"), montage_labels, active_image_label)
+        review_label = _pick_valid(self._get_var_value("_review_image_chan_var", "", "_review_image_chan_cb"), review_labels, active_image_label)
+        self._set_var_value("_montage_chan_var", montage_label, "_chan_cb_preview")
+        self._set_var_value("_review_image_chan_var", review_label, "_review_image_chan_cb")
 
         # Keep active image channel anchored only when the current value is invalid.
         if active_image_label not in montage_labels and active_image_label not in review_labels:
@@ -5783,7 +5806,7 @@ class WellViewerApp(QWidget):
         """
         if not self._well_paths:
             _set_combo_values(self._bar_tp_cb, ["—"])
-            self._bar_tp_var.set("—")
+            self._set_var_value("_bar_tp_var", "—", "_bar_tp_cb")
             return
 
         all_tps: set = set(self._all_timepoints_cache)
@@ -5796,14 +5819,14 @@ class WellViewerApp(QWidget):
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
 
-        cur = self._bar_tp_var.get()
+        cur = self._get_var_value("_bar_tp_var", "", "_bar_tp_cb")
         _set_combo_values(self._bar_tp_cb, tp_strs)
         if cur in tp_strs:
-            self._bar_tp_var.set(cur)
+            self._set_var_value("_bar_tp_var", cur, "_bar_tp_cb")
         elif tp_strs:
-            self._bar_tp_var.set(tp_strs[0])
+            self._set_var_value("_bar_tp_var", tp_strs[0], "_bar_tp_cb")
         else:
-            self._bar_tp_var.set("—")
+            self._set_var_value("_bar_tp_var", "—", "_bar_tp_cb")
 
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
@@ -6249,7 +6272,7 @@ class WellViewerApp(QWidget):
         self._bar_canvas.draw_idle()
 
     def _resolve_bar_timepoint(self) -> Optional[tuple[float, str]]:
-        tp_str = self._bar_tp_var.get()
+        tp_str = self._get_var_value("_bar_tp_var", "0", "_bar_tp_cb")
         if tp_str in ("—", ""):
             return None
         try:
@@ -6758,18 +6781,25 @@ class WellViewerApp(QWidget):
         self._set_widget_values(self._scatter_ch_y_cb, scatter_ch_options)
 
         if scatter_ch_options:
-            if self._scatter_ch_x_var.get() not in scatter_ch_options:
-                self._scatter_ch_x_var.set(scatter_ch_options[0])
-            if self._scatter_ch_y_var.get() not in scatter_ch_options:
-                self._scatter_ch_y_var.set(scatter_ch_options[0 if len(scatter_ch_options) == 1 else 1])
+            cur_x = self._get_var_value("_scatter_ch_x_var", "", "_scatter_ch_x_cb")
+            cur_y = self._get_var_value("_scatter_ch_y_var", "", "_scatter_ch_y_cb")
+            if cur_x not in scatter_ch_options:
+                self._set_var_value("_scatter_ch_x_var", scatter_ch_options[0], "_scatter_ch_x_cb")
+            if cur_y not in scatter_ch_options:
+                self._set_var_value(
+                    "_scatter_ch_y_var",
+                    scatter_ch_options[0 if len(scatter_ch_options) == 1 else 1],
+                    "_scatter_ch_y_cb",
+                )
 
         # Update timepoint dropdown for cells scatter
         timepoints = list(self._all_timepoints_cache) or _scatter_get_timepoints(self)
         tp_strs = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0"]
         self._set_widget_values(self._scatter_tp_cb, tp_strs)
 
-        if tp_strs and self._scatter_tp_var.get() not in tp_strs:
-            self._scatter_tp_var.set(tp_strs[0])
+        cur_tp = self._get_var_value("_scatter_tp_var", "", "_scatter_tp_cb")
+        if tp_strs and cur_tp not in tp_strs:
+            self._set_var_value("_scatter_tp_var", tp_strs[0], "_scatter_tp_cb")
 
         # Update statistic dropdowns for aggregate scatter
         # Build list of available statistics: Mean Fluorescence, Fraction On, and smFISH Count for each channel
@@ -6784,10 +6814,16 @@ class WellViewerApp(QWidget):
         self._set_widget_values(self._scatter_agg_stat_y_cb, statistics)
 
         if statistics:
-            if self._scatter_agg_stat_x_var.get() not in statistics:
-                self._scatter_agg_stat_x_var.set(statistics[0])
-            if self._scatter_agg_stat_y_var.get() not in statistics:
-                self._scatter_agg_stat_y_var.set(statistics[1] if len(statistics) > 1 else statistics[0])
+            cur_stat_x = self._get_var_value("_scatter_agg_stat_x_var", "", "_scatter_agg_stat_x_cb")
+            cur_stat_y = self._get_var_value("_scatter_agg_stat_y_var", "", "_scatter_agg_stat_y_cb")
+            if cur_stat_x not in statistics:
+                self._set_var_value("_scatter_agg_stat_x_var", statistics[0], "_scatter_agg_stat_x_cb")
+            if cur_stat_y not in statistics:
+                self._set_var_value(
+                    "_scatter_agg_stat_y_var",
+                    statistics[1] if len(statistics) > 1 else statistics[0],
+                    "_scatter_agg_stat_y_cb",
+                )
 
         # Update timepoint selections for aggregate scatter; all default checked.
         if hasattr(self, '_scatter_agg_tp_selections'):
@@ -6813,9 +6849,9 @@ class WellViewerApp(QWidget):
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
         try:
-            ch_x_entry = self._scatter_ch_x_var.get()
-            ch_y_entry = self._scatter_ch_y_var.get()
-            tp_str = self._scatter_tp_var.get()
+            ch_x_entry = self._get_var_value("_scatter_ch_x_var", "", "_scatter_ch_x_cb")
+            ch_y_entry = self._get_var_value("_scatter_ch_y_var", "", "_scatter_ch_y_cb")
+            tp_str = self._get_var_value("_scatter_tp_var", "0", "_scatter_tp_cb")
             timepoint_h = float(tp_str) if tp_str else 0.0
         except ValueError:
             return
@@ -6952,8 +6988,8 @@ class WellViewerApp(QWidget):
     def _redraw_scatter_agg(self) -> None:
         """Redraw the aggregate scatter plot with current selections."""
         try:
-            stat_x = self._scatter_agg_stat_x_var.get()
-            stat_y = self._scatter_agg_stat_y_var.get()
+            stat_x = self._get_var_value("_scatter_agg_stat_x_var", "", "_scatter_agg_stat_x_cb")
+            stat_y = self._get_var_value("_scatter_agg_stat_y_var", "", "_scatter_agg_stat_y_cb")
 
             # Get selected timepoints from BooleanVars
             if not hasattr(self, '_scatter_agg_tp_selections') or not self._scatter_agg_tp_selections:
@@ -6972,7 +7008,8 @@ class WellViewerApp(QWidget):
 
             selected_timepoints = []
             for tp_str, var in self._scatter_agg_tp_selections.items():
-                if var.get():
+                is_selected = bool(var.get()) if hasattr(var, "get") else bool(var)
+                if is_selected:
                     try:
                         selected_timepoints.append(float(tp_str))
                     except ValueError:
