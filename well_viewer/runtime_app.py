@@ -3732,29 +3732,38 @@ class WellViewerApp(QWidget):
         Called from _refresh_preview_montage (after FOV-level coverage is known)
         and from _update_preview (to reset before a new well loads).
         """
-        if not hasattr(self, "_th_checkbox"):
+        th_checkbox = getattr(self, "_th_checkbox", None)
+        if th_checkbox is None:
             return
+        th_label = getattr(self, "_th_label", None)
+        th_radius_label = getattr(self, "_th_radius_label", None)
+        th_radius_hint = getattr(self, "_th_radius_hint", None)
+        th_radius_entry = getattr(self, "_th_radius_entry", None)
+        th_preload_badge = getattr(self, "_th_preload_badge", None)
+        mon_tophat_var = getattr(self, "_mon_tophat_var", None)
         if preloaded is None:
             preloaded = getattr(self, "_montage_tophat_preloaded", False)
 
         if preloaded:
-            self._mon_tophat_var.set(True)
-            self._set_widget_state(self._th_checkbox, tk.DISABLED)
-            self._set_widget_text(self._th_label, "Top-hat background subtraction")
-            self._set_widget_palette(self._th_label, fg=TXT_MUT)
-            self._set_widget_palette(self._th_radius_label, fg=TXT_MUT)
-            self._set_widget_palette(self._th_radius_hint, fg=TXT_MUT)
-            self._set_widget_state(self._th_radius_entry, tk.DISABLED)
-            self._set_widget_text(self._th_preload_badge, "● from output zip")
+            if mon_tophat_var is not None and hasattr(mon_tophat_var, "set"):
+                mon_tophat_var.set(True)
+            self._set_widget_state(th_checkbox, tk.DISABLED)
+            self._set_widget_text(th_label, "Top-hat background subtraction")
+            self._set_widget_palette(th_label, fg=TXT_MUT)
+            self._set_widget_palette(th_radius_label, fg=TXT_MUT)
+            self._set_widget_palette(th_radius_hint, fg=TXT_MUT)
+            self._set_widget_state(th_radius_entry, tk.DISABLED)
+            self._set_widget_text(th_preload_badge, "● from output zip")
         else:
-            self._mon_tophat_var.set(False)
-            self._set_widget_state(self._th_checkbox, tk.NORMAL)
-            self._set_widget_text(self._th_label, "Top-hat background subtraction")
-            self._set_widget_palette(self._th_label, fg=TXT_SEC)
-            self._set_widget_palette(self._th_radius_label, fg=TXT_MUT)
-            self._set_widget_palette(self._th_radius_hint, fg=TXT_MUT)
-            self._set_widget_state(self._th_radius_entry, tk.NORMAL)
-            self._set_widget_text(self._th_preload_badge, "")
+            if mon_tophat_var is not None and hasattr(mon_tophat_var, "set"):
+                mon_tophat_var.set(False)
+            self._set_widget_state(th_checkbox, tk.NORMAL)
+            self._set_widget_text(th_label, "Top-hat background subtraction")
+            self._set_widget_palette(th_label, fg=TXT_SEC)
+            self._set_widget_palette(th_radius_label, fg=TXT_MUT)
+            self._set_widget_palette(th_radius_hint, fg=TXT_MUT)
+            self._set_widget_state(th_radius_entry, tk.NORMAL)
+            self._set_widget_text(th_preload_badge, "")
 
     def _refresh_preview_montage(self) -> None:
         """
