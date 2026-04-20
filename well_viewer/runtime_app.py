@@ -2847,6 +2847,33 @@ class WellViewerApp(QWidget):
         return default
 
     @staticmethod
+    def _flush_ui_events() -> None:
+        """Tk/Qt compatibility flush for immediate UI feedback calls."""
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.processEvents()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _wheel_steps(event: Any) -> int:
+        """Normalize wheel event direction across Qt/tk-style events."""
+        try:
+            delta = int(event.angleDelta().y())
+        except Exception:
+            delta = int(getattr(event, "delta", 0) or 0)
+        if delta == 0:
+            num = getattr(event, "num", None)
+            if num == 4:
+                return 1
+            if num == 5:
+                return -1
+            return 0
+        steps = max(1, abs(delta) // 120)
+        return steps if delta > 0 else -steps
+
+    @staticmethod
     def _table_clear_rows(table: Any) -> None:
         """Clear all rows from either a Qt table or ttk.Treeview-like widget."""
         if table is None:
@@ -3867,7 +3894,7 @@ class WellViewerApp(QWidget):
                 )
 
         self._set_widget_text(self._montage_status, f"Loading {n} timepoint(s)…")
-        self.update_idletasks()
+        self._flush_ui_events()
 
         self._montage_fluor_refs     = [ref for _, ref in fluor_refs]
         self._montage_overlay_refs = [ov_map.get(tp) for tp, _ in fluor_refs]
@@ -4737,7 +4764,8 @@ class WellViewerApp(QWidget):
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
-        self._set_active_channel(str(self._get_var_value("_plot_chan_var", "")).lower())
+        selected = str(self._get_var_value("_plot_chan_var", "", "_chan_cb_line")).lower()
+        self._set_active_channel(selected)
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
@@ -5472,12 +5500,10 @@ class WellViewerApp(QWidget):
         self._render_review_image_display()
 
     def _on_review_image_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        direction = +1 if getattr(event, "delta", 0) > 0 else -1
-        if getattr(event, "num", None) == 4:
-            direction = +1
-        elif getattr(event, "num", None) == 5:
-            direction = -1
-        self._review_image_zoom_step(direction)
+        steps = self._wheel_steps(event)
+        if steps == 0:
+            return
+        self._review_image_zoom_step(+1 if steps > 0 else -1)
 
     def _on_review_image_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         self._review_image_dragging = True
@@ -7099,10 +7125,12 @@ class WellViewerApp(QWidget):
                 nuclear_id,
                 row_idx,
             )
+            self._scatter_cell_viewer.show()
         else:
             self._scatter_cell_viewer.update_cell(well_label, filename, nuclear_id, row_idx)
             self._scatter_cell_viewer.lift()
-            self._scatter_cell_viewer.focus()
+            if hasattr(self._scatter_cell_viewer, "setFocus"):
+                self._scatter_cell_viewer.setFocus()
 
     def _export_scatter_data(self) -> None:
         """Export scatter plot data to CSV."""

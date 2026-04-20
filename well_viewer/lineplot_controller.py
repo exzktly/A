@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from .qt_compat import is_checked
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
@@ -46,11 +47,8 @@ def redraw_line_plots(
         ax.cla()
 
     sem_cb = getattr(app, "_use_sem_cb", None)
-    if sem_cb is not None and hasattr(sem_cb, "isChecked"):
-        use_sem = bool(sem_cb.isChecked())
-    else:
-        sem_var = getattr(app, "_use_sem", None)
-        use_sem = bool(sem_var.get()) if sem_var is not None and hasattr(sem_var, "get") else False
+    sem_var = getattr(app, "_use_sem", None)
+    use_sem = is_checked(sem_cb, default=(bool(sem_var.get()) if sem_var is not None and hasattr(sem_var, "get") else False))
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()

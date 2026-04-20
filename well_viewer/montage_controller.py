@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from well_viewer.qt_compat import combo_text
+from well_viewer.qt_compat import combo_text, is_checked
 
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QToolTip
@@ -33,7 +33,7 @@ def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> No
 
 
 def montage_auto_lut(app, redraw: bool = True) -> None:
-    tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
+    tophat_on = is_checked(getattr(app, "_mon_tophat_cb", None))
     display_arrays_exist = (
         tophat_on
         and hasattr(app, "_montage_fluor_display_arrays")

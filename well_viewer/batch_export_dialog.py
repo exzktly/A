@@ -51,6 +51,7 @@ from well_viewer.runtime_app import (
     aggregate_with_threshold,
     apply_ax_style,
 )
+from well_viewer.qt_compat import is_checked
 from well_viewer.batch_models import BarGroup
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
 from well_viewer.scatter_controller import (
@@ -904,7 +905,7 @@ class BatchExportPanel(QWidget):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem = self._app._use_sem_cb.isChecked()
+        use_sem = is_checked(getattr(self._app, "_use_sem_cb", None))
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
 
@@ -1280,7 +1281,7 @@ class BarBatchExportPanel(BatchExportPanel):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem = self._app._use_sem_cb.isChecked()
+        use_sem = is_checked(getattr(self._app, "_use_sem_cb", None))
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
         jobs = [(grp, tp_str) for grp in groups_with_data for tp_str in selected_tps]
@@ -1675,7 +1676,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
             QMessageBox.warning(self, "No timepoint", "Select at least one valid timepoint.")
             return
         fmt = self._fmt_cb.currentText()
-        split_by_tp = self._scatter_split_tp_cb.isChecked()
+        split_by_tp = is_checked(getattr(self, "_scatter_split_tp_cb", None))
         if split_by_tp:
             jobs = [(grp, tp) for grp in groups_with_data for tp in timepoints]
 

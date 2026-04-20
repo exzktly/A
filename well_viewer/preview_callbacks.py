@@ -7,7 +7,7 @@ import logging
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QToolTip, QVBoxLayout, QWidget
-from well_viewer.qt_compat import combo_text
+from well_viewer.qt_compat import combo_text, is_checked
 
 _logger = logging.getLogger("well_viewer")
 
@@ -197,7 +197,7 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
 
     preloaded = getattr(app, "_montage_tophat_preloaded", False)
     use_display = preloaded or (
-        hasattr(app, "_mon_tophat_cb") and app._mon_tophat_cb.isChecked()
+        is_checked(getattr(app, "_mon_tophat_cb", None))
         and hasattr(app, "_montage_fluor_display_arrays")
         and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
     )
@@ -250,7 +250,7 @@ def draw_montage_thumbs(app, tp_list: list) -> None:
             cl.addWidget(na)
 
         # Top-hat status label
-        th_on = hasattr(app, "_mon_tophat_cb") and app._mon_tophat_cb.isChecked()
+        th_on = is_checked(getattr(app, "_mon_tophat_cb", None))
         th_state = app._montage_th_status[col_idx] if col_idx < len(app._montage_th_status) else ""
         if th_on and th_state in ("pending", "done"):
             overlay_txt = "⏳ filtering…" if th_state == "pending" else "✓ filtered"
@@ -299,7 +299,7 @@ def montage_tophat_toggled(app) -> None:
         return
     app._montage_th_cancel = True
 
-    if not (hasattr(app, "_mon_tophat_cb") and app._mon_tophat_cb.isChecked()):
+    if not is_checked(getattr(app, "_mon_tophat_cb", None)):
         app._montage_th_cancel = True
         app._montage_fluor_display_arrays = []
         app._montage_th_status = []

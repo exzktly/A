@@ -8,6 +8,7 @@ from typing import Callable, List, Optional, Tuple
 
 from .batch_models import BarGroup, ReplicateSet
 from . import debug_flags
+from .qt_compat import is_checked
 
 
 def _bar_debug(msg: str) -> None:
@@ -82,7 +83,7 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
 
 def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_colors) -> tuple:
     """Compute bar items for the active bar-plot mode (rep-set or per-well)."""
-    use_sem = app._use_sem_cb.isChecked()
+    use_sem = is_checked(getattr(app, "_use_sem_cb", None))
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     active_rsets = app._rep_sets_active()

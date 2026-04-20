@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from well_viewer.figure_export_editor import launch_export_editor
-from well_viewer.qt_compat import combo_text
+from well_viewer.qt_compat import combo_text, is_checked
 
 
 def _qt_file_filter_from_filetypes(filetypes) -> str:
@@ -151,7 +151,7 @@ def save_scatter_agg_figure(app, *, plot_bg: str) -> None:
     if tp_checks:
         for tp_str, widget in tp_checks.items():
             try:
-                if widget.isChecked():
+                if is_checked(widget):
                     selected_timepoints.append(float(tp_str))
             except Exception:
                 pass

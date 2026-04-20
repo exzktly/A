@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from well_viewer.qt_compat import combo_text
+from well_viewer.qt_compat import combo_text, is_checked
 
 
 _CSV_FILTER = "CSV files (*.csv);;All files (*.*)"
@@ -203,7 +203,7 @@ def save_montage_figure(app) -> None:
         hi = float(app._mon_lmax_edit.text())
     except ValueError:
         hi = None
-    tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
+    tophat_on = is_checked(getattr(app, "_mon_tophat_cb", None))
     use_display = tophat_on and hasattr(app, "_montage_fluor_display_arrays") and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
     fluor_source = app._montage_fluor_display_arrays if use_display else app._montage_fluor_arrays
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
@@ -324,7 +324,7 @@ def export_scatter_agg_data(app) -> None:
         if tp_checks:
             for tp_str, widget in tp_checks.items():
                 try:
-                    if widget.isChecked():
+                    if is_checked(widget):
                         selected_timepoints.append(float(tp_str))
                 except Exception:
                     pass
