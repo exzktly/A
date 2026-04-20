@@ -50,7 +50,7 @@ import threading
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QImage, QPixmap
@@ -296,8 +296,8 @@ def ask_name_dialog(parent, title: str = "Name", prompt: str = "Name:",
     return _ui_ask_name_dialog(parent, title=title, prompt=prompt, default=default)
 
 
-# Canonical definitions live in well_viewer/views/well_label_widget.py
-from well_viewer.views.well_label_widget import WellLabel, build_plate_grid
+# Canonical definitions live in well_viewer/views/well_button.py
+from well_viewer.views.well_button import build_plate_grid
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
@@ -1421,13 +1421,6 @@ def find_well_images_and_masks(
 # =============================================================================
 
 from well_viewer.views.image_panel_view import _label_to_rgb
-
-# =============================================================================
-# Tooltip
-# =============================================================================
-
-# Canonical definition lives in well_viewer/views/widgets.py
-from well_viewer.views.widgets import _Tooltip
 
 # =============================================================================
 # Reusable image panel  (canonical: well_viewer/views/image_panel_view.py)
@@ -5005,7 +4998,7 @@ class WellViewerApp(QWidget):
         if was_dragging and not moved:
             self._on_review_image_click(event)
 
-    def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_hover(self, event: Any) -> None:
         if not hasattr(self, "_review_image_label"):
             return
         self._review_image_label._sz_w = self._review_image_label.winfo_width()  # type: ignore[attr-defined]
@@ -5017,7 +5010,7 @@ class WellViewerApp(QWidget):
             f"{self._active_image_channel.upper()}",
         )
 
-    def _on_review_image_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_click(self, event: Any) -> None:
         _on_review_image_click_controller(self, event, _logger)
 
     def _select_review_csv_row_for_cell(self, fov: str, tp: str, nucleus_id: str) -> None:
