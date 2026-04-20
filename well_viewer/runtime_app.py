@@ -3317,10 +3317,10 @@ class WellViewerApp(QWidget):
     def _rep_quick_pairs_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _rep_quick_pairs()."""
         # Map dropdown display values to internal values
-        pair_dir_display = self._rep_quick_pair_dir_var.get()
+        pair_dir_display = str(self._get_var_value("_rep_quick_pair_dir_var", ""))
         self._rep_quick_pair_dir = "row" if "Rows" in pair_dir_display else "col"
 
-        iter_order_display = self._rep_quick_iter_order_var.get()
+        iter_order_display = str(self._get_var_value("_rep_quick_iter_order_var", ""))
         self._rep_quick_iter_order = "row" if "Across" in iter_order_display else "col"
 
         self._rep_quick_pairs()
@@ -3444,10 +3444,10 @@ class WellViewerApp(QWidget):
     def _bar_quick_groups_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _bar_quick_groups()."""
         # Map dropdown display values to internal values
-        pair_dir_display = self._bar_quick_pair_dir_var.get()
+        pair_dir_display = str(self._get_var_value("_bar_quick_pair_dir_var", ""))
         self._bar_quick_pair_dir = "row" if "Rows" in pair_dir_display else "col"
 
-        iter_order_display = self._bar_quick_iter_order_var.get()
+        iter_order_display = str(self._get_var_value("_bar_quick_iter_order_var", ""))
         self._bar_quick_iter_order = "row" if "Across" in iter_order_display else "col"
 
         self._bar_quick_groups()
@@ -3717,7 +3717,7 @@ class WellViewerApp(QWidget):
             self._set_widget_text(self._montage_status, "Select a well in the left panel.")
             return
 
-        fov = self._preview_fov_var.get()
+        fov = str(self._get_var_value("_preview_fov_var", "—"))
         if fov == "—":
             self._set_widget_text(self._montage_status, "No images found for this well.")
             return
@@ -3832,11 +3832,11 @@ class WellViewerApp(QWidget):
         self._montage_th_overlay_lbls = []
 
         try:
-            lo = float(self._mon_lmin_var.get())
+            lo = float(self._get_var_value("_mon_lmin_var", "0"))
         except ValueError:
             lo = None
         try:
-            hi = float(self._mon_lmax_var.get())
+            hi = float(self._get_var_value("_mon_lmax_var", "0"))
         except ValueError:
             hi = None
 
@@ -3847,7 +3847,7 @@ class WellViewerApp(QWidget):
             preloaded
             or (
                 getattr(self, "_mon_tophat_var", None) is not None
-                and self._mon_tophat_var.get()
+                and bool(self._get_var_value("_mon_tophat_var", False))
                 and hasattr(self, "_montage_fluor_display_arrays")
                 and len(self._montage_fluor_display_arrays) == len(self._montage_fluor_arrays)
             )
@@ -3943,7 +3943,7 @@ class WellViewerApp(QWidget):
                 fluor_cell_layout.addWidget(miss)
 
             th_on = (getattr(self, "_mon_tophat_var", None) is not None
-                     and self._mon_tophat_var.get())
+                     and bool(self._get_var_value("_mon_tophat_var", False)))
             th_state = (self._montage_th_status[col_idx]
                         if col_idx < len(self._montage_th_status) else "")
             if th_on and th_state == "pending":
@@ -4652,7 +4652,7 @@ class WellViewerApp(QWidget):
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
-        self._set_active_channel(self._plot_chan_var.get().lower())
+        self._set_active_channel(str(self._get_var_value("_plot_chan_var", "")).lower())
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
@@ -4667,7 +4667,7 @@ class WellViewerApp(QWidget):
 
     def _on_metric_selected(self) -> None:
         """Handle metric selector change in UI."""
-        metric_label = self._metric_var.get()
+        metric_label = self._get_var_value("_metric_var", "")
         metric = "smfish_count" if metric_label == "smFISH Count" else "mean_intensity"
         self._set_active_metric(metric)
 
@@ -4890,7 +4890,7 @@ class WellViewerApp(QWidget):
             _logger.debug(
                 "[RI-CHSW step 4] update_preview candidate_fovs=%s selected_fov_before=%r",
                 all_fovs,
-                self._preview_fov_var.get() if hasattr(self, "_preview_fov_var") else "—",
+                self._get_var_value("_preview_fov_var", "—"),
             )
 
         if not (fluor or overlay or mask or tophat_fluor):
@@ -4907,7 +4907,7 @@ class WellViewerApp(QWidget):
 
         if hasattr(self, "_fov_menu"):
             _set_combo_values(self._fov_menu, all_fovs)
-            cur = self._preview_fov_var.get()
+            cur = str(self._get_var_value("_preview_fov_var", ""))
             if all_fovs:
                 self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
             else:
@@ -4915,7 +4915,7 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_review_image_fov_menu"):
             _set_combo_values(self._review_image_fov_menu, all_fovs or ["—"])
 
-        cur = self._preview_fov_var.get()
+        cur = str(self._get_var_value("_preview_fov_var", ""))
         if all_fovs and cur not in all_fovs:
             self._preview_fov_var.set(all_fovs[0])
 
@@ -4981,7 +4981,7 @@ class WellViewerApp(QWidget):
             except Exception:
                 return s
 
-        fov_raw = str(self._preview_fov_var.get() or "").strip()
+        fov_raw = str(self._get_var_value("_preview_fov_var", "") or "").strip()
         fov = _norm(fov_raw)
         if not fov_raw or fov_raw == "—" or not fov:
             self._set_widget_text(self._review_image_status, "No FOV selected.")
@@ -5068,9 +5068,9 @@ class WellViewerApp(QWidget):
                         getattr(ref, "full_path_str", str(ref)),
                     )
         _set_combo_values(self._review_image_tp_menu, tp_values or ["—"])
-        if tp_values and self._review_image_tp_var.get() not in tp_values:
+        if tp_values and str(self._get_var_value("_review_image_tp_var", "")) not in tp_values:
             self._review_image_tp_var.set(tp_values[0])
-        tp_raw = str(self._review_image_tp_var.get() or "").strip()
+        tp_raw = str(self._get_var_value("_review_image_tp_var", "") or "").strip()
         tp = self._norm_timepoint(tp_raw)
         if not tp_raw or tp_raw == "—" or not tp:
             self._set_widget_text(self._review_image_status, "No timepoint selected.")
@@ -5190,8 +5190,8 @@ class WellViewerApp(QWidget):
         chan = str(self._active_image_channel or "").lower()
         if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             try:
-                lo = float(self._review_lut_min_var.get().strip())
-                hi = float(self._review_lut_max_var.get().strip())
+                lo = float(str(self._get_var_value("_review_lut_min_var", "")).strip())
+                hi = float(str(self._get_var_value("_review_lut_max_var", "")).strip())
                 if hi > lo:
                     self._review_image_lut_by_channel[chan] = (lo, hi)
                     return lo, hi
@@ -5747,9 +5747,9 @@ class WellViewerApp(QWidget):
         tps.sort(key=lambda tp: (parse_timepoint_hours(tp) is None, parse_timepoint_hours(tp) or 0.0, tp))
         _set_combo_values(self._review_fov_cb, fovs)
         _set_combo_values(self._review_tp_cb, tps)
-        if fovs and self._review_fov_var.get() not in fovs:
+        if fovs and str(self._get_var_value("_review_fov_var", "")) not in fovs:
             self._review_fov_var.set(fovs[0])
-        if tps and self._review_tp_var.get() not in tps:
+        if tps and str(self._get_var_value("_review_tp_var", "")) not in tps:
             self._review_tp_var.set(tps[0])
         self._refresh_review_csv_rows(rows)
 
@@ -5775,8 +5775,8 @@ class WellViewerApp(QWidget):
             except Exception:
                 return s
 
-        fov_sel = _norm(self._review_fov_var.get()) if hasattr(self, "_review_fov_var") else ""
-        tp_sel = self._norm_timepoint(self._review_tp_var.get()) if hasattr(self, "_review_tp_var") else ""
+        fov_sel = _norm(str(self._get_var_value("_review_fov_var", "")))
+        tp_sel = self._norm_timepoint(str(self._get_var_value("_review_tp_var", "")))
         filtered = []
         for row in rows:
             row_fov = _norm(row.get("fov", row.get("FOV", "")))
