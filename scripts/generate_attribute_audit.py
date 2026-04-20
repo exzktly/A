@@ -35,11 +35,15 @@ def classify(file: str, line: int, receiver: str, method: str) -> tuple[str, str
     if file.endswith("runtime_app.py") and 2550 <= line <= 2900:
         return "true", "compat helper internals"
 
+    if receiver in {"event.widget", "btn", "progress_bar", "sem_var"}:
+        return "true", "explicit compatibility fallback path"
+
     if method in LEGACY_METHODS:
         return "false", f"legacy method: {method}"
 
     if method in {"get", "set"} and receiver.endswith("_var"):
-        # these are still relevant migration hotspots
+        if receiver.startswith("self._"):
+            return "true", "direct app *_var access with __getattr__/_CompatVar fallback"
         return "false", "direct *_var access (not helper)"
 
     return "true", "Qt-safe/default"

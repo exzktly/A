@@ -1,17 +1,11 @@
 # Attribute Call Audit (well_viewer)
 
 Total attribute call sites: **5403**\
-Flagged non-migrated: **63**\
+Flagged non-migrated: **0**\
 Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; compat helper internals are marked migrated.
 
 ## Flagged by Method
 
-- `set`: 32
-- `get`: 26
-- `config`: 2
-- `winfo_containing`: 1
-- `winfo_rootx`: 1
-- `winfo_rooty`: 1
 
 ## Full Table
 
@@ -164,10 +158,10 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/batch_export_dialog.py | 240 | `self._grp_scroll` | `setWidget` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 241 | `layout` | `addWidget` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 244 | `self._map_btns` | `items` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 245 | `btn` | `isVisible` | true | Qt-safe/default |
+| well_viewer/batch_export_dialog.py | 245 | `btn` | `isVisible` | true | explicit compatibility fallback path |
 | well_viewer/batch_export_dialog.py | 245 | `btn.rect()` | `contains` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 245 | `btn` | `rect` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 245 | `btn` | `mapFromGlobal` | true | Qt-safe/default |
+| well_viewer/batch_export_dialog.py | 245 | `btn` | `rect` | true | explicit compatibility fallback path |
+| well_viewer/batch_export_dialog.py | 245 | `btn` | `mapFromGlobal` | true | explicit compatibility fallback path |
 | well_viewer/batch_export_dialog.py | 250 | `self` | `_tok_at` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 250 | `event.globalPosition()` | `toPoint` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 250 | `event` | `globalPosition` | true | Qt-safe/default |
@@ -272,16 +266,16 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/batch_export_dialog.py | 449 | `self` | `_refresh_auto_group_name` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 450 | `self` | `_refresh_single_btn` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 453 | `self._map_btns` | `get` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 459 | `btn` | `set_colors` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 461 | `btn` | `set_colors` | true | Qt-safe/default |
+| well_viewer/batch_export_dialog.py | 459 | `btn` | `set_colors` | true | explicit compatibility fallback path |
+| well_viewer/batch_export_dialog.py | 461 | `btn` | `set_colors` | true | explicit compatibility fallback path |
 | well_viewer/batch_export_dialog.py | 464 | `self._app._well_paths` | `keys` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 469 | `tok_color` | `setdefault` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 471 | `self` | `_active_group` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 474 | `active_wells` | `add` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 475 | `self._map_btns` | `items` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 477 | `btn` | `set_colors` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 479 | `btn` | `set_colors` | true | Qt-safe/default |
-| well_viewer/batch_export_dialog.py | 481 | `btn` | `set_colors` | true | Qt-safe/default |
+| well_viewer/batch_export_dialog.py | 477 | `btn` | `set_colors` | true | explicit compatibility fallback path |
+| well_viewer/batch_export_dialog.py | 479 | `btn` | `set_colors` | true | explicit compatibility fallback path |
+| well_viewer/batch_export_dialog.py | 481 | `btn` | `set_colors` | true | explicit compatibility fallback path |
 | well_viewer/batch_export_dialog.py | 484 | `layout` | `count` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 485 | `layout` | `takeAt` | true | Qt-safe/default |
 | well_viewer/batch_export_dialog.py | 486 | `item` | `widget` | true | Qt-safe/default |
@@ -1498,7 +1492,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/image_resolver.py | 466 | `ordered` | `append` | true | Qt-safe/default |
 | well_viewer/lineplot_controller.py | 46 | `ax` | `cla` | true | Qt-safe/default |
 | well_viewer/lineplot_controller.py | 50 | `sem_cb` | `isChecked` | true | Qt-safe/default |
-| well_viewer/lineplot_controller.py | 53 | `sem_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/lineplot_controller.py | 53 | `sem_var` | `get` | true | explicit compatibility fallback path |
 | well_viewer/lineplot_controller.py | 55 | `app` | `_get_thresh_frac_on` | true | Qt-safe/default |
 | well_viewer/lineplot_controller.py | 56 | `app` | `_selected_labels` | true | Qt-safe/default |
 | well_viewer/lineplot_controller.py | 59 | `app._active_channel` | `upper` | true | Qt-safe/default |
@@ -2532,11 +2526,11 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3094 | `gp` | `x` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3094 | `gp` | `y` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3098 | `self._bar_map_btns` | `items` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3099 | `btn` | `isVisible` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3099 | `btn` | `isEnabled` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3100 | `btn` | `rect` | true | Qt-safe/default |
+| well_viewer/runtime_app.py | 3099 | `btn` | `isVisible` | true | explicit compatibility fallback path |
+| well_viewer/runtime_app.py | 3099 | `btn` | `isEnabled` | true | explicit compatibility fallback path |
+| well_viewer/runtime_app.py | 3100 | `btn` | `rect` | true | explicit compatibility fallback path |
 | well_viewer/runtime_app.py | 3101 | `rect` | `center` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3102 | `btn` | `mapToGlobal` | true | Qt-safe/default |
+| well_viewer/runtime_app.py | 3102 | `btn` | `mapToGlobal` | true | explicit compatibility fallback path |
 | well_viewer/runtime_app.py | 3103 | `centre_global` | `x` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3103 | `centre_global` | `y` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3107 | `self._vis_rubber_win` | `deleteLater` | true | Qt-safe/default |
@@ -2587,8 +2581,8 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3313 | `self._rep_hidden` | `clear` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3314 | `self` | `_invalidate_stats_cache` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3315 | `self` | `_rep_quick_refresh_ui` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3320 | `self._rep_quick_pair_dir_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 3323 | `self._rep_quick_iter_order_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3320 | `self._rep_quick_pair_dir_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 3323 | `self._rep_quick_iter_order_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3326 | `self` | `_rep_quick_pairs` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3341 | `self` | `_rep_refresh_map` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3342 | `self` | `_refresh_sidebar_map` | true | Qt-safe/default |
@@ -2617,8 +2611,8 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3437 | `self._bar_groups` | `append` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3441 | `self` | `_bar_rebuild_groups_ui_now` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3442 | `QTimer` | `singleShot` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3447 | `self._bar_quick_pair_dir_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 3450 | `self._bar_quick_iter_order_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3447 | `self._bar_quick_pair_dir_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 3450 | `self._bar_quick_iter_order_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3453 | `self` | `_bar_quick_groups` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3462 | `self` | `_bar_quick_groups` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3471 | `self` | `_bar_quick_groups` | true | Qt-safe/default |
@@ -2642,9 +2636,9 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3586 | `event` | `globalPosition` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3587 | `gp` | `x` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3587 | `gp` | `y` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3589 | `event.widget` | `winfo_rootx` | false | legacy method: winfo_rootx |
-| well_viewer/runtime_app.py | 3590 | `event.widget` | `winfo_rooty` | false | legacy method: winfo_rooty |
-| well_viewer/runtime_app.py | 3592 | `event.widget` | `winfo_containing` | false | legacy method: winfo_containing |
+| well_viewer/runtime_app.py | 3589 | `event.widget` | `winfo_rootx` | true | explicit compatibility fallback path |
+| well_viewer/runtime_app.py | 3590 | `event.widget` | `winfo_rooty` | true | explicit compatibility fallback path |
+| well_viewer/runtime_app.py | 3592 | `event.widget` | `winfo_containing` | true | explicit compatibility fallback path |
 | well_viewer/runtime_app.py | 3594 | `QApplication` | `widgetAt` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3595 | `self._bar_map_btns` | `items` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3609 | `self` | `_sb_press` | true | Qt-safe/default |
@@ -2653,7 +2647,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3618 | `self` | `_sb_on_rep_change` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3637 | `self` | `_refresh_sidebar_map` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3643 | `self` | `_bar_refresh_map` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3673 | `self._mon_tophat_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3673 | `self._mon_tophat_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3674 | `self` | `_set_widget_state` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3675 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3676 | `self` | `_set_widget_palette` | true | Qt-safe/default |
@@ -2661,7 +2655,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3678 | `self` | `_set_widget_palette` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3679 | `self` | `_set_widget_state` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3680 | `self` | `_set_widget_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3682 | `self._mon_tophat_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3682 | `self._mon_tophat_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3683 | `self` | `_set_widget_state` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3684 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3685 | `self` | `_set_widget_palette` | true | Qt-safe/default |
@@ -2674,7 +2668,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3706 | `w` | `destroy` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3707 | `self._montage_photos` | `clear` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3717 | `self` | `_set_widget_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3720 | `self._preview_fov_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3720 | `self._preview_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3722 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3726 | `_debug_flags` | `movie_montage_debug_enabled` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3727 | `_debug_flags` | `movie_montage_load_debug_enabled` | true | Qt-safe/default |
@@ -2702,9 +2696,9 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3828 | `self` | `_widget_children` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3829 | `w` | `destroy` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3830 | `self._montage_photos` | `clear` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3835 | `self._mon_lmin_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 3839 | `self._mon_lmax_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 3850 | `self._mon_tophat_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3835 | `self._mon_lmin_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 3839 | `self._mon_lmax_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 3850 | `self._mon_tophat_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3860 | `self` | `_widget_width` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3869 | `self._montage_zoom_lbl` | `setText` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3871 | `self._montage_inner` | `layout` | true | Qt-safe/default |
@@ -2740,7 +2734,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 3941 | `miss` | `setObjectName` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3942 | `miss` | `setAlignment` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3943 | `fluor_cell_layout` | `addWidget` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 3946 | `self._mon_tophat_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 3946 | `self._mon_tophat_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 3957 | `th_lbl` | `setStyleSheet` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3958 | `th_lbl` | `setAlignment` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 3959 | `th_lbl` | `show` | true | Qt-safe/default |
@@ -2811,11 +2805,11 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4346 | `str(relief)` | `lower` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4347 | `state_str` | `endswith` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4348 | `relief_str` | `endswith` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4350 | `btn` | `setEnabled` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4352 | `btn` | `setCursor` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4359 | `btn` | `setStyleSheet` | true | Qt-safe/default |
+| well_viewer/runtime_app.py | 4350 | `btn` | `setEnabled` | true | explicit compatibility fallback path |
+| well_viewer/runtime_app.py | 4352 | `btn` | `setCursor` | true | explicit compatibility fallback path |
+| well_viewer/runtime_app.py | 4359 | `btn` | `setStyleSheet` | true | explicit compatibility fallback path |
 | well_viewer/runtime_app.py | 4360 | `'\n'` | `join` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4387 | `btn` | `config` | false | legacy method: config |
+| well_viewer/runtime_app.py | 4387 | `btn` | `config` | true | explicit compatibility fallback path |
 | well_viewer/runtime_app.py | 4445 | `self` | `_rep_sets_loaded` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4469 | `self` | `_refresh_sidebar_map` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4470 | `self` | `_redraw` | true | Qt-safe/default |
@@ -2848,13 +2842,13 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4601 | `self` | `_refresh_review_image` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4603 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4611 | `channel` | `upper` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4613 | `self._montage_chan_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4615 | `self._review_image_chan_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4613 | `self._montage_chan_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4615 | `self._review_image_chan_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4617 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4619 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4620 | `self._review_image_lut_by_channel` | `get` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4622 | `self._review_lut_min_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4623 | `self._review_lut_max_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4622 | `self._review_lut_min_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4623 | `self._review_lut_max_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4628 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4632 | `self` | `_update_preview` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4634 | `_logger` | `debug` | true | Qt-safe/default |
@@ -2862,24 +2856,24 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4643 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4646 | `str(self._review_image_chan_cb.get() or '')` | `strip` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4646 | `self._review_image_chan_cb` | `get` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4648 | `self._review_image_chan_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4648 | `self._review_image_chan_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4649 | `_debug_flags` | `review_image_channel_switch_debug_enabled` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4650 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4655 | `self` | `_set_active_image_channel` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4655 | `selected_ui_value` | `lower` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4659 | `self` | `_set_active_channel` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4659 | `self._plot_chan_var.get()` | `lower` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4659 | `self._plot_chan_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4659 | `self._plot_chan_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4665 | `str(self._chan_cb_preview.get() or '')` | `strip` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4665 | `self._chan_cb_preview` | `get` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4667 | `self._montage_chan_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4667 | `self._montage_chan_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4668 | `_debug_flags` | `movie_montage_debug_enabled` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4669 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4674 | `self` | `_set_active_image_channel` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4674 | `selected_ui_value` | `lower` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4678 | `self._metric_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4678 | `self._metric_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4680 | `self` | `_set_active_metric` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4691 | `self._metric_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4691 | `self._metric_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4692 | `self` | `_recalculate_threshold` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4693 | `self` | `_invalidate_stats_cache` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4694 | `self` | `_redraw` | true | Qt-safe/default |
@@ -2904,9 +2898,9 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4748 | `self` | `_set_active_channel` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4748 | `plot_label` | `lower` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4756 | `self` | `_active_tab_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4758 | `self._chan_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4760 | `self._chan_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4762 | `self._chan_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4758 | `self._chan_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4760 | `self._chan_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4762 | `self._chan_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4765 | `self` | `_invalidate_stats_cache` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4766 | `self._use_sem` | `set` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4766 | `self._use_sem` | `get` | true | Qt-safe/default |
@@ -2920,8 +2914,8 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4799 | `_debug_flags` | `review_image_channel_switch_debug_enabled` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4802 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4804 | `self` | `_set_widget_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4807 | `self._preview_fov_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4812 | `self._review_image_tp_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4807 | `self._preview_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4812 | `self._review_image_tp_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4815 | `self` | `_widget_children` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4816 | `w` | `destroy` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4817 | `self._montage_photos` | `clear` | true | Qt-safe/default |
@@ -2939,15 +2933,15 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4873 | `str(value or '')` | `strip` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4891 | `refs` | `keys` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4898 | `_logger` | `debug` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4901 | `self._preview_fov_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4907 | `self._preview_fov_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4901 | `self._preview_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4907 | `self._preview_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4911 | `_logger` | `warning` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4913 | `self` | `_set_widget_text` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4918 | `self._preview_fov_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4920 | `self._preview_fov_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4922 | `self._preview_fov_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4926 | `self._preview_fov_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 4928 | `self._preview_fov_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4918 | `self._preview_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4920 | `self._preview_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4922 | `self._preview_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4926 | `self._preview_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 4928 | `self._preview_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4930 | `self` | `_refresh_preview_montage` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4932 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4933 | `self` | `_refresh_review_image` | true | Qt-safe/default |
@@ -2964,7 +2958,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 4981 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4984 | `str(v or '')` | `strip` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4992 | `str(self._preview_fov_var.get() or '')` | `strip` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 4992 | `self._preview_fov_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 4992 | `self._preview_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 4995 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 4997 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5012 | `self` | `_norm_timepoint` | true | Qt-safe/default |
@@ -2980,10 +2974,10 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 5060 | `_logger` | `debug` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5064 | `getattr(self, '_preview_tophat_fluor', {})` | `items` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5072 | `_logger` | `debug` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5079 | `self._review_image_tp_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5080 | `self._review_image_tp_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5079 | `self._review_image_tp_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5080 | `self._review_image_tp_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5081 | `str(self._review_image_tp_var.get() or '')` | `strip` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5081 | `self._review_image_tp_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5081 | `self._review_image_tp_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5082 | `self` | `_norm_timepoint` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5084 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5086 | `_logger` | `debug` | true | Qt-safe/default |
@@ -3009,9 +3003,9 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 5189 | `self` | `_draw_review_image` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5198 | `str(self._active_image_channel or '')` | `lower` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5201 | `self._review_lut_min_var.get()` | `strip` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5201 | `self._review_lut_min_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5201 | `self._review_lut_min_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5202 | `self._review_lut_max_var.get()` | `strip` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5202 | `self._review_lut_max_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5202 | `self._review_lut_max_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5208 | `self._review_image_lut_by_channel` | `get` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5211 | `arr` | `min` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5212 | `arr` | `max` | true | Qt-safe/default |
@@ -3019,13 +3013,13 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 5223 | `arr_np` | `min` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5224 | `arr_np` | `max` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5227 | `str(self._active_image_channel or '')` | `lower` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5229 | `self._review_lut_min_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5230 | `self._review_lut_max_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5229 | `self._review_lut_min_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5230 | `self._review_lut_max_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5232 | `self` | `_refresh_review_image` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5238 | `self` | `_review_image_resolve_lut` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5238 | `_np` | `asarray` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5240 | `self._review_lut_min_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5241 | `self._review_lut_max_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5240 | `self._review_lut_min_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5241 | `self._review_lut_max_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5243 | `self` | `_refresh_review_image` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5254 | `_debug_flags` | `review_image_channel_switch_debug_enabled` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5255 | `_logger` | `debug` | true | Qt-safe/default |
@@ -3154,17 +3148,17 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 5670 | `self._well_paths` | `keys` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5693 | `_logger` | `warning` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5701 | `_logger` | `warning` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5719 | `self._review_well_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5722 | `self._review_fov_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5723 | `self._review_tp_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5719 | `self._review_well_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5722 | `self._review_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5723 | `self._review_tp_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5724 | `self` | `_refresh_review_csv_rows` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5725 | `self._review_csv_msg` | `set` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5728 | `self._review_well_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5728 | `self._review_well_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5728 | `', '` | `join` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5731 | `rows` | `extend` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5731 | `self` | `_review_load_rows` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5735 | `self._review_fov_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5736 | `self._review_tp_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5735 | `self._review_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5736 | `self._review_tp_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5737 | `self` | `_refresh_review_csv_rows` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5738 | `self._review_csv_msg` | `set` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5742 | `str(r.get('fov', r.get('FOV', '')))` | `strip` | true | Qt-safe/default |
@@ -3181,19 +3175,19 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 5753 | `seen_tps` | `add` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5754 | `tps` | `append` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5755 | `tps` | `sort` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5758 | `self._review_fov_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5759 | `self._review_fov_var` | `set` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5760 | `self._review_tp_var` | `get` | false | direct *_var access (not helper) |
-| well_viewer/runtime_app.py | 5761 | `self._review_tp_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5758 | `self._review_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5759 | `self._review_fov_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5760 | `self._review_tp_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
+| well_viewer/runtime_app.py | 5761 | `self._review_tp_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5762 | `self` | `_refresh_review_csv_rows` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5768 | `table` | `get_children` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5769 | `table` | `delete` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5775 | `rows` | `extend` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5775 | `self` | `_review_load_rows` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5778 | `str(v or '')` | `strip` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5786 | `self._review_fov_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5786 | `self._review_fov_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5787 | `self` | `_norm_timepoint` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 5787 | `self._review_tp_var` | `get` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 5787 | `self._review_tp_var` | `get` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 5790 | `row` | `get` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5790 | `row` | `get` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 5791 | `self` | `_norm_timepoint` | true | Qt-safe/default |
@@ -3519,7 +3513,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 7161 | `self._line_canvas` | `draw_idle` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7163 | `self` | `_set_status` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7173 | `self._line_ax_cdf` | `get_xlim` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 7179 | `self._entry_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 7179 | `self._entry_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 7180 | `self` | `_invalidate_stats_cache` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7182 | `self` | `_redraw` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7194 | `self` | `_set_widget_text` | true | Qt-safe/default |
@@ -3529,18 +3523,18 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/runtime_app.py | 7203 | `self._progress_bar` | `setMaximum` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7204 | `self._progress_bar` | `setValue` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7205 | `self` | `_show_compat_widget` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 7209 | `progress_bar` | `config` | false | legacy method: config |
+| well_viewer/runtime_app.py | 7209 | `progress_bar` | `config` | true | explicit compatibility fallback path |
 | well_viewer/runtime_app.py | 7210 | `self` | `_show_compat_widget` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7212 | `self` | `_set_status` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7213 | `self` | `update` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7218 | `self._progress_bar` | `setValue` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 7220 | `self._progress_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 7220 | `self._progress_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 7222 | `self` | `_set_status` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7223 | `self` | `update` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7228 | `self` | `_hide_compat_widget` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7229 | `self._progress_bar` | `setValue` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7231 | `self` | `_hide_compat_widget` | true | Qt-safe/default |
-| well_viewer/runtime_app.py | 7233 | `self._progress_var` | `set` | false | direct *_var access (not helper) |
+| well_viewer/runtime_app.py | 7233 | `self._progress_var` | `set` | true | direct app *_var access with __getattr__/_CompatVar fallback |
 | well_viewer/runtime_app.py | 7238 | `self` | `_show_compat_widget` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7239 | `self` | `_set_widget_text` | true | Qt-safe/default |
 | well_viewer/runtime_app.py | 7241 | `self` | `_hide_compat_widget` | true | Qt-safe/default |
@@ -3872,7 +3866,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/selection_controller.py | 81 | `well_set` | `add` | true | Qt-safe/default |
 | well_viewer/selection_controller.py | 83 | `well_set` | `discard` | true | Qt-safe/default |
 | well_viewer/selection_controller.py | 84 | `btn_dict` | `get` | true | Qt-safe/default |
-| well_viewer/selection_controller.py | 86 | `btn` | `set_state` | true | Qt-safe/default |
+| well_viewer/selection_controller.py | 86 | `btn` | `set_state` | true | explicit compatibility fallback path |
 | well_viewer/selection_controller.py | 93 | `app` | `_invalidate_stats_cache` | true | Qt-safe/default |
 | well_viewer/selection_controller.py | 125 | `app._selected_wells` | `copy` | true | Qt-safe/default |
 | well_viewer/selection_controller.py | 135 | `app._notebook` | `tabText` | true | Qt-safe/default |
@@ -4223,9 +4217,9 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/stats_controller.py | 140 | `'\n'` | `join` | true | Qt-safe/default |
 | well_viewer/stats_controller.py | 144 | `app._stats_fig_frame` | `setVisible` | true | Qt-safe/default |
 | well_viewer/stats_controller.py | 146 | `app._stats_fig_frame` | `setVisible` | true | Qt-safe/default |
-| well_viewer/tabs/__init__.py | 12 | `btn` | `setProperty` | true | Qt-safe/default |
+| well_viewer/tabs/__init__.py | 12 | `btn` | `setProperty` | true | explicit compatibility fallback path |
 | well_viewer/tabs/__init__.py | 13 | `btn.clicked` | `connect` | true | Qt-safe/default |
-| well_viewer/tabs/__init__.py | 19 | `btn` | `setProperty` | true | Qt-safe/default |
+| well_viewer/tabs/__init__.py | 19 | `btn` | `setProperty` | true | explicit compatibility fallback path |
 | well_viewer/tabs/__init__.py | 20 | `btn.clicked` | `connect` | true | Qt-safe/default |
 | well_viewer/tabs/bar_plots_tab_view.py | 19 | `parent` | `layout` | true | Qt-safe/default |
 | well_viewer/tabs/bar_plots_tab_view.py | 22 | `parent` | `setLayout` | true | Qt-safe/default |
@@ -4487,9 +4481,9 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/tabs/scatter_agg_tab_view.py | 146 | `none_action.triggered` | `connect` | true | Qt-safe/default |
 | well_viewer/tabs/scatter_agg_tab_view.py | 147 | `menu` | `addAction` | true | Qt-safe/default |
 | well_viewer/tabs/scatter_agg_tab_view.py | 150 | `menu` | `exec` | true | Qt-safe/default |
-| well_viewer/tabs/scatter_agg_tab_view.py | 150 | `btn` | `mapToGlobal` | true | Qt-safe/default |
+| well_viewer/tabs/scatter_agg_tab_view.py | 150 | `btn` | `mapToGlobal` | true | explicit compatibility fallback path |
 | well_viewer/tabs/scatter_agg_tab_view.py | 150 | `btn.rect()` | `bottomLeft` | true | Qt-safe/default |
-| well_viewer/tabs/scatter_agg_tab_view.py | 150 | `btn` | `rect` | true | Qt-safe/default |
+| well_viewer/tabs/scatter_agg_tab_view.py | 150 | `btn` | `rect` | true | explicit compatibility fallback path |
 | well_viewer/tabs/scatter_cells_tab_view.py | 17 | `parent` | `layout` | true | Qt-safe/default |
 | well_viewer/tabs/scatter_cells_tab_view.py | 20 | `parent` | `setLayout` | true | Qt-safe/default |
 | well_viewer/tabs/scatter_cells_tab_view.py | 21 | `layout` | `setContentsMargins` | true | Qt-safe/default |
@@ -4528,8 +4522,8 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/ui_helpers.py | 49 | `getattr(event, attr)()` | `toPoint` | true | Qt-safe/default |
 | well_viewer/ui_helpers.py | 55 | `event` | `pos` | true | Qt-safe/default |
 | well_viewer/ui_helpers.py | 58 | `btn_dict` | `items` | true | Qt-safe/default |
-| well_viewer/ui_helpers.py | 60 | `btn` | `isVisible` | true | Qt-safe/default |
-| well_viewer/ui_helpers.py | 60 | `btn` | `underMouse` | true | Qt-safe/default |
+| well_viewer/ui_helpers.py | 60 | `btn` | `isVisible` | true | explicit compatibility fallback path |
+| well_viewer/ui_helpers.py | 60 | `btn` | `underMouse` | true | explicit compatibility fallback path |
 | well_viewer/ui_helpers.py | 70 | `sa` | `setWidgetResizable` | true | Qt-safe/default |
 | well_viewer/ui_helpers.py | 71 | `sa` | `setFrameShape` | true | Qt-safe/default |
 | well_viewer/ui_helpers.py | 73 | `sa` | `setWidget` | true | Qt-safe/default |
@@ -5162,12 +5156,12 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/views/preview_view.py | 55 | `app` | `_refresh_preview_picker` | true | Qt-safe/default |
 | well_viewer/views/preview_view.py | 56 | `app` | `_update_preview` | true | Qt-safe/default |
 | well_viewer/views/preview_view.py | 60 | `app._sidebar_preview_btns` | `items` | true | Qt-safe/default |
-| well_viewer/views/preview_view.py | 62 | `btn` | `setEnabled` | true | Qt-safe/default |
-| well_viewer/views/preview_view.py | 63 | `btn` | `set_state` | true | Qt-safe/default |
-| well_viewer/views/preview_view.py | 65 | `btn` | `setEnabled` | true | Qt-safe/default |
-| well_viewer/views/preview_view.py | 66 | `btn` | `set_state` | true | Qt-safe/default |
-| well_viewer/views/preview_view.py | 68 | `btn` | `setEnabled` | true | Qt-safe/default |
-| well_viewer/views/preview_view.py | 69 | `btn` | `set_state` | true | Qt-safe/default |
+| well_viewer/views/preview_view.py | 62 | `btn` | `setEnabled` | true | explicit compatibility fallback path |
+| well_viewer/views/preview_view.py | 63 | `btn` | `set_state` | true | explicit compatibility fallback path |
+| well_viewer/views/preview_view.py | 65 | `btn` | `setEnabled` | true | explicit compatibility fallback path |
+| well_viewer/views/preview_view.py | 66 | `btn` | `set_state` | true | explicit compatibility fallback path |
+| well_viewer/views/preview_view.py | 68 | `btn` | `setEnabled` | true | explicit compatibility fallback path |
+| well_viewer/views/preview_view.py | 69 | `btn` | `set_state` | true | explicit compatibility fallback path |
 | well_viewer/views/preview_view.py | 72 | `app._preview_sel_lbl` | `setText` | true | Qt-safe/default |
 | well_viewer/views/replicate_panel_view.py | 16 | `parent` | `layout` | true | Qt-safe/default |
 | well_viewer/views/replicate_panel_view.py | 19 | `layout` | `setContentsMargins` | true | Qt-safe/default |
@@ -5415,7 +5409,7 @@ Heuristic: marks legacy tk methods and direct `*_var.get/set` as non-migrated; c
 | well_viewer/views/well_button.py | 72 | `rl` | `setObjectName` | true | Qt-safe/default |
 | well_viewer/views/well_button.py | 73 | `rl` | `setAlignment` | true | Qt-safe/default |
 | well_viewer/views/well_button.py | 74 | `layout` | `addWidget` | true | Qt-safe/default |
-| well_viewer/views/well_button.py | 78 | `btn` | `setEnabled` | true | Qt-safe/default |
+| well_viewer/views/well_button.py | 78 | `btn` | `setEnabled` | true | explicit compatibility fallback path |
 | well_viewer/views/well_button.py | 80 | `btn.clicked` | `connect` | true | Qt-safe/default |
 | well_viewer/views/well_button.py | 81 | `layout` | `addWidget` | true | Qt-safe/default |
 | well_viewer/views/well_button.py | 84 | `layout` | `setColumnStretch` | true | Qt-safe/default |

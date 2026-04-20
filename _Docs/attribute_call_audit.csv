@@ -146,10 +146,10 @@ well_viewer/batch_export_dialog.py,239,8,self._grp_inner_layout,addStretch,true,
 well_viewer/batch_export_dialog.py,240,8,self._grp_scroll,setWidget,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,241,8,layout,addWidget,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,244,24,self._map_btns,items,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,245,15,btn,isVisible,true,Qt-safe/default
+well_viewer/batch_export_dialog.py,245,15,btn,isVisible,true,explicit compatibility fallback path
 well_viewer/batch_export_dialog.py,245,35,btn.rect(),contains,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,245,35,btn,rect,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,245,55,btn,mapFromGlobal,true,Qt-safe/default
+well_viewer/batch_export_dialog.py,245,35,btn,rect,true,explicit compatibility fallback path
+well_viewer/batch_export_dialog.py,245,55,btn,mapFromGlobal,true,explicit compatibility fallback path
 well_viewer/batch_export_dialog.py,250,14,self,_tok_at,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,250,27,event.globalPosition(),toPoint,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,250,27,event,globalPosition,true,Qt-safe/default
@@ -254,16 +254,16 @@ well_viewer/batch_export_dialog.py,448,20,grp.solo_wells,remove,true,Qt-safe/def
 well_viewer/batch_export_dialog.py,449,8,self,_refresh_auto_group_name,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,450,8,self,_refresh_single_btn,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,453,14,self._map_btns,get,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,459,16,btn,set_colors,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,461,8,btn,set_colors,true,Qt-safe/default
+well_viewer/batch_export_dialog.py,459,16,btn,set_colors,true,explicit compatibility fallback path
+well_viewer/batch_export_dialog.py,461,8,btn,set_colors,true,explicit compatibility fallback path
 well_viewer/batch_export_dialog.py,464,20,self._app._well_paths,keys,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,469,16,tok_color,setdefault,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,471,14,self,_active_group,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,474,16,active_wells,add,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,475,24,self._map_btns,items,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,477,16,btn,set_colors,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,479,16,btn,set_colors,true,Qt-safe/default
-well_viewer/batch_export_dialog.py,481,16,btn,set_colors,true,Qt-safe/default
+well_viewer/batch_export_dialog.py,477,16,btn,set_colors,true,explicit compatibility fallback path
+well_viewer/batch_export_dialog.py,479,16,btn,set_colors,true,explicit compatibility fallback path
+well_viewer/batch_export_dialog.py,481,16,btn,set_colors,true,explicit compatibility fallback path
 well_viewer/batch_export_dialog.py,484,14,layout,count,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,485,19,layout,takeAt,true,Qt-safe/default
 well_viewer/batch_export_dialog.py,486,16,item,widget,true,Qt-safe/default
@@ -1480,7 +1480,7 @@ well_viewer/image_resolver.py,465,12,seen,add,true,Qt-safe/default
 well_viewer/image_resolver.py,466,12,ordered,append,true,Qt-safe/default
 well_viewer/lineplot_controller.py,46,8,ax,cla,true,Qt-safe/default
 well_viewer/lineplot_controller.py,50,23,sem_cb,isChecked,true,Qt-safe/default
-well_viewer/lineplot_controller.py,53,23,sem_var,get,false,direct *_var access (not helper)
+well_viewer/lineplot_controller.py,53,23,sem_var,get,true,explicit compatibility fallback path
 well_viewer/lineplot_controller.py,55,16,app,_get_thresh_frac_on,true,Qt-safe/default
 well_viewer/lineplot_controller.py,56,15,app,_selected_labels,true,Qt-safe/default
 well_viewer/lineplot_controller.py,59,10,app._active_channel,upper,true,Qt-safe/default
@@ -2514,11 +2514,11 @@ well_viewer/runtime_app.py,3093,13,event,globalPosition,true,Qt-safe/default
 well_viewer/runtime_app.py,3094,17,gp,x,true,Qt-safe/default
 well_viewer/runtime_app.py,3094,25,gp,y,true,Qt-safe/default
 well_viewer/runtime_app.py,3098,24,self._bar_map_btns,items,true,Qt-safe/default
-well_viewer/runtime_app.py,3099,15,btn,isVisible,true,Qt-safe/default
-well_viewer/runtime_app.py,3099,35,btn,isEnabled,true,Qt-safe/default
-well_viewer/runtime_app.py,3100,23,btn,rect,true,Qt-safe/default
+well_viewer/runtime_app.py,3099,15,btn,isVisible,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,3099,35,btn,isEnabled,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,3100,23,btn,rect,true,explicit compatibility fallback path
 well_viewer/runtime_app.py,3101,31,rect,center,true,Qt-safe/default
-well_viewer/runtime_app.py,3102,32,btn,mapToGlobal,true,Qt-safe/default
+well_viewer/runtime_app.py,3102,32,btn,mapToGlobal,true,explicit compatibility fallback path
 well_viewer/runtime_app.py,3103,46,centre_global,x,true,Qt-safe/default
 well_viewer/runtime_app.py,3103,65,centre_global,y,true,Qt-safe/default
 well_viewer/runtime_app.py,3107,16,self._vis_rubber_win,deleteLater,true,Qt-safe/default
@@ -2569,8 +2569,8 @@ well_viewer/runtime_app.py,3310,16,grp.members,clear,true,Qt-safe/default
 well_viewer/runtime_app.py,3313,8,self._rep_hidden,clear,true,Qt-safe/default
 well_viewer/runtime_app.py,3314,8,self,_invalidate_stats_cache,true,Qt-safe/default
 well_viewer/runtime_app.py,3315,8,self,_rep_quick_refresh_ui,true,Qt-safe/default
-well_viewer/runtime_app.py,3320,27,self._rep_quick_pair_dir_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,3323,29,self._rep_quick_iter_order_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3320,27,self._rep_quick_pair_dir_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,3323,29,self._rep_quick_iter_order_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3326,8,self,_rep_quick_pairs,true,Qt-safe/default
 well_viewer/runtime_app.py,3341,8,self,_rep_refresh_map,true,Qt-safe/default
 well_viewer/runtime_app.py,3342,8,self,_refresh_sidebar_map,true,Qt-safe/default
@@ -2599,8 +2599,8 @@ well_viewer/runtime_app.py,3435,48,self,_make_replicate_pairs,true,Qt-safe/defau
 well_viewer/runtime_app.py,3437,24,self._bar_groups,append,true,Qt-safe/default
 well_viewer/runtime_app.py,3441,8,self,_bar_rebuild_groups_ui_now,true,Qt-safe/default
 well_viewer/runtime_app.py,3442,8,QTimer,singleShot,true,Qt-safe/default
-well_viewer/runtime_app.py,3447,27,self._bar_quick_pair_dir_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,3450,29,self._bar_quick_iter_order_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3447,27,self._bar_quick_pair_dir_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,3450,29,self._bar_quick_iter_order_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3453,8,self,_bar_quick_groups,true,Qt-safe/default
 well_viewer/runtime_app.py,3462,8,self,_bar_quick_groups,true,Qt-safe/default
 well_viewer/runtime_app.py,3471,8,self,_bar_quick_groups,true,Qt-safe/default
@@ -2624,9 +2624,9 @@ well_viewer/runtime_app.py,3586,17,event.globalPosition(),toPoint,true,Qt-safe/d
 well_viewer/runtime_app.py,3586,17,event,globalPosition,true,Qt-safe/default
 well_viewer/runtime_app.py,3587,25,gp,x,true,Qt-safe/default
 well_viewer/runtime_app.py,3587,38,gp,y,true,Qt-safe/default
-well_viewer/runtime_app.py,3589,17,event.widget,winfo_rootx,false,legacy method: winfo_rootx
-well_viewer/runtime_app.py,3590,17,event.widget,winfo_rooty,false,legacy method: winfo_rooty
-well_viewer/runtime_app.py,3592,16,event.widget,winfo_containing,false,legacy method: winfo_containing
+well_viewer/runtime_app.py,3589,17,event.widget,winfo_rootx,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,3590,17,event.widget,winfo_rooty,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,3592,16,event.widget,winfo_containing,true,explicit compatibility fallback path
 well_viewer/runtime_app.py,3594,16,QApplication,widgetAt,true,Qt-safe/default
 well_viewer/runtime_app.py,3595,24,self._bar_map_btns,items,true,Qt-safe/default
 well_viewer/runtime_app.py,3609,8,self,_sb_press,true,Qt-safe/default
@@ -2635,7 +2635,7 @@ well_viewer/runtime_app.py,3615,8,self,_sb_release,true,Qt-safe/default
 well_viewer/runtime_app.py,3618,8,self,_sb_on_rep_change,true,Qt-safe/default
 well_viewer/runtime_app.py,3637,8,self,_refresh_sidebar_map,true,Qt-safe/default
 well_viewer/runtime_app.py,3643,8,self,_bar_refresh_map,true,Qt-safe/default
-well_viewer/runtime_app.py,3673,12,self._mon_tophat_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3673,12,self._mon_tophat_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3674,12,self,_set_widget_state,true,Qt-safe/default
 well_viewer/runtime_app.py,3675,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,3676,12,self,_set_widget_palette,true,Qt-safe/default
@@ -2643,7 +2643,7 @@ well_viewer/runtime_app.py,3677,12,self,_set_widget_palette,true,Qt-safe/default
 well_viewer/runtime_app.py,3678,12,self,_set_widget_palette,true,Qt-safe/default
 well_viewer/runtime_app.py,3679,12,self,_set_widget_state,true,Qt-safe/default
 well_viewer/runtime_app.py,3680,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,3682,12,self._mon_tophat_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3682,12,self._mon_tophat_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3683,12,self,_set_widget_state,true,Qt-safe/default
 well_viewer/runtime_app.py,3684,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,3685,12,self,_set_widget_palette,true,Qt-safe/default
@@ -2656,7 +2656,7 @@ well_viewer/runtime_app.py,3705,17,self,_widget_children,true,Qt-safe/default
 well_viewer/runtime_app.py,3706,12,w,destroy,true,Qt-safe/default
 well_viewer/runtime_app.py,3707,8,self._montage_photos,clear,true,Qt-safe/default
 well_viewer/runtime_app.py,3717,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,3720,14,self._preview_fov_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3720,14,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3722,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,3726,12,_debug_flags,movie_montage_debug_enabled,true,Qt-safe/default
 well_viewer/runtime_app.py,3727,15,_debug_flags,movie_montage_load_debug_enabled,true,Qt-safe/default
@@ -2684,9 +2684,9 @@ well_viewer/runtime_app.py,3823,16,widget,bind,true,Qt-safe/default
 well_viewer/runtime_app.py,3828,17,self,_widget_children,true,Qt-safe/default
 well_viewer/runtime_app.py,3829,12,w,destroy,true,Qt-safe/default
 well_viewer/runtime_app.py,3830,8,self._montage_photos,clear,true,Qt-safe/default
-well_viewer/runtime_app.py,3835,23,self._mon_lmin_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,3839,23,self._mon_lmax_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,3850,20,self._mon_tophat_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3835,23,self._mon_lmin_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,3839,23,self._mon_lmax_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,3850,20,self._mon_tophat_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3860,13,self,_widget_width,true,Qt-safe/default
 well_viewer/runtime_app.py,3869,12,self._montage_zoom_lbl,setText,true,Qt-safe/default
 well_viewer/runtime_app.py,3871,15,self._montage_inner,layout,true,Qt-safe/default
@@ -2722,7 +2722,7 @@ well_viewer/runtime_app.py,3940,33,self._active_image_channel,upper,true,Qt-safe
 well_viewer/runtime_app.py,3941,16,miss,setObjectName,true,Qt-safe/default
 well_viewer/runtime_app.py,3942,16,miss,setAlignment,true,Qt-safe/default
 well_viewer/runtime_app.py,3943,16,fluor_cell_layout,addWidget,true,Qt-safe/default
-well_viewer/runtime_app.py,3946,25,self._mon_tophat_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,3946,25,self._mon_tophat_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,3957,16,th_lbl,setStyleSheet,true,Qt-safe/default
 well_viewer/runtime_app.py,3958,16,th_lbl,setAlignment,true,Qt-safe/default
 well_viewer/runtime_app.py,3959,16,th_lbl,show,true,Qt-safe/default
@@ -2793,11 +2793,11 @@ well_viewer/runtime_app.py,4345,24,str(state),lower,true,Qt-safe/default
 well_viewer/runtime_app.py,4346,25,str(relief),lower,true,Qt-safe/default
 well_viewer/runtime_app.py,4347,29,state_str,endswith,true,Qt-safe/default
 well_viewer/runtime_app.py,4348,24,relief_str,endswith,true,Qt-safe/default
-well_viewer/runtime_app.py,4350,12,btn,setEnabled,true,Qt-safe/default
-well_viewer/runtime_app.py,4352,16,btn,setCursor,true,Qt-safe/default
-well_viewer/runtime_app.py,4359,12,btn,setStyleSheet,true,Qt-safe/default
+well_viewer/runtime_app.py,4350,12,btn,setEnabled,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,4352,16,btn,setCursor,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,4359,12,btn,setStyleSheet,true,explicit compatibility fallback path
 well_viewer/runtime_app.py,4360,16,'\n',join,true,Qt-safe/default
-well_viewer/runtime_app.py,4387,8,btn,config,false,legacy method: config
+well_viewer/runtime_app.py,4387,8,btn,config,true,explicit compatibility fallback path
 well_viewer/runtime_app.py,4445,34,self,_rep_sets_loaded,true,Qt-safe/default
 well_viewer/runtime_app.py,4469,8,self,_refresh_sidebar_map,true,Qt-safe/default
 well_viewer/runtime_app.py,4470,8,self,_redraw,true,Qt-safe/default
@@ -2830,13 +2830,13 @@ well_viewer/runtime_app.py,4589,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4601,20,self,_refresh_review_image,true,Qt-safe/default
 well_viewer/runtime_app.py,4603,16,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4611,19,channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,4613,12,self._montage_chan_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4615,12,self._review_image_chan_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4613,12,self._montage_chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4615,12,self._review_image_chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4617,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,4619,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,4620,27,self._review_image_lut_by_channel,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4622,12,self._review_lut_min_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4623,12,self._review_lut_max_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4622,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4623,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4628,16,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4632,12,self,_update_preview,true,Qt-safe/default
 well_viewer/runtime_app.py,4634,12,_logger,debug,true,Qt-safe/default
@@ -2844,24 +2844,24 @@ well_viewer/runtime_app.py,4642,11,_debug_flags,review_image_channel_switch_debu
 well_viewer/runtime_app.py,4643,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4646,32,str(self._review_image_chan_cb.get() or ''),strip,true,Qt-safe/default
 well_viewer/runtime_app.py,4646,36,self._review_image_chan_cb,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4648,32,self._review_image_chan_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4648,32,self._review_image_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4649,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
 well_viewer/runtime_app.py,4650,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4655,8,self,_set_active_image_channel,true,Qt-safe/default
 well_viewer/runtime_app.py,4655,39,selected_ui_value,lower,true,Qt-safe/default
 well_viewer/runtime_app.py,4659,8,self,_set_active_channel,true,Qt-safe/default
 well_viewer/runtime_app.py,4659,33,self._plot_chan_var.get(),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4659,33,self._plot_chan_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4659,33,self._plot_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4665,32,str(self._chan_cb_preview.get() or ''),strip,true,Qt-safe/default
 well_viewer/runtime_app.py,4665,36,self._chan_cb_preview,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4667,32,self._montage_chan_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4667,32,self._montage_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4668,11,_debug_flags,movie_montage_debug_enabled,true,Qt-safe/default
 well_viewer/runtime_app.py,4669,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4674,8,self,_set_active_image_channel,true,Qt-safe/default
 well_viewer/runtime_app.py,4674,39,selected_ui_value,lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4678,23,self._metric_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4678,23,self._metric_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4680,8,self,_set_active_metric,true,Qt-safe/default
-well_viewer/runtime_app.py,4691,12,self._metric_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4691,12,self._metric_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4692,8,self,_recalculate_threshold,true,Qt-safe/default
 well_viewer/runtime_app.py,4693,8,self,_invalidate_stats_cache,true,Qt-safe/default
 well_viewer/runtime_app.py,4694,8,self,_redraw,true,Qt-safe/default
@@ -2886,9 +2886,9 @@ well_viewer/runtime_app.py,4743,47,fallback_image_label,lower,true,Qt-safe/defau
 well_viewer/runtime_app.py,4748,16,self,_set_active_channel,true,Qt-safe/default
 well_viewer/runtime_app.py,4748,41,plot_label,lower,true,Qt-safe/default
 well_viewer/runtime_app.py,4756,28,self,_active_tab_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4758,16,self._chan_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4760,16,self._chan_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4762,16,self._chan_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4758,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4760,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4762,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4765,8,self,_invalidate_stats_cache,true,Qt-safe/default
 well_viewer/runtime_app.py,4766,8,self._use_sem,set,true,Qt-safe/default
 well_viewer/runtime_app.py,4766,30,self._use_sem,get,true,Qt-safe/default
@@ -2902,8 +2902,8 @@ well_viewer/runtime_app.py,4788,60,self,_parse_rc,true,Qt-safe/default
 well_viewer/runtime_app.py,4799,31,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
 well_viewer/runtime_app.py,4802,16,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,4804,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4807,16,self._preview_fov_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4812,16,self._review_image_tp_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4807,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4812,16,self._review_image_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4815,25,self,_widget_children,true,Qt-safe/default
 well_viewer/runtime_app.py,4816,20,w,destroy,true,Qt-safe/default
 well_viewer/runtime_app.py,4817,16,self._montage_photos,clear,true,Qt-safe/default
@@ -2921,15 +2921,15 @@ well_viewer/runtime_app.py,4870,12,self,_update_tophat_controls,true,Qt-safe/def
 well_viewer/runtime_app.py,4873,18,str(value or ''),strip,true,Qt-safe/default
 well_viewer/runtime_app.py,4891,34,refs,keys,true,Qt-safe/default
 well_viewer/runtime_app.py,4898,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4901,16,self._preview_fov_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4907,16,self._preview_fov_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4901,16,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4907,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4911,12,_logger,warning,true,Qt-safe/default
 well_viewer/runtime_app.py,4913,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4918,18,self._preview_fov_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4920,16,self._preview_fov_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4922,16,self._preview_fov_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4926,14,self._preview_fov_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,4928,12,self._preview_fov_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4918,18,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4920,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4922,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4926,14,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4928,12,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4930,8,self,_refresh_preview_montage,true,Qt-safe/default
 well_viewer/runtime_app.py,4932,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4933,8,self,_refresh_review_image,true,Qt-safe/default
@@ -2946,7 +2946,7 @@ well_viewer/runtime_app.py,4977,27,_debug_flags,review_image_load_debug_enabled,
 well_viewer/runtime_app.py,4981,16,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4984,16,str(v or ''),strip,true,Qt-safe/default
 well_viewer/runtime_app.py,4992,18,str(self._preview_fov_var.get() or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4992,22,self._preview_fov_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,4992,22,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,4995,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,4997,16,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,5012,16,self,_norm_timepoint,true,Qt-safe/default
@@ -2962,10 +2962,10 @@ well_viewer/runtime_app.py,5053,20,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,5060,16,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,5064,42,"getattr(self, '_preview_tophat_fluor', {})",items,true,Qt-safe/default
 well_viewer/runtime_app.py,5072,20,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5079,25,self._review_image_tp_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5080,12,self._review_image_tp_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5079,25,self._review_image_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5080,12,self._review_image_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5081,17,str(self._review_image_tp_var.get() or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5081,21,self._review_image_tp_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5081,21,self._review_image_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5082,13,self,_norm_timepoint,true,Qt-safe/default
 well_viewer/runtime_app.py,5084,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,5086,16,_logger,debug,true,Qt-safe/default
@@ -2991,9 +2991,9 @@ well_viewer/runtime_app.py,5188,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,5189,8,self,_draw_review_image,true,Qt-safe/default
 well_viewer/runtime_app.py,5198,15,str(self._active_image_channel or ''),lower,true,Qt-safe/default
 well_viewer/runtime_app.py,5201,27,self._review_lut_min_var.get(),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5201,27,self._review_lut_min_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5201,27,self._review_lut_min_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5202,27,self._review_lut_max_var.get(),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5202,27,self._review_lut_max_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5202,27,self._review_lut_max_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5208,16,self._review_image_lut_by_channel,get,true,Qt-safe/default
 well_viewer/runtime_app.py,5211,19,arr,min,true,Qt-safe/default
 well_viewer/runtime_app.py,5212,19,arr,max,true,Qt-safe/default
@@ -3001,13 +3001,13 @@ well_viewer/runtime_app.py,5222,17,_np,asarray,true,Qt-safe/default
 well_viewer/runtime_app.py,5223,19,arr_np,min,true,Qt-safe/default
 well_viewer/runtime_app.py,5224,19,arr_np,max,true,Qt-safe/default
 well_viewer/runtime_app.py,5227,42,str(self._active_image_channel or ''),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,5229,12,self._review_lut_min_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5230,12,self._review_lut_max_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5229,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5230,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5232,8,self,_refresh_review_image,true,Qt-safe/default
 well_viewer/runtime_app.py,5238,17,self,_review_image_resolve_lut,true,Qt-safe/default
 well_viewer/runtime_app.py,5238,48,_np,asarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5240,12,self._review_lut_min_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5241,12,self._review_lut_max_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5240,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5241,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5243,8,self,_refresh_review_image,true,Qt-safe/default
 well_viewer/runtime_app.py,5254,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
 well_viewer/runtime_app.py,5255,12,_logger,debug,true,Qt-safe/default
@@ -3136,17 +3136,17 @@ well_viewer/runtime_app.py,5643,8,self,_run_tab_switch_smoke_checks,true,Qt-safe
 well_viewer/runtime_app.py,5670,49,self._well_paths,keys,true,Qt-safe/default
 well_viewer/runtime_app.py,5693,12,_logger,warning,true,Qt-safe/default
 well_viewer/runtime_app.py,5701,12,_logger,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,5719,12,self._review_well_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5722,12,self._review_fov_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5723,12,self._review_tp_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5719,12,self._review_well_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5722,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5723,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5724,12,self,_refresh_review_csv_rows,true,Qt-safe/default
 well_viewer/runtime_app.py,5725,12,self._review_csv_msg,set,true,Qt-safe/default
-well_viewer/runtime_app.py,5728,8,self._review_well_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5728,8,self._review_well_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5728,34,"', '",join,true,Qt-safe/default
 well_viewer/runtime_app.py,5731,12,rows,extend,true,Qt-safe/default
 well_viewer/runtime_app.py,5731,24,self,_review_load_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5735,12,self._review_fov_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5736,12,self._review_tp_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5735,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5736,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5737,12,self,_refresh_review_csv_rows,true,Qt-safe/default
 well_viewer/runtime_app.py,5738,12,self._review_csv_msg,set,true,Qt-safe/default
 well_viewer/runtime_app.py,5742,12,"str(r.get('fov', r.get('FOV', '')))",strip,true,Qt-safe/default
@@ -3163,19 +3163,19 @@ well_viewer/runtime_app.py,5750,22,self,_norm_timepoint,true,Qt-safe/default
 well_viewer/runtime_app.py,5753,12,seen_tps,add,true,Qt-safe/default
 well_viewer/runtime_app.py,5754,12,tps,append,true,Qt-safe/default
 well_viewer/runtime_app.py,5755,8,tps,sort,true,Qt-safe/default
-well_viewer/runtime_app.py,5758,20,self._review_fov_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5759,12,self._review_fov_var,set,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5760,19,self._review_tp_var,get,false,direct *_var access (not helper)
-well_viewer/runtime_app.py,5761,12,self._review_tp_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5758,20,self._review_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5759,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5760,19,self._review_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5761,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5762,8,self,_refresh_review_csv_rows,true,Qt-safe/default
 well_viewer/runtime_app.py,5768,19,table,get_children,true,Qt-safe/default
 well_viewer/runtime_app.py,5769,12,table,delete,true,Qt-safe/default
 well_viewer/runtime_app.py,5775,16,rows,extend,true,Qt-safe/default
 well_viewer/runtime_app.py,5775,28,self,_review_load_rows,true,Qt-safe/default
 well_viewer/runtime_app.py,5778,16,str(v or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5786,24,self._review_fov_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5786,24,self._review_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5787,17,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5787,38,self._review_tp_var,get,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,5787,38,self._review_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,5790,28,row,get,true,Qt-safe/default
 well_viewer/runtime_app.py,5790,43,row,get,true,Qt-safe/default
 well_viewer/runtime_app.py,5791,21,self,_norm_timepoint,true,Qt-safe/default
@@ -3501,7 +3501,7 @@ well_viewer/runtime_app.py,7160,12,leg,set_visible,true,Qt-safe/default
 well_viewer/runtime_app.py,7161,12,self._line_canvas,draw_idle,true,Qt-safe/default
 well_viewer/runtime_app.py,7163,8,self,_set_status,true,Qt-safe/default
 well_viewer/runtime_app.py,7173,21,self._line_ax_cdf,get_xlim,true,Qt-safe/default
-well_viewer/runtime_app.py,7179,8,self._entry_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,7179,8,self._entry_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,7180,8,self,_invalidate_stats_cache,true,Qt-safe/default
 well_viewer/runtime_app.py,7182,8,self,_redraw,true,Qt-safe/default
 well_viewer/runtime_app.py,7194,8,self,_set_widget_text,true,Qt-safe/default
@@ -3511,18 +3511,18 @@ well_viewer/runtime_app.py,7201,12,self,_show_compat_widget,true,Qt-safe/default
 well_viewer/runtime_app.py,7203,12,self._progress_bar,setMaximum,true,Qt-safe/default
 well_viewer/runtime_app.py,7204,12,self._progress_bar,setValue,true,Qt-safe/default
 well_viewer/runtime_app.py,7205,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7209,16,progress_bar,config,false,legacy method: config
+well_viewer/runtime_app.py,7209,16,progress_bar,config,true,explicit compatibility fallback path
 well_viewer/runtime_app.py,7210,12,self,_show_compat_widget,true,Qt-safe/default
 well_viewer/runtime_app.py,7212,12,self,_set_status,true,Qt-safe/default
 well_viewer/runtime_app.py,7213,8,self,update,true,Qt-safe/default
 well_viewer/runtime_app.py,7218,12,self._progress_bar,setValue,true,Qt-safe/default
-well_viewer/runtime_app.py,7220,12,self._progress_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,7220,12,self._progress_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,7222,12,self,_set_status,true,Qt-safe/default
 well_viewer/runtime_app.py,7223,8,self,update,true,Qt-safe/default
 well_viewer/runtime_app.py,7228,12,self,_hide_compat_widget,true,Qt-safe/default
 well_viewer/runtime_app.py,7229,12,self._progress_bar,setValue,true,Qt-safe/default
 well_viewer/runtime_app.py,7231,12,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7233,16,self._progress_var,set,false,direct *_var access (not helper)
+well_viewer/runtime_app.py,7233,16,self._progress_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
 well_viewer/runtime_app.py,7238,12,self,_show_compat_widget,true,Qt-safe/default
 well_viewer/runtime_app.py,7239,12,self,_set_widget_text,true,Qt-safe/default
 well_viewer/runtime_app.py,7241,12,self,_hide_compat_widget,true,Qt-safe/default
@@ -3854,7 +3854,7 @@ well_viewer/selection_controller.py,78,20,b,set_state,true,Qt-safe/default
 well_viewer/selection_controller.py,81,12,well_set,add,true,Qt-safe/default
 well_viewer/selection_controller.py,83,12,well_set,discard,true,Qt-safe/default
 well_viewer/selection_controller.py,84,14,btn_dict,get,true,Qt-safe/default
-well_viewer/selection_controller.py,86,12,btn,set_state,true,Qt-safe/default
+well_viewer/selection_controller.py,86,12,btn,set_state,true,explicit compatibility fallback path
 well_viewer/selection_controller.py,93,8,app,_invalidate_stats_cache,true,Qt-safe/default
 well_viewer/selection_controller.py,125,17,app._selected_wells,copy,true,Qt-safe/default
 well_viewer/selection_controller.py,135,14,app._notebook,tabText,true,Qt-safe/default
@@ -4205,9 +4205,9 @@ well_viewer/stats_controller.py,140,4,app,_stats_write_result,true,Qt-safe/defau
 well_viewer/stats_controller.py,140,28,'\n',join,true,Qt-safe/default
 well_viewer/stats_controller.py,144,8,app._stats_fig_frame,setVisible,true,Qt-safe/default
 well_viewer/stats_controller.py,146,8,app._stats_fig_frame,setVisible,true,Qt-safe/default
-well_viewer/tabs/__init__.py,12,4,btn,setProperty,true,Qt-safe/default
+well_viewer/tabs/__init__.py,12,4,btn,setProperty,true,explicit compatibility fallback path
 well_viewer/tabs/__init__.py,13,4,btn.clicked,connect,true,Qt-safe/default
-well_viewer/tabs/__init__.py,19,4,btn,setProperty,true,Qt-safe/default
+well_viewer/tabs/__init__.py,19,4,btn,setProperty,true,explicit compatibility fallback path
 well_viewer/tabs/__init__.py,20,4,btn.clicked,connect,true,Qt-safe/default
 well_viewer/tabs/bar_plots_tab_view.py,19,13,parent,layout,true,Qt-safe/default
 well_viewer/tabs/bar_plots_tab_view.py,22,8,parent,setLayout,true,Qt-safe/default
@@ -4469,9 +4469,9 @@ well_viewer/tabs/scatter_agg_tab_view.py,143,4,menu,addAction,true,Qt-safe/defau
 well_viewer/tabs/scatter_agg_tab_view.py,146,4,none_action.triggered,connect,true,Qt-safe/default
 well_viewer/tabs/scatter_agg_tab_view.py,147,4,menu,addAction,true,Qt-safe/default
 well_viewer/tabs/scatter_agg_tab_view.py,150,4,menu,exec,true,Qt-safe/default
-well_viewer/tabs/scatter_agg_tab_view.py,150,14,btn,mapToGlobal,true,Qt-safe/default
+well_viewer/tabs/scatter_agg_tab_view.py,150,14,btn,mapToGlobal,true,explicit compatibility fallback path
 well_viewer/tabs/scatter_agg_tab_view.py,150,30,btn.rect(),bottomLeft,true,Qt-safe/default
-well_viewer/tabs/scatter_agg_tab_view.py,150,30,btn,rect,true,Qt-safe/default
+well_viewer/tabs/scatter_agg_tab_view.py,150,30,btn,rect,true,explicit compatibility fallback path
 well_viewer/tabs/scatter_cells_tab_view.py,17,13,parent,layout,true,Qt-safe/default
 well_viewer/tabs/scatter_cells_tab_view.py,20,8,parent,setLayout,true,Qt-safe/default
 well_viewer/tabs/scatter_cells_tab_view.py,21,4,layout,setContentsMargins,true,Qt-safe/default
@@ -4510,8 +4510,8 @@ well_viewer/ui_helpers.py,18,8,b.clicked,connect,true,Qt-safe/default
 well_viewer/ui_helpers.py,49,22,"getattr(event, attr)()",toPoint,true,Qt-safe/default
 well_viewer/ui_helpers.py,55,18,event,pos,true,Qt-safe/default
 well_viewer/ui_helpers.py,58,20,btn_dict,items,true,Qt-safe/default
-well_viewer/ui_helpers.py,60,35,btn,isVisible,true,Qt-safe/default
-well_viewer/ui_helpers.py,60,55,btn,underMouse,true,Qt-safe/default
+well_viewer/ui_helpers.py,60,35,btn,isVisible,true,explicit compatibility fallback path
+well_viewer/ui_helpers.py,60,55,btn,underMouse,true,explicit compatibility fallback path
 well_viewer/ui_helpers.py,70,4,sa,setWidgetResizable,true,Qt-safe/default
 well_viewer/ui_helpers.py,71,4,sa,setFrameShape,true,Qt-safe/default
 well_viewer/ui_helpers.py,73,4,sa,setWidget,true,Qt-safe/default
@@ -5144,12 +5144,12 @@ well_viewer/views/preview_view.py,46,4,layout,addWidget,true,Qt-safe/default
 well_viewer/views/preview_view.py,55,4,app,_refresh_preview_picker,true,Qt-safe/default
 well_viewer/views/preview_view.py,56,4,app,_update_preview,true,Qt-safe/default
 well_viewer/views/preview_view.py,60,20,app._sidebar_preview_btns,items,true,Qt-safe/default
-well_viewer/views/preview_view.py,62,12,btn,setEnabled,true,Qt-safe/default
-well_viewer/views/preview_view.py,63,12,btn,set_state,true,Qt-safe/default
-well_viewer/views/preview_view.py,65,12,btn,setEnabled,true,Qt-safe/default
-well_viewer/views/preview_view.py,66,12,btn,set_state,true,Qt-safe/default
-well_viewer/views/preview_view.py,68,12,btn,setEnabled,true,Qt-safe/default
-well_viewer/views/preview_view.py,69,12,btn,set_state,true,Qt-safe/default
+well_viewer/views/preview_view.py,62,12,btn,setEnabled,true,explicit compatibility fallback path
+well_viewer/views/preview_view.py,63,12,btn,set_state,true,explicit compatibility fallback path
+well_viewer/views/preview_view.py,65,12,btn,setEnabled,true,explicit compatibility fallback path
+well_viewer/views/preview_view.py,66,12,btn,set_state,true,explicit compatibility fallback path
+well_viewer/views/preview_view.py,68,12,btn,setEnabled,true,explicit compatibility fallback path
+well_viewer/views/preview_view.py,69,12,btn,set_state,true,explicit compatibility fallback path
 well_viewer/views/preview_view.py,72,8,app._preview_sel_lbl,setText,true,Qt-safe/default
 well_viewer/views/replicate_panel_view.py,16,13,parent,layout,true,Qt-safe/default
 well_viewer/views/replicate_panel_view.py,19,8,layout,setContentsMargins,true,Qt-safe/default
@@ -5397,7 +5397,7 @@ well_viewer/views/well_button.py,67,8,layout,addWidget,true,Qt-safe/default
 well_viewer/views/well_button.py,72,8,rl,setObjectName,true,Qt-safe/default
 well_viewer/views/well_button.py,73,8,rl,setAlignment,true,Qt-safe/default
 well_viewer/views/well_button.py,74,8,layout,addWidget,true,Qt-safe/default
-well_viewer/views/well_button.py,78,12,btn,setEnabled,true,Qt-safe/default
+well_viewer/views/well_button.py,78,12,btn,setEnabled,true,explicit compatibility fallback path
 well_viewer/views/well_button.py,80,16,btn.clicked,connect,true,Qt-safe/default
 well_viewer/views/well_button.py,81,12,layout,addWidget,true,Qt-safe/default
 well_viewer/views/well_button.py,84,4,layout,setColumnStretch,true,Qt-safe/default
