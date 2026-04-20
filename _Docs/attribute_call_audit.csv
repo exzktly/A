@@ -2842,701 +2842,699 @@ well_viewer/runtime_app.py,4632,12,self,_update_preview,true,Qt-safe/default
 well_viewer/runtime_app.py,4634,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,4642,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
 well_viewer/runtime_app.py,4643,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4646,32,str(self._review_image_chan_cb.get() or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4646,36,self._review_image_chan_cb,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4648,32,self._review_image_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4649,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,4650,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4655,8,self,_set_active_image_channel,true,Qt-safe/default
-well_viewer/runtime_app.py,4655,39,selected_ui_value,lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4659,8,self,_set_active_channel,true,Qt-safe/default
-well_viewer/runtime_app.py,4659,33,self._plot_chan_var.get(),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4659,33,self._plot_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4665,32,str(self._chan_cb_preview.get() or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4665,36,self._chan_cb_preview,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4667,32,self._montage_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4668,11,_debug_flags,movie_montage_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,4669,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4674,8,self,_set_active_image_channel,true,Qt-safe/default
-well_viewer/runtime_app.py,4674,39,selected_ui_value,lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4678,23,self._metric_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4680,8,self,_set_active_metric,true,Qt-safe/default
-well_viewer/runtime_app.py,4691,12,self._metric_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4692,8,self,_recalculate_threshold,true,Qt-safe/default
-well_viewer/runtime_app.py,4693,8,self,_invalidate_stats_cache,true,Qt-safe/default
-well_viewer/runtime_app.py,4694,8,self,_redraw,true,Qt-safe/default
-well_viewer/runtime_app.py,4696,12,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,4700,18,ch,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,4705,12,montage_chans,append,true,Qt-safe/default
-well_viewer/runtime_app.py,4706,26,ch,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,4707,25,ch,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,4712,16,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,4714,12,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,4716,12,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,4717,23,self._active_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,4729,33,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,4730,8,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,4733,29,self._active_image_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,4734,36,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,4735,35,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,4736,8,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,4737,8,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,4743,16,self,_set_active_image_channel,true,Qt-safe/default
-well_viewer/runtime_app.py,4743,47,fallback_image_label,lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4748,16,self,_set_active_channel,true,Qt-safe/default
-well_viewer/runtime_app.py,4748,41,plot_label,lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4756,28,self,_active_tab_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4758,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4760,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4762,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4765,8,self,_invalidate_stats_cache,true,Qt-safe/default
-well_viewer/runtime_app.py,4766,8,self._use_sem,set,true,Qt-safe/default
-well_viewer/runtime_app.py,4766,30,self._use_sem,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4767,17,self._use_sem,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4768,8,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4769,8,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,4770,8,self,_redraw,true,Qt-safe/default
-well_viewer/runtime_app.py,4771,11,self,_active_tab_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4772,12,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,4788,60,self,_parse_rc,true,Qt-safe/default
-well_viewer/runtime_app.py,4799,31,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,4802,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4804,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4807,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4812,16,self._review_image_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4815,25,self,_widget_children,true,Qt-safe/default
-well_viewer/runtime_app.py,4816,20,w,destroy,true,Qt-safe/default
-well_viewer/runtime_app.py,4817,16,self._montage_photos,clear,true,Qt-safe/default
-well_viewer/runtime_app.py,4818,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4820,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4822,16,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4827,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4830,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4833,35,str(self._active_image_channel or '').strip(),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4833,35,str(self._active_image_channel or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4835,16,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4849,12,_logger,exception,true,Qt-safe/default
-well_viewer/runtime_app.py,4856,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4870,12,self,_update_tophat_controls,true,Qt-safe/default
-well_viewer/runtime_app.py,4873,18,str(value or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4891,34,refs,keys,true,Qt-safe/default
-well_viewer/runtime_app.py,4898,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4901,16,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4907,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4911,12,_logger,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,4913,16,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4918,18,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4920,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4922,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4926,14,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4928,12,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4930,8,self,_refresh_preview_montage,true,Qt-safe/default
-well_viewer/runtime_app.py,4932,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4933,8,self,_refresh_review_image,true,Qt-safe/default
-well_viewer/runtime_app.py,4936,8,self,_refresh_preview_montage,true,Qt-safe/default
-well_viewer/runtime_app.py,4939,14,str(value or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4949,16,str(v or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4959,27,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,4960,23,str(k),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4960,53,row,items,true,Qt-safe/default
-well_viewer/runtime_app.py,4962,22,name,lower,true,Qt-safe/default
-well_viewer/runtime_app.py,4968,12,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,4975,31,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,4977,27,_debug_flags,review_image_load_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,4981,16,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,4984,16,str(v or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4992,18,str(self._preview_fov_var.get() or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,4992,22,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,4995,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,4997,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4644,28,"self._get_var_value('_review_image_chan_var', '', '_review_image_chan_cb')",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4644,28,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4645,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,4646,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4651,8,self,_set_active_image_channel,true,Qt-safe/default
+well_viewer/runtime_app.py,4651,39,selected_ui_value,lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4655,8,self,_set_active_channel,true,Qt-safe/default
+well_viewer/runtime_app.py,4655,33,self._plot_chan_var.get(),lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4655,33,self._plot_chan_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4659,28,"self._get_var_value('_montage_chan_var', '', '_chan_cb_preview')",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4659,28,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4660,11,_debug_flags,movie_montage_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,4661,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4666,8,self,_set_active_image_channel,true,Qt-safe/default
+well_viewer/runtime_app.py,4666,39,selected_ui_value,lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4670,23,self._metric_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4672,8,self,_set_active_metric,true,Qt-safe/default
+well_viewer/runtime_app.py,4683,12,self._metric_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4684,8,self,_recalculate_threshold,true,Qt-safe/default
+well_viewer/runtime_app.py,4685,8,self,_invalidate_stats_cache,true,Qt-safe/default
+well_viewer/runtime_app.py,4686,8,self,_redraw,true,Qt-safe/default
+well_viewer/runtime_app.py,4688,12,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,4692,18,ch,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,4697,12,montage_chans,append,true,Qt-safe/default
+well_viewer/runtime_app.py,4698,26,ch,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,4699,25,ch,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,4704,16,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,4706,12,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,4708,12,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,4709,23,self._active_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,4721,33,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4722,8,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4725,29,self._active_image_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,4726,36,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4727,35,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4728,8,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4729,8,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,4735,16,self,_set_active_image_channel,true,Qt-safe/default
+well_viewer/runtime_app.py,4735,47,fallback_image_label,lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4740,16,self,_set_active_channel,true,Qt-safe/default
+well_viewer/runtime_app.py,4740,41,plot_label,lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4748,28,self,_active_tab_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4750,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4752,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4754,16,self._chan_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4757,8,self,_invalidate_stats_cache,true,Qt-safe/default
+well_viewer/runtime_app.py,4758,8,self._use_sem,set,true,Qt-safe/default
+well_viewer/runtime_app.py,4758,30,self._use_sem,get,true,Qt-safe/default
+well_viewer/runtime_app.py,4759,17,self._use_sem,get,true,Qt-safe/default
+well_viewer/runtime_app.py,4760,8,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4761,8,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,4762,8,self,_redraw,true,Qt-safe/default
+well_viewer/runtime_app.py,4763,11,self,_active_tab_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4764,12,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,4780,60,self,_parse_rc,true,Qt-safe/default
+well_viewer/runtime_app.py,4791,31,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,4794,16,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4796,16,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4799,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4804,16,self._review_image_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4807,25,self,_widget_children,true,Qt-safe/default
+well_viewer/runtime_app.py,4808,20,w,destroy,true,Qt-safe/default
+well_viewer/runtime_app.py,4809,16,self._montage_photos,clear,true,Qt-safe/default
+well_viewer/runtime_app.py,4810,16,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4812,16,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4814,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4819,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4822,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4825,35,str(self._active_image_channel or '').strip(),lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4825,35,str(self._active_image_channel or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4827,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4841,12,_logger,exception,true,Qt-safe/default
+well_viewer/runtime_app.py,4848,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4862,12,self,_update_tophat_controls,true,Qt-safe/default
+well_viewer/runtime_app.py,4865,18,str(value or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4883,34,refs,keys,true,Qt-safe/default
+well_viewer/runtime_app.py,4890,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4893,16,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4899,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4903,12,_logger,warning,true,Qt-safe/default
+well_viewer/runtime_app.py,4905,16,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4910,18,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4912,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4914,16,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4918,14,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4920,12,self._preview_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4922,8,self,_refresh_preview_montage,true,Qt-safe/default
+well_viewer/runtime_app.py,4924,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4925,8,self,_refresh_review_image,true,Qt-safe/default
+well_viewer/runtime_app.py,4928,8,self,_refresh_preview_montage,true,Qt-safe/default
+well_viewer/runtime_app.py,4931,14,str(value or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4941,16,str(v or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4951,27,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,4952,23,str(k),lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4952,53,row,items,true,Qt-safe/default
+well_viewer/runtime_app.py,4954,22,name,lower,true,Qt-safe/default
+well_viewer/runtime_app.py,4960,12,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,4967,31,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,4969,27,_debug_flags,review_image_load_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,4973,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,4976,16,str(v or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4984,18,str(self._preview_fov_var.get() or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,4984,22,self._preview_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,4987,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,4989,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5004,16,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5005,31,self._preview_fluor,keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5006,39,self,_norm_timepoint,true,Qt-safe/default
 well_viewer/runtime_app.py,5012,16,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5013,31,self._preview_fluor,keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5014,39,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5020,16,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5021,26,"getattr(self, '_pipeline_info', {}) or {}",get,true,Qt-safe/default
-well_viewer/runtime_app.py,5022,19,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5013,26,"getattr(self, '_pipeline_info', {}) or {}",get,true,Qt-safe/default
+well_viewer/runtime_app.py,5014,19,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5021,12,_logger,debug,true,Qt-safe/default
 well_viewer/runtime_app.py,5029,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5037,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5045,42,self._preview_fluor,items,true,Qt-safe/default
-well_viewer/runtime_app.py,5053,20,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5060,16,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5064,42,"getattr(self, '_preview_tophat_fluor', {})",items,true,Qt-safe/default
-well_viewer/runtime_app.py,5072,20,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5079,25,self._review_image_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5080,12,self._review_image_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5081,17,str(self._review_image_tp_var.get() or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5081,21,self._review_image_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5082,13,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5084,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,5086,16,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5115,37,self._preview_fluor,keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5116,43,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5120,37,"getattr(self, '_preview_tophat_fluor', {})",keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5121,43,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5123,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5037,42,self._preview_fluor,items,true,Qt-safe/default
+well_viewer/runtime_app.py,5045,20,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5052,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5056,42,"getattr(self, '_preview_tophat_fluor', {})",items,true,Qt-safe/default
+well_viewer/runtime_app.py,5064,20,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5071,25,self._review_image_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5072,12,self._review_image_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5073,17,str(self._review_image_tp_var.get() or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5073,21,self._review_image_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5074,13,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5076,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,5078,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5107,37,self._preview_fluor,keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5108,43,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5112,37,"getattr(self, '_preview_tophat_fluor', {})",keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5113,43,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5115,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5129,12,_debug_flags,debug_with_source,true,Qt-safe/default
 well_viewer/runtime_app.py,5137,12,_debug_flags,debug_with_source,true,Qt-safe/default
-well_viewer/runtime_app.py,5145,12,_debug_flags,debug_with_source,true,Qt-safe/default
-well_viewer/runtime_app.py,5154,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,5156,16,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5162,36,"str(getattr(fluor_ref, 'name', '')).lower()",endswith,true,Qt-safe/default
-well_viewer/runtime_app.py,5162,36,"str(getattr(fluor_ref, 'name', ''))",lower,true,Qt-safe/default
-well_viewer/runtime_app.py,5167,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,5170,17,_np,asarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5172,38,_np,unique,true,Qt-safe/default
-well_viewer/runtime_app.py,5174,15,self,_review_load_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5176,39,self,_review_row_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5183,19,"str(row.get('Included', '1'))",strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5183,23,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5188,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5189,8,self,_draw_review_image,true,Qt-safe/default
-well_viewer/runtime_app.py,5198,15,str(self._active_image_channel or ''),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,5201,27,self._review_lut_min_var.get(),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5201,27,self._review_lut_min_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5202,27,self._review_lut_max_var.get(),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5202,27,self._review_lut_max_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5208,16,self._review_image_lut_by_channel,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5211,19,arr,min,true,Qt-safe/default
-well_viewer/runtime_app.py,5212,19,arr,max,true,Qt-safe/default
-well_viewer/runtime_app.py,5222,17,_np,asarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5223,19,arr_np,min,true,Qt-safe/default
-well_viewer/runtime_app.py,5224,19,arr_np,max,true,Qt-safe/default
-well_viewer/runtime_app.py,5227,42,str(self._active_image_channel or ''),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,5229,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5230,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5232,8,self,_refresh_review_image,true,Qt-safe/default
-well_viewer/runtime_app.py,5238,17,self,_review_image_resolve_lut,true,Qt-safe/default
-well_viewer/runtime_app.py,5238,48,_np,asarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5240,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5241,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5243,8,self,_refresh_review_image,true,Qt-safe/default
-well_viewer/runtime_app.py,5254,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,5255,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5261,14,_np,asarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5263,12,_np,asarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5265,27,arr,min,true,Qt-safe/default
-well_viewer/runtime_app.py,5265,45,arr,max,true,Qt-safe/default
-well_viewer/runtime_app.py,5268,46,str(self._active_image_channel or ''),lower,true,Qt-safe/default
-well_viewer/runtime_app.py,5270,21,self,_review_image_resolve_lut,true,Qt-safe/default
-well_viewer/runtime_app.py,5272,12,self._review_lut_chan_lbl,setText,true,Qt-safe/default
-well_viewer/runtime_app.py,5272,49,self._active_image_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,5274,12,self._review_lut_min_edit,setText,true,Qt-safe/default
-well_viewer/runtime_app.py,5275,12,self._review_lut_max_edit,setText,true,Qt-safe/default
-well_viewer/runtime_app.py,5276,15,"(_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255",astype,true,Qt-safe/default
-well_viewer/runtime_app.py,5276,17,_np,clip,true,Qt-safe/default
-well_viewer/runtime_app.py,5277,14,_np,dstack,true,Qt-safe/default
-well_viewer/runtime_app.py,5279,21,_np.rint(m),astype,true,Qt-safe/default
-well_viewer/runtime_app.py,5279,21,_np,rint,true,Qt-safe/default
-well_viewer/runtime_app.py,5280,17,_np,pad,true,Qt-safe/default
-well_viewer/runtime_app.py,5288,23,_np,zeros,true,Qt-safe/default
-well_viewer/runtime_app.py,5289,29,include_by_nid,items,true,Qt-safe/default
-well_viewer/runtime_app.py,5293,29,_np,array,true,Qt-safe/default
-well_viewer/runtime_app.py,5297,32,_np,array,true,Qt-safe/default
-well_viewer/runtime_app.py,5299,14,_PILImage,fromarray,true,Qt-safe/default
-well_viewer/runtime_app.py,5305,8,self,_render_review_image_display,true,Qt-safe/default
-well_viewer/runtime_app.py,5309,8,lbl,setMouseTracking,true,Qt-safe/default
-well_viewer/runtime_app.py,5312,12,self,_on_review_image_hover,true,Qt-safe/default
-well_viewer/runtime_app.py,5315,16,self._review_image_tooltip,hide,true,Qt-safe/default
-well_viewer/runtime_app.py,5319,12,self,_on_review_image_wheel,true,Qt-safe/default
-well_viewer/runtime_app.py,5321,12,self,_on_review_image_press,true,Qt-safe/default
-well_viewer/runtime_app.py,5323,15,ev,buttons,true,Qt-safe/default
-well_viewer/runtime_app.py,5324,16,self,_on_review_image_drag,true,Qt-safe/default
-well_viewer/runtime_app.py,5328,12,self,_on_review_image_release,true,Qt-safe/default
-well_viewer/runtime_app.py,5335,8,lbl,setCursor,true,Qt-safe/default
-well_viewer/runtime_app.py,5337,8,self._review_image_status,setText,true,Qt-safe/default
-well_viewer/runtime_app.py,5338,31,self._active_image_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,5340,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,5341,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5352,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,5353,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5357,20,self,_widget_width,true,Qt-safe/default
-well_viewer/runtime_app.py,5358,20,self,_widget_height,true,Qt-safe/default
-well_viewer/runtime_app.py,5362,16,img,resize,true,Qt-safe/default
-well_viewer/runtime_app.py,5363,35,_PILImageTk,PhotoImage,true,Qt-safe/default
-well_viewer/runtime_app.py,5364,8,self,_set_widget_image,true,Qt-safe/default
-well_viewer/runtime_app.py,5368,8,self._review_image_canvas,coords,true,Qt-safe/default
-well_viewer/runtime_app.py,5373,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,5374,12,_logger,debug,true,Qt-safe/default
-well_viewer/runtime_app.py,5389,8,self,_render_review_image_display,true,Qt-safe/default
-well_viewer/runtime_app.py,5395,8,self,_render_review_image_display,true,Qt-safe/default
-well_viewer/runtime_app.py,5403,8,self,_review_image_zoom_step,true,Qt-safe/default
-well_viewer/runtime_app.py,5421,8,self,_render_review_image_display,true,Qt-safe/default
-well_viewer/runtime_app.py,5429,12,self,_on_review_image_click,true,Qt-safe/default
-well_viewer/runtime_app.py,5434,41,self,_widget_width,true,Qt-safe/default
-well_viewer/runtime_app.py,5435,41,self,_widget_height,true,Qt-safe/default
-well_viewer/runtime_app.py,5440,15,self._active_image_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,5452,12,self,_set_widget_cursor,true,Qt-safe/default
-well_viewer/runtime_app.py,5454,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,5456,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,5459,8,self,_set_review_image_include_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,5464,29,self,_review_row_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5468,47,str(included),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5472,8,self,_refresh_review_csv_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5473,8,self,_refresh_review_image,true,Qt-safe/default
-well_viewer/runtime_app.py,5477,8,self,_render_review_image_display,true,Qt-safe/default
-well_viewer/runtime_app.py,5486,17,_np,where,true,Qt-safe/default
-well_viewer/runtime_app.py,5489,19,xs,mean,true,Qt-safe/default
-well_viewer/runtime_app.py,5490,19,ys,mean,true,Qt-safe/default
-well_viewer/runtime_app.py,5496,20,self,_widget_width,true,Qt-safe/default
-well_viewer/runtime_app.py,5497,20,self,_widget_height,true,Qt-safe/default
-well_viewer/runtime_app.py,5505,8,self,_render_review_image_display,true,Qt-safe/default
-well_viewer/runtime_app.py,5526,12,QMessageBox,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,5528,8,self,_select_tab_by_text,true,Qt-safe/default
-well_viewer/runtime_app.py,5530,12,self,_batch_export_set_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,5551,8,self,_apply_export_style_if_ready,true,Qt-safe/default
-well_viewer/runtime_app.py,5557,14,self,_active_tab_text,true,Qt-safe/default
-well_viewer/runtime_app.py,5561,8,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5562,8,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5563,8,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5564,8,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5565,8,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5568,12,self,_sync_preview_well_for_image_tabs,true,Qt-safe/default
-well_viewer/runtime_app.py,5569,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5570,12,self,_refresh_preview_picker,true,Qt-safe/default
-well_viewer/runtime_app.py,5571,12,self,_update_preview,true,Qt-safe/default
-well_viewer/runtime_app.py,5574,12,self,_sync_preview_well_for_image_tabs,true,Qt-safe/default
-well_viewer/runtime_app.py,5575,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5576,12,self,_refresh_preview_picker,true,Qt-safe/default
-well_viewer/runtime_app.py,5577,12,self,_update_preview,true,Qt-safe/default
-well_viewer/runtime_app.py,5578,12,self,_refresh_review_image,true,Qt-safe/default
-well_viewer/runtime_app.py,5581,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5582,12,self,_groups_centre_refresh,true,Qt-safe/default
-well_viewer/runtime_app.py,5585,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5588,16,self,_stats_sync_from_app,true,Qt-safe/default
-well_viewer/runtime_app.py,5590,16,self,_stats_update_tp_menu,true,Qt-safe/default
-well_viewer/runtime_app.py,5595,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5596,12,self,_groups_centre_refresh,true,Qt-safe/default
-well_viewer/runtime_app.py,5598,23,"getattr(self, '_batch_export_inline_state', {})",get,true,Qt-safe/default
-well_viewer/runtime_app.py,5599,16,self,_batch_export_set_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,5602,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5603,58,self,_widget_is_visible,true,Qt-safe/default
-well_viewer/runtime_app.py,5604,16,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5605,63,self,_widget_is_visible,true,Qt-safe/default
-well_viewer/runtime_app.py,5606,16,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5607,12,self,_refresh_sidebar_map,true,Qt-safe/default
-well_viewer/runtime_app.py,5608,12,self,_refresh_review_csv,true,Qt-safe/default
-well_viewer/runtime_app.py,5611,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5613,16,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5615,16,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5619,12,self,_refresh_sidebar_map,true,Qt-safe/default
-well_viewer/runtime_app.py,5621,16,self._smfish_tab,sync_from_app,true,Qt-safe/default
-well_viewer/runtime_app.py,5625,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5626,58,self,_widget_is_visible,true,Qt-safe/default
-well_viewer/runtime_app.py,5627,16,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5628,63,self,_widget_is_visible,true,Qt-safe/default
-well_viewer/runtime_app.py,5629,16,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,5630,12,self,_refresh_sidebar_map,true,Qt-safe/default
-well_viewer/runtime_app.py,5632,16,self,_update_bar_tp_menu,true,Qt-safe/default
-well_viewer/runtime_app.py,5633,16,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,5635,16,self,_update_scatter_menus,true,Qt-safe/default
-well_viewer/runtime_app.py,5636,16,self,_redraw_scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,5638,16,self,_update_scatter_menus,true,Qt-safe/default
-well_viewer/runtime_app.py,5639,16,self,_redraw_scatter_agg,true,Qt-safe/default
-well_viewer/runtime_app.py,5641,16,self,_redraw,true,Qt-safe/default
-well_viewer/runtime_app.py,5643,8,self,_run_tab_switch_smoke_checks,true,Qt-safe/default
-well_viewer/runtime_app.py,5670,49,self._well_paths,keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5146,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,5148,16,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5154,36,"str(getattr(fluor_ref, 'name', '')).lower()",endswith,true,Qt-safe/default
+well_viewer/runtime_app.py,5154,36,"str(getattr(fluor_ref, 'name', ''))",lower,true,Qt-safe/default
+well_viewer/runtime_app.py,5159,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,5162,17,_np,asarray,true,Qt-safe/default
+well_viewer/runtime_app.py,5164,38,_np,unique,true,Qt-safe/default
+well_viewer/runtime_app.py,5166,15,self,_review_load_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5168,39,self,_review_row_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5175,19,"str(row.get('Included', '1'))",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5175,23,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5180,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5181,8,self,_draw_review_image,true,Qt-safe/default
+well_viewer/runtime_app.py,5190,15,str(self._active_image_channel or ''),lower,true,Qt-safe/default
+well_viewer/runtime_app.py,5193,27,self._review_lut_min_var.get(),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5193,27,self._review_lut_min_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5194,27,self._review_lut_max_var.get(),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5194,27,self._review_lut_max_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5200,16,self._review_image_lut_by_channel,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5203,19,arr,min,true,Qt-safe/default
+well_viewer/runtime_app.py,5204,19,arr,max,true,Qt-safe/default
+well_viewer/runtime_app.py,5214,17,_np,asarray,true,Qt-safe/default
+well_viewer/runtime_app.py,5215,19,arr_np,min,true,Qt-safe/default
+well_viewer/runtime_app.py,5216,19,arr_np,max,true,Qt-safe/default
+well_viewer/runtime_app.py,5219,42,str(self._active_image_channel or ''),lower,true,Qt-safe/default
+well_viewer/runtime_app.py,5221,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5222,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5224,8,self,_refresh_review_image,true,Qt-safe/default
+well_viewer/runtime_app.py,5230,17,self,_review_image_resolve_lut,true,Qt-safe/default
+well_viewer/runtime_app.py,5230,48,_np,asarray,true,Qt-safe/default
+well_viewer/runtime_app.py,5232,12,self._review_lut_min_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5233,12,self._review_lut_max_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5235,8,self,_refresh_review_image,true,Qt-safe/default
+well_viewer/runtime_app.py,5246,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,5247,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5253,14,_np,asarray,true,Qt-safe/default
+well_viewer/runtime_app.py,5255,12,_np,asarray,true,Qt-safe/default
+well_viewer/runtime_app.py,5257,27,arr,min,true,Qt-safe/default
+well_viewer/runtime_app.py,5257,45,arr,max,true,Qt-safe/default
+well_viewer/runtime_app.py,5260,46,str(self._active_image_channel or ''),lower,true,Qt-safe/default
+well_viewer/runtime_app.py,5262,21,self,_review_image_resolve_lut,true,Qt-safe/default
+well_viewer/runtime_app.py,5264,12,self._review_lut_chan_lbl,setText,true,Qt-safe/default
+well_viewer/runtime_app.py,5264,49,self._active_image_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,5266,12,self._review_lut_min_edit,setText,true,Qt-safe/default
+well_viewer/runtime_app.py,5267,12,self._review_lut_max_edit,setText,true,Qt-safe/default
+well_viewer/runtime_app.py,5268,15,"(_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255",astype,true,Qt-safe/default
+well_viewer/runtime_app.py,5268,17,_np,clip,true,Qt-safe/default
+well_viewer/runtime_app.py,5269,14,_np,dstack,true,Qt-safe/default
+well_viewer/runtime_app.py,5271,21,_np.rint(m),astype,true,Qt-safe/default
+well_viewer/runtime_app.py,5271,21,_np,rint,true,Qt-safe/default
+well_viewer/runtime_app.py,5272,17,_np,pad,true,Qt-safe/default
+well_viewer/runtime_app.py,5280,23,_np,zeros,true,Qt-safe/default
+well_viewer/runtime_app.py,5281,29,include_by_nid,items,true,Qt-safe/default
+well_viewer/runtime_app.py,5285,29,_np,array,true,Qt-safe/default
+well_viewer/runtime_app.py,5289,32,_np,array,true,Qt-safe/default
+well_viewer/runtime_app.py,5291,14,_PILImage,fromarray,true,Qt-safe/default
+well_viewer/runtime_app.py,5297,8,self,_render_review_image_display,true,Qt-safe/default
+well_viewer/runtime_app.py,5301,8,lbl,setMouseTracking,true,Qt-safe/default
+well_viewer/runtime_app.py,5304,12,self,_on_review_image_hover,true,Qt-safe/default
+well_viewer/runtime_app.py,5307,16,self._review_image_tooltip,hide,true,Qt-safe/default
+well_viewer/runtime_app.py,5311,12,self,_on_review_image_wheel,true,Qt-safe/default
+well_viewer/runtime_app.py,5313,12,self,_on_review_image_press,true,Qt-safe/default
+well_viewer/runtime_app.py,5315,15,ev,buttons,true,Qt-safe/default
+well_viewer/runtime_app.py,5316,16,self,_on_review_image_drag,true,Qt-safe/default
+well_viewer/runtime_app.py,5320,12,self,_on_review_image_release,true,Qt-safe/default
+well_viewer/runtime_app.py,5327,8,lbl,setCursor,true,Qt-safe/default
+well_viewer/runtime_app.py,5329,8,self._review_image_status,setText,true,Qt-safe/default
+well_viewer/runtime_app.py,5330,31,self._active_image_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,5332,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,5333,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5344,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,5345,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5349,20,self,_widget_width,true,Qt-safe/default
+well_viewer/runtime_app.py,5350,20,self,_widget_height,true,Qt-safe/default
+well_viewer/runtime_app.py,5354,16,img,resize,true,Qt-safe/default
+well_viewer/runtime_app.py,5355,35,_PILImageTk,PhotoImage,true,Qt-safe/default
+well_viewer/runtime_app.py,5356,8,self,_set_widget_image,true,Qt-safe/default
+well_viewer/runtime_app.py,5360,8,self._review_image_canvas,coords,true,Qt-safe/default
+well_viewer/runtime_app.py,5365,11,_debug_flags,review_image_channel_switch_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,5366,12,_logger,debug,true,Qt-safe/default
+well_viewer/runtime_app.py,5381,8,self,_render_review_image_display,true,Qt-safe/default
+well_viewer/runtime_app.py,5387,8,self,_render_review_image_display,true,Qt-safe/default
+well_viewer/runtime_app.py,5395,8,self,_review_image_zoom_step,true,Qt-safe/default
+well_viewer/runtime_app.py,5413,8,self,_render_review_image_display,true,Qt-safe/default
+well_viewer/runtime_app.py,5421,12,self,_on_review_image_click,true,Qt-safe/default
+well_viewer/runtime_app.py,5426,41,self,_widget_width,true,Qt-safe/default
+well_viewer/runtime_app.py,5427,41,self,_widget_height,true,Qt-safe/default
+well_viewer/runtime_app.py,5432,15,self._active_image_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,5444,12,self,_set_widget_cursor,true,Qt-safe/default
+well_viewer/runtime_app.py,5446,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,5448,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,5451,8,self,_set_review_image_include_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,5456,29,self,_review_row_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5460,47,str(included),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5464,8,self,_refresh_review_csv_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5465,8,self,_refresh_review_image,true,Qt-safe/default
+well_viewer/runtime_app.py,5469,8,self,_render_review_image_display,true,Qt-safe/default
+well_viewer/runtime_app.py,5478,17,_np,where,true,Qt-safe/default
+well_viewer/runtime_app.py,5481,19,xs,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,5482,19,ys,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,5488,20,self,_widget_width,true,Qt-safe/default
+well_viewer/runtime_app.py,5489,20,self,_widget_height,true,Qt-safe/default
+well_viewer/runtime_app.py,5497,8,self,_render_review_image_display,true,Qt-safe/default
+well_viewer/runtime_app.py,5518,12,QMessageBox,warning,true,Qt-safe/default
+well_viewer/runtime_app.py,5520,8,self,_select_tab_by_text,true,Qt-safe/default
+well_viewer/runtime_app.py,5522,12,self,_batch_export_set_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,5543,8,self,_apply_export_style_if_ready,true,Qt-safe/default
+well_viewer/runtime_app.py,5549,14,self,_active_tab_text,true,Qt-safe/default
+well_viewer/runtime_app.py,5553,8,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5554,8,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5555,8,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5556,8,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5557,8,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5560,12,self,_sync_preview_well_for_image_tabs,true,Qt-safe/default
+well_viewer/runtime_app.py,5561,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5562,12,self,_refresh_preview_picker,true,Qt-safe/default
+well_viewer/runtime_app.py,5563,12,self,_update_preview,true,Qt-safe/default
+well_viewer/runtime_app.py,5566,12,self,_sync_preview_well_for_image_tabs,true,Qt-safe/default
+well_viewer/runtime_app.py,5567,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5568,12,self,_refresh_preview_picker,true,Qt-safe/default
+well_viewer/runtime_app.py,5569,12,self,_update_preview,true,Qt-safe/default
+well_viewer/runtime_app.py,5570,12,self,_refresh_review_image,true,Qt-safe/default
+well_viewer/runtime_app.py,5573,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5574,12,self,_groups_centre_refresh,true,Qt-safe/default
+well_viewer/runtime_app.py,5577,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5580,16,self,_stats_sync_from_app,true,Qt-safe/default
+well_viewer/runtime_app.py,5582,16,self,_stats_update_tp_menu,true,Qt-safe/default
+well_viewer/runtime_app.py,5587,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5588,12,self,_groups_centre_refresh,true,Qt-safe/default
+well_viewer/runtime_app.py,5590,23,"getattr(self, '_batch_export_inline_state', {})",get,true,Qt-safe/default
+well_viewer/runtime_app.py,5591,16,self,_batch_export_set_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,5594,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5595,58,self,_widget_is_visible,true,Qt-safe/default
+well_viewer/runtime_app.py,5596,16,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5597,63,self,_widget_is_visible,true,Qt-safe/default
+well_viewer/runtime_app.py,5598,16,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5599,12,self,_refresh_sidebar_map,true,Qt-safe/default
+well_viewer/runtime_app.py,5600,12,self,_refresh_review_csv,true,Qt-safe/default
+well_viewer/runtime_app.py,5603,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5605,16,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5607,16,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5611,12,self,_refresh_sidebar_map,true,Qt-safe/default
+well_viewer/runtime_app.py,5613,16,self._smfish_tab,sync_from_app,true,Qt-safe/default
+well_viewer/runtime_app.py,5617,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5618,58,self,_widget_is_visible,true,Qt-safe/default
+well_viewer/runtime_app.py,5619,16,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5620,63,self,_widget_is_visible,true,Qt-safe/default
+well_viewer/runtime_app.py,5621,16,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,5622,12,self,_refresh_sidebar_map,true,Qt-safe/default
+well_viewer/runtime_app.py,5624,16,self,_update_bar_tp_menu,true,Qt-safe/default
+well_viewer/runtime_app.py,5625,16,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,5627,16,self,_update_scatter_menus,true,Qt-safe/default
+well_viewer/runtime_app.py,5628,16,self,_redraw_scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,5630,16,self,_update_scatter_menus,true,Qt-safe/default
+well_viewer/runtime_app.py,5631,16,self,_redraw_scatter_agg,true,Qt-safe/default
+well_viewer/runtime_app.py,5633,16,self,_redraw,true,Qt-safe/default
+well_viewer/runtime_app.py,5635,8,self,_run_tab_switch_smoke_checks,true,Qt-safe/default
+well_viewer/runtime_app.py,5662,49,self._well_paths,keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5685,12,_logger,warning,true,Qt-safe/default
 well_viewer/runtime_app.py,5693,12,_logger,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,5701,12,_logger,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,5719,12,self._review_well_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5722,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5723,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5724,12,self,_refresh_review_csv_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5725,12,self._review_csv_msg,set,true,Qt-safe/default
-well_viewer/runtime_app.py,5728,8,self._review_well_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5728,34,"', '",join,true,Qt-safe/default
-well_viewer/runtime_app.py,5731,12,rows,extend,true,Qt-safe/default
-well_viewer/runtime_app.py,5731,24,self,_review_load_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5735,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5736,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5737,12,self,_refresh_review_csv_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5738,12,self._review_csv_msg,set,true,Qt-safe/default
-well_viewer/runtime_app.py,5742,12,"str(r.get('fov', r.get('FOV', '')))",strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5742,16,r,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5742,29,r,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5744,15,"str(r.get('fov', r.get('FOV', '')))",strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5744,19,r,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5744,32,r,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5749,21,"str(row.get('timepoint', row.get('tp', row.get('time', ''))))",strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5749,25,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5749,46,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5749,60,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5750,22,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5753,12,seen_tps,add,true,Qt-safe/default
-well_viewer/runtime_app.py,5754,12,tps,append,true,Qt-safe/default
-well_viewer/runtime_app.py,5755,8,tps,sort,true,Qt-safe/default
-well_viewer/runtime_app.py,5758,20,self._review_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5759,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5760,19,self._review_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5761,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5762,8,self,_refresh_review_csv_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5768,19,table,get_children,true,Qt-safe/default
-well_viewer/runtime_app.py,5769,12,table,delete,true,Qt-safe/default
-well_viewer/runtime_app.py,5775,16,rows,extend,true,Qt-safe/default
-well_viewer/runtime_app.py,5775,28,self,_review_load_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5778,16,str(v or ''),strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5786,24,self._review_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5787,17,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5787,38,self._review_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,5790,28,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5790,43,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5791,21,self,_norm_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,5791,42,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5791,63,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5791,77,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5796,12,filtered,append,true,Qt-safe/default
-well_viewer/runtime_app.py,5799,12,_logger,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,5806,16,self._review_csv_msg,set,true,Qt-safe/default
-well_viewer/runtime_app.py,5811,12,self._review_csv_msg,set,true,Qt-safe/default
-well_viewer/runtime_app.py,5816,25,ctx,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5816,50,ctx,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5816,73,ctx,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5816,103,ctx,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5819,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,5823,20,filtered[0],keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5826,12,table,heading,true,Qt-safe/default
-well_viewer/runtime_app.py,5827,12,table,column,true,Qt-safe/default
-well_viewer/runtime_app.py,5829,12,table,insert,true,Qt-safe/default
-well_viewer/runtime_app.py,5829,45,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5830,8,self._review_csv_msg,set,true,Qt-safe/default
-well_viewer/runtime_app.py,5836,41,self,_get_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,5837,18,self,_extract_well_token,true,Qt-safe/default
-well_viewer/runtime_app.py,5839,16,row,setdefault,true,Qt-safe/default
-well_viewer/runtime_app.py,5843,38,"str(row.get('included', ''))",strip,true,Qt-safe/default
-well_viewer/runtime_app.py,5843,42,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5845,20,row,pop,true,Qt-safe/default
-well_viewer/runtime_app.py,5846,31,self,_review_row_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5849,31,self._review_included_overrides,get,true,Qt-safe/default
-well_viewer/runtime_app.py,5867,12,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,5875,12,all_tps,add,true,Qt-safe/default
-well_viewer/runtime_app.py,5880,14,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,5883,12,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,5885,12,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,5887,12,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,5901,23,fig.canvas,get_renderer,true,Qt-safe/default
-well_viewer/runtime_app.py,5904,16,ax,get_window_extent,true,Qt-safe/default
-well_viewer/runtime_app.py,5908,18,ax.transData,inverted,true,Qt-safe/default
-well_viewer/runtime_app.py,5909,18,inv,transform,true,Qt-safe/default
-well_viewer/runtime_app.py,5928,8,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,5929,8,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,5933,16,self,_bar_pixel_to_data_x,true,Qt-safe/default
-well_viewer/runtime_app.py,5936,15,self,_bar_current_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5940,14,self,_bar_idx_at_x,true,Qt-safe/default
-well_viewer/runtime_app.py,5941,8,self._bar_drag_state,update,true,Qt-safe/default
-well_viewer/runtime_app.py,5948,16,self,_bar_pixel_to_data_x,true,Qt-safe/default
-well_viewer/runtime_app.py,5951,15,self,_bar_current_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5955,14,self,_bar_idx_at_x,true,Qt-safe/default
-well_viewer/runtime_app.py,5964,20,ln,remove,true,Qt-safe/default
-well_viewer/runtime_app.py,5969,17,ax,axvline,true,Qt-safe/default
-well_viewer/runtime_app.py,5972,8,self._bar_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,5985,20,ln,remove,true,Qt-safe/default
-well_viewer/runtime_app.py,5990,12,self._bar_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,5993,15,self,_bar_current_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,5995,12,self._bar_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,5998,15,keys,pop,true,Qt-safe/default
-well_viewer/runtime_app.py,5999,8,keys,insert,true,Qt-safe/default
-well_viewer/runtime_app.py,6001,8,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,6002,8,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,6006,8,self._bar_log_scale,set,true,Qt-safe/default
-well_viewer/runtime_app.py,6006,36,self._bar_log_scale,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6007,13,self._bar_log_scale,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6008,8,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,6009,8,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,6022,8,self._bar_swarm,set,true,Qt-safe/default
-well_viewer/runtime_app.py,6022,32,self._bar_swarm,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6023,13,self._bar_swarm,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6024,8,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,6025,18,self._bar_violin,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6027,12,self._bar_violin,set,true,Qt-safe/default
-well_viewer/runtime_app.py,6028,12,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,6029,12,self,_set_widget_state,true,Qt-safe/default
-well_viewer/runtime_app.py,6030,8,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,6034,8,self._bar_violin,set,true,Qt-safe/default
-well_viewer/runtime_app.py,6034,33,self._bar_violin,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6035,13,self._bar_violin,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6036,8,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,6037,8,self,_set_widget_state,true,Qt-safe/default
-well_viewer/runtime_app.py,6038,8,self,_set_widget_palette,true,Qt-safe/default
-well_viewer/runtime_app.py,6039,18,self._bar_swarm,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6041,12,self._bar_swarm,set,true,Qt-safe/default
-well_viewer/runtime_app.py,6042,12,self,_set_widget_style,true,Qt-safe/default
-well_viewer/runtime_app.py,6043,8,self,_redraw_bars,true,Qt-safe/default
-well_viewer/runtime_app.py,6067,12,ax_mean,text,true,Qt-safe/default
-well_viewer/runtime_app.py,6074,28,self._violin_bw,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6081,19,self,_get_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,6087,24,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6101,20,vals,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6103,12,frac_vals,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6108,20,ax_mean,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6111,18,np_local,array,true,Qt-safe/default
-well_viewer/runtime_app.py,6113,27,arr,min,true,Qt-safe/default
-well_viewer/runtime_app.py,6113,38,arr,max,true,Qt-safe/default
-well_viewer/runtime_app.py,6115,17,np_local,linspace,true,Qt-safe/default
-well_viewer/runtime_app.py,6118,20,density,max,true,Qt-safe/default
-well_viewer/runtime_app.py,6123,12,ax_mean,fill_betweenx,true,Qt-safe/default
-well_viewer/runtime_app.py,6125,12,ax_mean,plot,true,Qt-safe/default
-well_viewer/runtime_app.py,6126,12,ax_mean,plot,true,Qt-safe/default
-well_viewer/runtime_app.py,6129,27,np_local,median,true,Qt-safe/default
-well_viewer/runtime_app.py,6130,12,ax_mean,hlines,true,Qt-safe/default
-well_viewer/runtime_app.py,6132,12,ax_mean,hlines,true,Qt-safe/default
-well_viewer/runtime_app.py,6137,19,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6138,16,ax_frac,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6140,16,ax_frac,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6144,8,ax_mean,axhline,true,Qt-safe/default
-well_viewer/runtime_app.py,6145,8,ax_frac,axhline,true,Qt-safe/default
-well_viewer/runtime_app.py,6147,12,ax,set_xticks,true,Qt-safe/default
-well_viewer/runtime_app.py,6148,12,ax,set_xticklabels,true,Qt-safe/default
-well_viewer/runtime_app.py,6152,12,ax,set_xlim,true,Qt-safe/default
-well_viewer/runtime_app.py,6153,8,ax_frac,set_ylim,true,Qt-safe/default
-well_viewer/runtime_app.py,6154,8,ax_frac,set_ylabel,true,Qt-safe/default
-well_viewer/runtime_app.py,6155,8,ax_mean,set_title,true,Qt-safe/default
-well_viewer/runtime_app.py,6156,15,self._active_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6158,8,ax_frac,set_title,true,Qt-safe/default
-well_viewer/runtime_app.py,6187,19,self,_get_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,6195,22,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6197,46,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6199,46,row,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6209,20,cell_vals,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6216,16,ax_mean,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6220,16,ax_mean,plot,true,Qt-safe/default
-well_viewer/runtime_app.py,6225,20,ax_mean,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6229,16,ax_frac,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6232,16,ax_frac,scatter,true,Qt-safe/default
-well_viewer/runtime_app.py,6235,8,ax_mean,axhline,true,Qt-safe/default
-well_viewer/runtime_app.py,6237,8,ax_frac,axhline,true,Qt-safe/default
-well_viewer/runtime_app.py,6240,12,ax,set_xticks,true,Qt-safe/default
-well_viewer/runtime_app.py,6241,12,ax,set_xticklabels,true,Qt-safe/default
-well_viewer/runtime_app.py,6245,12,ax,set_xlim,true,Qt-safe/default
-well_viewer/runtime_app.py,6246,8,ax_frac,set_ylim,true,Qt-safe/default
-well_viewer/runtime_app.py,6247,8,ax_frac,set_ylabel,true,Qt-safe/default
-well_viewer/runtime_app.py,6248,8,ax_mean,set_title,true,Qt-safe/default
-well_viewer/runtime_app.py,6249,15,self._active_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6251,8,ax_frac,set_title,true,Qt-safe/default
-well_viewer/runtime_app.py,6259,8,ax_mean,cla,true,Qt-safe/default
-well_viewer/runtime_app.py,6260,8,ax_frac,cla,true,Qt-safe/default
-well_viewer/runtime_app.py,6262,18,self._use_sem,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6264,20,self,_get_thresh_frac_on,true,Qt-safe/default
-well_viewer/runtime_app.py,6266,23,self,_rep_sets_active,true,Qt-safe/default
-well_viewer/runtime_app.py,6267,23,self,_selected_bar_wells,true,Qt-safe/default
-well_viewer/runtime_app.py,6269,14,self._active_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6276,8,ax_frac,set_ylim,true,Qt-safe/default
-well_viewer/runtime_app.py,6279,12,self,_draw_bar_empty_state,true,Qt-safe/default
-well_viewer/runtime_app.py,6282,18,self,_resolve_bar_timepoint,true,Qt-safe/default
-well_viewer/runtime_app.py,6284,12,self,_draw_bar_empty_state,true,Qt-safe/default
-well_viewer/runtime_app.py,6288,11,self,_draw_per_cell_bar_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,6297,8,self,_draw_grouped_bar_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,6307,8,self,_apply_export_style_if_ready,true,Qt-safe/default
-well_viewer/runtime_app.py,6314,28,self,_parse_rc,true,Qt-safe/default
-well_viewer/runtime_app.py,6319,12,ax,text,true,Qt-safe/default
-well_viewer/runtime_app.py,6329,12,ax,set_axis_off,true,Qt-safe/default
-well_viewer/runtime_app.py,6330,8,self._bar_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,6333,17,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6351,23,self._bar_violin,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6351,49,self._bar_swarm,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6354,23,self,_bar_current_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,6362,23,rset_by_name,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6365,28,all_set_idx,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6369,20,plot_wells,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6370,20,plot_colors,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6371,20,plot_labels,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6371,42,self,_well_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6375,27,self,_well_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6376,11,_debug_flags,review_bar_debug_enabled,true,Qt-safe/default
-well_viewer/runtime_app.py,6377,31,self._bar_violin,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6380,15,self._bar_violin,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6381,16,self,_draw_violin,true,Qt-safe/default
-well_viewer/runtime_app.py,6383,16,self,_draw_beeswarm,true,Qt-safe/default
-well_viewer/runtime_app.py,6392,30,self._bar_log_scale,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6394,12,self,_apply_bar_ylims,true,Qt-safe/default
-well_viewer/runtime_app.py,6397,26,self._bar_log_scale,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6397,56,self._bar_swarm,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6399,8,self._bar_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,6414,31,self,_collect_bar_items,true,Qt-safe/default
-well_viewer/runtime_app.py,6419,36,all_set_idx,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6423,23,self,_bar_current_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,6424,23,by_key,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6427,43,self,_compute_rep_stats,true,Qt-safe/default
-well_viewer/runtime_app.py,6428,27,self,_replicate_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6430,16,ordered,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6438,28,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6439,24,color_by_key,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6446,39,self,_bar_current_keys,true,Qt-safe/default
-well_viewer/runtime_app.py,6448,23,self,_bar_well_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6464,8,ax_frac,set_ylabel,true,Qt-safe/default
-well_viewer/runtime_app.py,6465,14,self._active_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6466,8,ax_mean,set_title,true,Qt-safe/default
-well_viewer/runtime_app.py,6473,8,ax_frac,set_title,true,Qt-safe/default
-well_viewer/runtime_app.py,6480,8,self,_apply_bar_ylims,true,Qt-safe/default
-well_viewer/runtime_app.py,6481,8,self._bar_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,6488,15,self._well_labels,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6492,19,self,_well_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6493,11,re,match,true,Qt-safe/default
-well_viewer/runtime_app.py,6504,15,"str(getattr(rset, 'name', '') or '')",strip,true,Qt-safe/default
-well_viewer/runtime_app.py,6509,12,re,match,true,Qt-safe/default
-well_viewer/runtime_app.py,6518,17,self,_well_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6522,19,"','",join,true,Qt-safe/default
-well_viewer/runtime_app.py,6523,18,"','",join,true,Qt-safe/default
-well_viewer/runtime_app.py,6532,40,self,_rep_sets_loaded,true,Qt-safe/default
-well_viewer/runtime_app.py,6551,30,self,_get_cell_area_threshold,true,Qt-safe/default
-well_viewer/runtime_app.py,6552,22,self,_get_all_fluor_gates,true,Qt-safe/default
-well_viewer/runtime_app.py,6554,78,fluor_gates,items,true,Qt-safe/default
-well_viewer/runtime_app.py,6563,19,self,_get_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,6571,23,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6571,38,well_means,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6572,23,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6572,38,well_fracs,append,true,Qt-safe/default
+well_viewer/runtime_app.py,5711,12,self._review_well_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5714,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5715,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5716,12,self,_refresh_review_csv_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5717,12,self._review_csv_msg,set,true,Qt-safe/default
+well_viewer/runtime_app.py,5720,8,self._review_well_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5720,34,"', '",join,true,Qt-safe/default
+well_viewer/runtime_app.py,5723,12,rows,extend,true,Qt-safe/default
+well_viewer/runtime_app.py,5723,24,self,_review_load_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5727,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5728,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5729,12,self,_refresh_review_csv_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5730,12,self._review_csv_msg,set,true,Qt-safe/default
+well_viewer/runtime_app.py,5734,12,"str(r.get('fov', r.get('FOV', '')))",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5734,16,r,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5734,29,r,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5736,15,"str(r.get('fov', r.get('FOV', '')))",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5736,19,r,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5736,32,r,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5741,21,"str(row.get('timepoint', row.get('tp', row.get('time', ''))))",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5741,25,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5741,46,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5741,60,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5742,22,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5745,12,seen_tps,add,true,Qt-safe/default
+well_viewer/runtime_app.py,5746,12,tps,append,true,Qt-safe/default
+well_viewer/runtime_app.py,5747,8,tps,sort,true,Qt-safe/default
+well_viewer/runtime_app.py,5750,20,self._review_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5751,12,self._review_fov_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5752,19,self._review_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5753,12,self._review_tp_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5754,8,self,_refresh_review_csv_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5760,19,table,get_children,true,Qt-safe/default
+well_viewer/runtime_app.py,5761,12,table,delete,true,Qt-safe/default
+well_viewer/runtime_app.py,5767,16,rows,extend,true,Qt-safe/default
+well_viewer/runtime_app.py,5767,28,self,_review_load_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5770,16,str(v or ''),strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5778,24,self._review_fov_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5779,17,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5779,38,self._review_tp_var,get,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,5782,28,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5782,43,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5783,21,self,_norm_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,5783,42,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5783,63,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5783,77,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5788,12,filtered,append,true,Qt-safe/default
+well_viewer/runtime_app.py,5791,12,_logger,warning,true,Qt-safe/default
+well_viewer/runtime_app.py,5798,16,self._review_csv_msg,set,true,Qt-safe/default
+well_viewer/runtime_app.py,5803,12,self._review_csv_msg,set,true,Qt-safe/default
+well_viewer/runtime_app.py,5808,25,ctx,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5808,50,ctx,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5808,73,ctx,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5808,103,ctx,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5811,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,5815,20,filtered[0],keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5818,12,table,heading,true,Qt-safe/default
+well_viewer/runtime_app.py,5819,12,table,column,true,Qt-safe/default
+well_viewer/runtime_app.py,5821,12,table,insert,true,Qt-safe/default
+well_viewer/runtime_app.py,5821,45,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5822,8,self._review_csv_msg,set,true,Qt-safe/default
+well_viewer/runtime_app.py,5828,41,self,_get_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,5829,18,self,_extract_well_token,true,Qt-safe/default
+well_viewer/runtime_app.py,5831,16,row,setdefault,true,Qt-safe/default
+well_viewer/runtime_app.py,5835,38,"str(row.get('included', ''))",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,5835,42,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5837,20,row,pop,true,Qt-safe/default
+well_viewer/runtime_app.py,5838,31,self,_review_row_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5841,31,self._review_included_overrides,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5859,12,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,5867,12,all_tps,add,true,Qt-safe/default
+well_viewer/runtime_app.py,5872,14,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,5875,12,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,5877,12,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,5879,12,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,5893,23,fig.canvas,get_renderer,true,Qt-safe/default
+well_viewer/runtime_app.py,5896,16,ax,get_window_extent,true,Qt-safe/default
+well_viewer/runtime_app.py,5900,18,ax.transData,inverted,true,Qt-safe/default
+well_viewer/runtime_app.py,5901,18,inv,transform,true,Qt-safe/default
+well_viewer/runtime_app.py,5920,8,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,5921,8,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,5925,16,self,_bar_pixel_to_data_x,true,Qt-safe/default
+well_viewer/runtime_app.py,5928,15,self,_bar_current_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5932,14,self,_bar_idx_at_x,true,Qt-safe/default
+well_viewer/runtime_app.py,5933,8,self._bar_drag_state,update,true,Qt-safe/default
+well_viewer/runtime_app.py,5940,16,self,_bar_pixel_to_data_x,true,Qt-safe/default
+well_viewer/runtime_app.py,5943,15,self,_bar_current_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5947,14,self,_bar_idx_at_x,true,Qt-safe/default
+well_viewer/runtime_app.py,5956,20,ln,remove,true,Qt-safe/default
+well_viewer/runtime_app.py,5961,17,ax,axvline,true,Qt-safe/default
+well_viewer/runtime_app.py,5964,8,self._bar_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,5977,20,ln,remove,true,Qt-safe/default
+well_viewer/runtime_app.py,5982,12,self._bar_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,5985,15,self,_bar_current_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,5987,12,self._bar_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,5990,15,keys,pop,true,Qt-safe/default
+well_viewer/runtime_app.py,5991,8,keys,insert,true,Qt-safe/default
+well_viewer/runtime_app.py,5993,8,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,5994,8,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,5998,8,self._bar_log_scale,set,true,Qt-safe/default
+well_viewer/runtime_app.py,5998,36,self._bar_log_scale,get,true,Qt-safe/default
+well_viewer/runtime_app.py,5999,13,self._bar_log_scale,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6000,8,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,6001,8,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,6014,8,self._bar_swarm,set,true,Qt-safe/default
+well_viewer/runtime_app.py,6014,32,self._bar_swarm,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6015,13,self._bar_swarm,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6016,8,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,6017,18,self._bar_violin,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6019,12,self._bar_violin,set,true,Qt-safe/default
+well_viewer/runtime_app.py,6020,12,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,6021,12,self,_set_widget_state,true,Qt-safe/default
+well_viewer/runtime_app.py,6022,8,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,6026,8,self._bar_violin,set,true,Qt-safe/default
+well_viewer/runtime_app.py,6026,33,self._bar_violin,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6027,13,self._bar_violin,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6028,8,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,6029,8,self,_set_widget_state,true,Qt-safe/default
+well_viewer/runtime_app.py,6030,8,self,_set_widget_palette,true,Qt-safe/default
+well_viewer/runtime_app.py,6031,18,self._bar_swarm,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6033,12,self._bar_swarm,set,true,Qt-safe/default
+well_viewer/runtime_app.py,6034,12,self,_set_widget_style,true,Qt-safe/default
+well_viewer/runtime_app.py,6035,8,self,_redraw_bars,true,Qt-safe/default
+well_viewer/runtime_app.py,6059,12,ax_mean,text,true,Qt-safe/default
+well_viewer/runtime_app.py,6066,28,self._violin_bw,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6073,19,self,_get_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,6079,24,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6093,20,vals,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6095,12,frac_vals,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6100,20,ax_mean,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6103,18,np_local,array,true,Qt-safe/default
+well_viewer/runtime_app.py,6105,27,arr,min,true,Qt-safe/default
+well_viewer/runtime_app.py,6105,38,arr,max,true,Qt-safe/default
+well_viewer/runtime_app.py,6107,17,np_local,linspace,true,Qt-safe/default
+well_viewer/runtime_app.py,6110,20,density,max,true,Qt-safe/default
+well_viewer/runtime_app.py,6115,12,ax_mean,fill_betweenx,true,Qt-safe/default
+well_viewer/runtime_app.py,6117,12,ax_mean,plot,true,Qt-safe/default
+well_viewer/runtime_app.py,6118,12,ax_mean,plot,true,Qt-safe/default
+well_viewer/runtime_app.py,6121,27,np_local,median,true,Qt-safe/default
+well_viewer/runtime_app.py,6122,12,ax_mean,hlines,true,Qt-safe/default
+well_viewer/runtime_app.py,6124,12,ax_mean,hlines,true,Qt-safe/default
+well_viewer/runtime_app.py,6129,19,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6130,16,ax_frac,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6132,16,ax_frac,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6136,8,ax_mean,axhline,true,Qt-safe/default
+well_viewer/runtime_app.py,6137,8,ax_frac,axhline,true,Qt-safe/default
+well_viewer/runtime_app.py,6139,12,ax,set_xticks,true,Qt-safe/default
+well_viewer/runtime_app.py,6140,12,ax,set_xticklabels,true,Qt-safe/default
+well_viewer/runtime_app.py,6144,12,ax,set_xlim,true,Qt-safe/default
+well_viewer/runtime_app.py,6145,8,ax_frac,set_ylim,true,Qt-safe/default
+well_viewer/runtime_app.py,6146,8,ax_frac,set_ylabel,true,Qt-safe/default
+well_viewer/runtime_app.py,6147,8,ax_mean,set_title,true,Qt-safe/default
+well_viewer/runtime_app.py,6148,15,self._active_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6150,8,ax_frac,set_title,true,Qt-safe/default
+well_viewer/runtime_app.py,6179,19,self,_get_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,6187,22,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6189,46,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6191,46,row,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6201,20,cell_vals,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6208,16,ax_mean,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6212,16,ax_mean,plot,true,Qt-safe/default
+well_viewer/runtime_app.py,6217,20,ax_mean,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6221,16,ax_frac,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6224,16,ax_frac,scatter,true,Qt-safe/default
+well_viewer/runtime_app.py,6227,8,ax_mean,axhline,true,Qt-safe/default
+well_viewer/runtime_app.py,6229,8,ax_frac,axhline,true,Qt-safe/default
+well_viewer/runtime_app.py,6232,12,ax,set_xticks,true,Qt-safe/default
+well_viewer/runtime_app.py,6233,12,ax,set_xticklabels,true,Qt-safe/default
+well_viewer/runtime_app.py,6237,12,ax,set_xlim,true,Qt-safe/default
+well_viewer/runtime_app.py,6238,8,ax_frac,set_ylim,true,Qt-safe/default
+well_viewer/runtime_app.py,6239,8,ax_frac,set_ylabel,true,Qt-safe/default
+well_viewer/runtime_app.py,6240,8,ax_mean,set_title,true,Qt-safe/default
+well_viewer/runtime_app.py,6241,15,self._active_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6243,8,ax_frac,set_title,true,Qt-safe/default
+well_viewer/runtime_app.py,6251,8,ax_mean,cla,true,Qt-safe/default
+well_viewer/runtime_app.py,6252,8,ax_frac,cla,true,Qt-safe/default
+well_viewer/runtime_app.py,6254,18,self._use_sem,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6256,20,self,_get_thresh_frac_on,true,Qt-safe/default
+well_viewer/runtime_app.py,6258,23,self,_rep_sets_active,true,Qt-safe/default
+well_viewer/runtime_app.py,6259,23,self,_selected_bar_wells,true,Qt-safe/default
+well_viewer/runtime_app.py,6261,14,self._active_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6268,8,ax_frac,set_ylim,true,Qt-safe/default
+well_viewer/runtime_app.py,6271,12,self,_draw_bar_empty_state,true,Qt-safe/default
+well_viewer/runtime_app.py,6274,18,self,_resolve_bar_timepoint,true,Qt-safe/default
+well_viewer/runtime_app.py,6276,12,self,_draw_bar_empty_state,true,Qt-safe/default
+well_viewer/runtime_app.py,6280,11,self,_draw_per_cell_bar_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,6289,8,self,_draw_grouped_bar_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,6299,8,self,_apply_export_style_if_ready,true,Qt-safe/default
+well_viewer/runtime_app.py,6306,28,self,_parse_rc,true,Qt-safe/default
+well_viewer/runtime_app.py,6311,12,ax,text,true,Qt-safe/default
+well_viewer/runtime_app.py,6321,12,ax,set_axis_off,true,Qt-safe/default
+well_viewer/runtime_app.py,6322,8,self._bar_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,6325,17,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6343,23,self._bar_violin,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6343,49,self._bar_swarm,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6346,23,self,_bar_current_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,6354,23,rset_by_name,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6357,28,all_set_idx,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6361,20,plot_wells,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6362,20,plot_colors,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6363,20,plot_labels,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6363,42,self,_well_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6367,27,self,_well_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6368,11,_debug_flags,review_bar_debug_enabled,true,Qt-safe/default
+well_viewer/runtime_app.py,6369,31,self._bar_violin,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6372,15,self._bar_violin,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6373,16,self,_draw_violin,true,Qt-safe/default
+well_viewer/runtime_app.py,6375,16,self,_draw_beeswarm,true,Qt-safe/default
+well_viewer/runtime_app.py,6384,30,self._bar_log_scale,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6386,12,self,_apply_bar_ylims,true,Qt-safe/default
+well_viewer/runtime_app.py,6389,26,self._bar_log_scale,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6389,56,self._bar_swarm,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6391,8,self._bar_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,6406,31,self,_collect_bar_items,true,Qt-safe/default
+well_viewer/runtime_app.py,6411,36,all_set_idx,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6415,23,self,_bar_current_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,6416,23,by_key,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6419,43,self,_compute_rep_stats,true,Qt-safe/default
+well_viewer/runtime_app.py,6420,27,self,_replicate_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6422,16,ordered,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6430,28,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6431,24,color_by_key,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6438,39,self,_bar_current_keys,true,Qt-safe/default
+well_viewer/runtime_app.py,6440,23,self,_bar_well_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6456,8,ax_frac,set_ylabel,true,Qt-safe/default
+well_viewer/runtime_app.py,6457,14,self._active_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6458,8,ax_mean,set_title,true,Qt-safe/default
+well_viewer/runtime_app.py,6465,8,ax_frac,set_title,true,Qt-safe/default
+well_viewer/runtime_app.py,6472,8,self,_apply_bar_ylims,true,Qt-safe/default
+well_viewer/runtime_app.py,6473,8,self._bar_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,6480,15,self._well_labels,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6484,19,self,_well_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6485,11,re,match,true,Qt-safe/default
+well_viewer/runtime_app.py,6496,15,"str(getattr(rset, 'name', '') or '')",strip,true,Qt-safe/default
+well_viewer/runtime_app.py,6501,12,re,match,true,Qt-safe/default
+well_viewer/runtime_app.py,6510,17,self,_well_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6514,19,"','",join,true,Qt-safe/default
+well_viewer/runtime_app.py,6515,18,"','",join,true,Qt-safe/default
+well_viewer/runtime_app.py,6524,40,self,_rep_sets_loaded,true,Qt-safe/default
+well_viewer/runtime_app.py,6543,30,self,_get_cell_area_threshold,true,Qt-safe/default
+well_viewer/runtime_app.py,6544,22,self,_get_all_fluor_gates,true,Qt-safe/default
+well_viewer/runtime_app.py,6546,78,fluor_gates,items,true,Qt-safe/default
+well_viewer/runtime_app.py,6555,19,self,_get_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,6563,23,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6563,38,well_means,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6564,23,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6564,38,well_fracs,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6567,18,statistics,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,6569,18,statistics,pstdev,true,Qt-safe/default
+well_viewer/runtime_app.py,6570,25,math,sqrt,true,Qt-safe/default
 well_viewer/runtime_app.py,6575,18,statistics,mean,true,Qt-safe/default
 well_viewer/runtime_app.py,6577,18,statistics,pstdev,true,Qt-safe/default
 well_viewer/runtime_app.py,6578,25,math,sqrt,true,Qt-safe/default
-well_viewer/runtime_app.py,6583,18,statistics,mean,true,Qt-safe/default
-well_viewer/runtime_app.py,6585,18,statistics,pstdev,true,Qt-safe/default
-well_viewer/runtime_app.py,6586,25,math,sqrt,true,Qt-safe/default
-well_viewer/runtime_app.py,6614,30,self,_get_cell_area_threshold,true,Qt-safe/default
-well_viewer/runtime_app.py,6615,22,self,_get_all_fluor_gates,true,Qt-safe/default
-well_viewer/runtime_app.py,6617,78,fluor_gates,items,true,Qt-safe/default
-well_viewer/runtime_app.py,6624,20,grp,replicate_sets,true,Qt-safe/default
-well_viewer/runtime_app.py,6630,23,self,_get_rows,true,Qt-safe/default
-well_viewer/runtime_app.py,6638,27,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6638,42,set_means,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6639,27,math,isnan,true,Qt-safe/default
-well_viewer/runtime_app.py,6639,42,set_fracs,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6641,16,rep_means,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6641,33,statistics,mean,true,Qt-safe/default
-well_viewer/runtime_app.py,6643,16,rep_fracs,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6643,33,statistics,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,6606,30,self,_get_cell_area_threshold,true,Qt-safe/default
+well_viewer/runtime_app.py,6607,22,self,_get_all_fluor_gates,true,Qt-safe/default
+well_viewer/runtime_app.py,6609,78,fluor_gates,items,true,Qt-safe/default
+well_viewer/runtime_app.py,6616,20,grp,replicate_sets,true,Qt-safe/default
+well_viewer/runtime_app.py,6622,23,self,_get_rows,true,Qt-safe/default
+well_viewer/runtime_app.py,6630,27,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6630,42,set_means,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6631,27,math,isnan,true,Qt-safe/default
+well_viewer/runtime_app.py,6631,42,set_fracs,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6633,16,rep_means,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6633,33,statistics,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,6635,16,rep_fracs,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6635,33,statistics,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,6638,19,statistics,mean,true,Qt-safe/default
+well_viewer/runtime_app.py,6640,19,statistics,pstdev,true,Qt-safe/default
+well_viewer/runtime_app.py,6641,29,math,sqrt,true,Qt-safe/default
 well_viewer/runtime_app.py,6646,19,statistics,mean,true,Qt-safe/default
 well_viewer/runtime_app.py,6648,19,statistics,pstdev,true,Qt-safe/default
 well_viewer/runtime_app.py,6649,29,math,sqrt,true,Qt-safe/default
-well_viewer/runtime_app.py,6654,19,statistics,mean,true,Qt-safe/default
-well_viewer/runtime_app.py,6656,19,statistics,pstdev,true,Qt-safe/default
-well_viewer/runtime_app.py,6657,29,math,sqrt,true,Qt-safe/default
-well_viewer/runtime_app.py,6694,20,self._use_sem,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6696,20,self,_get_thresh_frac_on,true,Qt-safe/default
-well_viewer/runtime_app.py,6699,18,fig,add_subplot,true,Qt-safe/default
-well_viewer/runtime_app.py,6700,18,fig,add_subplot,true,Qt-safe/default
-well_viewer/runtime_app.py,6701,8,fig,subplots_adjust,true,Qt-safe/default
-well_viewer/runtime_app.py,6703,14,self._active_channel,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6707,8,ax_frac,set_ylim,true,Qt-safe/default
-well_viewer/runtime_app.py,6709,31,self,_collect_bar_items,true,Qt-safe/default
-well_viewer/runtime_app.py,6711,46,self,_rep_sets_active,true,Qt-safe/default
-well_viewer/runtime_app.py,6712,23,self,_replicate_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6719,23,self,_bar_well_display_label,true,Qt-safe/default
-well_viewer/runtime_app.py,6745,12,QMessageBox,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,6747,8,self,_select_tab_by_text,true,Qt-safe/default
-well_viewer/runtime_app.py,6749,12,self,_batch_export_set_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,6754,12,QMessageBox,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,6756,8,self,_select_tab_by_text,true,Qt-safe/default
-well_viewer/runtime_app.py,6758,12,self,_batch_export_set_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,6763,12,QMessageBox,warning,true,Qt-safe/default
-well_viewer/runtime_app.py,6765,8,self,_select_tab_by_text,true,Qt-safe/default
-well_viewer/runtime_app.py,6767,12,self,_batch_export_set_mode,true,Qt-safe/default
-well_viewer/runtime_app.py,6806,36,mapping,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6808,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,6812,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,6822,11,entry,endswith,true,Qt-safe/default
-well_viewer/runtime_app.py,6834,12,scatter_ch_options,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6836,16,scatter_ch_options,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6838,8,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,6839,8,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,6842,20,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6843,20,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6845,16,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6847,16,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6856,8,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,6858,17,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6860,12,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6866,12,statistics,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6866,51,ch,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6867,12,statistics,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6867,45,ch,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6869,16,statistics,append,true,Qt-safe/default
-well_viewer/runtime_app.py,6869,50,ch,upper,true,Qt-safe/default
-well_viewer/runtime_app.py,6871,8,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,6872,8,self,_set_widget_values,true,Qt-safe/default
-well_viewer/runtime_app.py,6875,25,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6876,25,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6878,16,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6880,16,self,_set_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6888,53,self._scatter_agg_tp_selections,items,true,Qt-safe/default
-well_viewer/runtime_app.py,6889,12,self._scatter_agg_tp_selections,clear,true,Qt-safe/default
-well_viewer/runtime_app.py,6897,8,self,_update_tp_selection_display,true,Qt-safe/default
-well_viewer/runtime_app.py,6901,31,self._scatter_agg_tp_selections,values,true,Qt-safe/default
-well_viewer/runtime_app.py,6905,12,self._scatter_agg_tp_label,setText,true,Qt-safe/default
-well_viewer/runtime_app.py,6910,25,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6911,25,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6912,21,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,6918,20,ch_x_entry,split,true,Qt-safe/default
-well_viewer/runtime_app.py,6919,20,ch_y_entry,split,true,Qt-safe/default
-well_viewer/runtime_app.py,6921,30,self,_get_cell_area_threshold,true,Qt-safe/default
-well_viewer/runtime_app.py,6922,23,self,_get_fluor_gate,true,Qt-safe/default
-well_viewer/runtime_app.py,6923,23,self,_get_fluor_gate,true,Qt-safe/default
-well_viewer/runtime_app.py,6926,16,self,_col_for_scatter_entry,true,Qt-safe/default
-well_viewer/runtime_app.py,6927,16,self,_col_for_scatter_entry,true,Qt-safe/default
-well_viewer/runtime_app.py,6939,8,self,_apply_export_style_if_ready,true,Qt-safe/default
-well_viewer/runtime_app.py,6951,21,interaction_cache,get,true,Qt-safe/default
-well_viewer/runtime_app.py,6971,16,self,_open_scatter_cell_viewer,true,Qt-safe/default
-well_viewer/runtime_app.py,6974,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,6983,21,interaction_cache,get,true,Qt-safe/default
-well_viewer/runtime_app.py,7003,16,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,7005,16,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,7020,97,self,_widget_exists,true,Qt-safe/default
-well_viewer/runtime_app.py,7030,12,self._scatter_cell_viewer,update_cell,true,Qt-safe/default
-well_viewer/runtime_app.py,7031,12,self._scatter_cell_viewer,lift,true,Qt-safe/default
-well_viewer/runtime_app.py,7032,12,self._scatter_cell_viewer,focus,true,Qt-safe/default
-well_viewer/runtime_app.py,7049,21,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,7050,21,self,_get_var_value,true,Qt-safe/default
-well_viewer/runtime_app.py,7055,16,self._ax_scatter_agg,clear,true,Qt-safe/default
-well_viewer/runtime_app.py,7056,16,self._ax_scatter_agg,text,true,Qt-safe/default
-well_viewer/runtime_app.py,7064,16,self._scatter_agg_canvas,draw,true,Qt-safe/default
-well_viewer/runtime_app.py,7068,31,self._scatter_agg_tp_selections,items,true,Qt-safe/default
-well_viewer/runtime_app.py,7069,35,var,get,true,Qt-safe/default
-well_viewer/runtime_app.py,7072,24,selected_timepoints,append,true,Qt-safe/default
-well_viewer/runtime_app.py,7078,16,self._ax_scatter_agg,clear,true,Qt-safe/default
-well_viewer/runtime_app.py,7079,16,self._ax_scatter_agg,text,true,Qt-safe/default
-well_viewer/runtime_app.py,7087,16,self._scatter_agg_canvas,draw,true,Qt-safe/default
-well_viewer/runtime_app.py,7103,8,self,_apply_export_style_if_ready,true,Qt-safe/default
-well_viewer/runtime_app.py,7136,25,self._line_ax_cdf,get_xlim,true,Qt-safe/default
-well_viewer/runtime_app.py,7142,16,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,7154,14,ax_map,get,true,Qt-safe/default
-well_viewer/runtime_app.py,7158,14,clicked_ax,get_legend,true,Qt-safe/default
-well_viewer/runtime_app.py,7160,12,leg,set_visible,true,Qt-safe/default
-well_viewer/runtime_app.py,7161,12,self._line_canvas,draw_idle,true,Qt-safe/default
-well_viewer/runtime_app.py,7163,8,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,7173,21,self._line_ax_cdf,get_xlim,true,Qt-safe/default
-well_viewer/runtime_app.py,7179,8,self._entry_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,7180,8,self,_invalidate_stats_cache,true,Qt-safe/default
-well_viewer/runtime_app.py,7182,8,self,_redraw,true,Qt-safe/default
-well_viewer/runtime_app.py,7194,8,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,7199,12,self._progress_bar,setRange,true,Qt-safe/default
-well_viewer/runtime_app.py,7200,12,self._progress_bar,setValue,true,Qt-safe/default
-well_viewer/runtime_app.py,7201,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7203,12,self._progress_bar,setMaximum,true,Qt-safe/default
-well_viewer/runtime_app.py,7204,12,self._progress_bar,setValue,true,Qt-safe/default
-well_viewer/runtime_app.py,7205,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7209,16,progress_bar,config,true,explicit compatibility fallback path
-well_viewer/runtime_app.py,7210,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7212,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,7213,8,self,update,true,Qt-safe/default
-well_viewer/runtime_app.py,7218,12,self._progress_bar,setValue,true,Qt-safe/default
-well_viewer/runtime_app.py,7220,12,self._progress_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,7222,12,self,_set_status,true,Qt-safe/default
-well_viewer/runtime_app.py,7223,8,self,update,true,Qt-safe/default
-well_viewer/runtime_app.py,7228,12,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7229,12,self._progress_bar,setValue,true,Qt-safe/default
-well_viewer/runtime_app.py,7231,12,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7233,16,self._progress_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
-well_viewer/runtime_app.py,7238,12,self,_show_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7239,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,7241,12,self,_hide_compat_widget,true,Qt-safe/default
-well_viewer/runtime_app.py,7242,12,self,_set_widget_text,true,Qt-safe/default
-well_viewer/runtime_app.py,7246,12,self._log_text,clear,true,Qt-safe/default
-well_viewer/runtime_app.py,7262,9,argparse,ArgumentParser,true,Qt-safe/default
-well_viewer/runtime_app.py,7264,4,ap,add_argument,true,Qt-safe/default
-well_viewer/runtime_app.py,7266,11,ap,parse_args,true,Qt-safe/default
-well_viewer/runtime_app.py,7267,11,QApplication,instance,true,Qt-safe/default
-well_viewer/runtime_app.py,7269,4,win,setWindowTitle,true,Qt-safe/default
-well_viewer/runtime_app.py,7271,4,win,setCentralWidget,true,Qt-safe/default
-well_viewer/runtime_app.py,7272,4,win,resize,true,Qt-safe/default
-well_viewer/runtime_app.py,7273,4,win,show,true,Qt-safe/default
-well_viewer/runtime_app.py,7274,4,qapp,exec,true,Qt-safe/default
+well_viewer/runtime_app.py,6686,20,self._use_sem,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6688,20,self,_get_thresh_frac_on,true,Qt-safe/default
+well_viewer/runtime_app.py,6691,18,fig,add_subplot,true,Qt-safe/default
+well_viewer/runtime_app.py,6692,18,fig,add_subplot,true,Qt-safe/default
+well_viewer/runtime_app.py,6693,8,fig,subplots_adjust,true,Qt-safe/default
+well_viewer/runtime_app.py,6695,14,self._active_channel,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6699,8,ax_frac,set_ylim,true,Qt-safe/default
+well_viewer/runtime_app.py,6701,31,self,_collect_bar_items,true,Qt-safe/default
+well_viewer/runtime_app.py,6703,46,self,_rep_sets_active,true,Qt-safe/default
+well_viewer/runtime_app.py,6704,23,self,_replicate_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6711,23,self,_bar_well_display_label,true,Qt-safe/default
+well_viewer/runtime_app.py,6737,12,QMessageBox,warning,true,Qt-safe/default
+well_viewer/runtime_app.py,6739,8,self,_select_tab_by_text,true,Qt-safe/default
+well_viewer/runtime_app.py,6741,12,self,_batch_export_set_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,6746,12,QMessageBox,warning,true,Qt-safe/default
+well_viewer/runtime_app.py,6748,8,self,_select_tab_by_text,true,Qt-safe/default
+well_viewer/runtime_app.py,6750,12,self,_batch_export_set_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,6755,12,QMessageBox,warning,true,Qt-safe/default
+well_viewer/runtime_app.py,6757,8,self,_select_tab_by_text,true,Qt-safe/default
+well_viewer/runtime_app.py,6759,12,self,_batch_export_set_mode,true,Qt-safe/default
+well_viewer/runtime_app.py,6798,36,mapping,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6800,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,6804,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,6814,11,entry,endswith,true,Qt-safe/default
+well_viewer/runtime_app.py,6826,12,scatter_ch_options,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6828,16,scatter_ch_options,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6830,8,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,6831,8,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,6834,20,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6835,20,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6837,16,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6839,16,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6848,8,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,6850,17,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6852,12,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6858,12,statistics,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6858,51,ch,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6859,12,statistics,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6859,45,ch,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6861,16,statistics,append,true,Qt-safe/default
+well_viewer/runtime_app.py,6861,50,ch,upper,true,Qt-safe/default
+well_viewer/runtime_app.py,6863,8,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,6864,8,self,_set_widget_values,true,Qt-safe/default
+well_viewer/runtime_app.py,6867,25,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6868,25,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6870,16,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6872,16,self,_set_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6880,53,self._scatter_agg_tp_selections,items,true,Qt-safe/default
+well_viewer/runtime_app.py,6881,12,self._scatter_agg_tp_selections,clear,true,Qt-safe/default
+well_viewer/runtime_app.py,6889,8,self,_update_tp_selection_display,true,Qt-safe/default
+well_viewer/runtime_app.py,6893,31,self._scatter_agg_tp_selections,values,true,Qt-safe/default
+well_viewer/runtime_app.py,6897,12,self._scatter_agg_tp_label,setText,true,Qt-safe/default
+well_viewer/runtime_app.py,6902,25,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6903,25,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6904,21,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,6910,20,ch_x_entry,split,true,Qt-safe/default
+well_viewer/runtime_app.py,6911,20,ch_y_entry,split,true,Qt-safe/default
+well_viewer/runtime_app.py,6913,30,self,_get_cell_area_threshold,true,Qt-safe/default
+well_viewer/runtime_app.py,6914,23,self,_get_fluor_gate,true,Qt-safe/default
+well_viewer/runtime_app.py,6915,23,self,_get_fluor_gate,true,Qt-safe/default
+well_viewer/runtime_app.py,6918,16,self,_col_for_scatter_entry,true,Qt-safe/default
+well_viewer/runtime_app.py,6919,16,self,_col_for_scatter_entry,true,Qt-safe/default
+well_viewer/runtime_app.py,6931,8,self,_apply_export_style_if_ready,true,Qt-safe/default
+well_viewer/runtime_app.py,6943,21,interaction_cache,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6963,16,self,_open_scatter_cell_viewer,true,Qt-safe/default
+well_viewer/runtime_app.py,6966,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,6975,21,interaction_cache,get,true,Qt-safe/default
+well_viewer/runtime_app.py,6995,16,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,6997,16,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,7012,97,self,_widget_exists,true,Qt-safe/default
+well_viewer/runtime_app.py,7022,12,self._scatter_cell_viewer,update_cell,true,Qt-safe/default
+well_viewer/runtime_app.py,7023,12,self._scatter_cell_viewer,lift,true,Qt-safe/default
+well_viewer/runtime_app.py,7024,12,self._scatter_cell_viewer,focus,true,Qt-safe/default
+well_viewer/runtime_app.py,7041,21,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,7042,21,self,_get_var_value,true,Qt-safe/default
+well_viewer/runtime_app.py,7047,16,self._ax_scatter_agg,clear,true,Qt-safe/default
+well_viewer/runtime_app.py,7048,16,self._ax_scatter_agg,text,true,Qt-safe/default
+well_viewer/runtime_app.py,7056,16,self._scatter_agg_canvas,draw,true,Qt-safe/default
+well_viewer/runtime_app.py,7060,31,self._scatter_agg_tp_selections,items,true,Qt-safe/default
+well_viewer/runtime_app.py,7061,35,var,get,true,Qt-safe/default
+well_viewer/runtime_app.py,7064,24,selected_timepoints,append,true,Qt-safe/default
+well_viewer/runtime_app.py,7070,16,self._ax_scatter_agg,clear,true,Qt-safe/default
+well_viewer/runtime_app.py,7071,16,self._ax_scatter_agg,text,true,Qt-safe/default
+well_viewer/runtime_app.py,7079,16,self._scatter_agg_canvas,draw,true,Qt-safe/default
+well_viewer/runtime_app.py,7095,8,self,_apply_export_style_if_ready,true,Qt-safe/default
+well_viewer/runtime_app.py,7128,25,self._line_ax_cdf,get_xlim,true,Qt-safe/default
+well_viewer/runtime_app.py,7134,16,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,7146,14,ax_map,get,true,Qt-safe/default
+well_viewer/runtime_app.py,7150,14,clicked_ax,get_legend,true,Qt-safe/default
+well_viewer/runtime_app.py,7152,12,leg,set_visible,true,Qt-safe/default
+well_viewer/runtime_app.py,7153,12,self._line_canvas,draw_idle,true,Qt-safe/default
+well_viewer/runtime_app.py,7155,8,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,7165,21,self._line_ax_cdf,get_xlim,true,Qt-safe/default
+well_viewer/runtime_app.py,7171,8,self._entry_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,7172,8,self,_invalidate_stats_cache,true,Qt-safe/default
+well_viewer/runtime_app.py,7174,8,self,_redraw,true,Qt-safe/default
+well_viewer/runtime_app.py,7186,8,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,7191,12,self._progress_bar,setRange,true,Qt-safe/default
+well_viewer/runtime_app.py,7192,12,self._progress_bar,setValue,true,Qt-safe/default
+well_viewer/runtime_app.py,7193,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7195,12,self._progress_bar,setMaximum,true,Qt-safe/default
+well_viewer/runtime_app.py,7196,12,self._progress_bar,setValue,true,Qt-safe/default
+well_viewer/runtime_app.py,7197,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7201,16,progress_bar,config,true,explicit compatibility fallback path
+well_viewer/runtime_app.py,7202,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7204,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,7205,8,self,update,true,Qt-safe/default
+well_viewer/runtime_app.py,7210,12,self._progress_bar,setValue,true,Qt-safe/default
+well_viewer/runtime_app.py,7212,12,self._progress_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,7214,12,self,_set_status,true,Qt-safe/default
+well_viewer/runtime_app.py,7215,8,self,update,true,Qt-safe/default
+well_viewer/runtime_app.py,7220,12,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7221,12,self._progress_bar,setValue,true,Qt-safe/default
+well_viewer/runtime_app.py,7223,12,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7225,16,self._progress_var,set,true,direct app *_var access with __getattr__/_CompatVar fallback
+well_viewer/runtime_app.py,7230,12,self,_show_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7231,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,7233,12,self,_hide_compat_widget,true,Qt-safe/default
+well_viewer/runtime_app.py,7234,12,self,_set_widget_text,true,Qt-safe/default
+well_viewer/runtime_app.py,7238,12,self._log_text,clear,true,Qt-safe/default
+well_viewer/runtime_app.py,7254,9,argparse,ArgumentParser,true,Qt-safe/default
+well_viewer/runtime_app.py,7256,4,ap,add_argument,true,Qt-safe/default
+well_viewer/runtime_app.py,7258,11,ap,parse_args,true,Qt-safe/default
+well_viewer/runtime_app.py,7259,11,QApplication,instance,true,Qt-safe/default
+well_viewer/runtime_app.py,7261,4,win,setWindowTitle,true,Qt-safe/default
+well_viewer/runtime_app.py,7263,4,win,setCentralWidget,true,Qt-safe/default
+well_viewer/runtime_app.py,7264,4,win,resize,true,Qt-safe/default
+well_viewer/runtime_app.py,7265,4,win,show,true,Qt-safe/default
+well_viewer/runtime_app.py,7266,4,qapp,exec,true,Qt-safe/default
 well_viewer/scatter_callbacks.py,51,8,super(),__init__,true,Qt-safe/default
 well_viewer/scatter_callbacks.py,52,8,self,setWindowTitle,true,Qt-safe/default
 well_viewer/scatter_callbacks.py,53,8,self,resize,true,Qt-safe/default
