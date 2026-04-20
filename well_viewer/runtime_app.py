@@ -2515,6 +2515,43 @@ class WellViewerApp(QWidget):
             self._label_panel_refresh()
             self._invalidate_stats_cache()
 
+    def _active_tab_text(self) -> str:
+        """Return the active tab label for either Qt or legacy notebook widgets."""
+        if not hasattr(self, "_notebook"):
+            return ""
+        nb = self._notebook
+        try:
+            if hasattr(nb, "tabText") and hasattr(nb, "currentIndex"):
+                idx = nb.currentIndex()
+                if idx >= 0:
+                    return str(nb.tabText(idx))
+        except Exception:
+            pass
+        try:
+            return str(nb.tab(nb.select(), "text"))
+        except Exception:
+            return ""
+
+    def _select_tab_by_text(self, text: str) -> None:
+        """Select a tab by label for either Qt or legacy notebook widgets."""
+        if not hasattr(self, "_notebook"):
+            return
+        nb = self._notebook
+        try:
+            if hasattr(nb, "select_by_text"):
+                nb.select_by_text(text)
+                return
+        except Exception:
+            pass
+        try:
+            if hasattr(nb, "count") and hasattr(nb, "tabText") and hasattr(nb, "setCurrentIndex"):
+                for i in range(nb.count()):
+                    if str(nb.tabText(i)) == text:
+                        nb.setCurrentIndex(i)
+                        return
+        except Exception:
+            pass
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
@@ -2523,12 +2560,7 @@ class WellViewerApp(QWidget):
         """
         tab_visible = False
         if hasattr(self, "_notebook"):
-            try:
-                tab_visible = (
-                    self._notebook.tab(self._notebook.select(), "text")
-                    == "Sample Definitions")
-            except Exception:
-                pass
+            tab_visible = self._active_tab_text() == "Sample Definitions"
 
         if tab_visible:
             self._rep_panel_refresh()
@@ -2592,13 +2624,8 @@ class WellViewerApp(QWidget):
         self._refresh_sidebar_map()            # line-graph picker: rep colours
         self._redraw_bars()
         self._redraw()
-        if hasattr(self, "_notebook"):
-            try:
-                tab = self._notebook.tab(self._notebook.select(), "text")
-            except Exception:
-                tab = ""
-            if tab == "Line Graphs":
-                self._show_line_sidebar()
+        if self._active_tab_text() == "Line Graphs":
+            self._show_line_sidebar()
 
     def _bar_rebuild_groups(self) -> None:
         """Rebuild card list + map then refresh all plots.
@@ -2612,13 +2639,8 @@ class WellViewerApp(QWidget):
         self._redraw_bars()
         self._groups_centre_refresh()
         self._redraw()
-        if hasattr(self, "_notebook"):
-            try:
-                tab = self._notebook.tab(self._notebook.select(), "text")
-            except Exception:
-                tab = ""
-            if tab == "Line Graphs":
-                self._show_line_sidebar()
+        if self._active_tab_text() == "Line Graphs":
+            self._show_line_sidebar()
 
     # ── Group management ──────────────────────────────────────────────────────
 
@@ -2659,11 +2681,7 @@ class WellViewerApp(QWidget):
         # Group names are edited inline in the Sample Definitions panel.
         self._bar_active_grp = idx
         self._grp_inline_edit_idx = idx
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            try:
-                self._notebook.select_by_text("Sample Definitions")
-            except Exception:
-                pass
+        self._select_tab_by_text("Sample Definitions")
         self._groups_centre_refresh()
 
     def _bar_clear_group(self, idx: int) -> None:
@@ -3021,20 +3039,14 @@ class WellViewerApp(QWidget):
         self._bar_refresh_map()
 
         # Rebuild the Replicates tab card list only if it is visible
-        try:
-            active_tab = self._notebook.tab(self._notebook.select(), "text")
-        except Exception:
-            active_tab = ""
+        active_tab = self._active_tab_text()
         if active_tab == "Sample Definitions":
             self._rep_panel_refresh()
 
         # Defer expensive plot redraws — only if the relevant tab is visible.
         # _on_tab_change already triggers redraws on tab switch, so skipping
         # these when the user is on another tab has no visible effect.
-        try:
-            active_tab = self._notebook.tab(self._notebook.select(), "text")
-        except Exception:
-            active_tab = ""
+        active_tab = self._active_tab_text()
         if active_tab == "Bar Plots":
             QTimer.singleShot(0, self._redraw_bars)
         elif active_tab == "Line Graphs":
@@ -4427,10 +4439,7 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_chan_var"):
             tab_label = ""
             if hasattr(self, "_notebook"):
-                try:
-                    tab_label = self._notebook.tab(self._notebook.select(), "text")
-                except Exception:
-                    tab_label = ""
+                tab_label = self._active_tab_text()
             if tab_label == "Movie Montage":
                 self._chan_var.set(montage_label)
             elif tab_label == "Review Image":
@@ -4445,9 +4454,8 @@ class WellViewerApp(QWidget):
         self._sem_btn.config(text="SEM" if is_sem else "SD")
         self._sem_btn.configure(style="SEM.TButton" if is_sem else "SEMWarn.TButton")
         self._redraw()
-        if hasattr(self, "_notebook"):
-            if self._notebook.tab(self._notebook.select(), "text") == "Bar Plots":
-                self._redraw_bars()
+        if self._active_tab_text() == "Bar Plots":
+            self._redraw_bars()
 
     # ── Well selection (plate-map backed) ─────────────────────────────────────
 
@@ -5202,8 +5210,7 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        self._select_tab_by_text("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("line")
 
@@ -5234,7 +5241,7 @@ class WellViewerApp(QWidget):
 
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
-        tab = self._notebook.tab(self._notebook.select(), "text")
+        tab = self._active_tab_text()
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))
 
@@ -6427,8 +6434,7 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Bar Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        self._select_tab_by_text("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("bar")
 
@@ -6437,8 +6443,7 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Cells Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        self._select_tab_by_text("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_cells")
 
@@ -6447,8 +6452,7 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Aggregate Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        self._select_tab_by_text("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_agg")
 
