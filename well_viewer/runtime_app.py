@@ -4487,14 +4487,27 @@ class WellViewerApp(QWidget):
             montage_chans.append(seg_tok)
         montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
         review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
+
+        def _set_combo_values(widget: Any, values: List[str]) -> None:
+            if widget is None:
+                return
+            # Qt QComboBox path
+            if hasattr(widget, "clear") and hasattr(widget, "addItems"):
+                widget.clear()
+                widget.addItems(values)
+                return
+            # Legacy tkinter/ttk path
+            if hasattr(widget, "config"):
+                widget.config(values=values)
+
         # Update channel selector instances
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
-                getattr(self, attr).config(values=labels)
+                _set_combo_values(getattr(self, attr), labels)
         if hasattr(self, "_chan_cb_preview"):
-            self._chan_cb_preview.config(values=montage_labels)
+            _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
-            self._review_image_chan_cb.config(values=review_labels)
+            _set_combo_values(self._review_image_chan_cb, review_labels)
         active_label = self._active_channel.upper()
 
         def _pick_valid(current: str, candidates: List[str], fallback_label: str) -> str:
