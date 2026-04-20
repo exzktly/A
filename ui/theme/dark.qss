@@ -57,9 +57,9 @@ QPushButton[variant="quickselect"]   { background: ${button_bg};     color: ${bu
 
 /* ── Plate-map wells ──────────────────────────────────────────────────── */
 QPushButton#WellButton {
-    min-width: 22px;
-    min-height: 20px;
-    padding: 1px 2px;
+    min-width: 20px;
+    min-height: 18px;
+    padding: 0 1px;
     border-radius: 2px;
     font-size: 8pt;
     background: ${BG_CELL};
@@ -120,9 +120,9 @@ QTabBar { background: ${BG_SIDE}; }
 QTabBar::tab {
     background: ${TAB_BG};
     color: ${TAB_FG};
-    padding: 6px 16px;
+    padding: 4px 8px;
     border: 0;
-    font-weight: bold;
+    font-weight: 600;
 }
 QTabBar::tab:selected { background: ${TAB_BG_ACTIVE}; color: ${ACCENT}; }
 QTabBar::tab:hover    { color: ${TAB_FG_ACTIVE}; }

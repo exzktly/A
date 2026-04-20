@@ -3385,10 +3385,14 @@ class WellViewerApp(QWidget):
     def _rep_quick_pairs_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _rep_quick_pairs()."""
         # Map dropdown display values to internal values
-        pair_dir_display = str(self._get_var_value("_rep_quick_pair_dir_var", ""))
+        pair_dir_display = str(
+            self._get_var_value("_rep_quick_pair_dir_var", "", "_rep_quick_pair_dir_cb")
+        )
         self._rep_quick_pair_dir = "row" if "Rows" in pair_dir_display else "col"
 
-        iter_order_display = str(self._get_var_value("_rep_quick_iter_order_var", ""))
+        iter_order_display = str(
+            self._get_var_value("_rep_quick_iter_order_var", "", "_rep_quick_iter_order_cb")
+        )
         self._rep_quick_iter_order = "row" if "Across" in iter_order_display else "col"
 
         self._rep_quick_pairs()
@@ -3512,10 +3516,14 @@ class WellViewerApp(QWidget):
     def _bar_quick_groups_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _bar_quick_groups()."""
         # Map dropdown display values to internal values
-        pair_dir_display = str(self._get_var_value("_bar_quick_pair_dir_var", ""))
+        pair_dir_display = str(
+            self._get_var_value("_bar_quick_pair_dir_var", "", "_bar_quick_pair_dir_cb")
+        )
         self._bar_quick_pair_dir = "row" if "Rows" in pair_dir_display else "col"
 
-        iter_order_display = str(self._get_var_value("_bar_quick_iter_order_var", ""))
+        iter_order_display = str(
+            self._get_var_value("_bar_quick_iter_order_var", "", "_bar_quick_iter_order_cb")
+        )
         self._bar_quick_iter_order = "row" if "Across" in iter_order_display else "col"
 
         self._bar_quick_groups()

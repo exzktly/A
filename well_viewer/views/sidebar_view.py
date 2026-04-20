@@ -37,8 +37,8 @@ def build_sidebar(app, parent: QWidget) -> None:
     # Row / Col quick-select
     rc_frame = QWidget(parent)
     rc_layout = QVBoxLayout(rc_frame)
-    rc_layout.setContentsMargins(6, 0, 6, 4)
-    rc_layout.setSpacing(2)
+    rc_layout.setContentsMargins(4, 0, 4, 2)
+    rc_layout.setSpacing(1)
     layout.addWidget(rc_frame)
     app._sidebar_rc_frame = rc_frame
 
@@ -51,7 +51,7 @@ def build_sidebar(app, parent: QWidget) -> None:
     row_grid.addWidget(row_lbl, 0, 0)
     for ci, r in enumerate(_PLATE_ROWS):
         b = QPushButton(r, row_frame)
-        b.setProperty("variant", "quick")
+        b.setProperty("variant", "quickselect")
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, row=r: app._select_row(row))
         row_grid.addWidget(b, 0, ci + 1)
@@ -68,7 +68,7 @@ def build_sidebar(app, parent: QWidget) -> None:
     col_grid.addWidget(col_lbl, 0, 0)
     for ci, c in enumerate(_PLATE_COLS):
         b = QPushButton(c.lstrip("0") or "0", col_frame)
-        b.setProperty("variant", "quick")
+        b.setProperty("variant", "quickselect")
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, col=c: app._select_col(col))
         col_grid.addWidget(b, 0, ci + 1)
@@ -90,14 +90,26 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._sidebar_drag_visited = set()
     app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     app._bg_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
-    build_plate_grid(map_outer, app._sidebar_btns)
+    def _on_sidebar_well_click(tok: str) -> None:
+        # Single-click path for Qt: apply one-cell toggle through the shared
+        # drag-engine so rep-mode/per-well mode behavior stays identical.
+        app._plate_drag_press(tok, app._selected_wells, app._sb_ds)
+        app._plate_drag_apply(tok, app._sidebar_btns, app._selected_wells, app._sb_ds)
+        app._plate_drag_release(
+            app._sb_ds,
+            on_rep_change=app._sb_on_rep_change,
+            on_well_change=app._on_plate_sel_change,
+        )
+        app._sb_ds["visited"] = set()
+
+    build_plate_grid(map_outer, app._sidebar_btns, on_click=_on_sidebar_well_click)
     # NOTE: drag bindings — runtime_app must bind to the plate map via mouse
     # event overrides; the legacy _bind_drag helper is not used in Qt.
 
     # All / None buttons
     br = QWidget(parent)
     br_l = QHBoxLayout(br)
-    br_l.setContentsMargins(6, 4, 6, 6)
+    br_l.setContentsMargins(4, 2, 4, 4)
     br_l.setSpacing(3)
     layout.addWidget(br)
     app._sidebar_allnone_frame = br
