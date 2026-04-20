@@ -120,15 +120,8 @@ def groups_with_loaded_wells(groups, well_paths: dict) -> list:
 
 
 def selected_listbox_values(listbox: Any) -> List[str]:
-    """Return selected string values from a Qt QListWidget (or legacy Tk listbox).
-
-    The Qt path uses ``selectedItems()`` and ``item.text()``; falls back to the
-    legacy Tk ``curselection()``/``get()`` protocol if the widget exposes it.
-    """
-    sel = getattr(listbox, "selectedItems", None)
-    if callable(sel):
-        return [it.text() for it in sel()]
-    return [listbox.get(i) for i in listbox.curselection()]
+    """Return selected string values from a Qt QListWidget."""
+    return [it.text() for it in listbox.selectedItems()]
 
 
 # ── App-level state container (merged from app_state.py) ─────────────────────

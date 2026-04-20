@@ -30,6 +30,13 @@ def build_centre(app, parent: QWidget) -> None:
     app._notebook.currentChanged.connect(lambda _i: app._on_tab_change(None))
     layout.addWidget(app._notebook, 1)
 
+    def _select_by_text(title: str, _nb=app._notebook) -> None:
+        for i in range(_nb.count()):
+            if _nb.tabText(i) == title:
+                _nb.setCurrentIndex(i)
+                return
+    app._notebook.select_by_text = _select_by_text
+
     def _new_tab(title: str) -> QWidget:
         frame = QWidget(app._notebook)
         QVBoxLayout(frame).setContentsMargins(0, 0, 0, 0)

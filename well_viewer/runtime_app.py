@@ -79,6 +79,8 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QToolButton,
@@ -89,8 +91,6 @@ from PySide6.QtWidgets import (
 )
 
 import matplotlib
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvasTkAgg
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
@@ -255,7 +255,6 @@ except ImportError:
 
 try:
     from PIL import Image as _PILImage
-    _PILImageTk = None  # legacy alias; unused under Qt backend
     _PIL_AVAILABLE = True
 except ImportError:
     _PIL_AVAILABLE = False
@@ -1541,7 +1540,6 @@ class WellViewerApp(QWidget):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
         super().__init__(parent)
-        self._tk_root = None
         self._NP_AVAILABLE = _NP_AVAILABLE
         self._np = _np
         self._theme_name = "Dark"
@@ -1882,7 +1880,7 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=grp_color,
                     fg="white",
-                    relief=tk.SUNKEN if is_active else tk.FLAT,
+                    relief="sunken" if is_active else "flat",
                     activebackground=self._mute_color(grp_color, 0.3),
                     activeforeground="white",
                     disabledforeground=button_text_disabled_color,
@@ -1892,7 +1890,7 @@ class WellViewerApp(QWidget):
             btn,
             bg=button_bg_color,
             fg=button_text_color,
-            relief=tk.FLAT,
+            relief="flat",
             activebackground=button_bg_color,
             activeforeground=button_text_color,
             disabledforeground=button_text_disabled_color,
@@ -1921,7 +1919,7 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=button_bg_color,
                     fg=button_text_disabled_color,
-                    state=tk.DISABLED,
+                    state="disabled",
                     cursor="arrow",
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
@@ -1934,8 +1932,8 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=grp_color,
                     fg="white",
-                    state=tk.NORMAL,
-                    relief=tk.SUNKEN if is_active else tk.FLAT,
+                    state="normal",
+                    relief="sunken" if is_active else "flat",
                     cursor="hand2",
                     activebackground=self._mute_color(grp_color, 0.3),
                     activeforeground="white",
@@ -1946,8 +1944,8 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=button_bg_color,
                     fg=button_text_color,
-                    state=tk.NORMAL,
-                    relief=tk.FLAT,
+                    state="normal",
+                    relief="flat",
                     cursor="hand2",
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
@@ -2084,55 +2082,20 @@ class WellViewerApp(QWidget):
             self._stats_tp_cb.setCurrentText(tp_strs[0] if tp_strs else "—")
 
     def _stats_write_result(self, text: str) -> None:
-        self._stats_result_text.config(state=tk.NORMAL)
-        self._stats_result_text.delete("1.0", tk.END)
-        if text:
-            self._stats_result_text.insert(tk.END, text)
-        self._stats_result_text.config(state=tk.DISABLED)
+        self._stats_result_text.setReadOnly(False)
+        self._stats_result_text.setPlainText(text or "")
+        self._stats_result_text.setReadOnly(True)
 
     def _stats_refresh_colors(self) -> None:
-        """Refresh all statistics tab colors when theme changes."""
+        """Refresh matplotlib figure facecolor on theme change.
+
+        Widget colours are driven by the app-level QSS stylesheet; only the
+        embedded matplotlib figure needs an explicit repaint.
+        """
         from ui.theme import get_color
 
-        # Get current theme colors
-        bg_app = get_color("BG_APP")
-        bg_side = get_color("BG_SIDE")
-        bg_panel = get_color("BG_PANEL")
-        txt_pri = get_color("TXT_PRI")
-        txt_sec = get_color("TXT_SEC")
-        txt_mut = get_color("TXT_MUT")
-        border = get_color("BORDER")
-
-        # Update header frame
-        if hasattr(self, "_stats_hdr"):
-            self._stats_hdr.configure(bg=bg_side)
-            self._stats_hdr_label.configure(bg=bg_side, fg=txt_mut)
-
-        # Update control frame
-        if hasattr(self, "_stats_ctrl"):
-            self._stats_ctrl.configure(bg=bg_app)
-            self._stats_test_label.configure(bg=bg_app, fg=txt_sec)
-            self._stats_tp_label.configure(bg=bg_app, fg=txt_sec)
-
-        # Update separator
-        if hasattr(self, "_stats_sep"):
-            self._stats_sep.configure(bg=border)
-
-        # Update figure frame and matplotlib figure
-        if hasattr(self, "_stats_fig_frame"):
-            self._stats_fig_frame.configure(bg=bg_app)
         if hasattr(self, "_stats_fig"):
-            self._stats_fig.set_facecolor(bg_app)
-
-        # Update results frame
-        if hasattr(self, "_stats_res_frame"):
-            self._stats_res_frame.configure(bg=bg_app)
-
-        # Update results text widget
-        if hasattr(self, "_stats_result_text"):
-            self._stats_result_text.configure(bg=bg_panel, fg=txt_pri, highlightbackground=border)
-
-        # Redraw the canvas
+            self._stats_fig.set_facecolor(get_color("BG_APP"))
         if hasattr(self, "_stats_canvas_widget"):
             self._stats_canvas_widget.draw()
 
@@ -2250,7 +2213,7 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=button_bg,
                     fg=button_text_disabled,
-                    state=tk.DISABLED,
+                    state="disabled",
                     cursor="arrow",
                     activebackground=button_bg,
                     activeforeground=button_text,
@@ -2264,9 +2227,9 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=grp_color,
                     fg="white",
-                    state=tk.NORMAL,
+                    state="normal",
                     cursor="hand2",
-                    relief=tk.SUNKEN if act else tk.FLAT,
+                    relief="sunken" if act else "flat",
                     activebackground=self._mute_color(grp_color, 0.3) if act else grp_color,
                     activeforeground="white",
                     disabledforeground=button_text_disabled,
@@ -2278,9 +2241,9 @@ class WellViewerApp(QWidget):
                         btn,
                         bg=button_bg,
                         fg=button_text,
-                        state=tk.NORMAL,
+                        state="normal",
                         cursor="hand2",
-                        relief=tk.FLAT,
+                        relief="flat",
                         activebackground=button_bg,
                         activeforeground=button_text,
                         disabledforeground=button_text_disabled,
@@ -2290,9 +2253,9 @@ class WellViewerApp(QWidget):
                         btn,
                         bg=button_bg,
                         fg=button_text,
-                        state=tk.NORMAL,
+                        state="normal",
                         cursor="arrow",
-                        relief=tk.FLAT,
+                        relief="flat",
                         activebackground=button_bg,
                         activeforeground=button_text,
                         disabledforeground=button_text_disabled,
@@ -2335,9 +2298,9 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=button_bg,
                     fg=button_text,
-                    state=tk.NORMAL,
+                    state="normal",
                     cursor="hand2",
-                    relief=tk.SUNKEN if act else tk.FLAT,
+                    relief="sunken" if act else "flat",
                     activebackground=button_bg,
                     activeforeground=button_text,
                     disabledforeground=button_text_disabled,
@@ -2349,9 +2312,9 @@ class WellViewerApp(QWidget):
             btn,
             bg=button_bg,
             fg=button_text,
-            state=tk.NORMAL,
+            state="normal",
             cursor="hand2" if has_active else "arrow",
-            relief=tk.FLAT,
+            relief="flat",
             activebackground=button_bg,
             activeforeground=button_text,
             disabledforeground=button_text_disabled,
@@ -2549,7 +2512,7 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_notebook"):
             try:
                 tab_visible = (
-                    self._notebook.tab(self._notebook.select(), "text")
+                    self._notebook.tabText(self._notebook.currentIndex())
                     == "Sample Definitions")
             except Exception:
                 pass
@@ -2618,7 +2581,7 @@ class WellViewerApp(QWidget):
         self._redraw()
         if hasattr(self, "_notebook"):
             try:
-                tab = self._notebook.tab(self._notebook.select(), "text")
+                tab = self._notebook.tabText(self._notebook.currentIndex())
             except Exception:
                 tab = ""
             if tab == "Line Graphs":
@@ -2638,7 +2601,7 @@ class WellViewerApp(QWidget):
         self._redraw()
         if hasattr(self, "_notebook"):
             try:
-                tab = self._notebook.tab(self._notebook.select(), "text")
+                tab = self._notebook.tabText(self._notebook.currentIndex())
             except Exception:
                 tab = ""
             if tab == "Line Graphs":
@@ -3046,7 +3009,7 @@ class WellViewerApp(QWidget):
 
         # Rebuild the Replicates tab card list only if it is visible
         try:
-            active_tab = self._notebook.tab(self._notebook.select(), "text")
+            active_tab = self._notebook.tabText(self._notebook.currentIndex())
         except Exception:
             active_tab = ""
         if active_tab == "Sample Definitions":
@@ -3056,7 +3019,7 @@ class WellViewerApp(QWidget):
         # _on_tab_change already triggers redraws on tab switch, so skipping
         # these when the user is on another tab has no visible effect.
         try:
-            active_tab = self._notebook.tab(self._notebook.select(), "text")
+            active_tab = self._notebook.tabText(self._notebook.currentIndex())
         except Exception:
             active_tab = ""
         if active_tab == "Bar Plots":
@@ -3290,9 +3253,11 @@ class WellViewerApp(QWidget):
     # ── Bar-map drag helpers ──────────────────────────────────────────────────
 
     def _bar_map_tok_at(self, event) -> Optional[str]:
-        sx = event.widget.winfo_rootx() + event.x
-        sy = event.widget.winfo_rooty() + event.y
-        w  = event.widget.winfo_containing(sx, sy)
+        try:
+            gp = event.globalPosition().toPoint()
+        except Exception:
+            return None
+        w = QApplication.widgetAt(gp)
         for tok, btn in self._bar_map_btns.items():
             if btn is w:
                 return tok
@@ -3372,24 +3337,16 @@ class WellViewerApp(QWidget):
 
         if preloaded:
             self._mon_tophat_var.set(True)
-            self._th_checkbox.config(state=tk.DISABLED)
-            self._th_label.config(
-                text="Top-hat background subtraction",
-                fg=TXT_MUT)
-            self._th_radius_label.config(fg=TXT_MUT)
-            self._th_radius_hint.config(fg=TXT_MUT)
-            self._th_radius_entry.config(state=tk.DISABLED)
-            self._th_preload_badge.config(text="● from output zip")
+            self._th_checkbox.setEnabled(False)
+            self._th_label.setText("Top-hat background subtraction")
+            self._th_radius_entry.setEnabled(False)
+            self._th_preload_badge.setText("\u25cf from output zip")
         else:
             self._mon_tophat_var.set(False)
-            self._th_checkbox.config(state=tk.NORMAL)
-            self._th_label.config(
-                text="Top-hat background subtraction",
-                fg=TXT_SEC)
-            self._th_radius_label.config(fg=TXT_MUT)
-            self._th_radius_hint.config(fg=TXT_MUT)
-            self._th_radius_entry.config(state=tk.NORMAL)
-            self._th_preload_badge.config(text="")
+            self._th_checkbox.setEnabled(True)
+            self._th_label.setText("Top-hat background subtraction")
+            self._th_radius_entry.setEnabled(True)
+            self._th_preload_badge.setText("")
 
     def _refresh_preview_montage(self) -> None:
         """
@@ -3402,11 +3359,10 @@ class WellViewerApp(QWidget):
         # Reset zoom to fit on each new well load
         self._montage_zoom = 1.0
         if hasattr(self, "_montage_zoom_lbl"):
-            self._montage_zoom_lbl.config(text="100%")
+            self._montage_zoom_lbl.setText("100%")
 
         # Clear previous content
-        for w in self._montage_inner.winfo_children():
-            w.destroy()
+        _clear_layout(self._montage_inner.layout())
         self._montage_photos.clear()
         self._montage_fluor_arrays         = []
         self._montage_overlay_arrays     = []
@@ -3417,12 +3373,12 @@ class WellViewerApp(QWidget):
 
         well = self._preview_selected_well
         if well is None:
-            self._montage_status.config(text="Select a well in the left panel.")
+            self._montage_status.setText("Select a well in the left panel.")
             return
 
         fov = self._preview_fov_var.get()
         if fov == "—":
-            self._montage_status.config(text="No images found for this well.")
+            self._montage_status.setText("No images found for this well.")
             return
 
         montage_load_debug = (
@@ -3456,7 +3412,7 @@ class WellViewerApp(QWidget):
         n = len(fluor_refs)
 
         if n == 0:
-            self._montage_status.config(text="No images for this FOV.")
+            self._montage_status.setText("No images for this FOV.")
             return
 
         if montage_load_debug:
@@ -3484,8 +3440,8 @@ class WellViewerApp(QWidget):
                     getattr(ref, "full_path_str", str(ref)),
                 )
 
-        self._montage_status.config(text=f"Loading {n} timepoint(s)…")
-        self.update_idletasks()
+        self._montage_status.setText(f"Loading {n} timepoint(s)…")
+        QApplication.processEvents()
 
         self._montage_fluor_refs     = [ref for _, ref in fluor_refs]
         self._montage_overlay_refs = [ov_map.get(tp) for tp, _ in fluor_refs]
@@ -3514,22 +3470,14 @@ class WellViewerApp(QWidget):
             tp in tophat_by_tp for tp, _ in fluor_refs
         )
 
-        self._montage_status.config(text="")
+        self._montage_status.setText("")
         self._montage_auto_lut(redraw=False)  # set initial LUT from data
         self._update_tophat_controls()        # sync UI to actual preload result
         self._draw_montage_thumbs([(tp, _) for tp, _ in fluor_refs])
 
     def _draw_montage_thumbs(self, tp_list: list) -> None:
         """Render fluorescence + overlay thumbnail pairs, one column per timepoint."""
-        def _bind_if_supported(widget, sequence: str, callback) -> None:
-            try:
-                widget.bind(sequence, callback)
-            except tk.TclError:
-                # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
-                pass
-
-        for w in self._montage_inner.winfo_children():
-            w.destroy()
+        _clear_layout(self._montage_inner.layout())
         self._montage_photos.clear()
         # Overlay label refs must be rebuilt each time since all widgets are destroyed
         self._montage_th_overlay_lbls = []
@@ -3560,7 +3508,7 @@ class WellViewerApp(QWidget):
 
         # Compute thumb size: base size × zoom factor.
         # Base size is the width that fits all timepoints in the canvas at 1×.
-        cw = self._montage_canvas.winfo_width() or 400
+        cw = self._montage_canvas.viewport().width() or 400
         n  = len(tp_list)
         GAP = 6
         fit_sz = max(60, (cw - GAP) // max(n, 1) - GAP)
@@ -3788,10 +3736,7 @@ class WellViewerApp(QWidget):
 
     def _on_close(self) -> None:
         self._cleanup_tmp()
-        if self._tk_root is not None:
-            self._tk_root.destroy()
-        else:
-            self.destroy()
+        self.close()
 
     # ── Plate-map sidebar helpers ─────────────────────────────────────────────
 
@@ -3927,12 +3872,12 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=button_bg_color,
                     fg=button_text_disabled_color,
-                    state=tk.DISABLED,
+                    state="disabled",
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
                     disabledforeground=button_text_disabled_color,
                     cursor="arrow",
-                    relief=tk.FLAT,
+                    relief="flat",
                 )
             elif rep_mode and tok in tok_rep:
                 _full_c, _muted_c, _si, hidden = tok_rep[tok]
@@ -3942,12 +3887,12 @@ class WellViewerApp(QWidget):
                         btn,
                         bg=_muted_c,
                         fg="white",
-                        state=tk.NORMAL,
+                        state="normal",
                         activebackground=_full_c,
                         activeforeground="white",
                         disabledforeground=button_text_disabled_color,
                         cursor="hand2",
-                        relief=tk.FLAT,
+                        relief="flat",
                     )
                 else:
                     # Visible: full colour, SUNKEN relief
@@ -3955,12 +3900,12 @@ class WellViewerApp(QWidget):
                         btn,
                         bg=_full_c,
                         fg="white",
-                        state=tk.NORMAL,
+                        state="normal",
                         activebackground=self._mute_color(_full_c, 0.3),
                         activeforeground="white",
                         disabledforeground=button_text_disabled_color,
                         cursor="hand2",
-                        relief=tk.SUNKEN,
+                        relief="sunken",
                     )
             elif rep_mode:
                 # Well exists but not in any rep-set — neutral
@@ -3968,36 +3913,36 @@ class WellViewerApp(QWidget):
                     btn,
                     bg=button_bg_color,
                     fg=button_text_color,
-                    state=tk.NORMAL,
+                    state="normal",
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
                     disabledforeground=button_text_disabled_color,
                     cursor="hand2",
-                    relief=tk.FLAT,
+                    relief="flat",
                 )
             elif tok in self._selected_wells:
                 self._style_plate_button(
                     btn,
                     bg=ACCENT,
                     fg="white",
-                    state=tk.NORMAL,
+                    state="normal",
                     activebackground=self._mute_color(ACCENT, 0.3),
                     activeforeground="white",
                     disabledforeground=button_text_disabled_color,
                     cursor="hand2",
-                    relief=tk.SUNKEN,
+                    relief="sunken",
                 )
             else:
                 self._style_plate_button(
                     btn,
                     bg=button_bg_color,
                     fg=button_text_color,
-                    state=tk.NORMAL,
+                    state="normal",
                     activebackground=button_bg_color,
                     activeforeground=button_text_color,
                     disabledforeground=button_text_disabled_color,
                     cursor="hand2",
-                    relief=tk.FLAT,
+                    relief="flat",
                 )
 
         # Count label / hint
@@ -4007,19 +3952,16 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_sel_count_lbl"):
             if rep_mode:
                 n_hid = sum(1 for i in range(n_loaded) if i in self._rep_hidden)
-                self._sel_count_lbl.config(
-                    text=(f"{n_vis}/{n_loaded} set(s) visible"
+                self._sel_count_lbl.setText((f"{n_vis}/{n_loaded} set(s) visible"
                           if n_hid else f"{n_loaded} set(s) — all visible"))
             else:
-                self._sel_count_lbl.config(
-                    text=(f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
+                self._sel_count_lbl.setText((f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
                           if n_vis else "No wells selected"))
         if hasattr(self, "_line_group_hint"):
             if rep_mode:
-                self._line_group_hint.config(
-                    text="Click a well to toggle its set's visibility on the plot.")
+                self._line_group_hint.setText("Click a well to toggle its set's visibility on the plot.")
             else:
-                self._line_group_hint.config(text="")
+                self._line_group_hint.setText("")
 
         self._sidebar_map_refresh_pending = False
 
@@ -4029,69 +3971,53 @@ class WellViewerApp(QWidget):
         *,
         bg: str,
         fg: str,
-        state: Any = tk.NORMAL,
+        state: str = "normal",
         cursor: str = "hand2",
-        relief: Any = tk.FLAT,
+        relief: str = "flat",
         activebackground: Optional[str] = None,
         activeforeground: Optional[str] = None,
         disabledforeground: Optional[str] = None,
     ) -> None:
-        """Apply plate-map button styling directly for Qt widgets.
+        """Apply plate-map button styling to a ``QPushButton``."""
+        state_str = str(state).lower()
+        relief_str = str(relief).lower()
+        is_enabled = not state_str.endswith("disabled")
+        is_sunken = relief_str.endswith("sunken")
 
-        Falls back to tkinter-style ``config`` for any non-Qt legacy widgets.
-        """
-        if hasattr(btn, "setStyleSheet") and hasattr(btn, "setEnabled"):
-            state_str = str(state).lower()
-            relief_str = str(relief).lower()
-            is_enabled = not state_str.endswith("disabled")
-            is_sunken = relief_str.endswith("sunken")
+        btn.setEnabled(is_enabled)
+        if hasattr(btn, "setCursor"):
+            btn.setCursor(Qt.PointingHandCursor if cursor == "hand2" else Qt.ArrowCursor)
 
-            btn.setEnabled(is_enabled)
-            if hasattr(btn, "setCursor"):
-                btn.setCursor(Qt.PointingHandCursor if cursor == "hand2" else Qt.ArrowCursor)
+        hover_bg = activebackground or bg
+        hover_fg = activeforeground or fg
+        disabled_fg = disabledforeground or fg
+        border = "1px solid rgba(0,0,0,0.45)" if is_sunken else "1px solid transparent"
 
-            hover_bg = activebackground or bg
-            hover_fg = activeforeground or fg
-            disabled_fg = disabledforeground or fg
-            border = "1px solid rgba(0,0,0,0.45)" if is_sunken else "1px solid transparent"
-
-            btn.setStyleSheet(
-                "\n".join(
-                    [
-                        (
-                            "QPushButton{"
-                            f"background-color: {bg};"
-                            f"color: {fg};"
-                            f"border: {border};"
-                            "}"
-                        ),
-                        (
-                            "QPushButton:hover{"
-                            f"background-color: {hover_bg};"
-                            f"color: {hover_fg};"
-                            "border: 1px solid transparent;"
-                            "}"
-                        ),
-                        (
-                            "QPushButton:disabled{"
-                            f"background-color: {bg};"
-                            f"color: {disabled_fg};"
-                            "}"
-                        ),
-                    ]
-                )
+        btn.setStyleSheet(
+            "\n".join(
+                [
+                    (
+                        "QPushButton{"
+                        f"background-color: {bg};"
+                        f"color: {fg};"
+                        f"border: {border};"
+                        "}"
+                    ),
+                    (
+                        "QPushButton:hover{"
+                        f"background-color: {hover_bg};"
+                        f"color: {hover_fg};"
+                        "border: 1px solid transparent;"
+                        "}"
+                    ),
+                    (
+                        "QPushButton:disabled{"
+                        f"background-color: {bg};"
+                        f"color: {disabled_fg};"
+                        "}"
+                    ),
+                ]
             )
-            return
-
-        btn.config(
-            bg=bg,
-            fg=fg,
-            state=state,
-            cursor=cursor,
-            relief=relief,
-            activebackground=activebackground or bg,
-            activeforeground=activeforeground or fg,
-            disabledforeground=disabledforeground or fg,
         )
 
     def _sidebar_tok_at(self, event) -> Optional[str]:
@@ -4230,9 +4156,7 @@ class WellViewerApp(QWidget):
         for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
             if hasattr(self, frame_attr):
                 frame = getattr(self, frame_attr)
-                frame.pack_forget()
-                if self._active_channel in self._smfish_channels:
-                    frame.pack(side=tk.LEFT, padx=(0, 12))
+                frame.setVisible(self._active_channel in self._smfish_channels)
 
         # Always refresh timepoint menus regardless of whether intensity
         # values exist — single-timepoint experiments still need the bar menu.
@@ -4277,9 +4201,9 @@ class WellViewerApp(QWidget):
             self._redraw_bars()
         ch_upper = channel.upper()
         if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
+            self._cdf_chan_lbl.setText(f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.config(text=f"{ch_upper} y:")
+            self._bar_ylim_chan_lbl.setText(f"{ch_upper} y:")
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
@@ -4313,9 +4237,9 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_review_image_chan_var"):
             self._review_image_chan_var.set(ch_upper)
         if hasattr(self, "_mon_lut_chan_lbl"):
-            self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+            self._mon_lut_chan_lbl.setText(f"{ch_upper} LUT min:")
         if hasattr(self, "_review_lut_chan_lbl"):
-            self._review_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+            self._review_lut_chan_lbl.setText(f"{ch_upper} LUT min:")
         saved_review_lut = self._review_image_lut_by_channel.get(channel)
         if saved_review_lut and hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{saved_review_lut[0]:.0f}")
@@ -4407,11 +4331,11 @@ class WellViewerApp(QWidget):
         # Update channel selector instances
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
-                getattr(self, attr).config(values=labels)
+                _set_combo_values(getattr(self, attr), labels)
         if hasattr(self, "_chan_cb_preview"):
-            self._chan_cb_preview.config(values=montage_labels)
+            _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
-            self._review_image_chan_cb.config(values=review_labels)
+            _set_combo_values(self._review_image_chan_cb, review_labels)
         active_label = self._active_channel.upper()
 
         def _pick_valid(current: str, candidates: List[str], fallback_label: str) -> str:
@@ -4452,7 +4376,7 @@ class WellViewerApp(QWidget):
             tab_label = ""
             if hasattr(self, "_notebook"):
                 try:
-                    tab_label = self._notebook.tab(self._notebook.select(), "text")
+                    tab_label = self._notebook.tabText(self._notebook.currentIndex())
                 except Exception:
                     tab_label = ""
             if tab_label == "Movie Montage":
@@ -4466,11 +4390,13 @@ class WellViewerApp(QWidget):
         self._invalidate_stats_cache()
         self._use_sem.set(not self._use_sem.get())
         is_sem = self._use_sem.get()
-        self._sem_btn.config(text="SEM" if is_sem else "SD")
-        self._sem_btn.configure(style="SEM.TButton" if is_sem else "SEMWarn.TButton")
+        self._sem_btn.setText("SEM" if is_sem else "SD")
+        self._sem_btn.setProperty("variant", "sem" if is_sem else "sem-warn")
+        self._sem_btn.style().unpolish(self._sem_btn)
+        self._sem_btn.style().polish(self._sem_btn)
         self._redraw()
         if hasattr(self, "_notebook"):
-            if self._notebook.tab(self._notebook.select(), "text") == "Bar Plots":
+            if self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
                 self._redraw_bars()
 
     # ── Well selection (plate-map backed) ─────────────────────────────────────
@@ -4501,9 +4427,9 @@ class WellViewerApp(QWidget):
         channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
         if well_label is None:
             if hasattr(self, "_preview_well_lbl"):
-                self._preview_well_lbl.config(text="No well selected")
+                self._preview_well_lbl.setText("No well selected")
             if hasattr(self, "_review_image_well_lbl"):
-                self._review_image_well_lbl.config(text="No well selected")
+                self._review_image_well_lbl.setText("No well selected")
             if hasattr(self, "_fov_menu"):
                 _set_combo_values(self._fov_menu, ["—"])
                 self._preview_fov_var.set("—")
@@ -4514,22 +4440,21 @@ class WellViewerApp(QWidget):
                 self._review_image_tp_var.set("—")
             self._preview_fluor = self._preview_overlay = self._preview_mask = {}
             if hasattr(self, "_montage_inner"):
-                for w in self._montage_inner.winfo_children():
-                    w.destroy()
+                _clear_layout(self._montage_inner.layout())
                 self._montage_photos.clear()
-                self._montage_status.config(text="Select a well in the left panel.")
+                self._montage_status.setText("Select a well in the left panel.")
             if hasattr(self, "_review_image_status"):
-                self._review_image_status.config(text="Select a well in the left panel.")
+                self._review_image_status.setText("Select a well in the left panel.")
             if channel_switch_debug:
                 _logger.debug("[RI-CHSW step 4] update_preview early return: no well selected")
             return
 
         if hasattr(self, "_preview_well_lbl"):
             tok = _extract_well_token(well_label) or well_label
-            self._preview_well_lbl.config(text=tok)
+            self._preview_well_lbl.setText(tok)
         if hasattr(self, "_review_image_well_lbl"):
             tok = _extract_well_token(well_label) or well_label
-            self._review_image_well_lbl.config(text=tok)
+            self._review_image_well_lbl.setText(tok)
 
         try:
             active_image_channel = str(self._active_image_channel or "").strip().lower()
@@ -4612,7 +4537,7 @@ class WellViewerApp(QWidget):
             msg = f"No images found for {tok}. Searched: {dirs}"
             _logger.warning(msg)
             if hasattr(self, "_montage_status"):
-                self._montage_status.config(text=f"No images found for {tok} — check Log for details.")
+                self._montage_status.setText(f"No images found for {tok} — check Log for details.")
             return
 
         if hasattr(self, "_fov_menu"):
@@ -4694,7 +4619,7 @@ class WellViewerApp(QWidget):
         fov_raw = str(self._preview_fov_var.get() or "").strip()
         fov = _norm(fov_raw)
         if not fov_raw or fov_raw == "—" or not fov:
-            self._review_image_status.config(text="No FOV selected.")
+            self._review_image_status.setText("No FOV selected.")
             if channel_switch_debug:
                 _logger.debug(
                     "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
@@ -4783,7 +4708,7 @@ class WellViewerApp(QWidget):
         tp_raw = str(self._review_image_tp_var.get() or "").strip()
         tp = self._norm_timepoint(tp_raw)
         if not tp_raw or tp_raw == "—" or not tp:
-            self._review_image_status.config(text="No timepoint selected.")
+            self._review_image_status.setText("No timepoint selected.")
             if channel_switch_debug:
                 _logger.debug(
                     "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
@@ -4853,7 +4778,7 @@ class WellViewerApp(QWidget):
                 mask_path,
             )
         if fluor_ref is None or mask_ref is None:
-            self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
+            self._review_image_status.setText("Missing fluorescence image or label map for selected FOV/timepoint.")
             if channel_switch_debug:
                 _logger.debug(
                     "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
@@ -4866,7 +4791,7 @@ class WellViewerApp(QWidget):
         fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
         mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
         if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
-            self._review_image_status.config(text="Could not render review image (numpy/PIL unavailable).")
+            self._review_image_status.setText("Could not render review image (numpy/PIL unavailable).")
             return
 
         center = _np.asarray(mask_arr)
@@ -5055,22 +4980,29 @@ class WellViewerApp(QWidget):
             _logger.debug("[RI-CHSW step 7] render_review_image_display start")
         img = self._review_image_base_pil
         iw, ih = img.size
-        cw = max(1, int(getattr(self, "_review_image_canvas").winfo_width() - 16))
-        ch = max(1, int(getattr(self, "_review_image_canvas").winfo_height() - 16))
+        vp = self._review_image_canvas.viewport()
+        cw = max(1, vp.width())
+        ch = max(1, vp.height())
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
         shown = img.resize((nw, nh), _PILImage.NEAREST)
-        self._review_image_photo = _PILImageTk.PhotoImage(shown)
-        self._review_image_label.configure(image=self._review_image_photo)
+        if shown.mode != "RGBA":
+            shown = shown.convert("RGBA")
+        data = shown.tobytes("raw", "RGBA")
+        qimg = QImage(data, nw, nh, 4 * nw, QImage.Format_RGBA8888).copy()
+        pm = QPixmap.fromImage(qimg)
+        self._review_image_label.setPixmap(pm)
+        self._review_image_label.resize(max(nw, cw), max(nh, ch))
         self._review_image_scale = scale
-        base_x = max(8, (cw - nw) // 2)
-        base_y = max(8, (ch - nh) // 2)
-        self._review_image_canvas.coords(
-            self._review_image_window,
-            base_x + float(getattr(self, "_review_image_pan_x", 0.0)),
-            base_y + float(getattr(self, "_review_image_pan_y", 0.0)),
-        )
+        pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
+        pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
+        hbar = self._review_image_canvas.horizontalScrollBar()
+        vbar = self._review_image_canvas.verticalScrollBar()
+        cx = max(0, (max(nw, cw) - cw) // 2) - int(pan_x)
+        cy = max(0, (max(nh, ch) - ch) // 2) - int(pan_y)
+        hbar.setValue(max(hbar.minimum(), min(hbar.maximum(), cx)))
+        vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), cy)))
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
                 "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f",
@@ -5096,29 +5028,33 @@ class WellViewerApp(QWidget):
         self._render_review_image_display()
 
     def _on_review_image_wheel(self, event) -> None:
-        direction = +1 if getattr(event, "delta", 0) > 0 else -1
-        if getattr(event, "num", None) == 4:
-            direction = +1
-        elif getattr(event, "num", None) == 5:
-            direction = -1
-        self._review_image_zoom_step(direction)
+        try:
+            dy = int(event.angleDelta().y())
+        except Exception:
+            dy = 0
+        direction = +1 if dy > 0 else -1 if dy < 0 else 0
+        if direction:
+            self._review_image_zoom_step(direction)
 
     def _on_review_image_press(self, event) -> None:
         self._review_image_dragging = True
         self._review_image_drag_moved = False
-        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+        gp = event.globalPosition().toPoint()
+        self._review_image_drag_last_xy = (int(gp.x()), int(gp.y()))
 
     def _on_review_image_drag(self, event) -> None:
         if not getattr(self, "_review_image_dragging", False):
             return
+        gp = event.globalPosition().toPoint()
+        gx, gy = int(gp.x()), int(gp.y())
         lx, ly = self._review_image_drag_last_xy
-        dx = int(event.x_root) - lx
-        dy = int(event.y_root) - ly
+        dx = gx - lx
+        dy = gy - ly
         if dx or dy:
             self._review_image_drag_moved = True
         self._review_image_pan_x = float(getattr(self, "_review_image_pan_x", 0.0) + dx)
         self._review_image_pan_y = float(getattr(self, "_review_image_pan_y", 0.0) + dy)
-        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+        self._review_image_drag_last_xy = (gx, gy)
         self._render_review_image_display()
 
     def _on_review_image_release(self, event) -> None:
@@ -5132,8 +5068,13 @@ class WellViewerApp(QWidget):
     def _on_review_image_hover(self, event: Any) -> None:
         if not hasattr(self, "_review_image_label"):
             return
-        self._review_image_label._sz_w = self._review_image_label.winfo_width()  # type: ignore[attr-defined]
-        self._review_image_label._sz_h = self._review_image_label.winfo_height()  # type: ignore[attr-defined]
+        pm = self._review_image_label.pixmap()
+        if pm is not None and not pm.isNull():
+            self._review_image_label._sz_w = int(pm.width())  # type: ignore[attr-defined]
+            self._review_image_label._sz_h = int(pm.height())  # type: ignore[attr-defined]
+        else:
+            self._review_image_label._sz_w = int(self._review_image_label.width())  # type: ignore[attr-defined]
+            self._review_image_label._sz_h = int(self._review_image_label.height())  # type: ignore[attr-defined]
         _show_image_pixel_tooltip_controller(
             self,
             event,
@@ -5150,7 +5091,7 @@ class WellViewerApp(QWidget):
     def _set_review_image_include_mode(self, enabled: bool) -> None:
         self._review_image_include_edit_mode = bool(enabled)
         if hasattr(self, "_review_image_label"):
-            self._review_image_label.config(cursor=("pirate" if enabled else "hand2"))
+            self._review_image_label.setCursor(Qt.ForbiddenCursor if enabled else Qt.PointingHandCursor)
         if enabled:
             self._set_status("Review Image Include edit mode ON: click a cell to set Included=0.")
         else:
@@ -5194,8 +5135,9 @@ class WellViewerApp(QWidget):
         if img is None:
             return
         iw, ih = img.size
-        cw = max(1, int(self._review_image_canvas.winfo_width() - 16))
-        ch = max(1, int(self._review_image_canvas.winfo_height() - 16))
+        vp = self._review_image_canvas.viewport()
+        cw = max(1, vp.width())
+        ch = max(1, vp.height())
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
@@ -5258,35 +5200,35 @@ class WellViewerApp(QWidget):
 
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
-        tab = self._notebook.tab(self._notebook.select(), "text")
+        tab = self._notebook.tabText(self._notebook.currentIndex())
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))
 
-        self._sidebar_main_frame.pack_forget()
-        self._sidebar_preview_frame.pack_forget()
-        self._sidebar_sample_frame.pack_forget()
-        self._sidebar_groups_frame.pack_forget()
-        self._sidebar_stats_frame.pack_forget()
+        self._sidebar_main_frame.setVisible(False)
+        self._sidebar_preview_frame.setVisible(False)
+        self._sidebar_sample_frame.setVisible(False)
+        self._sidebar_groups_frame.setVisible(False)
+        self._sidebar_stats_frame.setVisible(False)
 
         if tab == "Movie Montage":
             self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
         elif tab == "Review Image":
             self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
             self._refresh_review_image()
 
         elif tab == "Sample Definitions":
-            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_sample_frame.setVisible(True)
             self._groups_centre_refresh()
 
         elif tab == "Statistics":
-            self._sidebar_stats_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_stats_frame.setVisible(True)
             # Auto-populate from rep-sets on first visit
             if not self._stats_groups and hasattr(self, "_stats_grp_inner"):
                 self._stats_sync_from_app()
@@ -5296,27 +5238,27 @@ class WellViewerApp(QWidget):
         elif tab == "Batch Export":
             # Batch Export owns its own in-tab well/group picker, so avoid
             # showing the global sidebar well picker to prevent duplicate maps.
-            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_sample_frame.setVisible(True)
             self._groups_centre_refresh()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
                 self._batch_export_set_mode(mode)
 
         elif tab == "Review CSV":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             self._refresh_review_csv()
 
         elif tab == "smFISH":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_main_frame.setVisible(True)
             if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.pack_forget()
+                self._sidebar_rc_frame.setVisible(False)
             if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.pack_forget()
+                self._sidebar_allnone_frame.setVisible(False)
             if len(self._selected_wells) > 1:
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
@@ -5326,11 +5268,11 @@ class WellViewerApp(QWidget):
 
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             if tab == "Bar Plots":
                 self._update_bar_tp_menu()
@@ -5420,26 +5362,28 @@ class WellViewerApp(QWidget):
             return
         sels = sorted(self._selected_wells, key=self._parse_rc)
         if not sels:
-            self._review_well_var.set("(select well(s))")
+            self._review_well_lbl.setText("(select well(s))")
             _set_combo_values(self._review_fov_cb, [])
             _set_combo_values(self._review_tp_cb, [])
-            self._review_fov_var.set("")
-            self._review_tp_var.set("")
+            self._review_fov_cb.setCurrentText("")
+            self._review_tp_cb.setCurrentText("")
             self._refresh_review_csv_rows([])
-            self._review_csv_msg.set("Select one or more wells in the picker.")
+            self._review_csv_msg_lbl.setText("Select one or more wells in the picker.")
             return
 
-        self._review_well_var.set(", ".join(sels[:3]) + (f" (+{len(sels) - 3} more)" if len(sels) > 3 else ""))
+        self._review_well_lbl.setText(
+            ", ".join(sels[:3]) + (f" (+{len(sels) - 3} more)" if len(sels) > 3 else "")
+        )
         rows: List[dict] = []
         for label in sels:
             rows.extend(self._review_load_rows(label))
         if not rows:
             _set_combo_values(self._review_fov_cb, [])
             _set_combo_values(self._review_tp_cb, [])
-            self._review_fov_var.set("")
-            self._review_tp_var.set("")
+            self._review_fov_cb.setCurrentText("")
+            self._review_tp_cb.setCurrentText("")
             self._refresh_review_csv_rows([])
-            self._review_csv_msg.set("No CSV rows loaded for selected well(s).")
+            self._review_csv_msg_lbl.setText("No CSV rows loaded for selected well(s).")
             return
 
         fovs = sorted({
@@ -5459,18 +5403,17 @@ class WellViewerApp(QWidget):
         tps.sort(key=lambda tp: (parse_timepoint_hours(tp) is None, parse_timepoint_hours(tp) or 0.0, tp))
         _set_combo_values(self._review_fov_cb, fovs)
         _set_combo_values(self._review_tp_cb, tps)
-        if fovs and self._review_fov_var.get() not in fovs:
-            self._review_fov_var.set(fovs[0])
-        if tps and self._review_tp_var.get() not in tps:
-            self._review_tp_var.set(tps[0])
+        if fovs and self._review_fov_cb.currentText() not in fovs:
+            self._review_fov_cb.setCurrentText(fovs[0])
+        if tps and self._review_tp_cb.currentText() not in tps:
+            self._review_tp_cb.setCurrentText(tps[0])
         self._refresh_review_csv_rows(rows)
 
     def _refresh_review_csv_rows(self, rows: Optional[List[dict]] = None) -> None:
         if not hasattr(self, "_review_csv_table"):
             return
         table = self._review_csv_table
-        for iid in table.get_children():
-            table.delete(iid)
+        table.setRowCount(0)
 
         if rows is None:
             sels = sorted(self._selected_wells, key=self._parse_rc)
@@ -5487,8 +5430,8 @@ class WellViewerApp(QWidget):
             except Exception:
                 return s
 
-        fov_sel = _norm(self._review_fov_var.get()) if hasattr(self, "_review_fov_var") else ""
-        tp_sel = self._norm_timepoint(self._review_tp_var.get()) if hasattr(self, "_review_tp_var") else ""
+        fov_sel = _norm(self._review_fov_cb.currentText()) if hasattr(self, "_review_fov_cb") else ""
+        tp_sel = self._norm_timepoint(self._review_tp_cb.currentText()) if hasattr(self, "_review_tp_cb") else ""
         filtered = []
         for row in rows:
             row_fov = _norm(row.get("fov", row.get("FOV", "")))
@@ -5506,13 +5449,13 @@ class WellViewerApp(QWidget):
                 fov_sel, tp_sel, len(rows),
             )
             if not rows:
-                table["columns"] = ()
-                self._review_csv_msg.set("No rows are available for the selected well(s).")
+                table.setColumnCount(0)
+                self._review_csv_msg_lbl.setText("No rows are available for the selected well(s).")
                 return
             # Fallback: if the filters are mismatched for any reason, still
             # show all loaded rows from selected well(s) instead of an empty table.
             filtered = list(rows)
-            self._review_csv_msg.set(
+            self._review_csv_msg_lbl.setText(
                 "No exact Well/FOV/Timepoint match. Showing all selected rows instead."
             )
             ctx = getattr(self, "_review_csv_lookup_context", {}) or {}
@@ -5525,13 +5468,16 @@ class WellViewerApp(QWidget):
             )
 
         cols = list(filtered[0].keys())
-        table["columns"] = cols
-        for c in cols:
-            table.heading(c, text=c)
-            table.column(c, width=120, minwidth=60, stretch=True, anchor="w")
+        table.setColumnCount(len(cols))
+        table.setHorizontalHeaderLabels(cols)
+        for ci in range(len(cols)):
+            table.setColumnWidth(ci, 120)
         for row in filtered:
-            table.insert("", tk.END, values=[row.get(c, "") for c in cols])
-        self._review_csv_msg.set(f"Showing {len(filtered):,} row(s).")
+            r = table.rowCount()
+            table.insertRow(r)
+            for ci, c in enumerate(cols):
+                table.setItem(r, ci, QTableWidgetItem(str(row.get(c, ""))))
+        self._review_csv_msg_lbl.setText(f"Showing {len(filtered):,} row(s).")
 
     def _review_load_rows(self, label: str) -> List[dict]:
         try:
@@ -5629,7 +5575,9 @@ class WellViewerApp(QWidget):
 
     def _bar_reset_order(self) -> None:
         self._bar_order = None
-        self._bar_reset_order_btn.configure(style="ToggleMuted.TButton")
+        self._bar_reset_order_btn.setProperty("variant", "toggle_muted")
+        self._bar_reset_order_btn.style().unpolish(self._bar_reset_order_btn)
+        self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
         self._redraw_bars()
 
     def _on_bar_drag_press(self, event) -> None:
@@ -5702,14 +5650,19 @@ class WellViewerApp(QWidget):
         item = keys.pop(src)
         keys.insert(tgt, item)
         self._bar_order = keys
-        self._bar_reset_order_btn.configure(style="ToggleAccent.TButton")
+        self._bar_reset_order_btn.setProperty("variant", "toggle_accent")
+        self._bar_reset_order_btn.style().unpolish(self._bar_reset_order_btn)
+        self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
         self._redraw_bars()
 
     def _toggle_log_scale(self) -> None:
         """Toggle log y-axis for beeswarm fluor panel."""
         self._bar_log_scale.set(not self._bar_log_scale.get())
         on = self._bar_log_scale.get()
-        self._bar_log_btn.configure(style="ToggleWarn.TButton" if on else "Toggle.TButton")
+        self._bar_log_btn.setChecked(on)
+        self._bar_log_btn.setProperty("variant", "toggle_warn" if on else "toggle")
+        self._bar_log_btn.style().unpolish(self._bar_log_btn)
+        self._bar_log_btn.style().polish(self._bar_log_btn)
         self._redraw_bars()
 
     def _apply_bar_ylims(
@@ -5725,26 +5678,24 @@ class WellViewerApp(QWidget):
         """Toggle beeswarm / bar mode and update the button appearance."""
         self._bar_swarm.set(not self._bar_swarm.get())
         on = self._bar_swarm.get()
-        self._swarm_btn.configure(style="ToggleActive.TButton" if on else "Toggle.TButton")
+        self._swarm_btn.setChecked(on)
         if on and self._bar_violin.get():
             # Swarm and violin are mutually exclusive
             self._bar_violin.set(False)
-            self._violin_btn.configure(style="Toggle.TButton")
-            self._violin_slider.config(state=tk.DISABLED)
+            self._violin_btn.setChecked(False)
+            self._violin_slider.setEnabled(False)
         self._redraw_bars()
 
     def _toggle_violin(self) -> None:
         """Toggle violin / bar mode and update the button appearance."""
         self._bar_violin.set(not self._bar_violin.get())
         on = self._bar_violin.get()
-        self._violin_btn.configure(style="ToggleActive.TButton" if on else "Toggle.TButton")
-        self._violin_slider.config(
-            state=tk.NORMAL if on else tk.DISABLED,
-            fg=TXT_SEC if on else TXT_MUT)
+        self._violin_btn.setChecked(on)
+        self._violin_slider.setEnabled(on)
         if on and self._bar_swarm.get():
             # Mutually exclusive with beeswarm
             self._bar_swarm.set(False)
-            self._swarm_btn.configure(style="Toggle.TButton")
+            self._swarm_btn.setChecked(False)
         self._redraw_bars()
 
     def _draw_violin(
@@ -6545,8 +6496,8 @@ class WellViewerApp(QWidget):
             if ch in self._smfish_channels:
                 scatter_ch_options.append(f"{ch} (spots)")
 
-        self._scatter_ch_x_cb.config(values=scatter_ch_options)
-        self._scatter_ch_y_cb.config(values=scatter_ch_options)
+        _set_combo_values(self._scatter_ch_x_cb, scatter_ch_options)
+        _set_combo_values(self._scatter_ch_y_cb, scatter_ch_options)
 
         if scatter_ch_options:
             if self._scatter_ch_x_var.get() not in scatter_ch_options:
@@ -6557,7 +6508,7 @@ class WellViewerApp(QWidget):
         # Update timepoint dropdown for cells scatter
         timepoints = list(self._all_timepoints_cache) or _scatter_get_timepoints(self)
         tp_strs = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0"]
-        self._scatter_tp_cb.config(values=tp_strs)
+        _set_combo_values(self._scatter_tp_cb, tp_strs)
 
         if tp_strs and self._scatter_tp_var.get() not in tp_strs:
             self._scatter_tp_var.set(tp_strs[0])
@@ -6571,8 +6522,8 @@ class WellViewerApp(QWidget):
             if ch in self._smfish_channels:
                 statistics.append(f"smFISH Count {ch.upper()}")
 
-        self._scatter_agg_stat_x_cb.config(values=statistics)
-        self._scatter_agg_stat_y_cb.config(values=statistics)
+        _set_combo_values(self._scatter_agg_stat_x_cb, statistics)
+        _set_combo_values(self._scatter_agg_stat_y_cb, statistics)
 
         if statistics:
             if self._scatter_agg_stat_x_var.get() not in statistics:
@@ -6716,7 +6667,8 @@ class WellViewerApp(QWidget):
         """Open or update the scatter cell viewer window."""
         from well_viewer.scatter_callbacks import ScatterCellViewer
 
-        if not hasattr(self, '_scatter_cell_viewer') or self._scatter_cell_viewer is None or not self._scatter_cell_viewer.winfo_exists():
+        existing = getattr(self, "_scatter_cell_viewer", None)
+        if existing is None or not existing.isVisible():
             self._scatter_cell_viewer = ScatterCellViewer(
                 self,
                 self,
@@ -6725,10 +6677,11 @@ class WellViewerApp(QWidget):
                 nuclear_id,
                 row_idx,
             )
+            self._scatter_cell_viewer.show()
         else:
-            self._scatter_cell_viewer.update_cell(well_label, filename, nuclear_id, row_idx)
-            self._scatter_cell_viewer.lift()
-            self._scatter_cell_viewer.focus()
+            existing.update_cell(well_label, filename, nuclear_id, row_idx)
+            existing.raise_()
+            existing.activateWindow()
 
     def _export_scatter_data(self) -> None:
         """Export scatter plot data to CSV."""
@@ -6891,39 +6844,37 @@ class WellViewerApp(QWidget):
     # ── Log / status helpers ──────────────────────────────────────────────────
 
     def _set_status(self, msg: str) -> None:
-        self._status_lbl.config(text=msg)
+        self._status_lbl.setText(msg)
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""
         self._progress_var.set(0)
-        self._progress_bar.config(maximum=max(1, maximum))
-        # Pack before the log button (which is already packed on the right)
-        self._progress_bar.pack(side=tk.RIGHT, padx=(4, 2), pady=2,
-                                before=self._log_btn)
+        self._progress_bar.setMaximum(max(1, maximum))
+        self._progress_bar.setVisible(True)
         if msg:
             self._set_status(msg)
-        self.update()
+        QApplication.processEvents()
 
     def _step_progress(self, value: int, msg: str = "") -> None:
         """Advance the progress bar to *value* and repaint immediately."""
         self._progress_var.set(value)
         if msg:
             self._set_status(msg)
-        self.update()
+        QApplication.processEvents()
 
     def _hide_progress(self) -> None:
         """Remove the progress bar."""
-        self._progress_bar.pack_forget()
+        self._progress_bar.setVisible(False)
         self._progress_var.set(0)
 
     def _toggle_log(self) -> None:
         self._log_visible = not self._log_visible
         if self._log_visible:
-            self._log_frame.pack(fill=tk.X, before=self._status_lbl.master)
-            self._log_btn.config(text="Log ▼")
+            self._log_frame.setVisible(True)
+            self._log_btn.setText("Log ▼")
         else:
-            self._log_frame.pack_forget()
-            self._log_btn.config(text="Log ▲")
+            self._log_frame.setVisible(False)
+            self._log_btn.setText("Log ▲")
 
     def _clear_log(self) -> None:
         if hasattr(self, "_log_text") and self._log_text is not None:

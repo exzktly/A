@@ -124,45 +124,6 @@ def classify_filename_kind(name: str, *, fluor_token: str = "") -> tuple[str, st
     return "fluor_raw", p.stem
 
 
-def _patch_matplotlib_tk_scroll_event_windows() -> None:
-    """Guard Matplotlib Tk wheel handler when Tk event.widget is a string.
-
-    In some Tk environments, wheel events can surface with `event.widget` as a
-    widget path string. Matplotlib's default Tk backend assumes a Tk widget
-    object and can raise:
-      AttributeError: 'str' object has no attribute 'winfo_containing'
-    """
-    try:
-        from matplotlib.backends import _backend_tk  # type: ignore
-    except Exception:
-        return
-
-    canvas_cls = getattr(_backend_tk, "FigureCanvasTk", None)
-    if canvas_cls is None:
-        return
-    original = getattr(canvas_cls, "scroll_event_windows", None)
-    if original is None or getattr(original, "_well_viewer_safe_patch", False):
-        return
-
-    def _safe_scroll_event_windows(self, event):  # type: ignore[no-untyped-def]
-        widget = getattr(event, "widget", None)
-        if isinstance(widget, str):
-            try:
-                event.widget = self._tkcanvas.nametowidget(widget)
-            except Exception:
-                try:
-                    event.widget = self._tkcanvas
-                except Exception:
-                    pass
-        return original(self, event)
-
-    setattr(_safe_scroll_event_windows, "_well_viewer_safe_patch", True)
-    canvas_cls.scroll_event_windows = _safe_scroll_event_windows
-
-
-_patch_matplotlib_tk_scroll_event_windows()
-
-
 def normalize_row_filename(filename: str) -> str:
     """Normalize metadata-provided filename to basename only."""
     raw = str(filename or "").strip()

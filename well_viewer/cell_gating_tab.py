@@ -387,7 +387,7 @@ class CellGatingTab(QWidget):
 
 
 class _StringHolder:
-    """tk.StringVar-compatible shim that reads/writes a QLineEdit's text."""
+    """``get()``/``set()`` shim that reads/writes a ``QLineEdit``'s text."""
     __slots__ = ("_edit",)
 
     def __init__(self, edit: QLineEdit) -> None:

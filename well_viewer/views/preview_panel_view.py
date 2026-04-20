@@ -230,10 +230,17 @@ def build_review_image_panel(self, parent: QWidget) -> None:
     lr.addStretch(1)
     il.addWidget(lut_row)
 
-    self._review_image_label = QLabel(inner)
+    self._review_image_canvas = QScrollArea(inner)
+    self._review_image_canvas.setWidgetResizable(False)
+    self._review_image_canvas.setAlignment(Qt.AlignCenter)
+    self._review_image_canvas.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    self._review_image_canvas.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+    self._review_image_label = QLabel(self._review_image_canvas)
     self._review_image_label.setAlignment(Qt.AlignCenter)
     self._review_image_label.setMouseTracking(True)
-    il.addWidget(self._review_image_label, 1)
+    self._review_image_canvas.setWidget(self._review_image_label)
+    il.addWidget(self._review_image_canvas, 1)
 
     # Install wheel + mouse hooks for zoom / drag
     def _wheel(event):
