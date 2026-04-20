@@ -24,6 +24,12 @@ def redraw_line_plots(
     metric_label: str = "Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
+    required_attrs = ("_line_ax_mean", "_line_ax_frac", "_line_ax_cdf", "_line_canvas")
+    missing = [name for name in required_attrs if not hasattr(app, name)]
+    if missing:
+        # Can occur transiently during UI construction / early tab-change events.
+        return
+
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
         ax.cla()
 
