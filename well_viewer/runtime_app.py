@@ -2634,6 +2634,16 @@ class WellViewerApp(QWidget):
                 return False
         return False
 
+    @staticmethod
+    def _set_widget_text(widget: Any, text: str) -> None:
+        """Set text for Qt/tkinter-style label/button widgets."""
+        if widget is None:
+            return
+        if hasattr(widget, "setText"):
+            widget.setText(text)
+        elif hasattr(widget, "config"):
+            widget.config(text=text)
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
@@ -4360,9 +4370,9 @@ class WellViewerApp(QWidget):
             self._redraw_bars()
         ch_upper = channel.upper()
         if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
+            self._set_widget_text(self._cdf_chan_lbl, f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.config(text=f"{ch_upper} y:")
+            self._set_widget_text(self._bar_ylim_chan_lbl, f"{ch_upper} y:")
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
@@ -4396,9 +4406,9 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_review_image_chan_var"):
             self._review_image_chan_var.set(ch_upper)
         if hasattr(self, "_mon_lut_chan_lbl"):
-            self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+            self._set_widget_text(self._mon_lut_chan_lbl, f"{ch_upper} LUT min:")
         if hasattr(self, "_review_lut_chan_lbl"):
-            self._review_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+            self._set_widget_text(self._review_lut_chan_lbl, f"{ch_upper} LUT min:")
         saved_review_lut = self._review_image_lut_by_channel.get(channel)
         if saved_review_lut and hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{saved_review_lut[0]:.0f}")
