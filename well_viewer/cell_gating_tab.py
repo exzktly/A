@@ -269,7 +269,6 @@ class CellGatingTab(QWidget):
         n_rows = (n_plots + n_cols - 1) // n_cols
         plot_height_per_row = 3.8
         fig_height = max(5.0, n_rows * plot_height_per_row)
-        self._figure.set_size_inches(8.0, fig_height, forward=True)
 
         axes = []
         for i in range(n_plots):
@@ -323,8 +322,10 @@ class CellGatingTab(QWidget):
         self._figure.tight_layout(pad=1.3)
         self._canvas.draw_idle()
 
+        # Constrain height only; width is driven by the scroll area's
+        # setWidgetResizable(True) so the canvas fills the viewport.
         dpi = self._figure.get_dpi()
-        fig_h_px = max(1, int(self._figure.get_figheight() * dpi))
+        fig_h_px = max(1, int(fig_height * dpi))
         self._canvas.setMinimumHeight(fig_h_px)
 
     def _on_gating_change(self) -> None:
