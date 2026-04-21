@@ -4005,16 +4005,22 @@ class WellViewerApp(QWidget):
         hover_bg = activebackground or bg
         hover_fg = activeforeground or fg
         disabled_fg = disabledforeground or fg
-        # Always render a 1px border so box dimensions never change with state.
-        # Sunken wells get a visible inset border; other wells get a transparent
-        # border of equal width so layout padding stays identical.
-        border = "1px solid rgba(0,0,0,0.45)" if is_sunken else "1px solid transparent"
+        # Uniform 2px border width across every state so fixed-size circles
+        # never change dimensions. Colour encodes raised (unselected w/ data),
+        # depressed (sunken / selected) or flat (no data / disabled).
+        if not is_enabled:
+            border = "2px solid transparent"
+        elif is_sunken:
+            border = "2px solid rgba(0, 0, 0, 0.75)"
+        else:
+            border = "2px solid rgba(255, 255, 255, 0.55)"
 
         # Setting a per-widget stylesheet overrides the application QSS for
         # this widget's selector. Restate the plate-well layout properties
-        # (fixed size, padding, border-radius, hidden font) here so wells
-        # render as identical circles regardless of which code path styles
-        # them. Must match QPushButton#WellButton in dark.qss / light.qss.
+        # (fixed size, padding, border-radius) here so wells render as
+        # identical circles regardless of which code path styles them. Must
+        # match QPushButton#WellButton in dark.qss / light.qss. No font-size
+        # is set (Qt rejects <=0pt); button text is always empty anyway.
         base_layout = (
             "min-width: 18px;"
             "min-height: 18px;"
@@ -4022,7 +4028,6 @@ class WellViewerApp(QWidget):
             "max-height: 18px;"
             "padding: 0;"
             "border-radius: 9px;"
-            "font-size: 0pt;"
         )
 
         btn.setStyleSheet(

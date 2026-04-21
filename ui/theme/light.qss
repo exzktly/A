@@ -69,19 +69,21 @@ QPushButton#WellButton {
     max-height: 18px;
     padding: 0;
     border-radius: 9px;
-    border: 1px solid transparent;
-    font-size: 0pt;
+    border: 2px solid transparent;
     background: ${BG_CELL};
-    color: transparent;
 }
-QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; color: ${TXT_MUT}; }
-QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; color: ${TXT_SEC}; }
-QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         color: ${CLR_WHITE}; }
-QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    color: ${CLR_WHITE}; }
-QPushButton#WellButton[state="warn"]      { background: ${WARN};           color: ${CLR_WHITE}; }
-QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     color: ${CLR_WHITE}; }
+/* No dataset — flat, no emboss ring. */
+QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
+/* Has data, unselected — raised (embossed). */
+QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; border: 2px solid ${WELL_RING_RAISED}; }
+/* Has data, selected — depressed (indented). */
+QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         border: 2px solid ${WELL_RING_DEPRESSED}; }
+/* Coloured replicate/group states — raised by default. */
+QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    border: 2px solid ${WELL_RING_RAISED}; }
+QPushButton#WellButton[state="warn"]      { background: ${WARN};           border: 2px solid ${WELL_RING_RAISED}; }
+QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     border: 2px solid ${WELL_RING_RAISED}; }
 QPushButton#WellButton:hover              { background: ${CLR_AVAIL_HOVER}; }
-QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; color: ${CLR_PLACEHOLDER}; }
+QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
 
 /* ── Inputs ───────────────────────────────────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {

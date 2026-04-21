@@ -32,6 +32,8 @@ _DARK_THEME: Dict[str, str] = {
     "TOOLTIP_BG": "#FFFFFF", "TOOLTIP_FG": "#1F2937",
     "button_bg": "#374151", "button_text": "#F8FAFC",
     "button_text_disabled": "#64748B", "BTN_TEXT_BLACK": "#000000",
+    "WELL_RING_RAISED": "rgba(255, 255, 255, 0.55)",
+    "WELL_RING_DEPRESSED": "rgba(0, 0, 0, 0.75)",
 }
 
 _LIGHT_THEME: Dict[str, str] = {
@@ -57,6 +59,8 @@ _LIGHT_THEME: Dict[str, str] = {
     "TOOLTIP_BG": "#FFFFFF", "TOOLTIP_FG": "#1F2937",
     "button_bg": "#E5E7EB", "button_text": "#1F2937",
     "button_text_disabled": "#9CA3AF", "BTN_TEXT_BLACK": "#000000",
+    "WELL_RING_RAISED": "rgba(255, 255, 255, 0.85)",
+    "WELL_RING_DEPRESSED": "rgba(0, 0, 0, 0.65)",
 }
 
 _WELL_COLORS: Dict[str, str] = {
