@@ -10,7 +10,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import btn_primary, btn_secondary
+from well_viewer.ui_helpers import (
+    btn_primary, btn_secondary, build_hline_separator, build_section_header,
+)
 
 
 def build_stats_tab(app, parent: QWidget, **_kw) -> None:
@@ -31,23 +33,16 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
-    hdr = QWidget(parent)
-    hdr.setObjectName("Sidebar")
-    hl = QHBoxLayout(hdr)
-    hl.setContentsMargins(8, 4, 8, 4)
-    title = QLabel("COMPARISON GROUPS", hdr)
-    title.setProperty("role", "section")
-    hl.addWidget(title)
-    hl.addStretch(1)
-    hl.addWidget(btn_secondary(hdr, "Clear All", app._stats_grp_clear_all))
-    hl.addWidget(btn_primary(hdr, "+ Add", app._stats_grp_add))
+    hdr = build_section_header(
+        parent,
+        "COMPARISON GROUPS",
+        buttons=(
+            btn_secondary(parent, "Clear All", app._stats_grp_clear_all),
+            btn_primary(parent, "+ Add", app._stats_grp_add),
+        ),
+    )
     layout.addWidget(hdr)
-
-    sep1 = QFrame(parent)
-    sep1.setObjectName("Separator")
-    sep1.setFrameShape(QFrame.HLine)
-    sep1.setFixedHeight(1)
-    layout.addWidget(sep1)
+    layout.addWidget(build_hline_separator(parent))
 
     help_lbl = QLabel(
         "Drag wells to assign them to a group. Select a group card first.",

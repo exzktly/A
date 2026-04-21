@@ -47,7 +47,6 @@ from well_viewer.runtime_app import (
     _extract_well_token,
     _groups_with_loaded_wells,
     _logger,
-    _read_pipeline_info_shared,
     aggregate_with_threshold,
     apply_ax_style,
 )
@@ -57,7 +56,14 @@ from well_viewer.scatter_controller import (
     collect_scatter_data as _collect_scatter_data,
     collect_scatter_agg_data as _collect_scatter_agg_data,
 )
-from well_viewer.ui_helpers import ask_name_dialog, btn_card, btn_danger, btn_primary, btn_secondary
+from well_viewer.ui_helpers import (
+    ask_name_dialog,
+    btn_card,
+    btn_danger,
+    btn_primary,
+    btn_secondary,
+    clear_layout as _clear_layout_helper,
+)
 
 
 _CLR_DANGER = "#d2453d"
@@ -66,13 +72,6 @@ _CLR_PLACEHOLDER = "#9aa0a6"
 _CLR_DISABLED_WELL = "#404040"
 _CLR_ERR_BAR = "#333333"
 _CLR_WHITE = "#ffffff"
-
-
-def _parse_rc(tok: str):
-    m = re.match(r"^([A-H])(\d{1,2})$", tok, re.I)
-    if not m:
-        return ("?", "?")
-    return (m.group(1).upper(), f"{int(m.group(2)):02d}")
 
 
 class _WellGridButton(QPushButton):
@@ -279,40 +278,7 @@ class BatchExportPanel(QWidget):
         self._drag_visited = set()
 
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
-        hdr = QHBoxLayout()
-        hdr.setContentsMargins(12, 4, 12, 4)
-        t = QLabel("OUTPUT SETTINGS")
-        f = t.font(); f.setBold(True); t.setFont(f)
-        hdr.addWidget(t); hdr.addStretch(1)
-        layout.addLayout(hdr)
-
-        out_row = QHBoxLayout()
-        out_row.setContentsMargins(12, 6, 12, 6)
-        lbl = QLabel("Folder:")
-        f = lbl.font(); f.setBold(True); lbl.setFont(f)
-        out_row.addWidget(lbl)
-        self._out_dir_edit = QLineEdit(self._out_dir_value)
-        self._out_dir_edit.setMinimumWidth(240)
-        out_row.addWidget(self._out_dir_edit, 1)
-        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
-        layout.addLayout(out_row)
-
-        fmt_row = QHBoxLayout()
-        fmt_row.setContentsMargins(12, 2, 12, 2)
-        flbl = QLabel("Format:")
-        f = flbl.font(); f.setBold(True); flbl.setFont(f)
-        fmt_row.addWidget(flbl)
-        self._fmt_cb = QComboBox()
-        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
-        self._fmt_cb.setCurrentText(self._fmt_value)
-        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
-        fmt_row.addWidget(self._fmt_cb)
-        self._fmt_hint = QLabel("300 DPI raster")
-        fmt_row.addWidget(self._fmt_hint)
-        fmt_row.addStretch(1)
-        layout.addLayout(fmt_row)
-
-        self._build_export_profile_row(layout)
+        self._build_output_header_and_io(layout)
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -322,7 +288,9 @@ class BatchExportPanel(QWidget):
             "  \u2022 One figure with one line per group member\n"
             "    (ReplicateSet = mean of its wells, Solo well = raw)\n"
             "  \u2022 One CSV with per-member time-series data\n\n"
-            + ("Groups come from Sample Definitions in the left sidebar.\n" if self._use_sidebar_groups else "Groups are defined in the left panel.\n")
+            + ("Groups come from Sample Definitions in the left sidebar.\n"
+               if self._use_sidebar_groups
+               else "Groups are defined in the left panel.\n")
             + "No statistics are computed across group members.\n"
               "SD/SEM is only computed within a ReplicateSet."
         )
@@ -330,20 +298,7 @@ class BatchExportPanel(QWidget):
         info.setContentsMargins(12, 4, 12, 4)
         layout.addWidget(info)
 
-        run_row = QHBoxLayout()
-        run_row.setContentsMargins(12, 8, 12, 8)
-        self._run_btn = QPushButton("\u25b6  Run Batch Export")
-        self._run_btn.setProperty("variant", "primary")
-        self._run_btn.clicked.connect(self._run_batch)
-        run_row.addWidget(self._run_btn)
-        self._prog_lbl = QLabel("")
-        run_row.addWidget(self._prog_lbl)
-        self._prog_bar = QProgressBar()
-        self._prog_bar.setFixedWidth(180)
-        self._prog_bar.setVisible(False)
-        run_row.addWidget(self._prog_bar)
-        run_row.addStretch(1)
-        layout.addLayout(run_row)
+        self._build_run_row(layout)
         layout.addStretch(1)
 
     def _build_export_profile_row(self, layout: QVBoxLayout) -> None:
@@ -413,6 +368,90 @@ class BatchExportPanel(QWidget):
         chosen = QFileDialog.getExistingDirectory(self, "Select output directory", current)
         if chosen:
             self._out_dir_edit.setText(chosen)
+
+    @staticmethod
+    def _add_bold_label(layout, text: str) -> QLabel:
+        lbl = QLabel(text)
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        layout.addWidget(lbl)
+        return lbl
+
+    def _build_output_header_and_io(
+        self, layout: QVBoxLayout, *, title: str = "OUTPUT SETTINGS",
+    ) -> None:
+        """Common OUTPUT header + Folder + Format + Profile rows."""
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(12, 4, 12, 4)
+        self._add_bold_label(hdr, title)
+        hdr.addStretch(1)
+        layout.addLayout(hdr)
+
+        out_row = QHBoxLayout()
+        out_row.setContentsMargins(12, 6, 12, 6)
+        self._add_bold_label(out_row, "Folder:")
+        self._out_dir_edit = QLineEdit(self._out_dir_value)
+        self._out_dir_edit.setMinimumWidth(240)
+        out_row.addWidget(self._out_dir_edit, 1)
+        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
+        layout.addLayout(out_row)
+
+        fmt_row = QHBoxLayout()
+        fmt_row.setContentsMargins(12, 2, 12, 2)
+        self._add_bold_label(fmt_row, "Format:")
+        self._fmt_cb = QComboBox()
+        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
+        self._fmt_cb.setCurrentText(self._fmt_value)
+        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
+        fmt_row.addWidget(self._fmt_cb)
+        self._fmt_hint = QLabel("300 DPI raster")
+        fmt_row.addWidget(self._fmt_hint)
+        fmt_row.addStretch(1)
+        layout.addLayout(fmt_row)
+
+        self._build_export_profile_row(layout)
+
+    def _build_run_row(
+        self, layout: QVBoxLayout, *, button_text: str = "▶  Run Batch Export",
+    ) -> None:
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(12, 8, 12, 8)
+        self._run_btn = QPushButton(button_text)
+        self._run_btn.setProperty("variant", "primary")
+        self._run_btn.clicked.connect(self._run_batch)
+        run_row.addWidget(self._run_btn)
+        self._prog_lbl = QLabel("")
+        run_row.addWidget(self._prog_lbl)
+        self._prog_bar = QProgressBar()
+        self._prog_bar.setFixedWidth(180)
+        self._prog_bar.setVisible(False)
+        run_row.addWidget(self._prog_bar)
+        run_row.addStretch(1)
+        layout.addLayout(run_row)
+
+    def _tp_select_all(self) -> None:
+        for i in range(self._tp_lb.count()):
+            self._tp_lb.item(i).setSelected(True)
+
+    def _tp_clear_all(self) -> None:
+        self._tp_lb.clearSelection()
+
+    def _selected_tps(self) -> List[str]:
+        return [it.text() for it in self._tp_lb.selectedItems()]
+
+    def _build_timepoints_section(self, layout: QVBoxLayout) -> None:
+        """TIMEPOINTS header + multi-select list (shared by Bar/Scatter)."""
+        tp_hdr = QHBoxLayout()
+        tp_hdr.setContentsMargins(12, 0, 12, 2)
+        self._add_bold_label(tp_hdr, "TIMEPOINTS")
+        tp_hdr.addStretch(1)
+        tp_hdr.addWidget(btn_secondary(None, "All", self._tp_select_all))
+        tp_hdr.addWidget(btn_secondary(None, "None", self._tp_clear_all))
+        layout.addLayout(tp_hdr)
+
+        self._tp_lb = QListWidget()
+        self._tp_lb.setSelectionMode(QAbstractItemView.MultiSelection)
+        self._tp_lb.setMinimumHeight(120)
+        layout.addWidget(self._tp_lb, 1)
 
     def _active_group(self) -> Optional[BarGroup]:
         if 0 <= self._active_grp < len(self._groups):
@@ -489,15 +528,7 @@ class BatchExportPanel(QWidget):
                 btn.set_colors("#2a2a2a", TXT_PRI)
 
     def _clear_layout(self, layout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-            else:
-                inner = item.layout()
-                if inner is not None:
-                    self._clear_layout(inner)
+        _clear_layout_helper(layout)
 
     def _refresh_group_list(self) -> None:
         # Remove everything except the trailing stretch
@@ -1162,65 +1193,19 @@ class BarBatchExportPanel(BatchExportPanel):
         super().__init__(app, parent, use_sidebar_groups=use_sidebar_groups)
 
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
-        hdr = QHBoxLayout()
-        hdr.setContentsMargins(12, 4, 12, 4)
-        t = QLabel("OUTPUT SETTINGS")
-        f = t.font(); f.setBold(True); t.setFont(f)
-        hdr.addWidget(t); hdr.addStretch(1)
-        layout.addLayout(hdr)
-
-        out_row = QHBoxLayout()
-        out_row.setContentsMargins(12, 6, 12, 6)
-        lbl = QLabel("Folder:")
-        f = lbl.font(); f.setBold(True); lbl.setFont(f)
-        out_row.addWidget(lbl)
-        self._out_dir_edit = QLineEdit(self._out_dir_value)
-        self._out_dir_edit.setMinimumWidth(240)
-        out_row.addWidget(self._out_dir_edit, 1)
-        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
-        layout.addLayout(out_row)
-
-        fmt_row = QHBoxLayout()
-        fmt_row.setContentsMargins(12, 2, 12, 2)
-        flbl = QLabel("Format:")
-        f = flbl.font(); f.setBold(True); flbl.setFont(f)
-        fmt_row.addWidget(flbl)
-        self._fmt_cb = QComboBox()
-        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
-        self._fmt_cb.setCurrentText(self._fmt_value)
-        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
-        fmt_row.addWidget(self._fmt_cb)
-        self._fmt_hint = QLabel("300 DPI raster")
-        fmt_row.addWidget(self._fmt_hint)
-        fmt_row.addStretch(1)
-        layout.addLayout(fmt_row)
-        self._build_export_profile_row(layout)
+        self._build_output_header_and_io(layout)
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        tp_hdr = QHBoxLayout()
-        tp_hdr.setContentsMargins(12, 0, 12, 2)
-        tlbl = QLabel("TIMEPOINTS")
-        f = tlbl.font(); f.setBold(True); tlbl.setFont(f)
-        tp_hdr.addWidget(tlbl)
-        tp_hdr.addStretch(1)
-        tp_hdr.addWidget(btn_secondary(None, "All", self._tp_select_all))
-        tp_hdr.addWidget(btn_secondary(None, "None", self._tp_clear_all))
-        layout.addLayout(tp_hdr)
-
-        self._tp_lb = QListWidget()
-        self._tp_lb.setSelectionMode(QAbstractItemView.MultiSelection)
-        self._tp_lb.setMinimumHeight(120)
-        layout.addWidget(self._tp_lb, 1)
+        self._build_timepoints_section(layout)
 
         self._app._update_bar_tp_menu()
         tp_vals = [self._app._bar_tp_cb.itemText(i)
                    for i in range(self._app._bar_tp_cb.count())]
         for tp in tp_vals:
             if tp and tp != "\u2014":
-                item = QListWidgetItem(tp)
-                self._tp_lb.addItem(item)
+                self._tp_lb.addItem(QListWidgetItem(tp))
         self._tp_select_all()
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
@@ -1239,30 +1224,7 @@ class BarBatchExportPanel(BatchExportPanel):
         info.setContentsMargins(12, 4, 12, 4)
         layout.addWidget(info)
 
-        run_row = QHBoxLayout()
-        run_row.setContentsMargins(12, 8, 12, 8)
-        self._run_btn = QPushButton("\u25b6  Run Batch Export")
-        self._run_btn.setProperty("variant", "primary")
-        self._run_btn.clicked.connect(self._run_batch)
-        run_row.addWidget(self._run_btn)
-        self._prog_lbl = QLabel("")
-        run_row.addWidget(self._prog_lbl)
-        self._prog_bar = QProgressBar()
-        self._prog_bar.setFixedWidth(180)
-        self._prog_bar.setVisible(False)
-        run_row.addWidget(self._prog_bar)
-        run_row.addStretch(1)
-        layout.addLayout(run_row)
-
-    def _tp_select_all(self) -> None:
-        for i in range(self._tp_lb.count()):
-            self._tp_lb.item(i).setSelected(True)
-
-    def _tp_clear_all(self) -> None:
-        self._tp_lb.clearSelection()
-
-    def _selected_tps(self) -> List[str]:
-        return [it.text() for it in self._tp_lb.selectedItems()]
+        self._build_run_row(layout)
 
     def _run_batch(self) -> None:
         groups_with_data = _groups_with_loaded_wells(
@@ -1477,40 +1439,10 @@ class ScatterBatchExportPanel(BatchExportPanel):
         super().__init__(app, parent, use_sidebar_groups=use_sidebar_groups)
 
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
-        hdr = QHBoxLayout()
-        hdr.setContentsMargins(12, 4, 12, 4)
-        title = "OUTPUT SETTINGS \u2014 SCATTER CELLS" if self._scatter_mode == "cells" else "OUTPUT SETTINGS \u2014 SCATTER AGGREGATE"
-        t = QLabel(title)
-        f = t.font(); f.setBold(True); t.setFont(f)
-        hdr.addWidget(t); hdr.addStretch(1)
-        layout.addLayout(hdr)
-
-        out_row = QHBoxLayout()
-        out_row.setContentsMargins(12, 6, 12, 6)
-        lbl = QLabel("Folder:")
-        f = lbl.font(); f.setBold(True); lbl.setFont(f)
-        out_row.addWidget(lbl)
-        self._out_dir_edit = QLineEdit(self._out_dir_value)
-        self._out_dir_edit.setMinimumWidth(240)
-        out_row.addWidget(self._out_dir_edit, 1)
-        out_row.addWidget(btn_secondary(None, "Browse\u2026", self._browse_out_dir))
-        layout.addLayout(out_row)
-
-        fmt_row = QHBoxLayout()
-        fmt_row.setContentsMargins(12, 2, 12, 2)
-        flbl = QLabel("Format:")
-        f = flbl.font(); f.setBold(True); flbl.setFont(f)
-        fmt_row.addWidget(flbl)
-        self._fmt_cb = QComboBox()
-        self._fmt_cb.addItems(["png", "svg", "eps", "pdf"])
-        self._fmt_cb.setCurrentText(self._fmt_value)
-        self._fmt_cb.currentTextChanged.connect(self._on_fmt_change)
-        fmt_row.addWidget(self._fmt_cb)
-        self._fmt_hint = QLabel("300 DPI raster")
-        fmt_row.addWidget(self._fmt_hint)
-        fmt_row.addStretch(1)
-        layout.addLayout(fmt_row)
-        self._build_export_profile_row(layout)
+        title = ("OUTPUT SETTINGS \u2014 SCATTER CELLS"
+                 if self._scatter_mode == "cells"
+                 else "OUTPUT SETTINGS \u2014 SCATTER AGGREGATE")
+        self._build_output_header_and_io(layout, title=title)
 
         opt_row = QHBoxLayout()
         opt_row.setContentsMargins(12, 2, 12, 2)
@@ -1545,20 +1477,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
         opt_row.addStretch(1)
         layout.addLayout(opt_row)
 
-        tp_hdr = QHBoxLayout()
-        tp_hdr.setContentsMargins(12, 4, 12, 2)
-        tlbl = QLabel("TIMEPOINTS")
-        f = tlbl.font(); f.setBold(True); tlbl.setFont(f)
-        tp_hdr.addWidget(tlbl)
-        tp_hdr.addStretch(1)
-        tp_hdr.addWidget(btn_secondary(None, "All", self._tp_select_all))
-        tp_hdr.addWidget(btn_secondary(None, "None", self._tp_clear_all))
-        layout.addLayout(tp_hdr)
-
-        self._tp_lb = QListWidget()
-        self._tp_lb.setSelectionMode(QAbstractItemView.MultiSelection)
-        self._tp_lb.setMinimumHeight(120)
-        layout.addWidget(self._tp_lb, 1)
+        self._build_timepoints_section(layout)
         self._init_timepoint_dropdown()
 
         mode_row = QHBoxLayout()
@@ -1582,30 +1501,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
         info.setContentsMargins(12, 4, 12, 4)
         layout.addWidget(info)
 
-        run_row = QHBoxLayout()
-        run_row.setContentsMargins(12, 8, 12, 8)
-        self._run_btn = QPushButton("\u25b6  Run Scatter Batch Export")
-        self._run_btn.setProperty("variant", "primary")
-        self._run_btn.clicked.connect(self._run_batch)
-        run_row.addWidget(self._run_btn)
-        self._prog_lbl = QLabel("")
-        run_row.addWidget(self._prog_lbl)
-        self._prog_bar = QProgressBar()
-        self._prog_bar.setFixedWidth(180)
-        self._prog_bar.setVisible(False)
-        run_row.addWidget(self._prog_bar)
-        run_row.addStretch(1)
-        layout.addLayout(run_row)
-
-    def _tp_select_all(self) -> None:
-        for i in range(self._tp_lb.count()):
-            self._tp_lb.item(i).setSelected(True)
-
-    def _tp_clear_all(self) -> None:
-        self._tp_lb.clearSelection()
-
-    def _selected_tps(self) -> List[str]:
-        return [it.text() for it in self._tp_lb.selectedItems()]
+        self._build_run_row(layout, button_text="\u25b6  Run Scatter Batch Export")
 
     def _init_timepoint_dropdown(self) -> None:
         timepoints = sorted(set(getattr(self._app, "_all_timepoints_cache", []) or []))
@@ -1976,8 +1872,3 @@ class ScatterBatchExportPanel(BatchExportPanel):
 
 BatchExportDialog = BatchExportPanel
 BarBatchExportDialog = BarBatchExportPanel
-
-
-def _read_pipeline_info(out_dir: Path):
-    """Read pipeline_info.json sidecar; returns (extractor, fluor_tokens)."""
-    return _read_pipeline_info_shared(out_dir, logger=_logger, check_parent=True)

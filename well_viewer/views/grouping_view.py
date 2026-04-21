@@ -8,17 +8,10 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    btn_card, btn_danger, btn_primary, btn_secondary, ComboVar,
+    btn_card, btn_danger, btn_primary, btn_secondary,
+    build_hline_separator, build_section_header,
+    clear_layout as _clear_layout, ComboVar,
 )
-
-
-def _clear_layout(layout):
-    while layout.count():
-        item = layout.takeAt(0)
-        w = item.widget()
-        if w is not None:
-            w.setParent(None)
-            w.deleteLater()
 
 
 def rep_panel_refresh(app) -> None:
@@ -253,22 +246,16 @@ def build_group_def_panel(app, parent: QWidget) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
-    sep = QFrame(parent)
-    sep.setObjectName("Separator")
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
+    layout.addWidget(build_hline_separator(parent))
 
-    hdr = QWidget(parent)
-    hdr.setObjectName("Sidebar")
-    hl = QHBoxLayout(hdr)
-    hl.setContentsMargins(8, 4, 8, 4)
-    title = QLabel("GROUPS", hdr)
-    title.setProperty("role", "section")
-    hl.addWidget(title)
-    hl.addStretch(1)
-    hl.addWidget(btn_secondary(hdr, "Clear All", app._grp_clear_all))
-    hl.addWidget(btn_primary(hdr, "+ Add", app._grp_add))
+    hdr = build_section_header(
+        parent,
+        "GROUPS",
+        buttons=(
+            btn_secondary(parent, "Clear All", app._grp_clear_all),
+            btn_primary(parent, "+ Add", app._grp_add),
+        ),
+    )
     layout.addWidget(hdr)
 
     hdr2 = QWidget(parent)

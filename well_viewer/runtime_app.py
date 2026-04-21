@@ -177,6 +177,7 @@ from well_viewer.ui_helpers import (
     btn_danger as _btn_danger,
     btn_primary as _btn_primary,
     btn_secondary as _btn_secondary,
+    clear_layout as _clear_layout,
     make_scrollable_canvas as _ui_make_scrollable_canvas,
 )
 from ui.theme import (
@@ -374,22 +375,6 @@ def _bind_drag(frame, btn_store, on_press, on_drag, on_release, *, button: int =
     frame.mouseReleaseEvent = on_release
 
 
-def _clear_layout(layout) -> None:
-    """Remove every widget and sub-layout from *layout*, freeing them."""
-    if layout is None:
-        return
-    while layout.count():
-        item = layout.takeAt(0)
-        w = item.widget()
-        if w is not None:
-            w.setParent(None)
-            w.deleteLater()
-            continue
-        child = item.layout()
-        if child is not None:
-            _clear_layout(child)
-
-
 def _wells_multiselect_listbox(parent, available, preselect=None):
     """Return a QListWidget of *available* well labels with multi-selection."""
     lb = QListWidget(parent)
@@ -463,450 +448,26 @@ def apply_ax_style(ax, title: str, ylabel: str) -> None:
     ax.grid(True, color=PLOT_GRD, linewidth=0.7, linestyle="-")
 
 
-# =============================================================================
-# Timepoint parser
-# =============================================================================
-
-def parse_timepoint_hours(tp: str) -> Optional[float]:
-    """
-    Convert a timepoint string to fractional hours.
-    Returns None when the string cannot be parsed at all.
-
-    Formats tried in order:
-      1. DDdHHhMMm  e.g. "02d04h30m" -> 52.5
-      2. Standalone unit suffix  e.g. "48h", "2d", "30m"
-      3. Pure number  e.g. "48" or "1.5" -> treated as hours
-      4. Prefixed ordinal  e.g. "T01", "day2" -> numeric suffix as index
-    """
-    s = tp.strip()
-    if not s:
-        return None
-
-    # 1. DDdHHhMMm (all components optional, at least one required)
-    m = re.fullmatch(r"(?:(\d{1,4})d)?(?:(\d{1,2})h)?(?:(\d{1,2})m)?", s, re.I)
-    if m and any(m.groups()):
-        return int(m.group(1) or 0)*24.0 + int(m.group(2) or 0) + int(m.group(3) or 0)/60.0
-
-    # 2. Standalone unit: "48h", "2d", "30m", "90min"
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(h(?:ours?)?|d(?:ays?)?|m(?:in(?:utes?)?)?)",
-                     s, re.I)
-    if m:
-        val, unit = float(m.group(1)), m.group(2)[0].lower()
-        if unit == "h": return val
-        if unit == "d": return val * 24.0
-        if unit == "m": return val / 60.0
-
-    # 3. Pure number (treated as hours)
-    try:
-        return float(s)
-    except ValueError:
-        pass
-
-    # 4. Prefixed ordinal: strip leading non-digit chars, keep trailing number
-    #    e.g. "T01" -> 1.0, "day02" -> 2.0, "tp_3" -> 3.0
-    m = re.search(r"(\d+(?:\.\d+)?)$", s)
-    if m:
-        return float(m.group(1))
-
-    return None
-
-# =============================================================================
-# CSV loading and aggregation
-# =============================================================================
-
-# Columns kept as strings (not coerced to float)
-_STRING_COLS = {"filename", "experiment", "channel", "well", "fov", "timepoint"}
-
-def row_is_included(row: dict) -> bool:
-    """Return True when CSV row is marked as included (Included == 1)."""
-    raw = row.get("Included", 1)
-    try:
-        return int(float(raw)) == 1
-    except (TypeError, ValueError):
-        return False
-
-
-def load_well_csv(path: Path) -> List[dict]:
-    rows: List[dict] = []
-    with path.open(newline="") as fh:
-        for row in csv.DictReader(fh):
-            if "Included" not in row:
-                row["Included"] = 1
-            coerced: dict = {}
-            for k, v in row.items():
-                key_norm = str(k).strip().lower()
-                if key_norm in _STRING_COLS:
-                    if key_norm == "fov" and str(v).strip() in {"", "-1"}:
-                        coerced[k] = "1"
-                    else:
-                        coerced[k] = v
-                else:
-                    try:
-                        coerced[k] = float(v)
-                    except (ValueError, TypeError):
-                        coerced[k] = v
-            rows.append(coerced)
-    return rows
-
-
-def detect_fluor_channels(rows: List[dict]) -> List[str]:
-    """
-    Inspect column names in *rows* and return a sorted list of fluorescent
-    channel prefixes that have a *_mean_intensity column.
-
-    e.g. columns ["gfp_mean_intensity", "mcherry_mean_intensity", ...]
-         -> ["gfp", "mcherry"]
-    """
-    if not rows:
-        return []
-    channels = []
-    for col in rows[0].keys():
-        if col.endswith("_mean_intensity"):
-            prefix = col[: -len("_mean_intensity")]
-            if prefix:
-                channels.append(prefix)
-    return sorted(channels)
-
-
-def detect_smfish_channels(rows: List[dict]) -> List[str]:
-    """
-    Inspect column names in *rows* and return a sorted list of smFISH
-    channel prefixes that have a *_smfish_count column.
-
-    e.g. columns ["gfp_smfish_count", "mcherry_smfish_count", ...]
-         -> ["gfp", "mcherry"]
-    """
-    if not rows:
-        return []
-    channels = []
-    for col in rows[0].keys():
-        if col.endswith("_smfish_count"):
-            prefix = col[: -len("_smfish_count")]
-            if prefix:
-                channels.append(prefix)
-    return sorted(channels)
-
-
-def detect_nuclear_channel_token(rows: List[dict]) -> str:
-    """Return the nuclear/segmentation channel token from the CSV 'channel' column (lowercase).
-
-    This is the imaging channel used for cell segmentation (e.g. 'nir', 'dapi').
-    """
-    if not rows:
-        return ""
-    return str(rows[0].get("channel", "") or "").strip().lower()
-
-
-def normalize_channel_tokens(tokens: List[str]) -> List[str]:
-    """Stable lower-case de-dupe for channel tokens."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for tok in tokens:
-        cleaned = str(tok or "").strip().lower()
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        out.append(cleaned)
-    return out
-
-
-def merge_fluor_channels(
-    pipeline_fluor: List[str],
-    detected_fluor: List[str],
-    seg_channel_token: str = "",
-) -> List[str]:
-    """Merge pipeline + detected channel lists with stable order, always including seg token."""
-    merged = normalize_channel_tokens(list(pipeline_fluor) + list(detected_fluor))
-    seg_tok = str(seg_channel_token or "").strip().lower()
-    if seg_tok and seg_tok not in merged:
-        merged.append(seg_tok)
-    return merged
-
-
-def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
-    """Return channel prefixes suitable for Review Image.
-
-    Harmonized policy:
-      - use the measured fluorescence channels
-      - include the explicit segmentation channel token from CSV `channel`
-    This avoids adding synthetic channel labels from metric columns that do not
-    necessarily map to real image filenames in the dataset.
-    """
-    chans: list[str] = []
-    seen: set[str] = set()
-    for ch in fluor_channels:
-        tok = str(ch or "").strip().lower()
-        if tok and tok not in seen:
-            seen.add(tok)
-            chans.append(tok)
-    seg_tok = str(seg_channel_token or "").strip().lower()
-    if seg_tok and seg_tok not in seen:
-        seen.add(seg_tok)
-        chans.append(seg_tok)
-    if not rows:
-        return chans
-    return chans
-
-
-# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
-# n_above : cells above threshold at this timepoint  → denominator for plot 1
-# n_total : all cells at this timepoint              → denominator for plot 2
-# These differ because plot 1 (mean GFP) only averages cells above threshold,
-# while plot 2 (fraction) counts ALL cells to form the denominator.
-AggPoint = Tuple[float, float, float, float, int, int]
-
-
-def _ordinal_timepoints(rows: List[dict], tp_col: str = "timepoint_hours") -> Dict[str, float]:
-    """
-    Build a string->ordinal mapping for rows whose numeric timepoint is NaN/missing.
-
-    Collects every distinct raw "timepoint" string that failed numeric parsing,
-    sorts them lexicographically, and assigns 0-based ordinal floats so that
-    T01 < T02 < T03, day1 < day2, etc. still plot in the right order.
-    """
-    raw_strings: set = set()
-    for row in rows:
-        raw = row.get(tp_col)
-        numeric_ok = isinstance(raw, float) and not math.isnan(raw)
-        if not numeric_ok:
-            tp_str = str(row.get("timepoint", ""))
-            if tp_str and parse_timepoint_hours(tp_str) is None:
-                raw_strings.add(tp_str)
-    return {s: float(i) for i, s in enumerate(sorted(raw_strings))}
-
-
-def aggregate_with_threshold(
-    rows: List[dict],
-    threshold: float,
-    use_sem: bool = False,
-    tp_col: str = "timepoint_hours",
-    val_col: str = "gfp_mean_intensity",
-    cell_area_threshold: float = 0.0,
-    fluor_gates: Optional[Dict[str, float]] = None,
-) -> List[AggPoint]:
-    """Group rows by timepoint; compute stats for cells above threshold.
-
-    Applies consistent gating criteria across all channels upfront, then computes
-    statistics on the filtered cell population. This ensures that "Fraction On"
-    and other metrics are computed on the same set of cells regardless of which
-    channel or metric is being plotted.
-
-    Timepoints are resolved in priority order:
-      1. Numeric value already in tp_col (written by the pipeline).
-      2. parse_timepoint_hours() on the raw timepoint string.
-      3. Lexicographic ordinal fallback: rows whose timepoint cannot be
-         parsed numerically are still included, sorted by string order.
-
-    Gating criteria (applied upfront to all rows):
-      - Cells with area_px <= cell_area_threshold are excluded
-      - Cells with any channel's intensity <= its gate threshold are excluded
-
-    Then, within the filtered population:
-      - val_col: the column to compute statistics on
-      - threshold: cells in val_col > threshold are counted for "Fraction On"
-
-    Args:
-        rows: List of cell dictionaries from CSV data
-        threshold: ThreshFracOn value for computing fraction above threshold
-        use_sem: If True, compute SEM; if False, compute SD
-        tp_col: Column name for timepoint
-        val_col: Column name for the value to aggregate
-        cell_area_threshold: Minimum cell area (FluorGating)
-        fluor_gates: Dict mapping channel name -> gate threshold (FluorGating).
-                     Cells below any gate are excluded. E.g., {"gfp": 10.0, "mcherry": 20.0}
-
-    Returns:
-        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total)
-    """
-    if fluor_gates is None:
-        fluor_gates = {}
-
-    all_v:   Dict[float, List[float]] = defaultdict(list)
-    above_v: Dict[float, List[float]] = defaultdict(list)
-
-    # Pre-build ordinal map for any unparseable timepoint strings.
-    ordinals = _ordinal_timepoints(rows, tp_col)
-
-    for row in rows:
-        if not row_is_included(row):
-            continue
-        # Step 1: Filter by cell area threshold (applies to all rows)
-        try:
-            area = float(row.get("area_px", 0))
-            if area <= cell_area_threshold:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        # Step 2: Filter by all channel fluorescence gates (applies to all rows)
-        # This ensures we only include cells that pass ALL QC criteria
-        gates_passed = True
-        for channel, gate_threshold in fluor_gates.items():
-            col = f"{channel}_mean_intensity"
-            try:
-                fluor = float(row.get(col, float('nan')))
-                if fluor != fluor or fluor <= gate_threshold:  # NaN or below gate
-                    gates_passed = False
-                    break
-            except (ValueError, TypeError):
-                gates_passed = False
-                break
-
-        if not gates_passed:
-            continue
-
-        # Step 3: Extract timepoint (same as before)
-        raw = row.get(tp_col)
-        if isinstance(raw, float) and not math.isnan(raw):
-            t: Optional[float] = raw
-        else:
-            tp_str = str(row.get("timepoint", ""))
-            t = parse_timepoint_hours(tp_str)
-            if t is None:
-                t = ordinals.get(tp_str)  # lexicographic ordinal
-            # No timepoint field in schema at all — treat all rows as t=0.
-            if t is None and not tp_str:
-                t = 0.0
-        if t is None:
-            continue
-
-        # Step 4: Get the value to aggregate on
-        try:
-            val = float(row[val_col])
-        except (KeyError, ValueError, TypeError):
-            continue
-
-        # At this point, row passes all gating criteria. Include in aggregation.
-        all_v[t].append(val)
-        if val > threshold:
-            above_v[t].append(val)
-
-    result: List[AggPoint] = []
-    for t in sorted(all_v):
-        above   = above_v.get(t, [])
-        n_total = len(all_v[t])
-        n_above = len(above)
-        mean    = sum(above) / n_above if n_above else float("nan")
-        spread  = 0.0
-        if n_above > 1:
-            sd     = statistics.pstdev(above)
-            spread = sd / math.sqrt(n_above) if use_sem else sd
-        result.append((t, mean, spread,
-                       n_above / n_total if n_total else float("nan"),
-                       n_above, n_total))
-    return result
-
-
-def _all_fluor_values(rows: List[dict], val_col: str = "gfp_mean_intensity") -> List[float]:
-    return [float(row[val_col]) for row in rows
-            if row_is_included(row)
-            if val_col in row and math.isfinite(float(row[val_col]))
-            if isinstance(row[val_col], (int, float)) and not isinstance(row[val_col], bool)]
-
-
-def _all_fluor_values_filtered(
-    rows: List[dict],
-    val_col: str = "gfp_mean_intensity",
-    cell_area_threshold: float = 0.0,
-    fluor_gates: Optional[Dict[str, float]] = None,
-) -> List[float]:
-    """Extract fluorescence values from rows, filtering by cell area and all fluorescence gates.
-
-    Args:
-        rows: List of cell dictionaries
-        val_col: Column to extract values from
-        cell_area_threshold: Minimum cell area (FluorGating)
-        fluor_gates: Dict mapping channel -> gate threshold (FluorGating).
-                     Cells below any gate are excluded.
-    """
-    if fluor_gates is None:
-        fluor_gates = {}
-
-    result = []
-    for row in rows:
-        if not row_is_included(row):
-            continue
-        # Filter by cell area threshold
-        try:
-            area = float(row.get("area_px", 0))
-            if area <= cell_area_threshold:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        # Filter by all fluorescence gates
-        gates_passed = True
-        for channel, gate_threshold in fluor_gates.items():
-            col = f"{channel}_mean_intensity"
-            try:
-                fluor = float(row.get(col, float('nan')))
-                if fluor != fluor or fluor <= gate_threshold:  # NaN or below gate
-                    gates_passed = False
-                    break
-            except (ValueError, TypeError):
-                gates_passed = False
-                break
-
-        if not gates_passed:
-            continue
-
-        # Extract the target value
-        try:
-            val = float(row[val_col])
-            if not math.isfinite(val):
-                continue
-            if not isinstance(val, (int, float)) or isinstance(val, bool):
-                continue
-            result.append(val)
-        except (KeyError, ValueError, TypeError):
-            continue
-
-    return result
-
-
-def _beeswarm_jitter(
-    values: List[float],
-    x_center: float = 0.0,
-    max_spread: float = 0.35,
-    n_bins: int = 40,
-) -> Tuple[List[float], List[float]]:
-    """
-    Compute x-jitter positions for a beeswarm column.
-
-    Values are binned vertically (by value magnitude); within each bin points
-    are spread left/right alternately from the centre.  Returns parallel lists
-    (xs, ys) ready for ax.scatter().
-
-    Pure Python + no external dependencies beyond what is already imported.
-    """
-    if not values:
-        return [], []
-
-    sorted_v = sorted(values)
-    lo, hi = sorted_v[0], sorted_v[-1]
-    rng = hi - lo if hi > lo else 1.0
-    bin_w = rng / n_bins
-
-    # Group indices by bin
-    bins: Dict[int, List[int]] = {}
-    for i, v in enumerate(values):
-        b = min(int((v - lo) / bin_w), n_bins - 1)
-        bins.setdefault(b, []).append(i)
-
-    step = max_spread / max(max(len(idxs) for idxs in bins.values()), 1)
-
-    xs = [0.0] * len(values)
-    ys = list(values)
-    for idxs in bins.values():
-        n = len(idxs)
-        # Sort by original value for visual consistency
-        idxs_sorted = sorted(idxs, key=lambda k: values[k])
-        for rank, idx in enumerate(idxs_sorted):
-            # Alternate: 0, +1, -1, +2, -2 …
-            offset = ((rank + 1) // 2) * (1 if rank % 2 == 1 else -1)
-            xs[idx] = x_center + offset * step
-
-    return xs, ys
+# Pure-data helpers live in data_loading.py. Re-exported here for backwards
+# compatibility with callers that import them from runtime_app.
+from well_viewer.data_loading import (
+    AggPoint,
+    _STRING_COLS,
+    _all_fluor_values,
+    _all_fluor_values_filtered,
+    _beeswarm_jitter,
+    _ordinal_timepoints,
+    aggregate_with_threshold,
+    detect_fluor_channels,
+    detect_nuclear_channel_token,
+    detect_review_image_channels,
+    detect_smfish_channels,
+    load_well_csv,
+    merge_fluor_channels,
+    normalize_channel_tokens,
+    parse_timepoint_hours,
+    row_is_included,
+)
 
 
 # =============================================================================
@@ -939,10 +500,7 @@ def _norm_well(raw: str) -> Optional[str]:
     return normalized or None
 
 
-def _extract_well_token(label: str) -> Optional[str]:
-    """'gfp_measurements_B10' → 'B10'."""
-    m = re.search(r"([A-Ha-h])(\d{1,2})$", label)
-    return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else None
+from well_viewer.data_loading import extract_well_token as _extract_well_token
 
 
 class _ImgRef:
@@ -1878,93 +1436,28 @@ class WellViewerApp(QWidget):
         self._stats_refresh_single_btn(tok)
 
     def _stats_refresh_single_btn(self, tok: str) -> None:
-        from ui.theme import get_color
-        button_bg_color = get_color("button_bg")
-        button_text_color = get_color("button_text")
-        button_text_disabled_color = get_color("button_text_disabled")
-
-        btn = self._stats_map_btns.get(tok)
-        if btn is None or tok not in self._well_paths:
-            return
-        for gi, g in enumerate(self._stats_groups):
-            if tok in g.wells:
-                grp_color = WELL_COLORS[gi % len(WELL_COLORS)]
-                is_active = gi == self._stats_active_grp
-                self._style_plate_button(
-                    btn,
-                    bg=grp_color,
-                    fg="white",
-                    relief="sunken" if is_active else "flat",
-                    activebackground=self._mute_color(grp_color, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled_color,
-                )
-                return
-        self._style_plate_button(
-            btn,
-            bg=button_bg_color,
-            fg=button_text_color,
-            relief="flat",
-            activebackground=button_bg_color,
-            activeforeground=button_text_color,
-            disabledforeground=button_text_disabled_color,
-        )
+        self._stats_refresh_map()
 
     def _stats_refresh_map(self) -> None:
-        from ui.theme import get_color
-        button_bg_color = get_color("button_bg")
-        button_text_color = get_color("button_text")
-        button_text_disabled_color = get_color("button_text_disabled")
-
+        bg, fg, fg_disabled = self._plate_theme_colors()
         avail = set(self._well_paths.keys())
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._stats_groups):
             c = WELL_COLORS[gi % len(WELL_COLORS)]
             for w in grp.wells:
                 tok_color.setdefault(w, c)
-        active_wells: set = set()
         grp = self._stats_active_group()
-        if grp:
-            for w in grp.wells:
-                active_wells.add(w)
+        active_wells: set = set(grp.wells) if grp else set()
         for tok, btn in self._stats_map_btns.items():
             if tok not in avail:
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg_color,
-                    fg=button_text_disabled_color,
-                    state="disabled",
-                    cursor="arrow",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                )
+                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
             elif tok in tok_color:
-                grp_color = tok_color[tok]
-                is_active = tok in active_wells
-                self._style_plate_button(
-                    btn,
-                    bg=grp_color,
-                    fg="white",
-                    state="normal",
-                    relief="sunken" if is_active else "flat",
-                    cursor="hand2",
-                    activebackground=self._mute_color(grp_color, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled_color,
+                self._plate_apply_colored(
+                    btn, tok_color[tok],
+                    active=tok in active_wells, fg_disabled=fg_disabled,
                 )
             else:
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg_color,
-                    fg=button_text_color,
-                    state="normal",
-                    relief="flat",
-                    cursor="hand2",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                )
+                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
 
     def _stats_refresh_group_list(self) -> None:
         container = self._stats_grp_inner
@@ -2201,25 +1694,15 @@ class WellViewerApp(QWidget):
     def _rep_refresh_map(self) -> None:
         """Recolour the replicate-panel plate map.
 
-        Each defined ReplicateSet gets a distinct colour (WELL_COLORS index).
-        The active (selected) set's wells are rendered slightly brighter.
-        Unassigned loaded wells are shown in a neutral available colour.
-        If a group is the active target instead of a replicate set, the grid
-        colours that group's solo wells with the group's palette colour so
-        click/drag can add/remove solo wells directly from the sidebar.
-        No active target → all sets shown in colour, map not drag-editable.
+        Each defined ReplicateSet gets a distinct colour. The active set's
+        wells are sunken. If a group is the active target instead, its solo
+        wells are shown in the group palette colour so they can be edited
+        directly from the sidebar.
         """
-        from ui.theme import get_color
-
         if not hasattr(self, "_rep_map_btns"):
             return
+        bg, fg, fg_disabled = self._plate_theme_colors()
 
-        # Get current colors from theme
-        button_bg = get_color("button_bg")
-        button_text = get_color("button_text")
-        button_text_disabled = get_color("button_text_disabled")
-
-        # Build tok -> (color, is_active_set)
         tok_color: Dict[str, str] = {}
         tok_active: Dict[str, bool] = {}
         for si, rset in enumerate(self._rep_sets):
@@ -2230,69 +1713,30 @@ class WellViewerApp(QWidget):
 
         has_rep_active = 0 <= self._active_rep_idx < len(self._rep_sets)
         has_grp_active = 0 <= getattr(self, "_bar_active_grp", -1) < len(self._bar_groups)
-
-        # When a group is the active edit target, its solo wells take
-        # precedence over any rep-set colouring so their membership is
-        # visually unambiguous.
         grp_solo_toks: set = set()
         grp_color = ACCENT
         if has_grp_active:
             grp = self._bar_groups[self._bar_active_grp]
             grp_solo_toks = set(grp.solo_wells)
             grp_color = WELL_COLORS[self._bar_active_grp % len(WELL_COLORS)]
-
         has_active = has_rep_active or has_grp_active
 
         for tok, btn in self._rep_map_btns.items():
             if tok not in self._well_paths:
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg,
-                    fg=button_text_disabled,
-                    state="disabled",
-                    cursor="arrow",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
-                )
+                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
             elif tok in grp_solo_toks:
-                self._style_plate_button(
-                    btn,
-                    bg=grp_color,
-                    fg="white",
-                    state="normal",
-                    cursor="hand2",
-                    relief="sunken",
-                    activebackground=self._mute_color(grp_color, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled,
+                self._plate_apply_colored(
+                    btn, grp_color, active=True, fg_disabled=fg_disabled,
                 )
             elif tok in tok_color:
-                act = tok_active.get(tok, False)
-                c = tok_color[tok]
-                self._style_plate_button(
-                    btn,
-                    bg=c,
-                    fg="white",
-                    state="normal",
-                    cursor="hand2",
-                    relief="sunken" if act else "flat",
-                    activebackground=self._mute_color(c, 0.3) if act else c,
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled,
+                self._plate_apply_colored(
+                    btn, tok_color[tok],
+                    active=tok_active.get(tok, False), fg_disabled=fg_disabled,
                 )
             else:
-                # Unassigned well — editable if a set or group is selected
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg,
-                    fg=button_text,
-                    state="normal",
+                self._plate_apply_neutral(
+                    btn, bg, fg, fg_disabled,
                     cursor="hand2" if has_active else "arrow",
-                    relief="flat",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
                 )
 
     def _rep_map_tok_at(self, event) -> Optional[str]:
@@ -3851,113 +3295,46 @@ class WellViewerApp(QWidget):
     def _refresh_sidebar_map_now(self) -> None:
         """Recolour every sidebar button to reflect rep-set visibility.
 
-        Rep-set mode (when _rep_sets are defined):
-          • Visible set  → full WELL_COLOR, normal relief
-          • Hidden set   → muted (grey-blended) colour, flat relief
-          • Not in any set → neutral, available for individual selection
-
-        Per-well mode (no rep-sets):
-          • Selected → ACCENT blue
-          • Unselected → neutral
-          • Missing → disabled
+        Rep-set mode: visible set = full colour sunken, hidden = muted flat,
+        unassigned = neutral. Per-well mode: selected = ACCENT sunken, else
+        neutral. Missing wells are disabled.
         """
-        from ui.theme import get_color
-
-        # Get current colors from theme (not cached imports)
-        button_bg_color = get_color("button_bg")
-        button_text_color = get_color("button_text")
-        button_text_disabled_color = get_color("button_text_disabled")
-
+        bg, fg, fg_disabled = self._plate_theme_colors()
         rep_sets = getattr(self, "_rep_sets", [])
         rep_mode = bool(rep_sets)
 
-        # Build tok -> (full_color, muted_color, si, is_hidden)
         tok_rep: Dict[str, tuple] = {}
         for si, rset in enumerate(rep_sets):
-            full_c  = WELL_COLORS[si % len(WELL_COLORS)]
-            muted_c = self._mute_color(full_c)
-            hidden  = si in self._rep_hidden
+            full_c = WELL_COLORS[si % len(WELL_COLORS)]
+            hidden = si in self._rep_hidden
             for tok in rset.wells:
-                tok_rep[tok] = (full_c, muted_c, si, hidden)
+                tok_rep[tok] = (full_c, hidden)
 
         for tok, btn in self._sidebar_btns.items():
             if tok not in self._well_paths:
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg_color,
-                    fg=button_text_disabled_color,
-                    state="disabled",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                    cursor="arrow",
-                    relief="flat",
-                )
+                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
             elif rep_mode and tok in tok_rep:
-                _full_c, _muted_c, _si, hidden = tok_rep[tok]
+                full_c, hidden = tok_rep[tok]
                 if hidden:
-                    # Dimmed: muted colour, lighter text, FLAT relief
+                    # Hidden sets: muted bg, full colour on hover, flat relief.
                     self._style_plate_button(
-                        btn,
-                        bg=_muted_c,
-                        fg="white",
-                        state="normal",
-                        activebackground=_full_c,
-                        activeforeground="white",
-                        disabledforeground=button_text_disabled_color,
-                        cursor="hand2",
-                        relief="flat",
+                        btn, bg=self._mute_color(full_c), fg="white",
+                        state="normal", cursor="hand2", relief="flat",
+                        activebackground=full_c, activeforeground="white",
+                        disabledforeground=fg_disabled,
                     )
                 else:
-                    # Visible: full colour, SUNKEN relief
-                    self._style_plate_button(
-                        btn,
-                        bg=_full_c,
-                        fg="white",
-                        state="normal",
-                        activebackground=self._mute_color(_full_c, 0.3),
-                        activeforeground="white",
-                        disabledforeground=button_text_disabled_color,
-                        cursor="hand2",
-                        relief="sunken",
+                    self._plate_apply_colored(
+                        btn, full_c, active=True, fg_disabled=fg_disabled,
                     )
             elif rep_mode:
-                # Well exists but not in any rep-set — neutral
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg_color,
-                    fg=button_text_color,
-                    state="normal",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                    cursor="hand2",
-                    relief="flat",
-                )
+                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
             elif tok in self._selected_wells:
-                self._style_plate_button(
-                    btn,
-                    bg=ACCENT,
-                    fg="white",
-                    state="normal",
-                    activebackground=self._mute_color(ACCENT, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled_color,
-                    cursor="hand2",
-                    relief="sunken",
+                self._plate_apply_colored(
+                    btn, ACCENT, active=True, fg_disabled=fg_disabled,
                 )
             else:
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg_color,
-                    fg=button_text_color,
-                    state="normal",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                    cursor="hand2",
-                    relief="flat",
-                )
+                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
 
         # Count label / hint
         loaded  = self._rep_sets_loaded() if rep_mode else []
@@ -4061,6 +3438,41 @@ class WellViewerApp(QWidget):
                     ),
                 ]
             )
+        )
+
+    def _plate_theme_colors(self) -> tuple:
+        from ui.theme import get_color
+        return (
+            get_color("button_bg"),
+            get_color("button_text"),
+            get_color("button_text_disabled"),
+        )
+
+    def _plate_apply_disabled(self, btn, bg: str, fg: str, fg_disabled: str) -> None:
+        self._style_plate_button(
+            btn, bg=bg, fg=fg_disabled, state="disabled", cursor="arrow",
+            activebackground=bg, activeforeground=fg,
+            disabledforeground=fg_disabled, relief="flat",
+        )
+
+    def _plate_apply_colored(
+        self, btn, color: str, *, active: bool, fg_disabled: str,
+    ) -> None:
+        self._style_plate_button(
+            btn, bg=color, fg="white", state="normal", cursor="hand2",
+            relief="sunken" if active else "flat",
+            activebackground=self._mute_color(color, 0.3) if active else color,
+            activeforeground="white", disabledforeground=fg_disabled,
+        )
+
+    def _plate_apply_neutral(
+        self, btn, bg: str, fg: str, fg_disabled: str,
+        *, cursor: str = "hand2", relief: str = "flat",
+    ) -> None:
+        self._style_plate_button(
+            btn, bg=bg, fg=fg, state="normal", cursor=cursor, relief=relief,
+            activebackground=bg, activeforeground=fg,
+            disabledforeground=fg_disabled,
         )
 
     def _sidebar_tok_at(self, event) -> Optional[str]:
@@ -4670,51 +4082,33 @@ class WellViewerApp(QWidget):
             _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
 
-    def _refresh_review_image(self) -> None:
-        if not hasattr(self, "_review_image_label"):
-            return
-        channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
-        image_debug = False
-        image_load_debug = _debug_flags.review_image_load_debug_enabled()
-        well = self._preview_selected_well
-        if well is None:
-            if channel_switch_debug:
-                _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
-            return
-        def _norm(v: object) -> str:
-            s = str(v or "").strip()
-            if not s:
-                return ""
-            try:
-                return f"{float(s):g}"
-            except Exception:
-                return s
+    @staticmethod
+    def _review_norm_fov(v: object) -> str:
+        s = str(v or "").strip()
+        if not s:
+            return ""
+        try:
+            return f"{float(s):g}"
+        except Exception:
+            return s
 
-        fov_raw = str(self._preview_fov_var.get() or "").strip()
-        fov = _norm(fov_raw)
-        if not fov_raw or fov_raw == "—" or not fov:
-            self._review_image_status.setText("No FOV selected.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
-                    fov_raw,
-                    fov,
-                )
-            return
+    @staticmethod
+    def _review_tp_sort_key(tp: str) -> Tuple[int, float, str]:
+        parsed = parse_timepoint_hours(str(tp))
+        if parsed is not None:
+            return (0, parsed, str(tp))
+        return (1, 0.0, str(tp))
 
-        def _tp_sort_key(tp: str) -> Tuple[int, float, str]:
-            parsed = parse_timepoint_hours(str(tp))
-            if parsed is not None:
-                return (0, parsed, str(tp))
-            return (1, 0.0, str(tp))
-
+    def _review_collect_timepoints(self, fov: str) -> list:
+        """Sorted list of timepoints available for ``fov`` (fluor + pipeline)."""
+        _norm = self._review_norm_fov
         tp_values = sorted(
             {
                 self._norm_timepoint(tp)
                 for (f, tp) in self._preview_fluor.keys()
                 if _norm(f) == fov and self._norm_timepoint(tp)
             },
-            key=_tp_sort_key,
+            key=self._review_tp_sort_key,
         )
         pipeline_tp_values = sorted(
             {
@@ -4722,152 +4116,34 @@ class WellViewerApp(QWidget):
                 for tp in (getattr(self, "_pipeline_info", {}) or {}).get("available_timepoints", [])
                 if self._norm_timepoint(tp)
             },
-            key=_tp_sort_key,
+            key=self._review_tp_sort_key,
         )
         if pipeline_tp_values:
-            tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=_tp_sort_key)
-        if channel_switch_debug:
-            _logger.debug(
-                "[RI-CHSW step 6] refresh_review_image start well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
-                well,
-                fov_raw,
-                fov,
-                getattr(self, "_active_image_channel", ""),
-            )
-        if image_debug:
-            _logger.debug(
-                "Review image timepoint dropdown population for well=%s fov=%s (raw=%s):",
-                well,
-                fov,
-                fov_raw,
-            )
-            fluor_candidates = [
-                (k_fov, k_tp, ref)
-                for (k_fov, k_tp), ref in self._preview_fluor.items()
-                if _norm(k_fov) == fov
-            ]
-            if fluor_candidates:
-                for k_fov, k_tp, ref in sorted(
-                    fluor_candidates,
-                    key=lambda row: (_tp_sort_key(row[1]), str(row[0])),
-                ):
-                    _logger.debug(
-                        "  fluor candidate fov=%s tp=%s path=%s",
-                        k_fov,
-                        k_tp,
-                        getattr(ref, "full_path_str", str(ref)),
-                    )
-            else:
-                _logger.debug("  no fluorescence candidates found for selected FOV")
+            tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=self._review_tp_sort_key)
+        return tp_values
 
-            tophat_candidates = [
-                (k_fov, k_tp, ref)
-                for (k_fov, k_tp), ref in getattr(self, "_preview_tophat_fluor", {}).items()
-                if _norm(k_fov) == fov
-            ]
-            if tophat_candidates:
-                for k_fov, k_tp, ref in sorted(
-                    tophat_candidates,
-                    key=lambda row: (_tp_sort_key(row[1]), str(row[0])),
-                ):
-                    _logger.debug(
-                        "  tophat candidate fov=%s tp=%s path=%s",
-                        k_fov,
-                        k_tp,
-                        getattr(ref, "full_path_str", str(ref)),
-                    )
-        _set_combo_values(self._review_image_tp_menu, tp_values or ["—"])
-        if tp_values and self._review_image_tp_var.get() not in tp_values:
-            self._review_image_tp_var.set(tp_values[0])
-        tp_raw = str(self._review_image_tp_var.get() or "").strip()
-        tp = self._norm_timepoint(tp_raw)
-        if not tp_raw or tp_raw == "—" or not tp:
-            self._review_image_status.setText("No timepoint selected.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
-                    tp_raw,
-                    tp,
-                )
-            return
-
+    def _review_resolve_image_refs(self, *, fov_raw: str, tp_raw: str):
+        """Resolve (fluor_ref, mask_ref), preferring top-hat if available."""
         fluor_ref = _resolve_ref_by_fov_tp(
             getattr(self, "_preview_tophat_fluor", {}),
-            fov_raw=fov_raw,
-            tp_raw=tp_raw,
+            fov_raw=fov_raw, tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
         if fluor_ref is None:
             fluor_ref = _resolve_ref_by_fov_tp(
-                self._preview_fluor,
-                fov_raw=fov_raw,
-                tp_raw=tp_raw,
+                self._preview_fluor, fov_raw=fov_raw, tp_raw=tp_raw,
                 norm_timepoint=self._norm_timepoint,
             )
         mask_ref = _resolve_ref_by_fov_tp(
-            self._preview_mask,
-            fov_raw=fov_raw,
-            tp_raw=tp_raw,
+            self._preview_mask, fov_raw=fov_raw, tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
-        if image_debug:
-            fov_tp_match_fluor = sum(
-                1
-                for (k_fov, k_tp) in self._preview_fluor.keys()
-                if _norm(k_fov) == fov and self._norm_timepoint(k_tp) == tp
-            )
-            fov_tp_match_tophat = sum(
-                1
-                for (k_fov, k_tp) in getattr(self, "_preview_tophat_fluor", {}).keys()
-                if _norm(k_fov) == fov and self._norm_timepoint(k_tp) == tp
-            )
-            _logger.debug(
-                "refresh_review_image refs_resolved well=%r fov=%r tp=%r fluor_ref=%s mask_ref=%s "
-                "final_key_counts fluor=%d tophat=%d",
-                well,
-                fov,
-                tp,
-                getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None,
-                getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None,
-                fov_tp_match_fluor,
-                fov_tp_match_tophat,
-            )
-        if image_load_debug:
-            fluor_path = getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None
-            mask_path = getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None
-            _debug_flags.debug_with_source(
-                _logger,
-                "Review Image load attempt well=%s fov=%s tp=%s fluor_path=%s",
-                well,
-                fov,
-                tp,
-                fluor_path,
-            )
-            _debug_flags.debug_with_source(
-                _logger,
-                "Review Image load attempt well=%s fov=%s tp=%s mask_path=%s",
-                well,
-                fov,
-                tp,
-                mask_path,
-            )
-        if fluor_ref is None or mask_ref is None:
-            self._review_image_status.setText("Missing fluorescence image or label map for selected FOV/timepoint.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
-                    fluor_ref,
-                    mask_ref,
-                )
-            return
-        self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
+        return fluor_ref, mask_ref
 
-        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
-        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
-        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
-            self._review_image_status.setText("Could not render review image (numpy/PIL unavailable).")
-            return
-
+    def _review_build_include_map(
+        self, mask_arr, well: str, fov: str, tp: str,
+    ) -> Dict[int, bool]:
+        """Build {nid: is_included} for all labels in ``mask_arr``."""
         center = _np.asarray(mask_arr)
         include_by_nid: Dict[int, bool] = {
             int(nid): True for nid in _np.unique(center) if int(nid) > 0
@@ -4883,16 +4159,90 @@ class WellViewerApp(QWidget):
                 continue
             incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
+        return include_by_nid
+
+    def _refresh_review_image(self) -> None:
+        if not hasattr(self, "_review_image_label"):
+            return
+        channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
+        image_load_debug = _debug_flags.review_image_load_debug_enabled()
+        well = self._preview_selected_well
+        if well is None:
+            if channel_switch_debug:
+                _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
+            return
+
+        fov_raw = str(self._preview_fov_var.get() or "").strip()
+        fov = self._review_norm_fov(fov_raw)
+        if not fov_raw or fov_raw == "—" or not fov:
+            self._review_image_status.setText("No FOV selected.")
+            if channel_switch_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
+                    fov_raw, fov,
+                )
+            return
+
+        tp_values = self._review_collect_timepoints(fov)
+        if channel_switch_debug:
+            _logger.debug(
+                "[RI-CHSW step 6] refresh_review_image start well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
+                well, fov_raw, fov, getattr(self, "_active_image_channel", ""),
+            )
+        _set_combo_values(self._review_image_tp_menu, tp_values or ["—"])
+        if tp_values and self._review_image_tp_var.get() not in tp_values:
+            self._review_image_tp_var.set(tp_values[0])
+        tp_raw = str(self._review_image_tp_var.get() or "").strip()
+        tp = self._norm_timepoint(tp_raw)
+        if not tp_raw or tp_raw == "—" or not tp:
+            self._review_image_status.setText("No timepoint selected.")
+            if channel_switch_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
+                    tp_raw, tp,
+                )
+            return
+
+        fluor_ref, mask_ref = self._review_resolve_image_refs(
+            fov_raw=fov_raw, tp_raw=tp_raw,
+        )
+        if image_load_debug:
+            fluor_path = getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None
+            mask_path = getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None
+            _debug_flags.debug_with_source(
+                _logger,
+                "Review Image load attempt well=%s fov=%s tp=%s fluor_path=%s",
+                well, fov, tp, fluor_path,
+            )
+            _debug_flags.debug_with_source(
+                _logger,
+                "Review Image load attempt well=%s fov=%s tp=%s mask_path=%s",
+                well, fov, tp, mask_path,
+            )
+        if fluor_ref is None or mask_ref is None:
+            self._review_image_status.setText("Missing fluorescence image or label map for selected FOV/timepoint.")
+            if channel_switch_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
+                    fluor_ref, mask_ref,
+                )
+            return
+        self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
+
+        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
+        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
+        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
+            self._review_image_status.setText("Could not render review image (numpy/PIL unavailable).")
+            return
+
+        include_by_nid = self._review_build_include_map(mask_arr, well, fov, tp)
         preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
         self._review_image_preserve_view_on_refresh = False
         if channel_switch_debug:
             _logger.debug("[RI-CHSW step 6->7] draw_review_image preserve_view=%s", preserve_view)
         self._draw_review_image(
-            fluor_arr,
-            mask_arr,
-            include_by_nid,
-            fit_lut=False,
-            preserve_view=preserve_view,
+            fluor_arr, mask_arr, include_by_nid,
+            fit_lut=False, preserve_view=preserve_view,
         )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
