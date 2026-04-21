@@ -70,7 +70,7 @@ def build_right_panel(self, parent: QWidget) -> None:
     self._montage_canvas.setWidgetResizable(True)
     self._montage_canvas.setFrameShape(QFrame.NoFrame)
     self._montage_inner = QWidget()
-    QVBoxLayout(self._montage_inner).setContentsMargins(0, 0, 0, 0)
+    # Layout is created on demand by _refresh_preview_montage (QGridLayout).
     self._montage_canvas.setWidget(self._montage_inner)
     il.addWidget(self._montage_canvas, 1)
     self._montage_win = None

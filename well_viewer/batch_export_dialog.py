@@ -223,6 +223,13 @@ class BatchExportPanel(QWidget):
                 self._map_btns[tok] = btn
                 map_grid.addWidget(btn, ri + 1, ci + 1)
 
+        # Per-button forwarding: enabled buttons consume mouse events, so
+        # the parent-level handlers never fire. Forward directly instead.
+        for _b in self._map_btns.values():
+            _b.setMouseTracking(True)
+            _b.mousePressEvent = self._plate_press
+            _b.mouseMoveEvent = self._plate_move
+            _b.mouseReleaseEvent = self._plate_release
         map_widget.mousePressEvent = self._plate_press
         map_widget.mouseMoveEvent = self._plate_move
         map_widget.mouseReleaseEvent = self._plate_release

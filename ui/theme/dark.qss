@@ -100,10 +100,21 @@ QComboBox {
     color: ${TXT_PRI};
     border: 1px solid ${BORDER};
     border-radius: 3px;
-    padding: 3px 6px;
+    padding: 3px 24px 3px 6px;
 }
 QComboBox:focus { border-color: ${ACCENT}; }
-QComboBox::drop-down { border: 0; width: 18px; }
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: 1px solid ${BORDER};
+    background: ${BG_CELL};
+}
+QComboBox::down-arrow {
+    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3 L5 7 L9 3 Z' fill='%23d0d0d0'/></svg>");
+    width: 10px;
+    height: 10px;
+}
 QComboBox QAbstractItemView {
     background: ${BG_PANEL};
     color: ${TXT_PRI};

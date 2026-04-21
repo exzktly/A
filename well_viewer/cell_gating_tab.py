@@ -13,6 +13,7 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from matplotlib.figure import Figure
 
 from ui.theme import get_color
+from well_viewer.ui_helpers import install_canvas_wheel_scroll
 
 try:
     import numpy as _np
@@ -82,6 +83,7 @@ class CellGatingTab(QWidget):
         self._plot_scroll.setWidgetResizable(True)
         self._plot_scroll.setFrameShape(QFrame.NoFrame)
         self._plot_scroll.setWidget(self._canvas)
+        install_canvas_wheel_scroll(self._canvas, self._plot_scroll)
         root.addWidget(self._plot_scroll, 1)
 
         self._toolbar = NavigationToolbar(self._canvas, self)

@@ -66,44 +66,54 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     app._stats_drag_adding = True
     app._stats_drag_visited = set()
 
-    # Drag state machine on the map frame
-    def _tok_at(pos):
-        child = map_frame.childAt(pos)
-        if child is None:
-            return None
+    # Per-button drag handlers: enabled QPushButtons consume mouse events,
+    # so parent-level handlers never fire. Install on each well button.
+    def _tok_under_cursor(global_pos):
         for tok, btn in app._stats_map_btns.items():
-            if btn is child or btn is child.parent():
-                return tok
+            try:
+                local = btn.mapFromGlobal(global_pos)
+                if btn.rect().contains(local):
+                    return tok
+            except Exception:
+                continue
         return None
 
-    def _press(event):
-        pos = event.position().toPoint()
-        tok = _tok_at(pos)
-        if tok is None or tok not in app._well_paths:
-            return
-        grp = app._stats_active_group()
-        if grp is None:
-            return
-        app._stats_drag_adding = tok not in grp.wells
-        app._stats_drag_visited = set()
-        app._stats_apply_drag(tok)
-
-    def _move(event):
-        pos = event.position().toPoint()
-        tok = _tok_at(pos)
-        if tok and tok not in app._stats_drag_visited:
+    def _press_for(tok):
+        def _press(event):
+            if event.button() != Qt.LeftButton:
+                return
+            if tok not in app._well_paths:
+                return
+            grp = app._stats_active_group()
+            if grp is None:
+                return
+            app._stats_drag_adding = tok not in grp.wells
+            app._stats_drag_visited = set()
             app._stats_apply_drag(tok)
+        return _press
 
-    def _release(_event):
-        if app._stats_drag_visited:
-            app._stats_refresh_map()
-            app._stats_refresh_group_list()
-        app._stats_drag_visited = set()
+    def _move_for(_tok):
+        def _move(event):
+            if not (event.buttons() & Qt.LeftButton):
+                return
+            other = _tok_under_cursor(event.globalPosition().toPoint())
+            if other and other not in app._stats_drag_visited:
+                app._stats_apply_drag(other)
+        return _move
 
-    map_frame.setMouseTracking(True)
-    map_frame.mousePressEvent = _press
-    map_frame.mouseMoveEvent = _move
-    map_frame.mouseReleaseEvent = _release
+    def _release_for(_tok):
+        def _release(_event):
+            if app._stats_drag_visited:
+                app._stats_refresh_map()
+                app._stats_refresh_group_list()
+            app._stats_drag_visited = set()
+        return _release
+
+    for _tok, _btn in app._stats_map_btns.items():
+        _btn.setMouseTracking(True)
+        _btn.mousePressEvent = _press_for(_tok)
+        _btn.mouseMoveEvent = _move_for(_tok)
+        _btn.mouseReleaseEvent = _release_for(_tok)
 
     sep2 = QFrame(parent)
     sep2.setObjectName("Separator")

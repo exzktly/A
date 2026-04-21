@@ -61,48 +61,57 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     build_plate_grid(app._bar_map_frame, app._bar_map_btns)
 
     # Left/right drag state machine — we dispatch on button modifiers.
-    def _tok_at(pos):
-        child = app._bar_map_frame.childAt(pos)
-        if child is None:
-            return None
+    # Enabled QPushButtons consume mouse events instead of bubbling them to
+    # their parent frame, so handlers are installed per-button here.
+    def _tok_under_cursor(global_pos):
         for tok, btn in app._bar_map_btns.items():
-            if btn is child or btn is child.parent():
-                return tok
+            try:
+                local = btn.mapFromGlobal(global_pos)
+                if btn.rect().contains(local):
+                    return tok
+            except Exception:
+                continue
         return None
 
-    def _press(event):
-        pos = event.position().toPoint()
-        tok = _tok_at(pos)
-        if tok is None:
-            return
-        if event.button() == Qt.RightButton:
-            app._bg_vis_press(_QEvent(tok, pos))
-        else:
-            app._bg_press(_QEvent(tok, pos))
+    def _press_for(tok):
+        def _press(event):
+            pos = event.position().toPoint()
+            if event.button() == Qt.RightButton:
+                app._bg_vis_press(_QEvent(tok, pos))
+            else:
+                app._bg_press(_QEvent(tok, pos))
+        return _press
 
-    def _move(event):
-        pos = event.position().toPoint()
-        tok = _tok_at(pos)
-        if tok is None:
-            return
-        buttons = event.buttons()
-        if buttons & Qt.RightButton:
-            app._bg_vis_drag(_QEvent(tok, pos))
-        elif buttons & Qt.LeftButton:
-            app._bg_drag(_QEvent(tok, pos))
+    def _move_for(tok):
+        def _move(event):
+            buttons = event.buttons()
+            gp = event.globalPosition().toPoint()
+            other = _tok_under_cursor(gp)
+            if other is None:
+                return
+            pos = event.position().toPoint()
+            if buttons & Qt.RightButton:
+                app._bg_vis_drag(_QEvent(other, pos))
+            elif buttons & Qt.LeftButton:
+                app._bg_drag(_QEvent(other, pos))
+        return _move
 
-    def _release(event):
-        pos = event.position().toPoint()
-        tok = _tok_at(pos)
-        if event.button() == Qt.RightButton:
-            app._bg_vis_release(_QEvent(tok, pos))
-        else:
-            app._bg_release(_QEvent(tok, pos))
+    def _release_for(tok):
+        def _release(event):
+            gp = event.globalPosition().toPoint()
+            other = _tok_under_cursor(gp) or tok
+            pos = event.position().toPoint()
+            if event.button() == Qt.RightButton:
+                app._bg_vis_release(_QEvent(other, pos))
+            else:
+                app._bg_release(_QEvent(other, pos))
+        return _release
 
-    app._bar_map_frame.setMouseTracking(True)
-    app._bar_map_frame.mousePressEvent = _press
-    app._bar_map_frame.mouseMoveEvent = _move
-    app._bar_map_frame.mouseReleaseEvent = _release
+    for _tok, _btn in app._bar_map_btns.items():
+        _btn.setMouseTracking(True)
+        _btn.mousePressEvent = _press_for(_tok)
+        _btn.mouseMoveEvent = _move_for(_tok)
+        _btn.mouseReleaseEvent = _release_for(_tok)
 
     app._vis_rubber_win = None
     app._vis_rubber_rect = None

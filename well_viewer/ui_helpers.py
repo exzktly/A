@@ -105,6 +105,29 @@ def bind_mousewheel_scroll(_scroll_area) -> None:
     return
 
 
+def install_canvas_wheel_scroll(canvas, scroll_area) -> None:
+    """Forward wheel events from a matplotlib canvas to ``scroll_area``.
+
+    FigureCanvasQTAgg accepts wheel events for its own toolbar zoom, so a
+    QScrollArea wrapping it never sees them. This installs a wheelEvent
+    override that forwards the vertical wheel delta to the scroll area's
+    vertical scrollbar when no modifier key is held.
+    """
+    orig_wheel = getattr(canvas, "wheelEvent", None)
+
+    def _wheel(event):
+        if event.modifiers() == Qt.NoModifier:
+            vbar = scroll_area.verticalScrollBar()
+            if vbar is not None and (vbar.maximum() - vbar.minimum()) > 0:
+                vbar.setValue(vbar.value() - event.angleDelta().y())
+                event.accept()
+                return
+        if callable(orig_wheel):
+            orig_wheel(event)
+
+    canvas.wheelEvent = _wheel
+
+
 def ask_name_dialog(parent: QWidget, *, title: str, prompt: str, default: str,
                     width: int = 30, **_kw) -> Optional[str]:
     text, ok = QInputDialog.getText(parent, title, prompt, QLineEdit.Normal, default)

@@ -3211,7 +3211,7 @@ class WellViewerApp(QWidget):
                 "Define at least one group before saving.",
             )
             return
-        out_dir = self._app._data_dir if self._app._data_dir else None
+        out_dir = self._data_dir if self._data_dir else None
         init_dir = str(out_dir) if out_dir else ""
         init_path = str(Path(init_dir) / "bar_groups.json") if init_dir else "bar_groups.json"
         path_str, _ = QFileDialog.getSaveFileName(
@@ -3230,7 +3230,7 @@ class WellViewerApp(QWidget):
 
     def _bar_load_groups(self) -> None:
         """Load bar groups from a previously saved JSON file."""
-        out_dir = self._app._data_dir if self._app._data_dir else None
+        out_dir = self._data_dir if self._data_dir else None
         init_dir = str(out_dir) if out_dir else ""
         path_str, _ = QFileDialog.getOpenFileName(
             self, "Load bar group definitions",
@@ -6587,21 +6587,22 @@ class WellViewerApp(QWidget):
                 self._scatter_agg_stat_y_var.set(statistics[1] if len(statistics) > 1 else statistics[0])
 
         # Update timepoint selections for aggregate scatter; all default checked.
+        from well_viewer.tabs.scatter_agg_tab_view import BoolHolder as _BoolHolder
         if hasattr(self, '_scatter_agg_tp_selections'):
-            prev_selected = {tp_str for tp_str, v in self._scatter_agg_tp_selections.items() if v}
+            prev_selected = {tp_str for tp_str, v in self._scatter_agg_tp_selections.items() if v.get()}
             self._scatter_agg_tp_selections.clear()
         else:
             prev_selected = set()
             self._scatter_agg_tp_selections = {}
 
         for tp_str in tp_strs:
-            self._scatter_agg_tp_selections[tp_str] = True
+            self._scatter_agg_tp_selections[tp_str] = _BoolHolder(True)
 
         self._update_tp_selection_display()
 
     def _update_tp_selection_display(self) -> None:
         """Update the aggregate scatter label showing selected timepoints."""
-        count = sum(1 for v in self._scatter_agg_tp_selections.values() if v)
+        count = sum(1 for v in self._scatter_agg_tp_selections.values() if v.get())
         total = len(self._scatter_agg_tp_selections)
         label_text = f"(All {count} selected)" if count == total else f"({count}/{total} selected)"
         if hasattr(self, "_scatter_agg_tp_label") and self._scatter_agg_tp_label is not None:

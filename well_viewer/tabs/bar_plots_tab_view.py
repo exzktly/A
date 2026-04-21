@@ -12,7 +12,10 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary, btn_secondary, BoolVar, ComboVar, make_plot_with_right_dock
+from well_viewer.ui_helpers import (
+    btn_primary, btn_secondary, BoolVar, ComboVar,
+    install_canvas_wheel_scroll, make_plot_with_right_dock,
+)
 
 
 def build_bar_plots_tab(app, parent: QWidget) -> None:
@@ -130,6 +133,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_scroll_canvas.setWidgetResizable(True)
     app._bar_scroll_canvas.setFrameShape(QFrame.NoFrame)
     app._bar_scroll_canvas.setWidget(app._bar_canvas)
+    install_canvas_wheel_scroll(app._bar_canvas, app._bar_scroll_canvas)
     right_l.addWidget(app._bar_scroll_canvas, 1)
 
     bar_nav = NavigationToolbar(app._bar_canvas, bar_right)

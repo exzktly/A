@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
@@ -10,6 +11,17 @@ from well_viewer.ui_helpers import (
     btn_primary, btn_secondary, ComboVar, make_scrollable_canvas,
 )
 from well_viewer.views.well_button import build_plate_grid
+
+
+class _QEvent:
+    """Minimal shim mirroring the legacy tk drag-event shape."""
+    __slots__ = ("tok", "pos", "x", "y")
+
+    def __init__(self, tok, pos):
+        self.tok = tok
+        self.pos = pos
+        self.x = pos.x()
+        self.y = pos.y()
 
 
 def build_replicate_panel(app, parent: QWidget) -> None:
@@ -81,7 +93,46 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     layout.addWidget(rep_map_outer)
     app._rep_map_btns: dict = {}
     build_plate_grid(rep_map_outer, app._rep_map_btns)
-    # NOTE: drag bindings handled in runtime_app via mouse events.
+
+    # Per-button mouse handlers: enabled buttons consume events instead of
+    # bubbling to a parent-level handler, so we install press/move/release
+    # on each well button directly.
+    def _tok_under_cursor(global_pos):
+        for t, b in app._rep_map_btns.items():
+            try:
+                local = b.mapFromGlobal(global_pos)
+                if b.rect().contains(local):
+                    return t
+            except Exception:
+                continue
+        return None
+
+    def _make_btn_handlers(tok, btn):
+        def _press(event):
+            if event.button() != Qt.LeftButton:
+                return
+            pos = event.position().toPoint()
+            app._rep_map_press(_QEvent(tok, pos))
+
+        def _move(event):
+            if not (event.buttons() & Qt.LeftButton):
+                return
+            gp = event.globalPosition().toPoint()
+            other = _tok_under_cursor(gp)
+            if other is None:
+                return
+            app._rep_map_drag(_QEvent(other, event.position().toPoint()))
+
+        def _release(event):
+            app._rep_map_release(None)
+
+        btn.setMouseTracking(True)
+        btn.mousePressEvent = _press
+        btn.mouseMoveEvent = _move
+        btn.mouseReleaseEvent = _release
+
+    for _tok, _btn in app._rep_map_btns.items():
+        _make_btn_handlers(_tok, _btn)
 
     sep = QFrame(parent)
     sep.setFrameShape(QFrame.HLine)
