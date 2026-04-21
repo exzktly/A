@@ -109,8 +109,17 @@ def _show_image_pixel_tooltip(app, event, channel_label: str, label=None) -> Non
         QToolTip.hideText()
         return
     val = float(arr[int(img_y), int(img_x)])
+    extra = ""
+    mask_arr = getattr(lbl, "_mask_arr", None)
+    if mask_arr is not None:
+        try:
+            nid = int(app._np.asarray(mask_arr)[int(img_y), int(img_x)])
+            if nid > 0:
+                extra = f"  cell:{nid}"
+        except Exception:
+            pass
     global_pos = lbl.mapToGlobal(QPoint(ex, ey))
-    QToolTip.showText(global_pos, f"x={int(img_x)}  y={int(img_y)}  {channel_label}:{val:.1f}")
+    QToolTip.showText(global_pos, f"x={int(img_x)}  y={int(img_y)}  {channel_label}:{val:.1f}{extra}")
 
 
 def _wheel_steps(event) -> int:
