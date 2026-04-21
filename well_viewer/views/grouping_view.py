@@ -71,7 +71,6 @@ def rep_panel_refresh(app) -> None:
         br_l.setSpacing(2)
         br_l.addStretch(1)
         br_l.addWidget(btn_card(btn_row, "Rename", lambda i=si: app._rep_rename(i)))
-        br_l.addWidget(btn_card(btn_row, "Edit wells", lambda i=si: app._rep_edit_wells(i)))
         br_l.addWidget(btn_danger(btn_row, "✕", lambda i=si: app._rep_delete(i)))
         cl.addWidget(btn_row)
 

@@ -2377,38 +2377,6 @@ class WellViewerApp(QWidget):
             self._rep_sets[idx].name = name
             self._rebuild_all()
 
-    def _rep_edit_wells(self, idx: int) -> None:
-        """Re-open well-selection dialog for an existing ReplicateSet."""
-        if not (0 <= idx < len(self._rep_sets)):
-            return
-        rset = self._rep_sets[idx]
-        available = sorted(self._well_paths.keys(), key=lambda l: self._parse_rc(l))
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Edit wells — {rset.name}")
-        dlg.setModal(True)
-        v = QVBoxLayout(dlg)
-        v.addWidget(QLabel(f"Select wells for \"{rset.name}\":"))
-        lb = _wells_multiselect_listbox(dlg, available, preselect=rset.wells)
-        v.addWidget(lb, 1)
-        btn_row = QHBoxLayout()
-        v.addLayout(btn_row)
-        ok_btn = QPushButton("Save")
-        ok_btn.setProperty("variant", "primary")
-        cancel_btn = QPushButton("Cancel")
-        btn_row.addWidget(ok_btn)
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch(1)
-
-        def _ok():
-            rset.wells = _selected_list_values(lb)
-            dlg.accept()
-            self._rebuild_all()
-
-        ok_btn.clicked.connect(_ok)
-        cancel_btn.clicked.connect(dlg.reject)
-        dlg.exec()
-
     def _rep_delete(self, idx: int) -> None:
         if not (0 <= idx < len(self._rep_sets)):
             return
