@@ -2956,6 +2956,13 @@ class WellViewerApp(QWidget):
             grid = QGridLayout(self._montage_inner)
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setSpacing(3)
+        # Ensure rows and columns hug their content so the channel labels in
+        # column 0 sit immediately next to each thumbnail instead of floating
+        # in extra space when the scroll area's viewport is larger than the
+        # grid's natural size.
+        grid.setRowStretch(3, 1)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(len(tp_list) + 1, 1)
 
         channel_row_lbl = QLabel(self._active_image_channel.upper())
         channel_row_lbl.setObjectName("Muted")
