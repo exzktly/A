@@ -3365,18 +3365,24 @@ class WellViewerApp(QWidget):
         if preloaded is None:
             preloaded = getattr(self, "_montage_tophat_preloaded", False)
 
-        if preloaded:
-            self._mon_tophat_var.set(True)
-            self._th_checkbox.setEnabled(False)
-            self._th_checkbox.setText("Top-hat background subtraction")
-            self._th_radius_entry.setEnabled(False)
-            self._th_preload_badge.setText("\u25cf from output zip")
-        else:
-            self._mon_tophat_var.set(False)
-            self._th_checkbox.setEnabled(True)
-            self._th_checkbox.setText("Top-hat background subtraction")
-            self._th_radius_entry.setEnabled(True)
-            self._th_preload_badge.setText("")
+        # Block toggled() so the programmatic state sync doesn't re-kick off
+        # the tophat filter thread via _montage_tophat_toggled.
+        _prev = self._th_checkbox.blockSignals(True)
+        try:
+            if preloaded:
+                self._mon_tophat_var.set(True)
+                self._th_checkbox.setEnabled(False)
+                self._th_checkbox.setText("Top-hat background subtraction")
+                self._th_radius_entry.setEnabled(False)
+                self._th_preload_badge.setText("\u25cf from output zip")
+            else:
+                self._mon_tophat_var.set(False)
+                self._th_checkbox.setEnabled(True)
+                self._th_checkbox.setText("Top-hat background subtraction")
+                self._th_radius_entry.setEnabled(True)
+                self._th_preload_badge.setText("")
+        finally:
+            self._th_checkbox.blockSignals(_prev)
 
     def _refresh_preview_montage(self) -> None:
         """
