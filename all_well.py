@@ -98,16 +98,19 @@ class AllWellApp(QMainWindow):
         # Notebook
         self._nb = QTabWidget()
         self._nb.currentChanged.connect(self._on_tab_change)
+        nb_bar = self._nb.tabBar()
+        nb_bar.setExpanding(False)
+        nb_bar.setElideMode(Qt.ElideNone)
         rl.addWidget(self._nb, 1)
 
         self._review = WellViewerApp(parent=None)
-        self._nb.addTab(self._review, "  Review  ")
+        self._nb.addTab(self._review, "Review")
 
         self._analyze = AnalyzeTab(
             parent=None,
             on_pipeline_complete=self._on_analyze_pipeline_complete,
         )
-        self._nb.addTab(self._analyze, "  Analyze  ")
+        self._nb.addTab(self._analyze, "Analyze")
         self._nb.setCurrentIndex(0)
 
     def _on_theme_change(self, theme_name: str) -> None:
