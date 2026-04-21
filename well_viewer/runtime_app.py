@@ -4971,7 +4971,7 @@ class WellViewerApp(QWidget):
         rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
         sel_nid = self._review_image_selected_nucleus
         if sel_nid is not None:
-            sel_boundary = draw_boundary & (center == int(sel_nid))
+            sel_boundary = boundary & (center == int(sel_nid))
             rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
 
         img = _PILImage.fromarray(rgb, mode="RGB")

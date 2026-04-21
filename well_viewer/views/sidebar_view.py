@@ -167,3 +167,7 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._line_group_hint.setObjectName("Accent")
     app._line_group_hint.setWordWrap(True)
     layout.addWidget(app._line_group_hint)
+
+    # Absorb leftover vertical space so the well picker stays pinned to the
+    # top of the sidebar even when the sidebar is taller than its contents.
+    layout.addStretch(1)

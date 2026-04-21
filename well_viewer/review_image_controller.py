@@ -112,19 +112,31 @@ def on_review_csv_row_double_click(app, item) -> None:
 
     if hasattr(app, "_notebook"):
         _select_tab_by_text(app._notebook, "Review Image")
-    app._preview_selected_well = key
-    app._update_preview(key)
-    if fov:
-        app._preview_fov_cb.setCurrentText(fov)
-    if tp:
-        tp_cb = getattr(app, "_review_image_tp_cb", None)
-        if tp_cb is not None:
-            tp_cb.setCurrentText(tp)
+
+    # Set the target nucleus before any refresh so intermediate renders can
+    # already draw the yellow highlight.
     if nid:
         try:
             app._review_image_selected_nucleus = int(float(nid))
         except Exception:
             app._review_image_selected_nucleus = None
+
+    app._preview_selected_well = key
+    app._update_preview(key)
+
+    # _preview_fov_var drives _refresh_review_image; force the target FOV
+    # before repopulating the TP menu.
+    if fov:
+        app._preview_fov_cb.setCurrentText(fov)
     app._refresh_review_image()
+
+    # TP menu now holds the target FOV's timepoints. Selecting the TP here
+    # triggers _refresh_review_image via currentIndexChanged, which renders
+    # the correct frame with the highlight already in place.
+    if tp:
+        tp_cb = getattr(app, "_review_image_tp_cb", None)
+        if tp_cb is not None:
+            tp_cb.setCurrentText(tp)
+
     if hasattr(app, "_zoom_review_image_to_selected_nucleus"):
         app._zoom_review_image_to_selected_nucleus()
