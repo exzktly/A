@@ -4005,13 +4005,29 @@ class WellViewerApp(QWidget):
         hover_bg = activebackground or bg
         hover_fg = activeforeground or fg
         disabled_fg = disabledforeground or fg
+        # Always render a 1px border so box dimensions never change with state.
+        # Sunken wells get a visible inset border; other wells get a transparent
+        # border of equal width so layout padding stays identical.
         border = "1px solid rgba(0,0,0,0.45)" if is_sunken else "1px solid transparent"
+
+        # Setting a per-widget stylesheet overrides the application QSS for
+        # this widget's selector. Restate the plate-well layout properties
+        # (min size, padding, border-radius, font) here so wells retain the
+        # same dimensions regardless of which code path styles them.
+        base_layout = (
+            "min-width: 22px;"
+            "min-height: 20px;"
+            "padding: 1px 2px;"
+            "border-radius: 2px;"
+            "font-size: 8pt;"
+        )
 
         btn.setStyleSheet(
             "\n".join(
                 [
                     (
                         "QPushButton{"
+                        f"{base_layout}"
                         f"background-color: {bg};"
                         f"color: {fg};"
                         f"border: {border};"
@@ -4019,15 +4035,18 @@ class WellViewerApp(QWidget):
                     ),
                     (
                         "QPushButton:hover{"
+                        f"{base_layout}"
                         f"background-color: {hover_bg};"
                         f"color: {hover_fg};"
-                        "border: 1px solid transparent;"
+                        f"border: {border};"
                         "}"
                     ),
                     (
                         "QPushButton:disabled{"
+                        f"{base_layout}"
                         f"background-color: {bg};"
                         f"color: {disabled_fg};"
+                        f"border: {border};"
                         "}"
                     ),
                 ]
@@ -5753,7 +5772,9 @@ class WellViewerApp(QWidget):
 
         import numpy as np_local
         n       = len(wells)
-        bw      = max(0.05, self._violin_bw.get())
+        slider = getattr(self, "_violin_slider", None)
+        bw_raw = float(slider.value()) / 100.0 if slider is not None else 1.0
+        bw      = max(0.05, bw_raw)
         bar_w   = min(0.4, 3.0 / max(n, 1))   # half-width of each violin
 
         xs_ticks = list(range(n))
