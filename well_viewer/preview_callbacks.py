@@ -333,7 +333,7 @@ def montage_tophat_toggled(app) -> None:
     fov = app._preview_fov_cb.currentText()
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     if tp_list:
-        draw_montage_thumbs(app, tp_list)
+        app._draw_montage_thumbs(tp_list)
 
     bridge = _TophatBridge()
 

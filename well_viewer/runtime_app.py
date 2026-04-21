@@ -3550,6 +3550,13 @@ class WellViewerApp(QWidget):
             self._montage_zoom_lbl.setText(f"{int(zoom * 100)}%")
 
         grid = self._montage_inner.layout()
+        if grid is not None and not isinstance(grid, QGridLayout):
+            # Re-parent the stale (e.g. QHBoxLayout left over from a tophat
+            # refresh) to a throwaway so we can install a fresh QGridLayout.
+            _tmp = QWidget()
+            _tmp.setLayout(grid)
+            _tmp.deleteLater()
+            grid = None
         if grid is None:
             grid = QGridLayout(self._montage_inner)
             grid.setContentsMargins(0, 0, 0, 0)
