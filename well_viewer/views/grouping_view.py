@@ -225,29 +225,6 @@ def grp_panel_refresh(app) -> None:
                 lbl.setObjectName("Muted")
                 cl.addWidget(lbl)
 
-            assigned_wells = set(grp.wells)
-            unassigned = [
-                tok for tok in sorted(
-                    app._well_paths.keys(),
-                    key=lambda t: app._parse_rc(t),
-                )
-                if tok not in assigned_wells
-            ]
-            if unassigned:
-                act_well = QWidget(card)
-                awl = QHBoxLayout(act_well)
-                awl.setContentsMargins(0, 0, 0, 0)
-                lbl = QLabel("+ Well:", act_well)
-                lbl.setObjectName("Muted")
-                awl.addWidget(lbl)
-                for tok in unassigned:
-                    awl.addWidget(btn_card(
-                        act_well, tok,
-                        lambda wl=tok, g=gi: app._grp_add_solo_well(g, wl),
-                    ))
-                awl.addStretch(1)
-                cl.addWidget(act_well)
-
         def _sel(_e, i=gi):
             app._grp_select(i)
         card.mousePressEvent = _sel
