@@ -67,6 +67,18 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
         "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
         app._preview_selected_well, fov, tp, nucleus_id,
     )
+    # Ensure the previewed well is in the sidebar selection so the tab-switch
+    # refresh loads its CSV rows — Review Image's preview well is independent
+    # of _selected_wells, and _refresh_review_csv reads only _selected_wells.
+    preview_well = app._preview_selected_well
+    if (
+        preview_well
+        and preview_well in getattr(app, "_well_paths", {})
+        and preview_well not in app._selected_wells
+    ):
+        app._selected_wells.add(preview_well)
+        if hasattr(app, "_refresh_sidebar_map"):
+            app._refresh_sidebar_map()
     if hasattr(app, "_notebook"):
         _select_tab_by_text(app._notebook, "Review CSV")
     app._review_fov_cb.setCurrentText(fov_n)
