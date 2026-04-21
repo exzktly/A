@@ -8,7 +8,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -918,6 +918,33 @@ class BatchExportPanel(QWidget):
             _mpl.rcParams["ps.fonttype"] = orig_ps
             _plt.close(fig)
 
+    def _export_scatter_figure(
+        self,
+        draw: Callable[[object], None],
+        *,
+        xlabel: str,
+        ylabel: str,
+        title: str,
+        fig_path: Path,
+        fmt: str,
+        legend_fontsize: int = 8,
+    ) -> None:
+        """Render a standard 8x6 scatter/errorbar figure and save it.
+
+        ``draw(ax)`` is the caller's inner loop that adds series to the axes;
+        axis labels, title, grid, legend, and export are applied here.
+        """
+        from matplotlib.figure import Figure as _Figure
+        fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
+        ax = fig.add_subplot(1, 1, 1)
+        draw(ax)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc="best", fontsize=legend_fontsize)
+        self._save_figure(fig, fig_path, fmt)
+
     def _groups_for_export(self) -> List[BarGroup]:
         if self._use_sidebar_groups:
             sidebar_groups = copy.deepcopy(getattr(self._app, "_bar_groups", []))
@@ -1665,18 +1692,16 @@ class ScatterBatchExportPanel(BatchExportPanel):
         except OSError as exc:
             return f"{grp.name} scatter-cells CSV: {exc}"
         try:
-            from matplotlib.figure import Figure as _Figure
-            fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
-            ax = fig.add_subplot(1, 1, 1)
-            for label, data in scatter_data.items():
-                ax.scatter(data["x"], data["y"], label=label, color=data["color"],
-                           alpha=0.6, s=26, edgecolors="none")
-            ax.set_xlabel(col_x)
-            ax.set_ylabel(col_y)
-            ax.set_title(f"{grp.name} \u2014 Scatter Cells (t={tp_h:.1f}h)")
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="best", fontsize=8)
-            self._save_figure(fig, fig_path, fmt)
+            def _draw(ax):
+                for label, data in scatter_data.items():
+                    ax.scatter(data["x"], data["y"], label=label, color=data["color"],
+                               alpha=0.6, s=26, edgecolors="none")
+            self._export_scatter_figure(
+                _draw,
+                xlabel=col_x, ylabel=col_y,
+                title=f"{grp.name} \u2014 Scatter Cells (t={tp_h:.1f}h)",
+                fig_path=fig_path, fmt=fmt,
+            )
         except Exception as exc:
             return f"{grp.name} scatter-cells figure: {exc}"
         return None
@@ -1721,23 +1746,21 @@ class ScatterBatchExportPanel(BatchExportPanel):
         except OSError as exc:
             return f"{grp.name} scatter-aggregate CSV: {exc}"
         try:
-            from matplotlib.figure import Figure as _Figure
-            fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
-            ax = fig.add_subplot(1, 1, 1)
-            for data in scatter_data.values():
-                ax.errorbar(
-                    data["x"], data["y"],
-                    xerr=data["x_err"], yerr=data["y_err"],
-                    label=data.get("label", ""),
-                    color=data["color"], marker=data.get("marker", "o"),
-                    linestyle="none", capsize=5, alpha=0.75,
-                )
-            ax.set_xlabel(stat_x)
-            ax.set_ylabel(stat_y)
-            ax.set_title(f"{grp.name} \u2014 Scatter Aggregate (t={tp_h:.1f}h)")
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="best", fontsize=8)
-            self._save_figure(fig, fig_path, fmt)
+            def _draw(ax):
+                for data in scatter_data.values():
+                    ax.errorbar(
+                        data["x"], data["y"],
+                        xerr=data["x_err"], yerr=data["y_err"],
+                        label=data.get("label", ""),
+                        color=data["color"], marker=data.get("marker", "o"),
+                        linestyle="none", capsize=5, alpha=0.75,
+                    )
+            self._export_scatter_figure(
+                _draw,
+                xlabel=stat_x, ylabel=stat_y,
+                title=f"{grp.name} \u2014 Scatter Aggregate (t={tp_h:.1f}h)",
+                fig_path=fig_path, fmt=fmt,
+            )
         except Exception as exc:
             return f"{grp.name} scatter-aggregate figure: {exc}"
         return None
@@ -1790,19 +1813,18 @@ class ScatterBatchExportPanel(BatchExportPanel):
         except OSError as exc:
             return f"{grp.name} scatter-cells CSV: {exc}"
         try:
-            from matplotlib.figure import Figure as _Figure
-            fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
-            ax = fig.add_subplot(1, 1, 1)
-            for tp_h, label, data in combined_series:
-                ax.scatter(data["x"], data["y"],
-                           label=f"{label} @ t={tp_h:.1f}h",
-                           alpha=0.55, s=24)
-            ax.set_xlabel(self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText()))
-            ax.set_ylabel(self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText()))
-            ax.set_title(f"{grp.name} \u2014 Scatter Cells (all selected tps)")
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="best", fontsize=7)
-            self._save_figure(fig, fig_path, fmt)
+            def _draw(ax):
+                for tp_h, label, data in combined_series:
+                    ax.scatter(data["x"], data["y"],
+                               label=f"{label} @ t={tp_h:.1f}h",
+                               alpha=0.55, s=24)
+            self._export_scatter_figure(
+                _draw,
+                xlabel=self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText()),
+                ylabel=self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText()),
+                title=f"{grp.name} \u2014 Scatter Cells (all selected tps)",
+                fig_path=fig_path, fmt=fmt, legend_fontsize=7,
+            )
         except Exception as exc:
             return f"{grp.name} scatter-cells figure: {exc}"
         return None
@@ -1848,23 +1870,21 @@ class ScatterBatchExportPanel(BatchExportPanel):
         except OSError as exc:
             return f"{grp.name} scatter-aggregate CSV: {exc}"
         try:
-            from matplotlib.figure import Figure as _Figure
-            fig = _Figure(figsize=(8, 6), dpi=300, facecolor=PLOT_BG)
-            ax = fig.add_subplot(1, 1, 1)
-            for data in scatter_data.values():
-                ax.errorbar(
-                    data["x"], data["y"],
-                    xerr=data["x_err"], yerr=data["y_err"],
-                    label=data.get("label", ""),
-                    marker=data.get("marker", "o"),
-                    linestyle="none", capsize=5, alpha=0.75,
-                )
-            ax.set_xlabel(stat_x)
-            ax.set_ylabel(stat_y)
-            ax.set_title(f"{grp.name} \u2014 Scatter Aggregate (all selected tps)")
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="best", fontsize=7)
-            self._save_figure(fig, fig_path, fmt)
+            def _draw(ax):
+                for data in scatter_data.values():
+                    ax.errorbar(
+                        data["x"], data["y"],
+                        xerr=data["x_err"], yerr=data["y_err"],
+                        label=data.get("label", ""),
+                        marker=data.get("marker", "o"),
+                        linestyle="none", capsize=5, alpha=0.75,
+                    )
+            self._export_scatter_figure(
+                _draw,
+                xlabel=stat_x, ylabel=stat_y,
+                title=f"{grp.name} \u2014 Scatter Aggregate (all selected tps)",
+                fig_path=fig_path, fmt=fmt, legend_fontsize=7,
+            )
         except Exception as exc:
             return f"{grp.name} scatter-aggregate figure: {exc}"
         return None
