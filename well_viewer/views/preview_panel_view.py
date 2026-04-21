@@ -200,6 +200,7 @@ def build_review_image_panel(self, parent: QWidget) -> None:
     )
     cl.addWidget(self._review_image_tp_menu)
     self._review_image_tp_var = ComboVar(self._review_image_tp_menu)
+    self._review_image_tp_cb = self._review_image_tp_menu  # alias for review_image_controller
     cl.addStretch(1)
 
     cl.addWidget(btn_secondary(ctrl, "Toggle Included",

@@ -296,14 +296,22 @@ def ask_name_dialog(parent, title: str = "Name", prompt: str = "Name:",
 
 
 def _set_combo_values(combo: object, values: List[str]) -> None:
-    """Set combobox values for both Qt and legacy widget shims."""
+    """Set combobox values for both Qt and legacy widget shims.
+
+    Preserves the current selection when the new item list contains it, so a
+    tk-style ``currentIndexChanged`` handler that calls back into a refresh
+    function doesn't clobber the user's pick as a side-effect.
+    """
     vals = [str(v) for v in values]
     if hasattr(combo, "clear") and hasattr(combo, "addItems"):
         block = getattr(combo, "blockSignals", None)
+        prev_text = combo.currentText() if hasattr(combo, "currentText") else ""
         if callable(block):
             block(True)
         combo.clear()  # type: ignore[attr-defined]
         combo.addItems(vals)  # type: ignore[attr-defined]
+        if prev_text and prev_text in vals and hasattr(combo, "setCurrentIndex"):
+            combo.setCurrentIndex(vals.index(prev_text))  # type: ignore[attr-defined]
         if callable(block):
             block(False)
         return
@@ -5121,8 +5129,8 @@ class WellViewerApp(QWidget):
         _show_image_pixel_tooltip_controller(
             self,
             event,
-            getattr(self, "_review_image_tooltip", None),
             f"{self._active_image_channel.upper()}",
+            label=self._review_image_label,
         )
 
     def _on_review_image_click(self, event: Any) -> None:
