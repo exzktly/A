@@ -3055,6 +3055,12 @@ class WellViewerApp(QWidget):
                 miss.setObjectName("Muted")
                 miss.setAlignment(Qt.AlignCenter)
                 ov_cell_layout.addWidget(miss)
+        # Send surplus horizontal space to a virtual empty column at the far
+        # right so col 0 (labels) stays pinned against the first image column
+        # instead of drifting when the grid is narrower than the viewport.
+        for ci in range(grid.columnCount()):
+            grid.setColumnStretch(ci, 0)
+        grid.setColumnStretch(n + 1, 1)
         n_ov = sum(1 for a in self._montage_overlay_arrays if a is not None)
         self._montage_status.setText(
             f"{n} timepoint(s)  \u00b7  {n_ov} overlay(s)")
