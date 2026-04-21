@@ -4302,8 +4302,8 @@ class WellViewerApp(QWidget):
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug("[RI-CHSW step 1] Review Image channel ComboboxSelected event received")
         selected_ui_value = ""
-        if hasattr(self, "_review_image_chan_cb"):
-            selected_ui_value = str(self._review_image_chan_cb.get() or "").strip()
+        if getattr(self, "_review_image_chan_cb", None) is not None:
+            selected_ui_value = str(self._review_image_chan_cb.currentText() or "").strip()
         if not selected_ui_value and hasattr(self, "_review_image_chan_var"):
             selected_ui_value = self._review_image_chan_var.get()
         if _debug_flags.review_image_channel_switch_debug_enabled():
@@ -4322,7 +4322,7 @@ class WellViewerApp(QWidget):
         """Channel-switch handler for the Movie Montage tab."""
         selected_ui_value = ""
         if hasattr(self, "_chan_cb_preview"):
-            selected_ui_value = str(self._chan_cb_preview.get() or "").strip()
+            selected_ui_value = str(self._chan_cb_preview.currentText() or "").strip()
         if not selected_ui_value and hasattr(self, "_montage_chan_var"):
             selected_ui_value = self._montage_chan_var.get()
         if _debug_flags.movie_montage_debug_enabled():
