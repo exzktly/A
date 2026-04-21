@@ -47,6 +47,10 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     app._preview_sel_lbl.setAlignment(Qt.AlignLeft)
     layout.addWidget(app._preview_sel_lbl)
 
+    # Absorb leftover vertical space so the well picker stays pinned to the
+    # top of the sidebar even when the sidebar is taller than its contents.
+    layout.addStretch(1)
+
 
 def preview_pick_well(app, tok: str) -> None:
     if tok not in app._well_paths:

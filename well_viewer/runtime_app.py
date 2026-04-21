@@ -2204,7 +2204,10 @@ class WellViewerApp(QWidget):
         Each defined ReplicateSet gets a distinct colour (WELL_COLORS index).
         The active (selected) set's wells are rendered slightly brighter.
         Unassigned loaded wells are shown in a neutral available colour.
-        No active set → all sets shown in colour, map not drag-editable (greyed hint).
+        If a group is the active target instead of a replicate set, the grid
+        colours that group's solo wells with the group's palette colour so
+        click/drag can add/remove solo wells directly from the sidebar.
+        No active target → all sets shown in colour, map not drag-editable.
         """
         from ui.theme import get_color
 
@@ -2225,9 +2228,20 @@ class WellViewerApp(QWidget):
                 tok_color[tok] = c
                 tok_active[tok] = (si == self._active_rep_idx)
 
-        has_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        active_color = (WELL_COLORS[self._active_rep_idx % len(WELL_COLORS)]
-                        if has_active else ACCENT)
+        has_rep_active = 0 <= self._active_rep_idx < len(self._rep_sets)
+        has_grp_active = 0 <= getattr(self, "_bar_active_grp", -1) < len(self._bar_groups)
+
+        # When a group is the active edit target, its solo wells take
+        # precedence over any rep-set colouring so their membership is
+        # visually unambiguous.
+        grp_solo_toks: set = set()
+        grp_color = ACCENT
+        if has_grp_active:
+            grp = self._bar_groups[self._bar_active_grp]
+            grp_solo_toks = set(grp.solo_wells)
+            grp_color = WELL_COLORS[self._bar_active_grp % len(WELL_COLORS)]
+
+        has_active = has_rep_active or has_grp_active
 
         for tok, btn in self._rep_map_btns.items():
             if tok not in self._well_paths:
@@ -2241,47 +2255,45 @@ class WellViewerApp(QWidget):
                     activeforeground=button_text,
                     disabledforeground=button_text_disabled,
                 )
-            elif tok in tok_color:
-                act = tok_active.get(tok, False)
-                # Active-set wells: solid bright colour; other sets: dimmed (70 % alpha via lighter shade)
-                grp_color = tok_color[tok]
+            elif tok in grp_solo_toks:
                 self._style_plate_button(
                     btn,
                     bg=grp_color,
                     fg="white",
                     state="normal",
                     cursor="hand2",
+                    relief="sunken",
+                    activebackground=self._mute_color(grp_color, 0.3),
+                    activeforeground="white",
+                    disabledforeground=button_text_disabled,
+                )
+            elif tok in tok_color:
+                act = tok_active.get(tok, False)
+                c = tok_color[tok]
+                self._style_plate_button(
+                    btn,
+                    bg=c,
+                    fg="white",
+                    state="normal",
+                    cursor="hand2",
                     relief="sunken" if act else "flat",
-                    activebackground=self._mute_color(grp_color, 0.3) if act else grp_color,
+                    activebackground=self._mute_color(c, 0.3) if act else c,
                     activeforeground="white",
                     disabledforeground=button_text_disabled,
                 )
             else:
-                # Unassigned well — editable if a set is selected
-                if has_active:
-                    self._style_plate_button(
-                        btn,
-                        bg=button_bg,
-                        fg=button_text,
-                        state="normal",
-                        cursor="hand2",
-                        relief="flat",
-                        activebackground=button_bg,
-                        activeforeground=button_text,
-                        disabledforeground=button_text_disabled,
-                    )
-                else:
-                    self._style_plate_button(
-                        btn,
-                        bg=button_bg,
-                        fg=button_text,
-                        state="normal",
-                        cursor="arrow",
-                        relief="flat",
-                        activebackground=button_bg,
-                        activeforeground=button_text,
-                        disabledforeground=button_text_disabled,
-                    )
+                # Unassigned well — editable if a set or group is selected
+                self._style_plate_button(
+                    btn,
+                    bg=button_bg,
+                    fg=button_text,
+                    state="normal",
+                    cursor="hand2" if has_active else "arrow",
+                    relief="flat",
+                    activebackground=button_bg,
+                    activeforeground=button_text,
+                    disabledforeground=button_text_disabled,
+                )
 
     def _rep_map_tok_at(self, event) -> Optional[str]:
         return _gc_rep_map_tok_at(self, event)
@@ -2299,48 +2311,12 @@ class WellViewerApp(QWidget):
         _gc_rep_map_apply(self, tok)
 
     def _rep_refresh_map_single(self, tok: str) -> None:
-        """Update a single rep-map button (cheap mid-drag feedback)."""
-        from ui.theme import get_color
+        """Update a single rep-map button (cheap mid-drag feedback).
 
-        if not hasattr(self, "_rep_map_btns"):
-            return
-        button_bg = get_color("button_bg")
-        button_text = get_color("button_text")
-        button_text_disabled = get_color("button_text_disabled")
-        btn = self._rep_map_btns.get(tok)
-        if btn is None:
-            return
-        if tok not in self._well_paths:
-            return
-        # Find which set owns this well now
-        for si, rset in enumerate(self._rep_sets):
-            if tok in rset.wells:
-                act = (si == self._active_rep_idx)
-                self._style_plate_button(
-                    btn,
-                    bg=button_bg,
-                    fg=button_text,
-                    state="normal",
-                    cursor="hand2",
-                    relief="sunken" if act else "flat",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
-                )
-                return
-        # Unassigned
-        has_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        self._style_plate_button(
-            btn,
-            bg=button_bg,
-            fg=button_text,
-            state="normal",
-            cursor="hand2" if has_active else "arrow",
-            relief="flat",
-            activebackground=button_bg,
-            activeforeground=button_text,
-            disabledforeground=button_text_disabled,
-        )
+        Delegates to the full refresh to keep group-solo/rep-set colouring
+        consistent — the grid is at most 96 cells so the cost is negligible.
+        """
+        self._rep_refresh_map()
 
     def _rep_panel_refresh(self) -> None:
         from well_viewer.views.grouping_view import rep_panel_refresh as _rep_panel_refresh_view
@@ -2349,6 +2325,9 @@ class WellViewerApp(QWidget):
 
     def _rep_select(self, idx: int) -> None:
         self._active_rep_idx = idx
+        # Replicate-set and group selections are mutually exclusive so the
+        # sidebar plate grid has a single unambiguous edit target.
+        self._bar_active_grp = -1
         self._groups_centre_refresh()   # card list
         self._rep_refresh_map()         # plate map: highlight selected set
 

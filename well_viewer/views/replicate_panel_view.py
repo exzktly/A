@@ -81,7 +81,8 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     btn_row_l.addStretch(1)
 
     hint = QLabel(
-        "Select a set below, then drag wells on the map to add/remove.",
+        "Select a replicate set or a group, then drag wells on the map to "
+        "add/remove. Groups add wells as solo members.",
         parent,
     )
     hint.setObjectName("Muted")
