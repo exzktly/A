@@ -173,6 +173,7 @@ from well_viewer.viewer_state import make_schema_extractor as _make_schema_extra
 from well_viewer.viewer_state import read_pipeline_info as _read_pipeline_info_shared
 from well_viewer.ui_helpers import (
     ask_name_dialog as _ui_ask_name_dialog,
+    BoolVar,
     btn_card as _btn_card,
     btn_danger as _btn_danger,
     btn_primary as _btn_primary,
@@ -1138,7 +1139,12 @@ class WellViewerApp(QWidget):
         self._threshold     = 50.0
         # Qt: concrete widgets are assigned in _build_ui() / view builders.
         # Provide plain-Python defaults so early callers before _build_ui get sane values.
-        # _use_sem is a BoolVar created in views/status_view.py's build_bottom().
+        # SEM/SD toggle state — one BoolVar drives every per-toolbar SEM button.
+        # attach_plot_toolbar() registers each button in _sem_btns, so we must
+        # initialize both BEFORE any plot tab is built.
+        self._use_sem = BoolVar(True)
+        self._sem_btns: List = []
+        self._sem_btn = None
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
@@ -4644,10 +4650,13 @@ class WellViewerApp(QWidget):
                 self._stats_update_tp_menu()
 
         elif tab == "Batch Export":
-            # Batch Export owns its own in-tab well/group picker, so avoid
-            # showing the global sidebar well picker to prevent duplicate maps.
-            self._sidebar_sample_frame.setVisible(True)
-            self._groups_centre_refresh()
+            # Batch Export uses the standard sidebar well picker.
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
+            self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
                 self._batch_export_set_mode(mode)
@@ -4956,27 +4965,33 @@ class WellViewerApp(QWidget):
 
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
-    def _bar_pixel_to_data_x(self, tk_x: int) -> "Optional[float]":
-        """Convert a Tk widget pixel x to data-x in _ax_bar_mean.
+    def _bar_pixel_to_data_x(self, widget_x: float) -> "Optional[float]":
+        """Convert a widget pixel x to data-x in _ax_bar_mean.
 
         Returns None if the pixel is outside the axes bounding box.
-        Tk widget origin is top-left; matplotlib figure origin is bottom-left.
-        The x-axis direction matches so no horizontal offset correction is needed.
+        The x-axis direction matches between Qt widget space and matplotlib
+        display space, so no horizontal offset correction is needed.
         """
         ax  = self._ax_bar_mean
         fig = self._bar_fig
         try:
             renderer = fig.canvas.get_renderer()
-        except Exception as exc:
+        except Exception:
             return None
         bbox  = ax.get_window_extent(renderer=renderer)
-        mpl_x = float(tk_x)
+        mpl_x = float(widget_x)
         if not (bbox.x0 <= mpl_x <= bbox.x1):
             return None
         inv     = ax.transData.inverted()
         data_pt = inv.transform((mpl_x, (bbox.y0 + bbox.y1) / 2.0))
         xdata   = float(data_pt[0])
         return xdata
+
+    @staticmethod
+    def _qt_event_x(event) -> float:
+        """Return the x coordinate of a QMouseEvent as a float."""
+        pos = event.position() if hasattr(event, "position") else event.pos()
+        return float(pos.x())
 
     def _bar_current_keys(self) -> List:
         """Return the ordered list of keys currently rendered on the bar plot.
@@ -4999,8 +5014,8 @@ class WellViewerApp(QWidget):
         self._redraw_bars()
 
     def _on_bar_drag_press(self, event) -> None:
-        """Begin drag — record which bar was pressed (Tk ButtonPress-1)."""
-        xdata = self._bar_pixel_to_data_x(event.x)
+        """Begin drag — record which bar was pressed."""
+        xdata = self._bar_pixel_to_data_x(self._qt_event_x(event))
         if xdata is None:
             return
         keys = self._bar_current_keys()
@@ -5011,11 +5026,11 @@ class WellViewerApp(QWidget):
         self._bar_drag_state.update(active=True, src_idx=idx, cur_idx=idx)
 
     def _on_bar_drag_motion(self, event) -> None:
-        """Update drop-target indicator while dragging (Tk B1-Motion)."""
+        """Update drop-target indicator while dragging."""
         ds = self._bar_drag_state
         if not ds["active"]:
             return
-        xdata = self._bar_pixel_to_data_x(event.x)
+        xdata = self._bar_pixel_to_data_x(self._qt_event_x(event))
         if xdata is None:
             return
         keys = self._bar_current_keys()

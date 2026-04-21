@@ -90,7 +90,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._violin_slider.setValue(100)
     app._violin_slider.setFixedWidth(80)
     app._violin_slider.valueChanged.connect(
-        lambda _v: (app._redraw_bars() if getattr(app, "_bar_violin_on", False) else None)
+        lambda _v: (app._redraw_bars() if app._bar_violin.get() else None)
     )
     app._violin_slider.setEnabled(False)
     cl.addWidget(app._violin_slider)

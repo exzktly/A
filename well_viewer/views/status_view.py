@@ -10,9 +10,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import BoolVar
-
-
 class _GUILogHandler(logging.Handler):
     """Routes logging records into a QTextEdit on the Qt main thread."""
 
@@ -65,13 +62,6 @@ def build_bottom(app) -> None:
     top_sep.setFrameShape(QFrame.HLine)
     top_sep.setFixedHeight(1)
     outer.addWidget(top_sep)
-
-    # SEM/SD state. The visible toggle button now lives in each plot tab's
-    # NavigationToolbar (attach_plot_toolbar). All per-toolbar buttons are
-    # collected in ``app._sem_btns`` and kept in sync by ``_toggle_sem``.
-    app._use_sem = BoolVar(True)
-    app._sem_btns = []
-    app._sem_btn = None
 
     # Status row
     status_row = QWidget(bottom)

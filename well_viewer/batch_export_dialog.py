@@ -34,11 +34,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.theme import get_color
 from well_viewer.runtime_app import (
     PLOT_BG,
     PLOT_SPN,
-    TXT_MUT,
-    TXT_PRI,
     WARN,
     WELL_COLORS,
     _PLATE_COLS,
@@ -89,7 +88,9 @@ class _WellGridButton(QPushButton):
         self.setEnabled(enabled)
         self._base_color = bg
         self._active = active
-        border = "2px solid #1976d2" if active else "1px solid #444"
+        accent = get_color("ACCENT")
+        border_color = get_color("BORDER")
+        border = f"2px solid {accent}" if active else f"1px solid {border_color}"
         self.setStyleSheet(
             f"QPushButton {{ background: {bg}; color: {fg}; border: {border}; padding: 0px; }}"
         )
@@ -505,7 +506,7 @@ class BatchExportPanel(QWidget):
                 c = WELL_COLORS[gi % len(WELL_COLORS)]
                 btn.set_colors(c, _CLR_WHITE)
                 return
-        btn.set_colors("#2a2a2a", TXT_PRI)
+        btn.set_colors(get_color("BG_CELL"), get_color("TXT_PRI"))
 
     def _refresh_map(self) -> None:
         avail = set(self._app._well_paths.keys())
@@ -521,11 +522,11 @@ class BatchExportPanel(QWidget):
                 active_wells.add(w)
         for tok, btn in self._map_btns.items():
             if tok not in avail:
-                btn.set_colors("#222", TXT_MUT, enabled=False)
+                btn.set_colors(get_color("CLR_AVAIL_WELL"), get_color("TXT_MUT"), enabled=False)
             elif tok in tok_color:
                 btn.set_colors(tok_color[tok], _CLR_WHITE, active=(tok in active_wells))
             else:
-                btn.set_colors("#2a2a2a", TXT_PRI)
+                btn.set_colors(get_color("BG_CELL"), get_color("TXT_PRI"))
 
     def _clear_layout(self, layout) -> None:
         _clear_layout_helper(layout)
@@ -561,7 +562,9 @@ class BatchExportPanel(QWidget):
         card = QFrame()
         card.setFrameShape(QFrame.StyledPanel)
         if is_sel:
-            card.setStyleSheet(f"QFrame {{ border: 2px solid {color}; background: #2a2a2a; }}")
+            card.setStyleSheet(
+                f"QFrame {{ border: 2px solid {color}; background: {get_color('BG_CELL')}; }}"
+            )
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(6, 4, 6, 4)
 
@@ -1083,10 +1086,10 @@ class BatchExportPanel(QWidget):
         ax_frac = fig.add_subplot(3, 1, 2, sharex=ax_mean)
         ax_cdf = fig.add_subplot(3, 1, 3)
         fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.07, left=0.13, right=0.97)
-        fig.suptitle(grp.name, fontsize=11, fontweight="bold", color=TXT_PRI, y=0.97)
+        fig.suptitle(grp.name, fontsize=11, fontweight="bold", color=get_color("PLOT_TXT"), y=0.97)
 
         legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=PLOT_BG,
-                         edgecolor=PLOT_SPN, labelcolor=TXT_PRI)
+                         edgecolor=PLOT_SPN, labelcolor=get_color("PLOT_TXT"))
         _ch = self._app._active_channel.upper()
         apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) \u00b1 {band_lbl}", f"Mean {_ch}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
@@ -1389,7 +1392,7 @@ class BarBatchExportPanel(BatchExportPanel):
         fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.12,
                             left=0.13, right=0.97)
         fig.suptitle(f"{grp.name}  \u2014  t = {tp_str} h",
-                     fontsize=10, fontweight="bold", color=TXT_PRI, y=0.97)
+                     fontsize=10, fontweight="bold", color=get_color("PLOT_TXT"), y=0.97)
         _ch = self._app._active_channel.upper()
         apply_ax_style(ax_mean,
                        f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
