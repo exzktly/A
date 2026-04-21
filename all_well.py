@@ -17,8 +17,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QPixmap
+from PySide6.QtCore import Qt, QTimer, Signal, QRectF
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
     QTabWidget, QVBoxLayout, QWidget,
@@ -139,49 +139,90 @@ class AllWellApp(QMainWindow):
         self._install_app_icon()
 
     def _install_app_icon(self) -> None:
-        """Draw a 96-well plate icon whose lit wells spell A W."""
-        size = 128
-        img = QImage(size, size, QImage.Format_RGB32)
-        img.fill(QColor("#0b1220"))
+        """96-well plate icon whose lit wells spell A W across the fluorescence spectrum."""
+        C_BG_TOP   = QColor("#1b2740")
+        C_BG_BOT   = QColor("#0b1220")
+        C_BG_STROKE = QColor("#2f3e63")
+        C_PLATE    = QColor("#eef2f8")
+        C_PLATE_EDGE = QColor("#c2ccda")
+        C_NOTCH    = QColor("#dde3ed")
+        C_EMPTY    = QColor("#2a3858")
+        C_BLUE     = QColor("#5aa0ff")
+        C_CYAN     = QColor("#3dd6d6")
+        C_GREEN    = QColor("#6fd672")
+        C_YELLOW   = QColor("#f0d042")
+        C_RED      = QColor("#ff7a7a")
+        C_WHITE    = QColor("#ffffff")
 
-        C_PLATE = QColor("#eef2f8")
-        C_EMPTY = QColor("#2a3858")
-        C_BLUE = QColor("#5aa0ff"); C_CYAN = QColor("#3dd6d6")
-        C_GREEN = QColor("#6fd672"); C_YELLOW = QColor("#f0d042")
-        C_RED = QColor("#ff7a7a"); C_WHITE = QColor("#ffffff")
-
-        for y in range(26, size - 26):
-            for x in range(10, size - 10):
-                img.setPixelColor(x, y, C_PLATE)
-
-        xs = [14 + i * 9 for i in range(12)]
-        ys = [32 + i * 9 for i in range(8)]
+        # 1-indexed (row, col). Same design as _Docs/icons/icon_1_plate_grid.svg.
         pattern = {
-            (1, 3): C_BLUE, (1, 7): C_BLUE, (1, 12): C_BLUE,
-            (2, 2): C_BLUE, (2, 4): C_BLUE, (2, 7): C_BLUE, (2, 12): C_BLUE,
-            (3, 2): C_CYAN, (3, 4): C_CYAN, (3, 7): C_CYAN, (3, 12): C_CYAN,
-            (4, 1): C_GREEN, (4, 5): C_GREEN, (4, 7): C_GREEN, (4, 12): C_GREEN,
-            (5, 1): C_GREEN, (5, 2): C_GREEN, (5, 3): C_WHITE,
-            (5, 4): C_GREEN, (5, 5): C_GREEN, (5, 7): C_GREEN, (5, 12): C_GREEN,
-            (6, 1): C_YELLOW, (6, 5): C_YELLOW, (6, 7): C_YELLOW,
+            (1, 3): C_BLUE,   (1, 7): C_BLUE,    (1, 12): C_BLUE,
+            (2, 2): C_BLUE,   (2, 4): C_BLUE,    (2, 7): C_BLUE,   (2, 12): C_BLUE,
+            (3, 2): C_CYAN,   (3, 4): C_CYAN,    (3, 7): C_CYAN,   (3, 12): C_CYAN,
+            (4, 1): C_GREEN,  (4, 5): C_GREEN,   (4, 7): C_GREEN,  (4, 12): C_GREEN,
+            (5, 1): C_GREEN,  (5, 2): C_GREEN,   (5, 3): C_WHITE,
+            (5, 4): C_GREEN,  (5, 5): C_GREEN,   (5, 7): C_GREEN,  (5, 12): C_GREEN,
+            (6, 1): C_YELLOW, (6, 5): C_YELLOW,  (6, 7): C_YELLOW,
             (6, 9): C_YELLOW, (6, 10): C_YELLOW, (6, 12): C_YELLOW,
-            (7, 1): C_RED, (7, 5): C_RED, (7, 7): C_RED,
-            (7, 8): C_RED, (7, 11): C_RED, (7, 12): C_RED,
-            (8, 1): C_RED, (8, 5): C_RED, (8, 8): C_RED, (8, 11): C_RED,
+            (7, 1): C_RED,    (7, 5): C_RED,     (7, 7): C_RED,
+            (7, 8): C_RED,    (7, 11): C_RED,    (7, 12): C_RED,
+            (8, 1): C_RED,    (8, 5): C_RED,     (8, 8): C_RED,    (8, 11): C_RED,
         }
 
-        def _disk(cx: int, cy: int, r: int, col: QColor) -> None:
-            r2 = r * r
-            for yy in range(cy - r, cy + r + 1):
-                for xx in range(cx - r, cx + r + 1):
-                    if 0 <= xx < size and 0 <= yy < size and (xx - cx) ** 2 + (yy - cy) ** 2 <= r2:
-                        img.setPixelColor(xx, yy, col)
+        def _render(size: int) -> QPixmap:
+            pm = QPixmap(size, size)
+            pm.fill(Qt.transparent)
+            p = QPainter(pm)
+            p.setRenderHint(QPainter.Antialiasing, True)
 
-        for row in range(1, 9):
-            for col in range(1, 13):
-                _disk(xs[col - 1], ys[row - 1], 4, pattern.get((row, col), C_EMPTY))
+            s = size / 1024.0  # SVG is authored on a 1024×1024 grid
 
-        self.setWindowIcon(QIcon(QPixmap.fromImage(img)))
+            # Rounded squircle background with vertical gradient.
+            bg_rect = QRectF(72 * s, 72 * s, 880 * s, 880 * s)
+            bg_grad = QRadialGradient(bg_rect.center(), bg_rect.height())
+            bg_grad.setColorAt(0.0, C_BG_TOP)
+            bg_grad.setColorAt(1.0, C_BG_BOT)
+            p.setBrush(QBrush(bg_grad))
+            p.setPen(QPen(C_BG_STROKE, max(1.0, 3 * s)))
+            p.drawRoundedRect(bg_rect, 200 * s, 200 * s)
+
+            # Plate body with notched corner.
+            plate_rect = QRectF(140 * s, 220 * s, 744 * s, 584 * s)
+            p.setBrush(QBrush(C_PLATE))
+            p.setPen(QPen(C_PLATE_EDGE, max(1.0, 4 * s)))
+            p.drawRoundedRect(plate_rect, 36 * s, 36 * s)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(C_NOTCH))
+            p.drawRect(QRectF(140 * s, 220 * s, 100 * s, 36 * s))
+
+            # 96 wells — 8 rows × 12 cols.
+            xs = [200 + i * 56 for i in range(12)]
+            ys = [276 + i * 64 for i in range(8)]
+            r_well = 22 * s
+            for row in range(1, 9):
+                for col in range(1, 13):
+                    cx = xs[col - 1] * s
+                    cy = ys[row - 1] * s
+                    colour = pattern.get((row, col), C_EMPTY)
+                    # Centre-hot radial gradient gives wells a fluorescent glow.
+                    grad = QRadialGradient(cx, cy - 0.2 * r_well, r_well * 1.2)
+                    grad.setColorAt(0.0, colour.lighter(135))
+                    grad.setColorAt(1.0, colour)
+                    p.setBrush(QBrush(grad))
+                    p.setPen(Qt.NoPen)
+                    p.drawEllipse(QRectF(cx - r_well, cy - r_well,
+                                         r_well * 2, r_well * 2))
+
+            p.end()
+            return pm
+
+        icon = QIcon()
+        for sz in (16, 24, 32, 48, 64, 128, 256, 512):
+            icon.addPixmap(_render(sz))
+        self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app is not None:
+            app.setWindowIcon(icon)
 
     def _on_tab_change(self, idx: int) -> None:
         if self._review is None:
