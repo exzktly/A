@@ -4226,13 +4226,28 @@ class WellViewerApp(QWidget):
             self._active_metric = "mean_intensity"
         # Derive val_col from channel and metric
         self._active_val_col = f"{channel}_{self._active_metric}"
+        # Keep both plot-tab channel selectors in sync so switching channel
+        # on one tab is reflected on the other.
+        ch_upper = channel.upper()
+        for attr in ("_chan_cb_line", "_chan_cb_bar"):
+            cb = getattr(self, attr, None)
+            if cb is None:
+                continue
+            if str(cb.currentText() or "") == ch_upper:
+                continue
+            idx = cb.findText(ch_upper)
+            if idx >= 0:
+                blocked = cb.blockSignals(True)
+                try:
+                    cb.setCurrentIndex(idx)
+                finally:
+                    cb.blockSignals(blocked)
         # Reset threshold to the range of the new channel.
         self._recalculate_threshold()
         self._invalidate_stats_cache()
         self._redraw()
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
-        ch_upper = channel.upper()
         if hasattr(self, "_cdf_chan_lbl"):
             self._cdf_chan_lbl.setText(f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
@@ -4312,7 +4327,23 @@ class WellViewerApp(QWidget):
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
-        self._set_active_channel(self._plot_chan_var.get().lower())
+        # _plot_chan_var is bound to _chan_cb_line, so reading it returns a
+        # stale value when the user changes _chan_cb_bar. Prefer the sender
+        # widget when the signal came from a QComboBox, otherwise fall back
+        # to the line-tab ComboVar.
+        label = ""
+        try:
+            sender = self.sender()
+        except Exception:
+            sender = None
+        if sender is not None and hasattr(sender, "currentText"):
+            try:
+                label = str(sender.currentText() or "")
+            except Exception:
+                label = ""
+        if not label:
+            label = self._plot_chan_var.get()
+        self._set_active_channel(label.lower())
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
