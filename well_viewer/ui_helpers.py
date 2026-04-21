@@ -11,6 +11,62 @@ from PySide6.QtWidgets import (
 )
 
 
+def build_section_header(
+    parent: QWidget,
+    title: str,
+    *,
+    hint: Optional[str] = None,
+    buttons: tuple = (),
+    margins: tuple = (8, 4, 8, 4),
+) -> QWidget:
+    """Return a "Sidebar"-styled header row with a section title.
+
+    ``buttons`` is a sequence of already-constructed QWidgets that are added
+    after a stretch. ``hint`` is an optional muted label shown right after
+    the title.
+    """
+    hdr = QWidget(parent)
+    hdr.setObjectName("Sidebar")
+    hl = QHBoxLayout(hdr)
+    hl.setContentsMargins(*margins)
+    lbl = QLabel(title, hdr)
+    lbl.setProperty("role", "section")
+    hl.addWidget(lbl)
+    if hint:
+        hint_lbl = QLabel(hint, hdr)
+        hint_lbl.setObjectName("Muted")
+        hl.addWidget(hint_lbl)
+    hl.addStretch(1)
+    for btn in buttons:
+        hl.addWidget(btn)
+    return hdr
+
+
+def build_hline_separator(parent: QWidget) -> QFrame:
+    """Return the project's standard 1-px horizontal separator frame."""
+    sep = QFrame(parent)
+    sep.setObjectName("Separator")
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFixedHeight(1)
+    return sep
+
+
+def clear_layout(layout) -> None:
+    """Remove every widget and sub-layout from *layout*, freeing them."""
+    if layout is None:
+        return
+    while layout.count():
+        item = layout.takeAt(0)
+        w = item.widget()
+        if w is not None:
+            w.setParent(None)
+            w.deleteLater()
+            continue
+        child = item.layout()
+        if child is not None:
+            clear_layout(child)
+
+
 def _btn(parent: Optional[QWidget], text: str, command: Optional[Callable[[], Any]], variant: str) -> QPushButton:
     b = QPushButton(text, parent)
     b.setProperty("variant", variant)

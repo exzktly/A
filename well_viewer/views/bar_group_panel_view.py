@@ -7,7 +7,10 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import btn_card, btn_danger, btn_primary, btn_secondary
+from well_viewer.ui_helpers import (
+    btn_card, btn_danger, btn_primary, btn_secondary,
+    build_hline_separator, build_section_header,
+)
 
 
 def build_bar_group_panel(app, parent: QWidget) -> None:
@@ -22,26 +25,18 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
-    hdr1 = QWidget(parent)
-    hdr1.setObjectName("Sidebar")
-    h1 = QHBoxLayout(hdr1)
-    h1.setContentsMargins(8, 3, 8, 3)
-    title = QLabel("PLATE MAP", hdr1)
-    title.setProperty("role", "section")
-    h1.addWidget(title)
-    hint = QLabel("(right-drag to toggle visibility)", hdr1)
-    hint.setObjectName("Muted")
-    h1.addWidget(hint)
-    h1.addStretch(1)
-    h1.addWidget(btn_secondary(hdr1, "Clear All", app._bar_clear_all_groups))
-    h1.addWidget(btn_primary(hdr1, "+ Add Group", app._bar_add_group))
+    hdr1 = build_section_header(
+        parent,
+        "PLATE MAP",
+        hint="(right-drag to toggle visibility)",
+        margins=(8, 3, 8, 3),
+        buttons=(
+            btn_secondary(parent, "Clear All", app._bar_clear_all_groups),
+            btn_primary(parent, "+ Add Group", app._bar_add_group),
+        ),
+    )
     layout.addWidget(hdr1)
-
-    sep1 = QFrame(parent)
-    sep1.setObjectName("Separator")
-    sep1.setFrameShape(QFrame.HLine)
-    sep1.setFixedHeight(1)
-    layout.addWidget(sep1)
+    layout.addWidget(build_hline_separator(parent))
 
     help_lbl = QLabel(
         "Left-drag: add wells to active replicate set  ·  "
