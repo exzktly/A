@@ -1769,7 +1769,9 @@ class WellViewerApp(QWidget):
         sidebar_layout.addWidget(self._sidebar_main_frame, 1)
 
         self._sidebar_line_frame = self._sidebar_main_frame
-        # Off-screen companion frames kept so legacy callers can check existence.
+        # Companion frames stacked in the sidebar and toggled by
+        # _on_tab_change.  All are hidden initially; the tab handler shows
+        # the relevant one.
         self._sidebar_groups_frame = QWidget()
         self._sidebar_bar_frame = QWidget()
         self._sidebar_preview_frame = QWidget()
@@ -1778,7 +1780,8 @@ class WellViewerApp(QWidget):
         for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
                   self._sidebar_preview_frame, self._sidebar_sample_frame,
                   self._sidebar_stats_frame):
-            w.setParent(sidebar)
+            QVBoxLayout(w).setContentsMargins(0, 0, 0, 0)
+            sidebar_layout.addWidget(w, 1)
             w.hide()
 
         self._h_pane.addWidget(sidebar)
@@ -2640,7 +2643,7 @@ class WellViewerApp(QWidget):
         name = ask_name_dialog(self, default=f"Group {len(self._bar_groups) + 1}")
         if name is None:
             return
-        self._bar_groups.append(BarGroup(name, replicates=[]))
+        self._bar_groups.append(BarGroup(name, members=[]))
         self._bar_active_grp = len(self._bar_groups) - 1
         self._bar_active_rep  = -1
         self._bar_rebuild_groups()
@@ -3091,7 +3094,7 @@ class WellViewerApp(QWidget):
                     if not loaded:
                         continue
                     sets = self._make_replicate_pairs(loaded, row_ltr)
-                    self._bar_groups.append(BarGroup(f"Row {row_ltr}", replicates=sets))
+                    self._bar_groups.append(BarGroup(f"Row {row_ltr}", members=sets))
             else:
                 # Group by column (column-first): Column groups with row pairs within
                 for col in _PLATE_COLS:
@@ -3106,7 +3109,7 @@ class WellViewerApp(QWidget):
                         if loaded:
                             pairs_in_col.extend(self._make_replicate_pairs(loaded, col))
                     if pairs_in_col:
-                        self._bar_groups.append(BarGroup(f"Col {col}", replicates=pairs_in_col))
+                        self._bar_groups.append(BarGroup(f"Col {col}", members=pairs_in_col))
         else:
             # Column pairs with grouping by row or column
             if iter_order == "col":
@@ -3117,7 +3120,7 @@ class WellViewerApp(QWidget):
                     if not loaded:
                         continue
                     sets = self._make_replicate_pairs(loaded, col)
-                    self._bar_groups.append(BarGroup(f"Col {col}", replicates=sets))
+                    self._bar_groups.append(BarGroup(f"Col {col}", members=sets))
             else:
                 # Group by row (row-first): Row groups with column pairs within
                 for row_ltr in _PLATE_ROWS:
@@ -3132,7 +3135,7 @@ class WellViewerApp(QWidget):
                         if loaded:
                             pairs_in_row.extend(self._make_replicate_pairs(loaded, col))
                     if pairs_in_row:
-                        self._bar_groups.append(BarGroup(f"Row {row_ltr}", replicates=pairs_in_row))
+                        self._bar_groups.append(BarGroup(f"Row {row_ltr}", members=pairs_in_row))
 
         if self._bar_groups:
             self._bar_active_grp = 0

@@ -6,6 +6,7 @@ hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 
@@ -27,6 +28,12 @@ def build_centre(app, parent: QWidget) -> None:
     app._notebook = QTabWidget(parent)
     app._notebook.setObjectName("CentreTabs")
     app._notebook.setMovable(False)
+    app._notebook.setUsesScrollButtons(True)
+    app._notebook.setElideMode(Qt.ElideNone)
+    tabbar = app._notebook.tabBar()
+    tabbar.setUsesScrollButtons(True)
+    tabbar.setExpanding(False)
+    tabbar.setElideMode(Qt.ElideNone)
     layout.addWidget(app._notebook, 1)
 
     def _select_by_text(title: str, _nb=app._notebook) -> None:

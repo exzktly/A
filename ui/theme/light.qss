@@ -137,9 +137,10 @@ QTabBar { background: ${BG_SIDE}; }
 QTabBar::tab {
     background: ${TAB_BG};
     color: ${TAB_FG};
-    padding: 6px 16px;
+    padding: 4px 10px;
     border: 0;
-    font-weight: bold;
+    font-size: 9pt;
+    font-weight: normal;
 }
 QTabBar::tab:selected { background: ${TAB_BG_ACTIVE}; color: ${ACCENT}; }
 QTabBar::tab:hover    { color: ${TAB_FG_ACTIVE}; }
