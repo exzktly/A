@@ -169,6 +169,6 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
 
     # Drag-to-reorder bar state
     app._bar_drag_state = {"active": False, "src_idx": -1, "cur_idx": -1}
-    app._bar_canvas.mousePressEvent = app._on_bar_drag_press
-    app._bar_canvas.mouseMoveEvent = app._on_bar_drag_motion
-    app._bar_canvas.mouseReleaseEvent = app._on_bar_drag_release
+    app._bar_canvas.mpl_connect("button_press_event", app._on_bar_drag_press)
+    app._bar_canvas.mpl_connect("motion_notify_event", app._on_bar_drag_motion)
+    app._bar_canvas.mpl_connect("button_release_event", app._on_bar_drag_release)

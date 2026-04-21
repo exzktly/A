@@ -4965,33 +4965,18 @@ class WellViewerApp(QWidget):
 
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
-    def _bar_pixel_to_data_x(self, widget_x: float) -> "Optional[float]":
-        """Convert a widget pixel x to data-x in _ax_bar_mean.
+    def _bar_event_xdata(self, event) -> "Optional[float]":
+        """Return data-x for a matplotlib MouseEvent over either bar axis.
 
-        Returns None if the pixel is outside the axes bounding box.
-        The x-axis direction matches between Qt widget space and matplotlib
-        display space, so no horizontal offset correction is needed.
+        Returns None if the cursor is outside the bar plot axes.
         """
-        ax  = self._ax_bar_mean
-        fig = self._bar_fig
-        try:
-            renderer = fig.canvas.get_renderer()
-        except Exception:
+        ax = getattr(event, "inaxes", None)
+        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac:
             return None
-        bbox  = ax.get_window_extent(renderer=renderer)
-        mpl_x = float(widget_x)
-        if not (bbox.x0 <= mpl_x <= bbox.x1):
+        xdata = getattr(event, "xdata", None)
+        if xdata is None:
             return None
-        inv     = ax.transData.inverted()
-        data_pt = inv.transform((mpl_x, (bbox.y0 + bbox.y1) / 2.0))
-        xdata   = float(data_pt[0])
-        return xdata
-
-    @staticmethod
-    def _qt_event_x(event) -> float:
-        """Return the x coordinate of a QMouseEvent as a float."""
-        pos = event.position() if hasattr(event, "position") else event.pos()
-        return float(pos.x())
+        return float(xdata)
 
     def _bar_current_keys(self) -> List:
         """Return the ordered list of keys currently rendered on the bar plot.
@@ -5015,7 +5000,9 @@ class WellViewerApp(QWidget):
 
     def _on_bar_drag_press(self, event) -> None:
         """Begin drag — record which bar was pressed."""
-        xdata = self._bar_pixel_to_data_x(self._qt_event_x(event))
+        if getattr(event, "button", None) != 1:
+            return
+        xdata = self._bar_event_xdata(event)
         if xdata is None:
             return
         keys = self._bar_current_keys()
@@ -5030,7 +5017,7 @@ class WellViewerApp(QWidget):
         ds = self._bar_drag_state
         if not ds["active"]:
             return
-        xdata = self._bar_pixel_to_data_x(self._qt_event_x(event))
+        xdata = self._bar_event_xdata(event)
         if xdata is None:
             return
         keys = self._bar_current_keys()
