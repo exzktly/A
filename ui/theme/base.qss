@@ -1,0 +1,512 @@
+/* All-Well — unified theme stylesheet (all palettes share this template).
+   Tokens are substituted by build_stylesheet() via Python string.Template.
+   Redesign: pill buttons · rounded cards (12-14px) · circular wells · new palette system.
+*/
+
+* {
+    color: ${TXT_PRI};
+    selection-background-color: ${ACCENT};
+    selection-color: ${CLR_WHITE};
+}
+
+QMainWindow, QWidget#AppRoot {
+    background: ${BG_APP};
+}
+
+QWidget        { background: ${BG_APP}; }
+QScrollArea    { background: ${BG_APP}; border: 0; }
+
+/* ── Named surfaces ───────────────────────────────────────────────────── */
+QWidget#Sidebar    { background: ${BG_PANEL}; }
+QWidget#Panel      { background: ${BG_PANEL}; }
+QWidget#SidePanel  { background: ${BG_SIDE};  }
+QWidget#HeaderBar  { background: ${BG_APP};   }
+
+QFrame#Separator   { background: ${LINE}; border: none; }
+QFrame#Separator2  { background: ${LINE}; border: none; }
+
+/* Plate card — rounded, shadowed */
+QFrame#PlateCard {
+    background: ${BG_PANEL};
+    border: 1px solid ${LINE};
+    border-radius: 14px;
+}
+
+/* Workspace card */
+QFrame#WorkspaceCard {
+    background: ${BG_PANEL};
+    border: 1px solid ${LINE};
+    border-radius: 0 14px 14px 14px;
+}
+
+/* Sample group card */
+QFrame#GroupCard {
+    background: ${BG_PANEL};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+}
+QFrame#GroupCard:hover {
+    border-color: ${INK_2};
+}
+
+/* Legend item card */
+QFrame#LegendCard {
+    background: ${BG_PANEL};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+}
+
+/* Tweaks popup panel */
+QFrame#TweaksPanel {
+    background: ${BG_PANEL};
+    border: 1px solid ${LINE};
+    border-radius: 14px;
+}
+
+/* Palette swatch button in tweaks */
+QPushButton#PalBtn {
+    background: ${BG_PANEL};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+    padding: 8px;
+    color: ${TXT_PRI};
+    font-size: 11px;
+    font-weight: 500;
+    text-align: left;
+}
+QPushButton#PalBtn:hover  { border-color: ${INK_2}; }
+QPushButton#PalBtn[active="true"] {
+    border-color: ${ACCENT};
+    background: ${ACCENT_SOFT};
+    color: ${ACCENT_INK};
+}
+
+/* ── Labels ───────────────────────────────────────────────────────────── */
+QLabel { color: ${TXT_PRI}; background: transparent; }
+
+QLabel#BrandName {
+    color: ${TXT_PRI};
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+}
+QLabel#Title   { color: ${TXT_PRI}; font-size: 13pt; font-weight: bold; }
+QLabel#Muted   { color: ${MUT}; }
+QLabel#SideMut { color: ${MUT}; font-size: 12px; }
+QLabel#Section { color: ${TXT_SEC}; font-size: 13px; }
+QLabel#H2      { color: ${TXT_PRI}; font-size: 14px; font-weight: 700; }
+
+/* Sidebar italic title ("Plate") */
+QLabel#SideHead {
+    color: ${TXT_PRI};
+    font-size: 20px;
+    font-style: italic;
+    font-weight: 400;
+}
+/* Workspace serif title */
+QLabel#WsTitle {
+    color: ${TXT_PRI};
+    font-size: 26px;
+    font-style: italic;
+    font-weight: 400;
+}
+QLabel#Meta   { color: ${MUT}; font-size: 11px; font-family: monospace; }
+QLabel#Crumb  { color: ${MUT}; font-size: 12px; font-family: monospace; }
+
+QLabel#SectionHeader {
+    color: ${MUT};
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+QLabel#Avatar {
+    background: ${POP};
+    color: ${CLR_WHITE};
+    border-radius: 13px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 26px;
+    max-width: 26px;
+    min-height: 26px;
+    max-height: 26px;
+    qproperty-alignment: AlignCenter;
+}
+
+QLabel#Danger  { color: ${CLR_DANGER}; }
+QLabel#Success { color: ${CLR_SUCCESS}; }
+QLabel#Warn    { color: ${WARN}; }
+
+QLabel#WellTag {
+    color: ${ACCENT};
+    background: ${ACCENT_SOFT};
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-family: monospace;
+    font-weight: 500;
+}
+
+QLabel#StatusPill {
+    color: ${ACCENT_INK};
+    background: ${ACCENT_SOFT};
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-family: monospace;
+    font-weight: 500;
+}
+
+/* ── Buttons — default ghost-ish pill ─────────────────────────────────── */
+QPushButton {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 1px solid ${LINE};
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton:hover    { border-color: ${INK_2}; }
+QPushButton:disabled { color: ${button_text_disabled}; }
+
+/* ── Pill tab bar (top-level navigation) ──────────────────────────────── */
+QFrame#PillTabBar {
+    background: ${SUNK};
+    border-radius: 999px;
+    border: 0;
+}
+
+QPushButton#PillTab {
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    padding: 6px 16px;
+    color: ${MUT};
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton#PillTab:hover { color: ${INK_2}; background: transparent; border: 0; }
+QPushButton#PillTab[active="true"] {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 0;
+}
+
+/* ── Subtab bar (inside workspace) ───────────────────────────────────── */
+QPushButton#SubTab {
+    background: transparent;
+    border: 0;
+    border-radius: 10px 10px 0 0;
+    padding: 8px 14px;
+    color: ${MUT};
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton#SubTab:hover { color: ${INK_2}; background: transparent; border: 0; }
+QPushButton#SubTab[active="true"] {
+    color: ${TXT_PRI};
+    background: ${BG_PANEL};
+    border: 0;
+}
+
+/* ── Chip group container ─────────────────────────────────────────────── */
+QFrame#ChipGroup {
+    background: ${SUNK};
+    border-radius: 10px;
+    border: 0;
+}
+
+QPushButton#Chip {
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    padding: 5px 11px;
+    color: ${MUT};
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton#Chip:hover { color: ${INK_2}; background: transparent; border: 0; }
+QPushButton#Chip[active="true"] {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 0;
+}
+
+/* ── Row/Col selector quick-buttons ─────────────────────────────────── */
+QPushButton#RcBtn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: ${MUT};
+    font-size: 11px;
+    font-family: monospace;
+    font-weight: 500;
+    padding: 2px 4px;
+}
+QPushButton#RcBtn:hover { background: ${SUNK}; color: ${TXT_PRI}; border-color: transparent; }
+
+/* ── Tweaks button (star glyph, circular) ────────────────────────────── */
+QPushButton#TweaksBtn {
+    background: ${TXT_PRI};
+    color: ${BG_APP};
+    border: 0;
+    border-radius: 16px;
+    min-width: 32px;
+    max-width: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    font-size: 15px;
+    font-weight: 500;
+    padding: 0;
+}
+QPushButton#TweaksBtn:hover { background: ${INK_2}; border: 0; }
+
+/* ── Variant buttons ─────────────────────────────────────────────────── */
+QPushButton[variant="primary"] {
+    background: ${ACCENT};
+    color: ${ACCENT_INK};
+    border-color: ${ACCENT};
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-weight: 500;
+}
+QPushButton[variant="primary"]:hover { background: ${ACCENT_DARK}; border-color: ${ACCENT_DARK}; }
+
+QPushButton[variant="primary_dark"] {
+    background: ${ACCENT_DARK};
+    color: ${CLR_WHITE};
+    border-color: ${ACCENT_DARK};
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-weight: 700;
+}
+QPushButton[variant="primary_dark"]:hover { background: ${ACCENT}; border-color: ${ACCENT}; }
+
+QPushButton[variant="secondary"]       { background: ${SUNK};         color: ${TXT_SEC};    border-color: ${LINE};        border-radius: 999px; padding: 6px 12px; }
+QPushButton[variant="secondary"]:hover { background: ${BG_HOVER}; }
+QPushButton[variant="card"]            { background: ${SUNK};         color: ${TXT_SEC};    border-color: ${LINE};        border-radius: 8px;   padding: 4px 10px; }
+QPushButton[variant="card"]:hover      { background: ${BG_HOVER}; }
+
+QPushButton[variant="danger"]          { background: ${CLR_DANGER_BG}; color: ${CLR_DANGER}; border-color: ${CLR_DANGER_BG}; border-radius: 999px; padding: 6px 14px; }
+QPushButton[variant="danger"]:hover    { background: ${CLR_DANGER_HOVER}; color: ${CLR_WHITE}; }
+
+QPushButton[variant="success"]         { background: ${CLR_SUCCESS};  color: ${CLR_WHITE};  border-color: ${CLR_SUCCESS}; border-radius: 999px; padding: 6px 14px; }
+QPushButton[variant="sem"]             { background: ${ACCENT};       color: ${ACCENT_INK}; border-color: ${ACCENT};      border-radius: 999px; padding: 6px 14px; font-weight: 700; }
+QPushButton[variant="sem_warn"]        { background: ${WARN};         color: ${CLR_WHITE};  border-color: ${WARN};        border-radius: 999px; padding: 6px 14px; font-weight: 700; }
+
+QPushButton[variant="run"]             { background: ${CLR_SUCCESS};  color: ${CLR_WHITE};  border-color: ${CLR_SUCCESS}; border-radius: 999px; padding: 7px 18px; font-weight: 700; }
+QPushButton[variant="run"]:hover       { background: ${CLR_SUCCESS_DARK}; border-color: ${CLR_SUCCESS_DARK}; }
+QPushButton[variant="stop"]            { background: ${CLR_DANGER};   color: ${CLR_WHITE};  border-color: ${CLR_DANGER};  border-radius: 999px; padding: 7px 18px; font-weight: 700; }
+QPushButton[variant="stop"]:hover      { background: ${CLR_DANGER_DARK}; border-color: ${CLR_DANGER_DARK}; }
+
+QPushButton[variant="toggle"]          { background: ${SUNK};         color: ${TXT_SEC};    border-color: ${LINE};        border-radius: 999px; padding: 5px 12px; }
+QPushButton[variant="toggle"]:hover    { background: ${BG_HOVER}; }
+QPushButton[variant="toggle_active"]   { background: ${ACCENT_SOFT};  color: ${ACCENT_INK}; border-color: ${ACCENT_SOFT}; border-radius: 999px; padding: 5px 12px; }
+QPushButton[variant="toggle_warn"]     { background: ${WARN};         color: ${CLR_WHITE};  border-color: ${WARN};        border-radius: 999px; padding: 5px 12px; }
+QPushButton[variant="toggle_muted"]    { background: ${SUNK};         color: ${MUT};        border-color: ${LINE};        border-radius: 999px; padding: 5px 12px; }
+QPushButton[variant="toggle_accent"]   { background: ${SUNK};         color: ${ACCENT};     border-color: ${LINE};        border-radius: 999px; padding: 5px 12px; }
+QPushButton[variant="side_accent"]     { background: transparent;     color: ${ACCENT};     border-color: transparent;    border-radius: 999px; padding: 4px 10px; }
+QPushButton[variant="side_muted"]      { background: transparent;     color: ${MUT};        border-color: transparent;    border-radius: 999px; padding: 4px 10px; }
+
+QPushButton[variant="quickselect"]     { background: ${SUNK};         color: ${TXT_SEC};    border-color: ${LINE};        border-radius: 6px;   padding: 2px 6px; font-size: 11px; }
+QPushButton[variant="quickselect"]:hover { background: ${BG_HOVER}; }
+
+/* ── Plate-map wells — circular ──────────────────────────────────────── */
+QPushButton#WellButton {
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    border-radius: 11px;
+    border: 1.5px solid transparent;
+    font-size: 7px;
+    padding: 0;
+    background: ${CLR_AVAIL_WELL};
+    color: ${MUT};
+}
+QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; color: ${MUT}; border-color: transparent; }
+QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; color: ${MUT}; border-color: transparent; }
+QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         color: ${CLR_WHITE}; border-color: ${TXT_PRI}; }
+QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    color: ${CLR_WHITE}; border-color: ${CLR_SUCCESS}; }
+QPushButton#WellButton[state="warn"]      { background: ${WARN};           color: ${CLR_WHITE}; border-color: ${WARN}; }
+QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     color: ${CLR_WHITE}; border-color: ${CLR_DANGER}; }
+QPushButton#WellButton:hover              { background: ${CLR_AVAIL_HOVER}; border-color: transparent; }
+QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; color: ${CLR_PLACEHOLDER}; border-color: transparent; }
+
+/* ── Inputs ───────────────────────────────────────────────────────────── */
+QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+    padding: 5px 10px;
+    selection-background-color: ${ACCENT_SOFT};
+    selection-color: ${ACCENT_INK};
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QTextEdit:focus, QPlainTextEdit:focus {
+    border-color: ${ACCENT};
+}
+
+QComboBox {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+    padding: 5px 28px 5px 10px;
+    font-size: 12px;
+}
+QComboBox:focus { border-color: ${ACCENT}; }
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 22px;
+    border-left: 1px solid ${LINE};
+    background: ${SUNK};
+    border-radius: 0 10px 10px 0;
+}
+QComboBox::down-arrow {
+    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3 L5 7 L9 3 Z' fill='%23888888'/></svg>");
+    width: 10px; height: 10px;
+}
+QComboBox QAbstractItemView {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+    selection-background-color: ${ACCENT_SOFT};
+    selection-color: ${ACCENT_INK};
+    outline: 0;
+    padding: 4px;
+}
+
+QCheckBox, QRadioButton { color: ${TXT_PRI}; spacing: 6px; background: transparent; }
+QCheckBox:disabled, QRadioButton:disabled { color: ${CLR_MUTED_DISABLED}; }
+
+/* ── Tabs (QTabWidget, used inside review view) ───────────────────────── */
+QTabWidget::pane {
+    background: ${BG_APP};
+    border: 0;
+    border-top: 1px solid ${LINE};
+}
+QTabBar             { background: ${BG_APP}; }
+QTabBar::tab {
+    background: ${SUNK};
+    color: ${MUT};
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 10px 10px 0 0;
+    font-size: 12px;
+    font-weight: 500;
+}
+QTabBar::tab:selected { background: ${BG_PANEL}; color: ${TXT_PRI}; }
+QTabBar::tab:hover    { color: ${INK_2}; }
+
+/* ── Lists / tables / trees ───────────────────────────────────────────── */
+QListWidget, QListView,
+QTableWidget, QTableView,
+QTreeWidget, QTreeView {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    alternate-background-color: ${SUNK};
+    selection-background-color: ${ACCENT_SOFT};
+    selection-color: ${ACCENT_INK};
+    gridline-color: ${LINE};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+    outline: 0;
+}
+QHeaderView::section {
+    background: ${SUNK};
+    color: ${TXT_PRI};
+    border: 0;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────── */
+QScrollBar:vertical   { background: transparent; width: 8px; margin: 0; border: 0; }
+QScrollBar::handle:vertical   { background: ${LINE}; border-radius: 4px; min-height: 24px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar:horizontal { background: transparent; height: 8px; margin: 0; border: 0; }
+QScrollBar::handle:horizontal { background: ${LINE}; border-radius: 4px; min-width: 24px; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+
+QScrollBar::add-page:vertical,   QScrollBar::sub-page:vertical   { background: transparent; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+
+/* ── Group box ────────────────────────────────────────────────────────── */
+QGroupBox {
+    border: 1px solid ${LINE};
+    border-radius: 12px;
+    margin-top: 12px;
+    color: ${TXT_PRI};
+    background: transparent;
+    padding: 8px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 4px;
+    color: ${MUT};
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ── Tooltip ──────────────────────────────────────────────────────────── */
+QToolTip {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 1px solid ${LINE};
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+/* ── Menu ─────────────────────────────────────────────────────────────── */
+QMenu {
+    background: ${BG_PANEL};
+    color: ${TXT_PRI};
+    border: 1px solid ${LINE};
+    border-radius: 10px;
+    padding: 4px;
+}
+QMenu::item           { padding: 6px 16px; border-radius: 6px; }
+QMenu::item:selected  { background: ${ACCENT_SOFT}; color: ${ACCENT_INK}; }
+QMenu::separator      { height: 1px; background: ${LINE}; margin: 4px 8px; }
+
+/* ── Splitter ─────────────────────────────────────────────────────────── */
+QSplitter::handle             { background: ${LINE}; }
+QSplitter::handle:horizontal  { width: 1px; }
+QSplitter::handle:vertical    { height: 1px; }
+
+/* ── Progress bar ─────────────────────────────────────────────────────── */
+QProgressBar {
+    background: ${SUNK};
+    border: 1px solid ${LINE};
+    border-radius: 999px;
+    text-align: center;
+    color: ${TXT_PRI};
+    max-height: 8px;
+}
+QProgressBar::chunk { background: ${ACCENT}; border-radius: 999px; }
+
+/* ── Status bar ───────────────────────────────────────────────────────── */
+QStatusBar {
+    background: ${BG_APP};
+    border-top: 1px solid ${LINE};
+    font-size: 11px;
+    font-family: monospace;
+    color: ${MUT};
+}
+QStatusBar QLabel { color: ${MUT}; background: transparent; font-family: monospace; }
+
+/* ── Dialog ───────────────────────────────────────────────────────────── */
+QDialog { background: ${BG_APP}; }

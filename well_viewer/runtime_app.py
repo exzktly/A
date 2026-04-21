@@ -273,6 +273,15 @@ _logger = logging.getLogger("well_viewer")
 CLR_ACCENT_DARK = ACCENT_DARK
 CLR_DISABLED_WELL = CLR_MUTED_DISABLED   # disabled-well border on placeholder bars
 
+def _get_well_colors():
+    """Return the per-palette well color list (live, respects theme switches)."""
+    from ui.theme import get_color as _gc
+    return [
+        _gc("WELL_COLOR_1"), _gc("WELL_COLOR_2"), _gc("WELL_COLOR_3"),
+        _gc("WELL_COLOR_4"), _gc("WELL_COLOR_5"), _gc("WELL_COLOR_6"),
+        _gc("WELL_COLOR_7"), _gc("WELL_COLOR_8"), _gc("WELL_COLOR_9"),
+    ]
+
 WELL_COLORS = [
     WELL_COLOR_1, WELL_COLOR_2, WELL_COLOR_3, CLR_SUCCESS, WELL_COLOR_4,
     WELL_COLOR_5, WELL_COLOR_6, WELL_COLOR_7, WELL_COLOR_8, WELL_COLOR_9,
@@ -1766,7 +1775,7 @@ class WellViewerApp(QWidget):
         self._h_pane = QSplitter(Qt.Horizontal)
         outer.addWidget(self._h_pane, 1)
 
-        sidebar = QWidget()
+        sidebar = QWidget(objectName="Sidebar")
         sidebar.setMinimumWidth(260)
         sidebar.setMaximumWidth(600)
         sidebar_layout = QVBoxLayout(sidebar)
@@ -3867,6 +3876,7 @@ class WellViewerApp(QWidget):
         button_bg_color = get_color("button_bg")
         button_text_color = get_color("button_text")
         button_text_disabled_color = get_color("button_text_disabled")
+        live_well_colors = _get_well_colors()
 
         rep_sets = getattr(self, "_rep_sets", [])
         rep_mode = bool(rep_sets)
@@ -3874,7 +3884,7 @@ class WellViewerApp(QWidget):
         # Build tok -> (full_color, muted_color, si, is_hidden)
         tok_rep: Dict[str, tuple] = {}
         for si, rset in enumerate(rep_sets):
-            full_c  = WELL_COLORS[si % len(WELL_COLORS)]
+            full_c  = live_well_colors[si % len(live_well_colors)]
             muted_c = self._mute_color(full_c)
             hidden  = si in self._rep_hidden
             for tok in rset.wells:
@@ -4014,12 +4024,15 @@ class WellViewerApp(QWidget):
         # this widget's selector. Restate the plate-well layout properties
         # (min size, padding, border-radius, font) here so wells retain the
         # same dimensions regardless of which code path styles them.
+        # border-radius: 11px makes the 22×22 buttons circular (redesign).
         base_layout = (
             "min-width: 22px;"
-            "min-height: 20px;"
-            "padding: 1px 2px;"
-            "border-radius: 2px;"
-            "font-size: 8pt;"
+            "min-height: 22px;"
+            "max-width: 22px;"
+            "max-height: 22px;"
+            "padding: 0;"
+            "border-radius: 11px;"
+            "font-size: 7pt;"
         )
 
         btn.setStyleSheet(

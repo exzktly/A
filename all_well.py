@@ -18,19 +18,142 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QPixmap
+from PySide6.QtGui import (
+    QColor, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap,
+)
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QTabWidget, QVBoxLayout, QWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow,
+    QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ui.theme import THEMES, ThemeManager, build_stylesheet, set_theme
 
-# Global tab-scoped debug toggles.
 REVIEW_TAB_DEBUG = False
 ANALYZE_TAB_DEBUG = False
 REVIEW_BAR_DEBUG = False
 REVIEW_SCATTER_DEBUG = False
+
+_PALETTE_ORDER = ["Warm", "Fluoro", "Ivory"]
+_PALETTE_SWATCHES = {
+    "Warm":   ("#F7F2EA", "#0E6B52", "#E25C3A"),
+    "Fluoro": ("#0E0F0C", "#C6F24E", "#F05BB5"),
+    "Ivory":  ("#F4F1EB", "#115E59", "#F4A87A"),
+}
+_PALETTE_LABELS = {
+    "Warm":   "Warm lab",
+    "Fluoro": "Fluoro",
+    "Ivory":  "Ivory mint",
+}
+
+
+class _BrandMarkWidget(QWidget):
+    """26×26 painted brand mark: rounded square, 2×2 well dots, sparkline."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(26, 26)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        from ui.theme.styles import get_color
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        ink    = QColor(get_color("TXT_PRI"))
+        mut    = QColor(get_color("MUT"))
+        accent = QColor(get_color("ACCENT"))
+        panel  = QColor(get_color("BG_PANEL"))
+
+        # Rounded square background
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, 26, 26, 7, 7)
+        p.fillPath(path, ink)
+
+        # 2×2 well grid: 3 muted dots + 1 accent dot (bottom-right)
+        r = 3.0
+        p.setPen(Qt.NoPen)
+        for cx, cy in [(8, 8), (18, 8), (8, 18)]:
+            p.setBrush(mut)
+            p.drawEllipse(int(cx - r), int(cy - r), int(r * 2), int(r * 2))
+        p.setBrush(accent)
+        p.drawEllipse(int(18 - r), int(18 - r), int(r * 2), int(r * 2))
+
+        # Sparkline overlay
+        pen = QPen(panel)
+        pen.setWidthF(1.4)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        pts = [(4, 20), (7, 17), (11, 19), (15, 13), (19, 16), (22, 11)]
+        for i in range(len(pts) - 1):
+            p.drawLine(*pts[i], *pts[i + 1])
+
+        p.end()
+
+
+class _TweaksPanel(QFrame):
+    """Floating palette-switcher panel (popup style)."""
+
+    palette_selected = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setObjectName("TweaksPanel")
+        self.setFixedWidth(230)
+        self._pal_btns: dict[str, QPushButton] = {}
+        self._build()
+
+    def _build(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        # Header row
+        hdr = QHBoxLayout()
+        title = QLabel("Tweaks")
+        title.setStyleSheet("font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase;")
+        hdr.addWidget(title)
+        hdr.addStretch()
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(22, 22)
+        close_btn.setStyleSheet("border:0; background:transparent; font-size:16px; border-radius:11px;")
+        close_btn.clicked.connect(self.hide)
+        hdr.addWidget(close_btn)
+        lay.addLayout(hdr)
+
+        # Palette label
+        pal_lbl = QLabel("Palette")
+        pal_lbl.setStyleSheet("font-size:11.5px; font-weight:500; color: inherit;")
+        lay.addWidget(pal_lbl)
+
+        # 3 palette buttons arranged horizontally
+        pal_row = QHBoxLayout()
+        pal_row.setSpacing(6)
+        for pal_id in _PALETTE_ORDER:
+            btn = QPushButton()
+            btn.setObjectName("PalBtn")
+            btn.setFixedHeight(62)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, p=pal_id: self.palette_selected.emit(p))
+            self._pal_btns[pal_id] = btn
+            pal_row.addWidget(btn)
+        lay.addLayout(pal_row)
+
+        note = QLabel("Palettes apply instantly.")
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size:11px; color: inherit; opacity: 0.6;")
+        lay.addWidget(note)
+
+    def set_active_palette(self, name: str) -> None:
+        for pal_id, btn in self._pal_btns.items():
+            btn.setProperty("active", "true" if pal_id == name else "false")
+            btn.setText(_PALETTE_LABELS.get(pal_id, pal_id))
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _repaint_swatches(self) -> None:
+        for pal_id, btn in self._pal_btns.items():
+            btn.setText(_PALETTE_LABELS.get(pal_id, pal_id))
 
 
 class AllWellApp(QMainWindow):
@@ -46,21 +169,23 @@ class AllWellApp(QMainWindow):
 
         self._review: QWidget | None = None
         self._analyze: QWidget | None = None
-        self._theme_manager = ThemeManager("Dark")
+        self._current_palette = "Warm"
+        self._theme_manager = ThemeManager("Warm")
         self._cell_threshold = 0.0
+        self._tweaks_panel: _TweaksPanel | None = None
 
         self._build_ui()
         self._install_app_icon()
-        self._apply_stylesheet("Dark")
+        self._apply_stylesheet("Warm")
 
         if data_path is not None and self._review is not None:
             QTimer.singleShot(150, lambda: self._review._load_path(data_path))
 
     # ── UI construction ──────────────────────────────────────────────────
-    def _apply_stylesheet(self, theme_name: str) -> None:
+    def _apply_stylesheet(self, palette_name: str) -> None:
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(build_stylesheet(theme_name))
+            app.setStyleSheet(build_stylesheet(palette_name))
 
     def _build_ui(self) -> None:
         from analyze_tab import AnalyzeTab
@@ -72,35 +197,73 @@ class AllWellApp(QMainWindow):
         rl.setSpacing(0)
         self.setCentralWidget(root)
 
-        # Header bar
-        header = QWidget(objectName="Sidebar")
+        # ── Header bar ───────────────────────────────────────────────────
+        header = QWidget(objectName="HeaderBar")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(14, 7, 14, 7)
-        title = QLabel("All-Well")
-        title.setObjectName("Title")
-        hl.addWidget(title)
+        hl.setContentsMargins(14, 8, 14, 8)
+        hl.setSpacing(10)
+
+        # Brand mark + wordmark
+        self._brand_mark = _BrandMarkWidget(header)
+        hl.addWidget(self._brand_mark)
+
+        brand_name = QLabel("All·Well", objectName="BrandName")
+        hl.addWidget(brand_name)
+
+        # Spacer between brand and pill tabs
+        hl.addSpacing(22)
+
+        # Pill tab container
+        pill_frame = QFrame(objectName="PillTabBar")
+        pill_frame.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        pill_lay = QHBoxLayout(pill_frame)
+        pill_lay.setContentsMargins(3, 3, 3, 3)
+        pill_lay.setSpacing(2)
+
+        self._review_tab_btn = QPushButton("Review", objectName="PillTab")
+        self._review_tab_btn.setProperty("active", "true")
+        self._review_tab_btn.setCursor(Qt.PointingHandCursor)
+        self._review_tab_btn.clicked.connect(lambda: self._switch_tab(0))
+
+        self._analyze_tab_btn = QPushButton("Analyze", objectName="PillTab")
+        self._analyze_tab_btn.setProperty("active", "false")
+        self._analyze_tab_btn.setCursor(Qt.PointingHandCursor)
+        self._analyze_tab_btn.clicked.connect(lambda: self._switch_tab(1))
+
+        pill_lay.addWidget(self._review_tab_btn)
+        pill_lay.addWidget(self._analyze_tab_btn)
+        hl.addWidget(pill_frame)
+
+        # Right side
         hl.addStretch(1)
-        theme_label = QLabel("Theme:")
-        theme_label.setObjectName("Muted")
-        hl.addWidget(theme_label)
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItems(["Dark", "Light"])
-        self._theme_combo.setFixedWidth(90)
-        self._theme_combo.currentTextChanged.connect(self._on_theme_change)
-        hl.addWidget(self._theme_combo)
+
+        # Crumb (dataset breadcrumb — updated when data loads)
+        self._crumb_label = QLabel("", objectName="Crumb")
+        self._crumb_label.setVisible(False)
+        hl.addWidget(self._crumb_label)
+
+        # Avatar
+        avatar = QLabel("AW", objectName="Avatar")
+        hl.addWidget(avatar)
+
+        # Tweaks button
+        self._tweaks_btn = QPushButton("✶", objectName="TweaksBtn")
+        self._tweaks_btn.setToolTip("Palette tweaks")
+        self._tweaks_btn.setCursor(Qt.PointingHandCursor)
+        self._tweaks_btn.clicked.connect(self._toggle_tweaks)
+        hl.addWidget(self._tweaks_btn)
+
         rl.addWidget(header)
 
-        sep = QFrame()
-        sep.setObjectName("Separator")
+        # 1px header separator
+        sep = QFrame(objectName="Separator")
         sep.setFixedHeight(1)
         rl.addWidget(sep)
 
-        # Notebook
+        # ── Notebook ─────────────────────────────────────────────────────
         self._nb = QTabWidget()
-        self._nb.currentChanged.connect(self._on_tab_change)
-        nb_bar = self._nb.tabBar()
-        nb_bar.setExpanding(False)
-        nb_bar.setElideMode(Qt.ElideNone)
+        self._nb.tabBar().hide()          # pill tabs replace the native tab bar
+        self._nb.currentChanged.connect(self._on_nb_tab_change)
         rl.addWidget(self._nb, 1)
 
         self._review = WellViewerApp(parent=None)
@@ -113,26 +276,65 @@ class AllWellApp(QMainWindow):
         self._nb.addTab(self._analyze, "Analyze")
         self._nb.setCurrentIndex(0)
 
-    def _on_theme_change(self, theme_name: str) -> None:
-        old = self._theme_manager.current_theme
-        if theme_name == old:
-            return
-        self._theme_manager.set_theme(theme_name)
-        set_theme(theme_name)
-        self._apply_stylesheet(theme_name)
+        # ── Tweaks panel (created lazily on first open) ───────────────────
+        self._tweaks_panel = _TweaksPanel(self)
+        self._tweaks_panel.hide()
+        self._tweaks_panel.palette_selected.connect(self._on_palette_change)
 
-        # Re-polish so dynamic property-based QSS rules reapply.
+    # ── Tab switching ────────────────────────────────────────────────────
+    def _switch_tab(self, idx: int) -> None:
+        self._nb.setCurrentIndex(idx)
+
+    def _on_nb_tab_change(self, idx: int) -> None:
+        self._review_tab_btn.setProperty("active", "true" if idx == 0 else "false")
+        self._analyze_tab_btn.setProperty("active", "true" if idx == 1 else "false")
+        for btn in (self._review_tab_btn, self._analyze_tab_btn):
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        if idx == 0 and self._review is not None:
+            QTimer.singleShot(50, self._nudge_review)
+
+    # ── Tweaks panel ─────────────────────────────────────────────────────
+    def _toggle_tweaks(self) -> None:
+        if self._tweaks_panel is None:
+            return
+        if self._tweaks_panel.isVisible():
+            self._tweaks_panel.hide()
+            return
+        self._tweaks_panel.set_active_palette(self._current_palette)
+        # Position above the tweaks button (bottom-right corner area)
+        btn_pos = self._tweaks_btn.mapToGlobal(self._tweaks_btn.rect().topRight())
+        panel_w = self._tweaks_panel.sizeHint().width()
+        panel_h = self._tweaks_panel.sizeHint().height()
+        self._tweaks_panel.move(btn_pos.x() - panel_w, btn_pos.y() - panel_h - 8)
+        self._tweaks_panel.show()
+        self._tweaks_panel.raise_()
+
+    def _on_palette_change(self, palette_name: str) -> None:
+        if palette_name == self._current_palette:
+            return
+        self._current_palette = palette_name
+        self._theme_manager.set_theme(palette_name)
+        set_theme(palette_name)
+        self._apply_stylesheet(palette_name)
+        self._brand_mark.update()       # repaint brand mark with new colors
+
+        # Re-polish all children so QSS property rules reapply
         for w in self.findChildren(QWidget):
             w.style().unpolish(w)
             w.style().polish(w)
 
         if self._review is not None and hasattr(self._review, "_on_theme_change"):
             try:
-                self._review._on_theme_change(theme_name)
+                self._review._on_theme_change(palette_name)
             except Exception:
                 pass
+        if self._tweaks_panel is not None:
+            self._tweaks_panel.set_active_palette(palette_name)
         self._install_app_icon()
 
+    # ── App icon ─────────────────────────────────────────────────────────
     def _install_app_icon(self) -> None:
         """Draw a 96-well plate icon whose lit wells spell A W."""
         size = 128
@@ -178,21 +380,6 @@ class AllWellApp(QMainWindow):
 
         self.setWindowIcon(QIcon(QPixmap.fromImage(img)))
 
-    def _on_tab_change(self, idx: int) -> None:
-        if self._review is None:
-            return
-        if self._nb.tabText(idx).strip() == "Review":
-            QTimer.singleShot(50, self._nudge_review)
-
-    def _on_analyze_pipeline_complete(self, output_dir: Path) -> None:
-        if self._review is None:
-            return
-        dataset_path = output_dir
-        if output_dir.name.lower() == "out" and (output_dir.parent / "in").is_dir():
-            dataset_path = output_dir.parent
-        self._nb.setCurrentIndex(0)
-        QTimer.singleShot(50, lambda: self._review._load_path(dataset_path))
-
     def _nudge_review(self) -> None:
         if self._review is None:
             return
@@ -206,6 +393,15 @@ class AllWellApp(QMainWindow):
                 self._review._redraw_bars()
             except Exception:
                 pass
+
+    def _on_analyze_pipeline_complete(self, output_dir: Path) -> None:
+        if self._review is None:
+            return
+        dataset_path = output_dir
+        if output_dir.name.lower() == "out" and (output_dir.parent / "in").is_dir():
+            dataset_path = output_dir.parent
+        self._nb.setCurrentIndex(0)
+        QTimer.singleShot(50, lambda: self._review._load_path(dataset_path))
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self._review is not None and hasattr(self._review, "_cleanup_tmp"):

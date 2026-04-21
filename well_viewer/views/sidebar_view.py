@@ -23,7 +23,7 @@ def build_sidebar(app, parent: QWidget) -> None:
     """Build the 8x12 plate-map well selector in the sidebar.
 
     Creates:
-      - "WELLS" header
+      - Italic "Plate" heading with well-count meta
       - Row/Col quick-select buttons (A-H, 01-12)
       - 8x12 WellButton plate-map grid with drag-to-select bindings
       - All / None buttons
@@ -33,6 +33,9 @@ def build_sidebar(app, parent: QWidget) -> None:
     from well_viewer.runtime_app import _PLATE_ROWS, _PLATE_COLS
     from well_viewer.views.well_button import build_plate_grid
 
+    # Mark the parent container as Sidebar so QSS can target it
+    parent.setObjectName("Sidebar")
+
     # Ensure parent has a vertical layout
     layout = parent.layout()
     if layout is None:
@@ -40,15 +43,27 @@ def build_sidebar(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-    hdr = QLabel("WELLS", parent)
-    hdr.setObjectName("SidebarHeader")
-    hdr.setProperty("role", "header")
-    layout.addWidget(hdr)
+    # ── Plate heading ─────────────────────────────────────────────────────
+    head_row = QHBoxLayout()
+    head_row.setContentsMargins(16, 14, 16, 0)
+    hdr = QLabel("Plate", parent)
+    hdr.setObjectName("SideHead")
+    head_row.addWidget(hdr)
+    head_row.addStretch()
+    meta = QLabel("96 wells · 8×12", parent)
+    meta.setObjectName("Meta")
+    head_row.addWidget(meta)
+    layout.addLayout(head_row)
 
-    # Row / Col quick-select
+    sub = QLabel("Drag to select · shift-click for replicates.", parent)
+    sub.setObjectName("SideMut")
+    sub.setContentsMargins(16, 4, 16, 10)
+    layout.addWidget(sub)
+
+    # ── Row / Col quick-select ────────────────────────────────────────────
     rc_frame = QWidget(parent)
     rc_layout = QVBoxLayout(rc_frame)
-    rc_layout.setContentsMargins(4, 0, 4, 2)
+    rc_layout.setContentsMargins(14, 0, 14, 4)
     rc_layout.setSpacing(2)
     layout.addWidget(rc_frame)
     app._sidebar_rc_frame = rc_frame
@@ -56,14 +71,14 @@ def build_sidebar(app, parent: QWidget) -> None:
     row_frame = QWidget(rc_frame)
     row_grid = QGridLayout(row_frame)
     row_grid.setContentsMargins(0, 0, 0, 0)
-    row_grid.setSpacing(1)
-    row_lbl = QLabel("Row:", row_frame)
-    row_lbl.setObjectName("Muted")
+    row_grid.setSpacing(2)
+    row_lbl = QLabel("Row", row_frame)
+    row_lbl.setObjectName("Meta")
     row_grid.addWidget(row_lbl, 0, 0)
     for ci, r in enumerate(_PLATE_ROWS):
         b = QPushButton(r, row_frame)
-        b.setProperty("variant", "quickselect")
-        b.setFixedHeight(18)
+        b.setObjectName("RcBtn")
+        b.setFixedHeight(22)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, row=r: app._select_row(row))
         row_grid.addWidget(b, 0, ci + 1)
@@ -74,14 +89,14 @@ def build_sidebar(app, parent: QWidget) -> None:
     col_frame = QWidget(rc_frame)
     col_grid = QGridLayout(col_frame)
     col_grid.setContentsMargins(0, 0, 0, 0)
-    col_grid.setSpacing(1)
-    col_lbl = QLabel("Col:", col_frame)
-    col_lbl.setObjectName("Muted")
+    col_grid.setSpacing(2)
+    col_lbl = QLabel("Col", col_frame)
+    col_lbl.setObjectName("Meta")
     col_grid.addWidget(col_lbl, 0, 0)
     for ci, c in enumerate(_PLATE_COLS):
         b = QPushButton(c.lstrip("0") or "0", col_frame)
-        b.setProperty("variant", "quickselect")
-        b.setFixedHeight(18)
+        b.setObjectName("RcBtn")
+        b.setFixedHeight(22)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, col=c: app._select_col(col))
         col_grid.addWidget(b, 0, ci + 1)
@@ -89,14 +104,21 @@ def build_sidebar(app, parent: QWidget) -> None:
         col_grid.setColumnStretch(ci, 1)
     rc_layout.addWidget(col_frame)
 
-    sep = QFrame(parent)
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
+    # ── Plate card (rounded card wrapping the grid) ───────────────────────
+    plate_card = QFrame(parent)
+    plate_card.setObjectName("PlateCard")
+    plate_card_lay = QVBoxLayout(plate_card)
+    plate_card_lay.setContentsMargins(10, 10, 10, 10)
 
-    # Plate map grid — padding is set uniformly inside build_plate_grid.
-    map_outer = QWidget(parent)
-    layout.addWidget(map_outer)
+    # Plate map grid lives inside the card
+    map_outer = QWidget(plate_card)
+    plate_card_lay.addWidget(map_outer)
+
+    wrap = QWidget(parent)
+    wrap_lay = QVBoxLayout(wrap)
+    wrap_lay.setContentsMargins(14, 4, 14, 0)
+    wrap_lay.addWidget(plate_card)
+    layout.addWidget(wrap)
 
     app._sidebar_btns = {}
     app._sidebar_drag_adding = True
@@ -144,23 +166,32 @@ def build_sidebar(app, parent: QWidget) -> None:
     for _tok, _btn in app._sidebar_btns.items():
         _make_btn_handlers(_tok, _btn)
 
+    # Count + clear row (below plate card)
+    foot = QWidget(parent)
+    foot_l = QHBoxLayout(foot)
+    foot_l.setContentsMargins(16, 6, 16, 10)
+    foot_l.setSpacing(8)
+
+    app._sel_count_lbl = QLabel("", foot)
+    app._sel_count_lbl.setObjectName("Meta")
+    foot_l.addWidget(app._sel_count_lbl)
+    foot_l.addStretch()
+
     # All / None buttons
-    br = QWidget(parent)
+    br = QWidget(foot)
     br_l = QHBoxLayout(br)
-    br_l.setContentsMargins(6, 4, 6, 6)
-    br_l.setSpacing(3)
-    layout.addWidget(br)
-    app._sidebar_allnone_frame = br
+    br_l.setContentsMargins(0, 0, 0, 0)
+    br_l.setSpacing(4)
     for txt, cmd in (("All", app._select_all), ("None", app._select_none)):
         b = QPushButton(txt, br)
-        b.setProperty("variant", "primary-dark")
+        b.setProperty("variant", "secondary")
+        b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, c=cmd: c())
-        br_l.addWidget(b, 1)
+        br_l.addWidget(b)
+    foot_l.addWidget(br)
+    app._sidebar_allnone_frame = br
 
-    # Selected well count label
-    app._sel_count_lbl = QLabel("", parent)
-    app._sel_count_lbl.setObjectName("Muted")
-    layout.addWidget(app._sel_count_lbl)
+    layout.addWidget(foot)
 
     # Group-mode hint
     app._line_group_hint = QLabel("", parent)
