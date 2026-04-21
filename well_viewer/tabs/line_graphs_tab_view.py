@@ -8,12 +8,11 @@ from PySide6.QtWidgets import (
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 from well_viewer.ui_helpers import (
-    btn_primary, btn_secondary, ComboVar, install_canvas_wheel_scroll,
-    make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, btn_secondary, ComboVar,
+    install_canvas_wheel_scroll, make_plot_with_right_dock,
 )
 
 
@@ -86,8 +85,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     install_canvas_wheel_scroll(app._line_canvas, app._line_scroll_canvas)
     layout.addWidget(app._line_scroll_canvas, 1)
 
-    nav = NavigationToolbar(app._line_canvas, parent)
-    layout.addWidget(nav)
+    attach_plot_toolbar(layout, app._line_canvas, parent, app)
 
     sep = QFrame(parent)
     sep.setFrameShape(QFrame.HLine)

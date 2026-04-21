@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 matplotlib.use("QtAgg")
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from skimage.segmentation import find_boundaries
 from tifffile import imread
@@ -31,6 +30,7 @@ from tifffile import imread
 from ui.theme import get_color
 from well_viewer.image_resolver import output_suffixes_for_kind, resolve_ref_by_fov_tp
 from well_viewer.preview_controller import classify_member, read_member_bytes, scan_zip_members
+from well_viewer.ui_helpers import attach_plot_toolbar
 from well_viewer.viewer_state import make_schema_extractor
 
 logger = logging.getLogger("smfish_tab")
@@ -166,8 +166,9 @@ class SmfishTab(QWidget):
         self._canvas_img = FigureCanvas(self._fig_img)
         root.addWidget(self._canvas_img, 1)
 
-        self._toolbar = NavigationToolbar(self._canvas_img, self)
-        root.addWidget(self._toolbar)
+        self._toolbar = attach_plot_toolbar(
+            root, self._canvas_img, self, with_sem=False,
+        )
 
         self._canvas_img.mpl_connect("motion_notify_event", self._on_img_hover)
         self._canvas_img.mpl_connect("scroll_event", self._on_img_scroll)

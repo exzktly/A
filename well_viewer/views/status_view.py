@@ -66,26 +66,12 @@ def build_bottom(app) -> None:
     top_sep.setFixedHeight(1)
     outer.addWidget(top_sep)
 
-    # Control row: Error Band + SEM toggle
-    ctrl_row = QWidget(bottom)
-    cr_l = QHBoxLayout(ctrl_row)
-    cr_l.setContentsMargins(14, 8, 14, 8)
-    outer.addWidget(ctrl_row)
-
-    eb_lbl = QLabel("Error Band", ctrl_row)
-    eb_lbl.setProperty("role", "section")
-    cr_l.addWidget(eb_lbl)
-    app._sem_btn = QPushButton("SEM", ctrl_row)
-    app._sem_btn.setProperty("variant", "sem")
-    app._sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
-    cr_l.addWidget(app._sem_btn)
+    # SEM/SD state. The visible toggle button now lives in each plot tab's
+    # NavigationToolbar (attach_plot_toolbar). All per-toolbar buttons are
+    # collected in ``app._sem_btns`` and kept in sync by ``_toggle_sem``.
     app._use_sem = BoolVar(True)
-    cr_l.addStretch(1)
-
-    mid_sep = QFrame(bottom)
-    mid_sep.setFrameShape(QFrame.HLine)
-    mid_sep.setFixedHeight(1)
-    outer.addWidget(mid_sep)
+    app._sem_btns = []
+    app._sem_btn = None
 
     # Status row
     status_row = QWidget(bottom)

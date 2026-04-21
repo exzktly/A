@@ -226,6 +226,37 @@ QSplitter::handle           { background: ${BORDER}; }
 QSplitter::handle:horizontal { width: 2px; }
 QSplitter::handle:vertical   { height: 2px; }
 
+/* ── Matplotlib navigation toolbar (shared plot toolbar) ──────────────── */
+QToolBar#PlotToolbar {
+    background: ${BG_SIDE};
+    color: ${TXT_PRI};
+    border: 0;
+    border-top: 1px solid ${BORDER};
+    spacing: 2px;
+    padding: 2px 4px;
+}
+QToolBar#PlotToolbar::separator {
+    background: ${BORDER};
+    width: 1px;
+    margin: 3px 4px;
+}
+QToolBar#PlotToolbar QToolButton {
+    background: transparent;
+    color: ${TXT_PRI};
+    border: 0;
+    border-radius: 3px;
+    padding: 3px;
+    margin: 1px;
+}
+QToolBar#PlotToolbar QToolButton:hover    { background: ${BG_HOVER}; }
+QToolBar#PlotToolbar QToolButton:checked  { background: ${ACCENT}; color: ${CLR_WHITE}; }
+QToolBar#PlotToolbar QToolButton:pressed  { background: ${ACCENT_DARK}; color: ${CLR_WHITE}; }
+QToolBar#PlotToolbar QLabel {
+    color: ${TXT_PRI};
+    background: transparent;
+    padding: 0 4px;
+}
+
 QProgressBar {
     background: ${BG_PANEL};
     border: 1px solid ${BORDER};

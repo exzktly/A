@@ -9,11 +9,10 @@ from PySide6.QtWidgets import (
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 from well_viewer.ui_helpers import (
-    btn_primary, btn_secondary, BoolVar, ComboVar,
+    attach_plot_toolbar, btn_primary, btn_secondary, BoolVar, ComboVar,
     install_canvas_wheel_scroll, make_plot_with_right_dock,
 )
 
@@ -136,8 +135,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     install_canvas_wheel_scroll(app._bar_canvas, app._bar_scroll_canvas)
     right_l.addWidget(app._bar_scroll_canvas, 1)
 
-    bar_nav = NavigationToolbar(app._bar_canvas, bar_right)
-    right_l.addWidget(bar_nav)
+    attach_plot_toolbar(right_l, app._bar_canvas, bar_right, app)
 
     # Y-axis limit controls
     ylim_row = QWidget(bar_right)

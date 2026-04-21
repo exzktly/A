@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Tuple
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
@@ -252,3 +253,101 @@ class BoolVar:
 
     def set(self, value: bool) -> None:
         self._v = bool(value)
+
+
+_THEMED_NAV_CLS = None
+
+
+def _themed_nav_toolbar_class():
+    """Return a cached NavigationToolbar2QT subclass that recolors icons from theme tokens.
+
+    The base class decides icon color from the QPalette background value, which
+    QSS does not update — so in Light theme icons came out white on a styled
+    light background. This subclass reads the current theme's ``TXT_PRI`` and
+    repaints the icons directly.
+    """
+    global _THEMED_NAV_CLS
+    if _THEMED_NAV_CLS is not None:
+        return _THEMED_NAV_CLS
+
+    from matplotlib import cbook
+    from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
+
+    class _ThemedNavToolbar(NavigationToolbar2QT):
+        def _icon(self, name):
+            path_regular = cbook._get_data_path("images", name)
+            path_large = path_regular.with_name(
+                path_regular.name.replace(".png", "_large.png")
+            )
+            filename = str(path_large if path_large.exists() else path_regular)
+            pm = QPixmap(filename)
+            pm.setDevicePixelRatio(self.devicePixelRatioF() or 1)
+            try:
+                from ui.theme import get_color
+                icon_color = QColor(get_color("TXT_PRI"))
+            except Exception:
+                icon_color = self.palette().color(self.foregroundRole())
+            mask = pm.createMaskFromColor(QColor("black"), Qt.MaskMode.MaskOutColor)
+            pm.fill(icon_color)
+            pm.setMask(mask)
+            return QIcon(pm)
+
+        def refresh_icons(self) -> None:
+            """Rebuild action icons after a theme change."""
+            for _text, _tip, image_file, callback in self.toolitems:
+                if image_file is None:
+                    continue
+                action = self._actions.get(callback)
+                if action is None:
+                    continue
+                action.setIcon(self._icon(image_file + ".png"))
+
+    _THEMED_NAV_CLS = _ThemedNavToolbar
+    return _ThemedNavToolbar
+
+
+def attach_plot_toolbar(
+    layout,
+    canvas,
+    parent: QWidget,
+    app: Any = None,
+    *,
+    with_sem: bool = True,
+) -> Any:
+    """Create a themed matplotlib nav toolbar, append it to *layout* (at bottom),
+    and optionally embed the shared SEM/SD toggle button.
+
+    Returns the toolbar. When ``with_sem`` and ``app`` are provided, the toolbar
+    hosts a SEM/SD button wired through ``app._toggle_sem``; ``app._sem_btns``
+    collects every such button so ``_toggle_sem`` can update them all.
+    """
+    cls = _themed_nav_toolbar_class()
+    toolbar = cls(canvas, parent)
+    toolbar.setObjectName("PlotToolbar")
+
+    if with_sem and app is not None:
+        toolbar.addSeparator()
+        eb_lbl = QLabel(" Error Band ", toolbar)
+        eb_lbl.setObjectName("Muted")
+        toolbar.addWidget(eb_lbl)
+        initial = bool(getattr(app, "_use_sem", None) and app._use_sem.get())
+        sem_btn = QPushButton("SEM" if initial else "SD", toolbar)
+        sem_btn.setProperty("variant", "sem" if initial else "sem_warn")
+        sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
+        toolbar.addWidget(sem_btn)
+        if not hasattr(app, "_sem_btns") or app._sem_btns is None:
+            app._sem_btns = []
+        app._sem_btns.append(sem_btn)
+        if not getattr(app, "_sem_btn", None):
+            app._sem_btn = sem_btn
+
+    layout.addWidget(toolbar)
+    return toolbar
+
+
+def refresh_plot_toolbar_icons(widget: QWidget) -> None:
+    """Find every embedded ``PlotToolbar`` under *widget* and recolor its icons."""
+    from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
+    for tb in widget.findChildren(NavigationToolbar2QT):
+        if tb.objectName() == "PlotToolbar" and hasattr(tb, "refresh_icons"):
+            tb.refresh_icons()

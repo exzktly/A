@@ -131,6 +131,11 @@ class AllWellApp(QMainWindow):
                 self._review._on_theme_change(theme_name)
             except Exception:
                 pass
+        try:
+            from well_viewer.ui_helpers import refresh_plot_toolbar_icons
+            refresh_plot_toolbar_icons(self)
+        except Exception:
+            pass
         self._install_app_icon()
 
     def _install_app_icon(self) -> None:

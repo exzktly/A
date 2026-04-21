@@ -10,10 +10,11 @@ from PySide6.QtWidgets import (
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary, ComboVar, make_plot_with_right_dock
+from well_viewer.ui_helpers import (
+    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
+)
 
 
 class BoolHolder:
@@ -112,9 +113,8 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     )
 
     app._scatter_agg_canvas = FigureCanvas(app._scatter_agg_fig)
-    nav = NavigationToolbar(app._scatter_agg_canvas, parent)
-    layout.addWidget(nav)
     layout.addWidget(app._scatter_agg_canvas, 1)
+    attach_plot_toolbar(layout, app._scatter_agg_canvas, parent, app)
 
 
 def _open_timepoint_selector(app) -> None:

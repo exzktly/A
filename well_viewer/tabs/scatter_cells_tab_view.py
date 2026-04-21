@@ -7,10 +7,11 @@ from PySide6.QtWidgets import (
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from well_viewer.ui_helpers import btn_primary, ComboVar, make_plot_with_right_dock
+from well_viewer.ui_helpers import (
+    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
+)
 
 
 def build_scatter_cells_tab(app, parent: QWidget) -> None:
@@ -70,9 +71,8 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     )
 
     app._scatter_canvas = FigureCanvas(app._scatter_fig)
-    nav = NavigationToolbar(app._scatter_canvas, parent)
-    layout.addWidget(nav)
     layout.addWidget(app._scatter_canvas, 1)
+    attach_plot_toolbar(layout, app._scatter_canvas, parent, app)
 
     app._scatter_canvas.mpl_connect("button_press_event", app._on_scatter_click)
     app._scatter_canvas.mpl_connect("motion_notify_event", app._on_scatter_motion)

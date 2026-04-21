@@ -9,11 +9,10 @@ from PySide6.QtWidgets import (
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 from ui.theme import get_color
-from well_viewer.ui_helpers import install_canvas_wheel_scroll
+from well_viewer.ui_helpers import attach_plot_toolbar, install_canvas_wheel_scroll
 
 try:
     import numpy as _np
@@ -86,8 +85,9 @@ class CellGatingTab(QWidget):
         install_canvas_wheel_scroll(self._canvas, self._plot_scroll)
         root.addWidget(self._plot_scroll, 1)
 
-        self._toolbar = NavigationToolbar(self._canvas, self)
-        root.addWidget(self._toolbar)
+        self._toolbar = attach_plot_toolbar(
+            root, self._canvas, self, with_sem=False,
+        )
 
         self._status_label = QLabel("No data loaded", self)
         self._status_label.setObjectName("Muted")

@@ -3129,6 +3129,11 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_sidebar_btns"):
             self._sidebar_map_refresh_pending = False
             self._refresh_sidebar_map_now()
+        try:
+            from well_viewer.ui_helpers import refresh_plot_toolbar_icons
+            refresh_plot_toolbar_icons(self)
+        except Exception:
+            pass
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
@@ -3850,10 +3855,13 @@ class WellViewerApp(QWidget):
         self._invalidate_stats_cache()
         self._use_sem.set(not self._use_sem.get())
         is_sem = self._use_sem.get()
-        self._sem_btn.setText("SEM" if is_sem else "SD")
-        self._sem_btn.setProperty("variant", "sem" if is_sem else "sem-warn")
-        self._sem_btn.style().unpolish(self._sem_btn)
-        self._sem_btn.style().polish(self._sem_btn)
+        text = "SEM" if is_sem else "SD"
+        variant = "sem" if is_sem else "sem_warn"
+        for btn in list(getattr(self, "_sem_btns", []) or []):
+            btn.setText(text)
+            btn.setProperty("variant", variant)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
         self._redraw()
         if hasattr(self, "_notebook"):
             if self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
