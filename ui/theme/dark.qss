@@ -85,6 +85,22 @@ QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     borde
 QPushButton#WellButton:hover              { background: ${CLR_AVAIL_HOVER}; }
 QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
 
+/* ── Replicate-set cards (left panel of Sample Definitions tab) ──────── */
+QWidget[variant="rep_card"] {
+    border: 2px solid ${BORDER};
+    border-radius: 4px;
+    background: transparent;
+}
+QWidget[variant="rep_card"][active="true"] {
+    border-top:    2px solid ${INSET_SHADOW};
+    border-left:   2px solid ${INSET_SHADOW};
+    border-right:  2px solid ${INSET_HIGHLIGHT};
+    border-bottom: 2px solid ${INSET_HIGHLIGHT};
+    background: ${BG_CELL};
+}
+/* Children sit on top of the card's background. */
+QWidget[variant="rep_card"] > QWidget { background: transparent; }
+
 /* ── Inputs ───────────────────────────────────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {
     background: ${BG_PANEL};

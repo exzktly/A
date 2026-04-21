@@ -46,7 +46,8 @@ def rep_panel_refresh(app) -> None:
     for si, rset in enumerate(app._rep_sets):
         is_sel = si == app._active_rep_idx
         card = QWidget(inner)
-        card.setProperty("variant", "group_row")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setProperty("variant", "rep_card")
         card.setProperty("active", "true" if is_sel else "false")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(6, 4, 6, 4)
