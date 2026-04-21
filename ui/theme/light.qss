@@ -63,14 +63,16 @@ QPushButton[variant="quickselect"]   { background: ${button_bg};     color: ${bu
 
 /* ── Plate-map wells ──────────────────────────────────────────────────── */
 QPushButton#WellButton {
-    min-width: 22px;
-    min-height: 20px;
-    padding: 1px 2px;
-    border-radius: 2px;
+    min-width: 18px;
+    min-height: 18px;
+    max-width: 18px;
+    max-height: 18px;
+    padding: 0;
+    border-radius: 9px;
     border: 1px solid transparent;
-    font-size: 8pt;
+    font-size: 0pt;
     background: ${BG_CELL};
-    color: ${TXT_MUT};
+    color: transparent;
 }
 QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; color: ${TXT_MUT}; }
 QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; color: ${TXT_SEC}; }

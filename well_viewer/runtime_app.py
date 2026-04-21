@@ -4012,14 +4012,17 @@ class WellViewerApp(QWidget):
 
         # Setting a per-widget stylesheet overrides the application QSS for
         # this widget's selector. Restate the plate-well layout properties
-        # (min size, padding, border-radius, font) here so wells retain the
-        # same dimensions regardless of which code path styles them.
+        # (fixed size, padding, border-radius, hidden font) here so wells
+        # render as identical circles regardless of which code path styles
+        # them. Must match QPushButton#WellButton in dark.qss / light.qss.
         base_layout = (
-            "min-width: 22px;"
-            "min-height: 20px;"
-            "padding: 1px 2px;"
-            "border-radius: 2px;"
-            "font-size: 8pt;"
+            "min-width: 18px;"
+            "min-height: 18px;"
+            "max-width: 18px;"
+            "max-height: 18px;"
+            "padding: 0;"
+            "border-radius: 9px;"
+            "font-size: 0pt;"
         )
 
         btn.setStyleSheet(
