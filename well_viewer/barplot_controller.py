@@ -229,8 +229,8 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
             return None
 
     ax_mean.set_yscale("log" if log_scale else "linear")
-    mean_lo = _parse(app._bar_ylim_mean_lo)
-    mean_hi = _parse(app._bar_ylim_mean_hi)
+    mean_lo = _parse(app._bar_ylim_mean_lo_edit)
+    mean_hi = _parse(app._bar_ylim_mean_hi_edit)
     if mean_lo is not None or mean_hi is not None:
         cur_lo, cur_hi = ax_mean.get_ylim()
         lo = mean_lo if mean_lo is not None else cur_lo
@@ -241,8 +241,8 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
         if hi > lo:
             ax_mean.set_ylim(lo, hi)
 
-    frac_lo = _parse(app._bar_ylim_frac_lo)
-    frac_hi = _parse(app._bar_ylim_frac_hi)
+    frac_lo = _parse(app._bar_ylim_frac_lo_edit)
+    frac_hi = _parse(app._bar_ylim_frac_hi_edit)
     if frac_lo is not None or frac_hi is not None:
         cur_lo, cur_hi = ax_frac.get_ylim()
         lo = frac_lo if frac_lo is not None else cur_lo

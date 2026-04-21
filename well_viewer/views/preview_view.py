@@ -14,7 +14,9 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     if layout is None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
-    layout.setContentsMargins(4, 2, 4, 2)
+    # Outer margins kept at 0 so the plate-map's own uniform padding (from
+    # build_plate_grid) matches every other tab's well picker.
+    layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(2)
 
     title = QLabel("PREVIEW WELL", parent)

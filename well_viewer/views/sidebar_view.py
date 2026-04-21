@@ -8,6 +8,17 @@ from PySide6.QtWidgets import (
 )
 
 
+class _QEvent:
+    """Minimal shim mirroring the legacy tk drag event shape."""
+    __slots__ = ("tok", "pos", "x", "y")
+
+    def __init__(self, tok, pos):
+        self.tok = tok
+        self.pos = pos
+        self.x = pos.x()
+        self.y = pos.y()
+
+
 def build_sidebar(app, parent: QWidget) -> None:
     """Build the 8x12 plate-map well selector in the sidebar.
 
@@ -83,14 +94,9 @@ def build_sidebar(app, parent: QWidget) -> None:
     sep.setFixedHeight(1)
     layout.addWidget(sep)
 
-    # Plate map grid
-    map_wrap = QWidget(parent)
-    mw_l = QVBoxLayout(map_wrap)
-    mw_l.setContentsMargins(4, 2, 4, 2)
-    mw_l.setSpacing(0)
-    map_outer = QWidget(map_wrap)
-    mw_l.addWidget(map_outer)
-    layout.addWidget(map_wrap)
+    # Plate map grid — padding is set uniformly inside build_plate_grid.
+    map_outer = QWidget(parent)
+    layout.addWidget(map_outer)
 
     app._sidebar_btns = {}
     app._sidebar_drag_adding = True
@@ -98,8 +104,45 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     app._bg_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     build_plate_grid(map_outer, app._sidebar_btns)
-    # NOTE: drag bindings — runtime_app must bind to the plate map via mouse
-    # event overrides; the legacy _bind_drag helper is not used in Qt.
+    app._sidebar_map_outer = map_outer
+
+    def _tok_under_cursor(global_pos):
+        """Find which sidebar well-button contains ``global_pos``."""
+        for tok, btn in app._sidebar_btns.items():
+            try:
+                local = btn.mapFromGlobal(global_pos)
+                if btn.rect().contains(local):
+                    return tok
+            except Exception:
+                continue
+        return None
+
+    def _make_btn_handlers(tok, btn):
+        def _press(event):
+            if event.button() != Qt.LeftButton:
+                return
+            pos = event.position().toPoint()
+            app._sb_press(_QEvent(tok, pos))
+
+        def _move(event):
+            if not (event.buttons() & Qt.LeftButton):
+                return
+            global_pos = event.globalPosition().toPoint()
+            other_tok = _tok_under_cursor(global_pos)
+            if other_tok is None:
+                return
+            app._sb_drag(_QEvent(other_tok, event.position().toPoint()))
+
+        def _release(event):
+            app._sb_release(None)
+
+        btn.setMouseTracking(True)
+        btn.mousePressEvent = _press
+        btn.mouseMoveEvent = _move
+        btn.mouseReleaseEvent = _release
+
+    for _tok, _btn in app._sidebar_btns.items():
+        _make_btn_handlers(_tok, _btn)
 
     # All / None buttons
     br = QWidget(parent)

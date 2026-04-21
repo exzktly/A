@@ -2166,8 +2166,32 @@ class WellViewerApp(QWidget):
         _v(self, parent)
 
     def _build_groups_centre(self, parent) -> None:
-        """Centre panel for the Sample Definitions tab (label editor only)."""
-        self._build_label_editor(parent)
+        """Centre panel for the Sample Definitions tab: group-definition panel
+        on the left, well-label editor on the right."""
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QSplitter as _QSplitter, QVBoxLayout as _QVBoxLayout, QWidget as _QWidget
+
+        outer_layout = parent.layout()
+        if outer_layout is None:
+            outer_layout = _QVBoxLayout(parent)
+            parent.setLayout(outer_layout)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        splitter = _QSplitter(_Qt.Horizontal, parent)
+        outer_layout.addWidget(splitter, 1)
+
+        grp_panel = _QWidget(splitter)
+        _QVBoxLayout(grp_panel).setContentsMargins(0, 0, 0, 0)
+        self._build_group_def_panel(grp_panel)
+        splitter.addWidget(grp_panel)
+
+        label_panel = _QWidget(splitter)
+        _QVBoxLayout(label_panel).setContentsMargins(0, 0, 0, 0)
+        self._build_label_editor(label_panel)
+        splitter.addWidget(label_panel)
+
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Replicate panel
@@ -5270,6 +5294,16 @@ class WellViewerApp(QWidget):
             self._refresh_sidebar_map()
             if hasattr(self, "_smfish_tab"):
                 self._smfish_tab.sync_from_app()
+
+        elif tab == "Cell Gating":
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
+            self._refresh_sidebar_map()
+            if hasattr(self, "_cell_gating_tab") and self._cell_gating_tab is not None:
+                self._cell_gating_tab._load_cell_areas()
 
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown

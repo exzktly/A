@@ -38,6 +38,9 @@ def _refresh_after_selection_change(app) -> None:
     elif tab == "smFISH":
         if hasattr(app, "_smfish_tab"):
             app._smfish_tab.sync_from_app()
+    elif tab == "Cell Gating":
+        if hasattr(app, "_cell_gating_tab") and app._cell_gating_tab is not None:
+            app._cell_gating_tab._load_cell_areas()
     else:
         app._redraw()
 

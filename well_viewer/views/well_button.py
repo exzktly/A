@@ -53,7 +53,10 @@ def build_plate_grid(
     if layout is None:
         layout = QGridLayout(parent)
         parent.setLayout(layout)
-    layout.setContentsMargins(0, 0, 0, 0)
+    # Uniform padding around every plate-map (sidebar, replicate, bar-group,
+    # stats, preview). Keep this the only place that sets plate-map margins
+    # so the visual padding stays consistent across tabs.
+    layout.setContentsMargins(6, 4, 6, 4)
     layout.setHorizontalSpacing(1)
     layout.setVerticalSpacing(1)
 

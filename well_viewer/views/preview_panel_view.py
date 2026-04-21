@@ -51,6 +51,7 @@ def build_right_panel(self, parent: QWidget) -> None:
     )
     cl.addWidget(self._fov_menu)
     self._preview_fov_var = ComboVar(self._fov_menu)
+    self._preview_fov_cb = self._fov_menu  # alias used by preview / export callers
     cl.addStretch(1)
     cl.addWidget(btn_secondary(ctrl, "Save Montage…", self._save_montage_figure))
     il.addWidget(ctrl)
@@ -88,6 +89,7 @@ def build_right_panel(self, parent: QWidget) -> None:
     self._mon_lmin_entry.editingFinished.connect(self._montage_redraw_at_zoom)
     lr.addWidget(self._mon_lmin_entry)
     self._mon_lmin_var = LineEditVar(self._mon_lmin_entry)
+    self._mon_lmin_edit = self._mon_lmin_entry  # alias used by montage / export callers
 
     lr.addWidget(QLabel("max:", lut_row))
     self._mon_lmax_entry = QLineEdit("auto", lut_row)
@@ -95,6 +97,7 @@ def build_right_panel(self, parent: QWidget) -> None:
     self._mon_lmax_entry.editingFinished.connect(self._montage_redraw_at_zoom)
     lr.addWidget(self._mon_lmax_entry)
     self._mon_lmax_var = LineEditVar(self._mon_lmax_entry)
+    self._mon_lmax_edit = self._mon_lmax_entry  # alias used by montage / export callers
 
     lr.addWidget(btn_secondary(lut_row, "Auto LUT", self._montage_auto_lut))
 
@@ -118,12 +121,14 @@ def build_right_panel(self, parent: QWidget) -> None:
     )
     tr.addWidget(self._th_checkbox)
     self._mon_tophat_var = CheckBoxVar(self._th_checkbox)
+    self._mon_tophat_cb = self._th_checkbox  # alias used by montage / export callers
 
     tr.addWidget(QLabel("   radius:", th_row))
     self._th_radius_entry = QLineEdit("50", th_row)
     self._th_radius_entry.setFixedWidth(60)
     self._th_radius_entry.editingFinished.connect(self._montage_redraw_at_zoom)
     tr.addWidget(self._th_radius_entry)
+    self._mon_tophat_radius_edit = self._th_radius_entry  # alias used by montage / export callers
     tr.addWidget(QLabel("px", th_row))
     self._th_preload_badge = QLabel("", th_row)
     tr.addWidget(self._th_preload_badge)
