@@ -1,5 +1,13 @@
-"""Compatibility exports for viewer package-style imports."""
+"""All-Well viewer package."""
 
-from .app import WellViewerApp
+from . import debug_flags
 
-__all__ = ["WellViewerApp"]
+
+def __getattr__(name):  # PEP 562 lazy import so pure-service modules don't pull GUI
+    if name == "WellViewerApp":
+        from .runtime_app import WellViewerApp
+        return WellViewerApp
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = ["WellViewerApp", "debug_flags"]

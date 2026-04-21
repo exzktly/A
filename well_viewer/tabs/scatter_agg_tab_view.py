@@ -1,199 +1,155 @@
-"""Scatter Plot: Aggregate tab builder extracted from centre_view."""
+"""Scatter Plot: Aggregate tab builder (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout,
+    QWidget, QWidgetAction,
+)
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from well_viewer.runtime_app import (
-    BG_APP,
-    BG_HOVER,
-    BG_PANEL,
-    BG_SIDE,
-    BORDER,
-    FM_BOLD,
-    FM_TINY,
-    PLOT_BG,
-    TXT_MUT,
-    TXT_SEC,
+from well_viewer.ui_helpers import (
+    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
 )
-from well_viewer.tabs import _make_action_button, _make_secondary_button
 
 
-def build_scatter_agg_tab(app, parent: tk.Frame) -> None:
-    """Fill *parent* with the Scatter Plot: Aggregate controls and figure.
+class BoolHolder:
+    """Tiny tk-compatible shim with ``get()``/``set()`` around a bool flag.
 
-    Creates and wires:
-    - X-axis statistic selector (``app._scatter_agg_stat_x_var``)
-    - Y-axis statistic selector (``app._scatter_agg_stat_y_var``)
-    - Timepoint multi-select dropdown (``app._scatter_agg_tp_selections`` dict)
-      NOTE: This tab intentionally uses a multi-select checkbox dropdown rather
-      than a single Combobox because it aggregates *across* timepoints, whereas
-      the Cells scatter and Bar Plots tabs show one timepoint at a time.
-    - Export CSV + export-style panel buttons
-    - Matplotlib figure with one scatter subplot
+    Cross-module callers (runtime_app, export_service, plot_orchestrator) treat
+    ``_scatter_agg_tp_selections`` values as tk.BooleanVars; this keeps them
+    happy during the Qt port without changing those call sites yet.
     """
-    # ── Controls bar ───────────────────────────────────────────────────────
-    scatter_agg_ctrl = tk.Frame(parent, bg=BG_SIDE, pady=6, padx=10)
-    scatter_agg_ctrl.pack(fill=tk.X, side=tk.TOP)
 
-    # Left side: X-axis and Y-axis statistic selectors
-    tk.Label(scatter_agg_ctrl, text="X-axis:", font=FM_BOLD,
-             fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
-    app._scatter_agg_stat_x_var = tk.StringVar(value="Mean Fluorescence")
-    app._scatter_agg_stat_x_cb = ttk.Combobox(scatter_agg_ctrl,
-                                               textvariable=app._scatter_agg_stat_x_var,
-                                               values=["Mean Fluorescence"], state="readonly",
-                                               width=20, font=FM_TINY)
-    app._scatter_agg_stat_x_cb.pack(side=tk.LEFT, padx=(0, 15))
-    app._scatter_agg_stat_x_cb.bind("<<ComboboxSelected>>",
-                                    lambda _e: app._redraw_scatter_agg())
+    __slots__ = ("_v", "_cb")
 
-    tk.Label(scatter_agg_ctrl, text="Y-axis:", font=FM_BOLD,
-             fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
-    app._scatter_agg_stat_y_var = tk.StringVar(value="Fraction On")
-    app._scatter_agg_stat_y_cb = ttk.Combobox(scatter_agg_ctrl,
-                                               textvariable=app._scatter_agg_stat_y_var,
-                                               values=["Fraction On"], state="readonly",
-                                               width=20, font=FM_TINY)
-    app._scatter_agg_stat_y_cb.pack(side=tk.LEFT, padx=(0, 15))
-    app._scatter_agg_stat_y_cb.bind("<<ComboboxSelected>>",
-                                    lambda _e: app._redraw_scatter_agg())
+    def __init__(self, value: bool = False) -> None:
+        self._v = bool(value)
+        self._cb = None
 
-    tk.Label(scatter_agg_ctrl, text="Timepoints:", font=FM_BOLD,
-             fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 6))
+    def get(self) -> bool:
+        return self._v
 
-    # Custom multi-select dropdown with checkboxes.
-    # Populated lazily via app._update_scatter_menus() when data is loaded.
-    tp_frame = tk.Frame(scatter_agg_ctrl, bg=BG_SIDE)
-    tp_frame.pack(side=tk.LEFT, padx=(0, 15), fill=tk.X, expand=True)
+    def set(self, value: bool) -> None:
+        self._v = bool(value)
+        if self._cb is not None:
+            try:
+                self._cb.blockSignals(True)
+                self._cb.setChecked(self._v)
+            finally:
+                self._cb.blockSignals(False)
 
-    app._scatter_agg_tp_button = ttk.Button(
-        tp_frame, text="Select Timepoints",
-        command=lambda: _open_timepoint_selector(app),
-        style="ActionSecondary.TButton"
+    def bind_checkbox(self, cb: QCheckBox) -> None:
+        self._cb = cb
+        cb.setChecked(self._v)
+        cb.toggled.connect(lambda checked: setattr(self, "_v", bool(checked)))
+
+
+def build_scatter_agg_tab(app, parent: QWidget) -> None:
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
+
+    plot_area, layout, app._scatter_agg_export_dock = make_plot_with_right_dock(parent)
+    parent = plot_area
+
+    ctrl = QWidget(parent)
+    ctrl.setObjectName("Sidebar")
+    cl = QHBoxLayout(ctrl)
+    cl.setContentsMargins(10, 6, 10, 6)
+
+    cl.addWidget(QLabel("X-axis:", ctrl))
+    app._scatter_agg_stat_x_cb = QComboBox(ctrl)
+    app._scatter_agg_stat_x_cb.addItems(["Mean Fluorescence"])
+    app._scatter_agg_stat_x_cb.currentIndexChanged.connect(
+        lambda _i: app._redraw_scatter_agg()
     )
-    app._scatter_agg_tp_button.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    cl.addWidget(app._scatter_agg_stat_x_cb)
+    app._scatter_agg_stat_x_var = ComboVar(app._scatter_agg_stat_x_cb)
 
-    app._scatter_agg_tp_label = tk.Label(
-        tp_frame, text="(0 selected)", font=FM_TINY,
-        fg=TXT_MUT, bg=BG_SIDE
+    cl.addWidget(QLabel("Y-axis:", ctrl))
+    app._scatter_agg_stat_y_cb = QComboBox(ctrl)
+    app._scatter_agg_stat_y_cb.addItems(["Fraction On"])
+    app._scatter_agg_stat_y_cb.currentIndexChanged.connect(
+        lambda _i: app._redraw_scatter_agg()
     )
-    app._scatter_agg_tp_label.pack(side=tk.LEFT, padx=(4, 0))
+    cl.addWidget(app._scatter_agg_stat_y_cb)
+    app._scatter_agg_stat_y_var = ComboVar(app._scatter_agg_stat_y_cb)
 
-    # dict[str, BooleanVar] — populated later by _update_scatter_menus()
+    cl.addWidget(QLabel("Timepoints:", ctrl))
+
+    app._scatter_agg_tp_button = QPushButton("Select Timepoints", ctrl)
+    app._scatter_agg_tp_button.setProperty("variant", "secondary")
+    app._scatter_agg_tp_button.clicked.connect(
+        lambda _=False: _open_timepoint_selector(app)
+    )
+    cl.addWidget(app._scatter_agg_tp_button)
+
+    app._scatter_agg_tp_label = QLabel("(0 selected)", ctrl)
+    app._scatter_agg_tp_label.setObjectName("Muted")
+    cl.addWidget(app._scatter_agg_tp_label)
+
     app._scatter_agg_tp_selections = {}
 
-    # Right side: Export actions
-    _make_action_button(
-        scatter_agg_ctrl, text="Export CSV", command=app._export_scatter_agg_data,
-        style="ActionSuccess.TButton",
-    ).pack(side=tk.RIGHT, padx=(4, 0))
-    _make_secondary_button(
-        scatter_agg_ctrl, text="▸", command=lambda: app._open_export_style_panel("scatter_agg"),
-    ).pack(side=tk.RIGHT, padx=(0, 2))
+    cl.addStretch(1)
 
-    # ── Matplotlib figure ──────────────────────────────────────────────────
-    app._scatter_agg_fig = Figure(figsize=(8, 6), dpi=100, facecolor=PLOT_BG)
+    style_btn = QPushButton("▸", ctrl)
+    style_btn.setProperty("variant", "secondary")
+    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("scatter_agg"))
+    cl.addWidget(style_btn)
+    cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_agg_data))
+    layout.addWidget(ctrl)
+
+    app._scatter_agg_fig = Figure(figsize=(8, 6), dpi=100)
     app._ax_scatter_agg = app._scatter_agg_fig.add_subplot(1, 1, 1)
-    app._scatter_agg_fig.subplots_adjust(hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97)
+    app._scatter_agg_fig.subplots_adjust(
+        hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97,
+    )
 
-    app._scatter_agg_canvas = FigureCanvasTkAgg(app._scatter_agg_fig, master=parent)
+    app._scatter_agg_canvas = FigureCanvas(app._scatter_agg_fig)
+    layout.addWidget(app._scatter_agg_canvas, 1)
+    attach_plot_toolbar(layout, app._scatter_agg_canvas, parent, app)
 
-    # Toolbar must be created before the canvas is packed
-    scatter_agg_nav = NavigationToolbar2Tk(app._scatter_agg_canvas, parent)
-    scatter_agg_nav.config(bg=BG_APP)
-    scatter_agg_nav.update()
-
-    app._scatter_agg_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
-
-
-# ── Timepoint multi-select dropdown helpers ────────────────────────────────
 
 def _open_timepoint_selector(app) -> None:
-    """Open a dropdown window with checkboxes for timepoint multi-selection."""
-    # Close any existing dropdown
-    if (hasattr(app, '_scatter_agg_tp_dropdown')
-            and app._scatter_agg_tp_dropdown
-            and app._scatter_agg_tp_dropdown.winfo_exists()):
-        app._scatter_agg_tp_dropdown.destroy()
-
-    selector = tk.Toplevel(app._scatter_agg_tp_button)
-    selector.wm_overrideredirect(True)
-    selector.configure(bg=BG_PANEL, bd=1, relief=tk.SOLID,
-                       highlightthickness=1, highlightbackground=BORDER)
-    app._scatter_agg_tp_dropdown = selector
-
-    # Position below the button
-    app._scatter_agg_tp_button.update_idletasks()
-    x = app._scatter_agg_tp_button.winfo_rootx()
-    y = (app._scatter_agg_tp_button.winfo_rooty()
-         + app._scatter_agg_tp_button.winfo_height())
-    selector.geometry(f"+{x}+{y}")
-
-    # Scrollable inner frame
-    inner_frame = tk.Frame(selector, bg=BG_PANEL)
-    inner_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
-    canvas = tk.Canvas(inner_frame, bg=BG_PANEL, highlightthickness=0, height=150)
-    scrollbar = ttk.Scrollbar(inner_frame, orient=tk.VERTICAL, command=canvas.yview)
-    scrollable_frame = tk.Frame(canvas, bg=BG_PANEL)
-
-    scrollable_frame.bind(
-        "<Configure>",
-        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-    )
-    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-    canvas.configure(yscrollcommand=scrollbar.set)
+    """Pop up a QMenu of checkboxes below the Timepoints button."""
+    menu = QMenu(app._scatter_agg_tp_button)
 
     for tp_str in sorted(app._scatter_agg_tp_selections.keys(), key=float):
-        var = app._scatter_agg_tp_selections[tp_str]
-        frame = tk.Frame(scrollable_frame, bg=BG_PANEL)
-        frame.pack(anchor="w", padx=4, pady=2)
+        holder = app._scatter_agg_tp_selections[tp_str]
+        cb = QCheckBox(tp_str, menu)
+        holder.bind_checkbox(cb)
 
-        def on_check_change(v=var):
+        def on_toggled(_checked: bool) -> None:
             app._update_tp_selection_display()
             app._redraw_scatter_agg()
 
-        cb = tk.Checkbutton(
-            frame, text=tp_str, variable=var,
-            bg=BG_PANEL, fg=TXT_SEC, font=FM_TINY,
-            command=on_check_change, selectcolor=BG_PANEL,
-            activebackground=BG_HOVER, activeforeground=TXT_SEC
-        )
-        cb.pack(anchor="w")
+        cb.toggled.connect(on_toggled)
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(cb)
+        menu.addAction(wa)
 
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    if len(app._scatter_agg_tp_selections) > 6:
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    menu.addSeparator()
 
-    # Select All / Deselect All buttons
-    button_frame = tk.Frame(selector, bg=BG_PANEL)
-    button_frame.pack(fill=tk.X, padx=4, pady=4)
-
-    def select_all():
-        for var in app._scatter_agg_tp_selections.values():
-            var.set(True)
+    def _set_all(value: bool) -> None:
+        for h in app._scatter_agg_tp_selections.values():
+            h.set(value)
         app._update_tp_selection_display()
         app._redraw_scatter_agg()
 
-    def deselect_all():
-        for var in app._scatter_agg_tp_selections.values():
-            var.set(False)
-        app._update_tp_selection_display()
-        app._redraw_scatter_agg()
+    all_action = QAction("All", menu)
+    all_action.triggered.connect(lambda _=False: _set_all(True))
+    menu.addAction(all_action)
 
-    ttk.Button(button_frame, text="All", command=select_all,
-               style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=2)
-    ttk.Button(button_frame, text="None", command=deselect_all,
-               style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=2)
+    none_action = QAction("None", menu)
+    none_action.triggered.connect(lambda _=False: _set_all(False))
+    menu.addAction(none_action)
 
-    # Close on focus loss or mouse leave
-    selector.bind("<FocusOut>", lambda e: selector.destroy()
-                  if selector.winfo_exists() else None)
-    selector.bind("<Leave>", lambda e: selector.after(
-        200, lambda: selector.destroy() if selector.winfo_exists() else None))
-    selector.focus()
+    btn = app._scatter_agg_tp_button
+    menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))

@@ -2,39 +2,50 @@
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import messagebox
+from PySide6.QtWidgets import QMessageBox
 
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import extract_well_token as _extract_well_token
 from well_viewer.ui_helpers import tok_at_event as _tok_at_event
 
 
-def rep_map_tok_at(app, event: tk.Event):
+def rep_map_tok_at(app, event):
     return _tok_at_event(event, app._rep_map_btns)
 
 
-def rep_map_press(app, event: tk.Event) -> None:
-    if not (0 <= app._active_rep_idx < len(app._rep_sets)):
+def _grp_active(app) -> bool:
+    return 0 <= getattr(app, "_bar_active_grp", -1) < len(app._bar_groups)
+
+
+def _rep_active(app) -> bool:
+    return 0 <= app._active_rep_idx < len(app._rep_sets)
+
+
+def rep_map_press(app, event) -> None:
+    if not (_rep_active(app) or _grp_active(app)):
         return
     tok = rep_map_tok_at(app, event)
     if tok is None or tok not in app._well_paths:
         return
-    rset = app._rep_sets[app._active_rep_idx]
-    app._rep_drag_adding = tok not in rset.wells
+    if _grp_active(app):
+        grp = app._bar_groups[app._bar_active_grp]
+        app._rep_drag_adding = tok not in grp.solo_wells
+    else:
+        rset = app._rep_sets[app._active_rep_idx]
+        app._rep_drag_adding = tok not in rset.wells
     app._rep_drag_visited = set()
     app._rep_map_apply(tok)
 
 
-def rep_map_drag(app, event: tk.Event) -> None:
-    if not (0 <= app._active_rep_idx < len(app._rep_sets)):
+def rep_map_drag(app, event) -> None:
+    if not (_rep_active(app) or _grp_active(app)):
         return
     tok = rep_map_tok_at(app, event)
     if tok and tok not in app._rep_drag_visited:
         app._rep_map_apply(tok)
 
 
-def rep_map_release(app, _event: tk.Event) -> None:
+def rep_map_release(app, _event=None) -> None:
     if getattr(app, "_rep_drag_visited", None):
         app._rebuild_all()
     app._rep_drag_visited = set()
@@ -43,10 +54,20 @@ def rep_map_release(app, _event: tk.Event) -> None:
 def rep_map_apply(app, tok: str) -> None:
     if tok in app._rep_drag_visited:
         return
-    if not (0 <= app._active_rep_idx < len(app._rep_sets)):
-        return
     app._rep_drag_visited.add(tok)
     if tok not in app._well_paths:
+        return
+    if _grp_active(app):
+        grp = app._bar_groups[app._bar_active_grp]
+        if app._rep_drag_adding:
+            if tok not in grp.solo_wells:
+                grp.solo_wells.append(tok)
+        else:
+            if tok in grp.solo_wells:
+                grp.solo_wells.remove(tok)
+        app._rep_refresh_map_single(tok)
+        return
+    if not _rep_active(app):
         return
     rset = app._rep_sets[app._active_rep_idx]
     if app._rep_drag_adding:
@@ -63,6 +84,10 @@ def rep_map_apply(app, tok: str) -> None:
 
 def grp_select(app, idx: int) -> None:
     app._bar_active_grp = idx
+    # Group and replicate selection are mutually exclusive: selecting a group
+    # clears any active replicate set so the sidebar plate grid edits the
+    # group's solo wells instead of a replicate's wells.
+    app._active_rep_idx = -1
     app._groups_centre_refresh()
 
 
@@ -70,13 +95,13 @@ def grp_add(app) -> None:
     name = f"Group {len(app._bar_groups) + 1}"
     app._bar_groups.append(BarGroup(name))
     app._bar_active_grp = len(app._bar_groups) - 1
+    app._active_rep_idx = -1
     app._rebuild_all()
 
 
 def grp_rename(app, idx: int) -> None:
     if not (0 <= idx < len(app._bar_groups)):
         return
-    # Group names are now edited inline in the Sample Definitions panel.
     app._bar_active_grp = idx
     app._groups_centre_refresh()
 
@@ -130,7 +155,11 @@ def grp_remove_solo(app, grp_idx: int, well: str) -> None:
 def grp_clear_all(app) -> None:
     if not app._bar_groups:
         return
-    if messagebox.askyesno("Clear all groups?", f"Remove all {len(app._bar_groups)} group(s)?", parent=app):
+    reply = QMessageBox.question(
+        app, "Clear all groups?", f"Remove all {len(app._bar_groups)} group(s)?",
+        QMessageBox.Yes | QMessageBox.No,
+    )
+    if reply == QMessageBox.Yes:
         app._bar_groups.clear()
         app._bar_active_grp = -1
         app._rebuild_all()

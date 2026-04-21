@@ -3,33 +3,51 @@
 from __future__ import annotations
 
 
+def _select_tab_by_text(notebook, text: str) -> None:
+    """Select a QTabWidget tab by its text label."""
+    for i in range(notebook.count()):
+        if notebook.tabText(i) == text:
+            notebook.setCurrentIndex(i)
+            return
+
+
+def _table_row_dict(table, row_idx: int) -> dict:
+    """Extract a row from a QTableWidget as a {col_name: value} dict."""
+    col_names = [
+        (table.horizontalHeaderItem(c).text() if table.horizontalHeaderItem(c) else str(c))
+        for c in range(table.columnCount())
+    ]
+    return {
+        col_names[c]: (table.item(row_idx, c).text() if table.item(row_idx, c) else "")
+        for c in range(table.columnCount())
+    }
+
+
 def on_review_image_click(app, event, logger) -> None:
     mask_arr = getattr(app._review_image_label, "_mask_arr", None)
     if mask_arr is None:
         return
     scale = float(getattr(app, "_review_image_scale", 1.0) or 1.0)
-    x, y = int(event.x / scale), int(event.y / scale)
+    x = int(event.position().x() / scale)
+    y = int(event.position().y() / scale)
     if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
         return
     nid = int(mask_arr[y, x])
     if nid <= 0:
         return
     app._review_image_selected_nucleus = nid
-    fov = app._preview_fov_var.get().strip()
-    tp = app._review_image_tp_var.get().strip()
+    fov = app._preview_fov_cb.currentText().strip()
+    tp_cb = getattr(app, "_review_image_tp_cb", None)
+    tp = tp_cb.currentText().strip() if tp_cb is not None else ""
     if getattr(app, "_review_image_include_edit_mode", False):
         app._set_review_cell_included(fov, tp, str(nid), "0")
         app._set_status(f"Set Included=0 for nucleus {nid} at FOV {fov}, TP {tp}.")
         return
-    app._select_review_csv_row_for_cell(
-        fov,
-        tp,
-        str(nid),
-    )
+    app._select_review_csv_row_for_cell(fov, tp, str(nid))
 
 
 def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logger) -> None:
-    if not hasattr(app, "_review_fov_var"):
+    if not hasattr(app, "_review_fov_cb"):
         return
     fov_n, tp_n, nucleus_n = app._review_row_keys({"fov": fov, "tp": tp, "nucleus_id": nucleus_id})
     app._review_csv_lookup_context = {
@@ -49,45 +67,53 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
         "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
         app._preview_selected_well, fov, tp, nucleus_id,
     )
-    if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
-        app._notebook.select_by_text("Review CSV")
-    app._review_fov_var.set(fov_n)
-    app._review_tp_var.set(tp_n)
+    # Ensure the previewed well is in the sidebar selection so the tab-switch
+    # refresh loads its CSV rows — Review Image's preview well is independent
+    # of _selected_wells, and _refresh_review_csv reads only _selected_wells.
+    preview_well = app._preview_selected_well
+    if (
+        preview_well
+        and preview_well in getattr(app, "_well_paths", {})
+        and preview_well not in app._selected_wells
+    ):
+        app._selected_wells.add(preview_well)
+        if hasattr(app, "_refresh_sidebar_map"):
+            app._refresh_sidebar_map()
+    if hasattr(app, "_notebook"):
+        _select_tab_by_text(app._notebook, "Review CSV")
+    app._review_fov_cb.setCurrentText(fov_n)
+    app._review_tp_cb.setCurrentText(tp_n)
     app._refresh_review_csv_rows()
+
     table = app._review_csv_table
     debug_candidates = []
-    for iid in table.get_children():
-        vals = table.item(iid, "values")
-        cols = table["columns"]
-        row = {c: vals[i] for i, c in enumerate(cols)}
+    for row_idx in range(table.rowCount()):
+        row = _table_row_dict(table, row_idx)
         rf, rt, rn = app._review_row_keys(row)
         debug_candidates.append((rf, rt, rn))
         if rf == fov_n and rt == tp_n and rn == nucleus_n:
-            table.selection_set(iid)
-            table.focus(iid)
-            table.see(iid)
+            table.selectRow(row_idx)
+            item = table.item(row_idx, 0)
+            if item:
+                table.scrollToItem(item)
             app._set_status(f"Matched Review CSV row for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}.")
             return
-    else:
-        logger.warning(
-            "Review CSV exact row match not found. target=(%s,%s,%s) candidates_shown=%d sample=%s",
-            fov_n, tp_n, nucleus_n, len(debug_candidates), debug_candidates[:10],
-        )
-        app._set_status(
-            f"No exact Review CSV row match for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}; showing fallback rows."
-        )
+    logger.warning(
+        "Review CSV exact row match not found. target=(%s,%s,%s) candidates_shown=%d sample=%s",
+        fov_n, tp_n, nucleus_n, len(debug_candidates), debug_candidates[:10],
+    )
+    app._set_status(
+        f"No exact Review CSV row match for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}; showing fallback rows."
+    )
 
 
-def on_review_csv_row_double_click(app, event) -> None:
+def on_review_csv_row_double_click(app, item) -> None:
+    """Called with a QTableWidgetItem from itemDoubleClicked signal."""
     if not hasattr(app, "_review_csv_table"):
         return
     table = app._review_csv_table
-    iid = table.identify_row(event.y) or table.focus()
-    if not iid:
-        return
-    values = table.item(iid, "values")
-    cols = table["columns"]
-    row = {c: values[i] for i, c in enumerate(cols)}
+    row_idx = item.row()
+    row = _table_row_dict(table, row_idx)
     fov, tp, nid = app._review_row_keys(row)
     well_tok = str(row.get("well", "")).strip()
     key = well_tok if well_tok in app._well_paths else None
@@ -96,19 +122,33 @@ def on_review_csv_row_double_click(app, event) -> None:
     if key is None:
         return
 
-    if hasattr(app, "_notebook") and hasattr(app._notebook, "select_by_text"):
-        app._notebook.select_by_text("Review Image")
-    app._preview_selected_well = key
-    app._update_preview(key)
-    if fov:
-        app._preview_fov_var.set(fov)
-    if tp and hasattr(app, "_review_image_tp_var"):
-        app._review_image_tp_var.set(tp)
+    if hasattr(app, "_notebook"):
+        _select_tab_by_text(app._notebook, "Review Image")
+
+    # Set the target nucleus before any refresh so intermediate renders can
+    # already draw the yellow highlight.
     if nid:
         try:
             app._review_image_selected_nucleus = int(float(nid))
         except Exception:
             app._review_image_selected_nucleus = None
+
+    app._preview_selected_well = key
+    app._update_preview(key)
+
+    # _preview_fov_var drives _refresh_review_image; force the target FOV
+    # before repopulating the TP menu.
+    if fov:
+        app._preview_fov_cb.setCurrentText(fov)
     app._refresh_review_image()
+
+    # TP menu now holds the target FOV's timepoints. Selecting the TP here
+    # triggers _refresh_review_image via currentIndexChanged, which renders
+    # the correct frame with the highlight already in place.
+    if tp:
+        tp_cb = getattr(app, "_review_image_tp_cb", None)
+        if tp_cb is not None:
+            tp_cb.setCurrentText(tp)
+
     if hasattr(app, "_zoom_review_image_to_selected_nucleus"):
         app._zoom_review_image_to_selected_nucleus()

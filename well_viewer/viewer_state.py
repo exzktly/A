@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 
 def make_schema_extractor(sep: str, fov_idx: int, tp_idx: int):
@@ -120,9 +119,9 @@ def groups_with_loaded_wells(groups, well_paths: dict) -> list:
     return [g for g in groups if any(w in well_paths for w in g.wells)]
 
 
-def selected_listbox_values(listbox: tk.Listbox) -> List[str]:
-    """Return selected string values from a Tk listbox."""
-    return [listbox.get(i) for i in listbox.curselection()]
+def selected_listbox_values(listbox: Any) -> List[str]:
+    """Return selected string values from a Qt QListWidget."""
+    return [it.text() for it in listbox.selectedItems()]
 
 
 # ── App-level state container (merged from app_state.py) ─────────────────────

@@ -1,6 +1,9 @@
-"""Montage interaction helpers extracted from well_viewer3."""
+"""Montage interaction helpers for WellViewerApp."""
 
 from __future__ import annotations
+
+from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtWidgets import QToolTip
 
 
 def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> None:
@@ -12,22 +15,23 @@ def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> No
             hi = max(float(app._np.asarray(a).max()) for a in valid)
             if hi <= lo:
                 hi = lo + 1.0
-            app._mon_lmin_var.set(f"{lo:.0f}")
-            app._mon_lmax_var.set(f"{hi:.0f}")
+            app._mon_lmin_edit.setText(f"{lo:.0f}")
+            app._mon_lmax_edit.setText(f"{hi:.0f}")
 
-    fov = app._preview_fov_var.get()
+    fov = app._preview_fov_cb.currentText()
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     if tp_list:
         app._draw_montage_thumbs(tp_list)
 
     if not partial:
         app._set_status(
-            f"Top-hat filter applied  ·  {len(filtered_arrays)} frame(s)  ·  radius={app._mon_tophat_radius.get()} px"
+            f"Top-hat filter applied  ·  {len(filtered_arrays)} frame(s)  ·  "
+            f"radius={app._mon_tophat_radius_edit.text()} px"
         )
 
 
 def montage_auto_lut(app, redraw: bool = True) -> None:
-    tophat_on = getattr(app, "_mon_tophat_var", None) is not None and app._mon_tophat_var.get()
+    tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
     display_arrays_exist = (
         tophat_on
         and hasattr(app, "_montage_fluor_display_arrays")
@@ -41,87 +45,92 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
     hi = max(float(app._np.asarray(a).max()) for a in source)
     if hi <= lo:
         hi = lo + 1.0
-    app._mon_lmin_var.set(f"{lo:.0f}")
-    app._mon_lmax_var.set(f"{hi:.0f}")
+    app._mon_lmin_edit.setText(f"{lo:.0f}")
+    app._mon_lmax_edit.setText(f"{hi:.0f}")
     if redraw:
-        tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == app._preview_fov_var.get()]
+        fov = app._preview_fov_cb.currentText()
+        tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
         if tp_list:
             app._draw_montage_thumbs(tp_list)
 
 
 def on_montage_canvas_resize(app, _e=None) -> None:
-    if hasattr(app, "_montage_resize_job") and app._montage_resize_job:
-        try:
-            app.after_cancel(app._montage_resize_job)
-        except Exception:
-            pass
+    timer = getattr(app, "_montage_resize_timer", None)
+    if timer is not None and timer.isActive():
+        timer.stop()
     if app._montage_fluor_arrays:
-        app._montage_resize_job = app.after(150, app._montage_resize_deferred)
+        t = QTimer()
+        t.setSingleShot(True)
+        t.timeout.connect(app._montage_resize_deferred)
+        t.start(150)
+        app._montage_resize_timer = t
 
 
 def montage_resize_deferred(app) -> None:
-    app._montage_resize_job = None
-    fov = app._preview_fov_var.get()
+    app._montage_resize_timer = None
+    fov = app._preview_fov_cb.currentText()
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
     if tp_list:
         app._draw_montage_thumbs(tp_list)
 
 
-def on_montage_fluor_motion(app, e) -> None:
+def on_montage_fluor_motion(app, event) -> None:
     _show_image_pixel_tooltip(
         app,
-        e=e,
-        tooltip=getattr(app, "_montage_tooltip", None),
+        event=event,
         channel_label=f"{getattr(app, '_active_image_channel', '')}".upper() or "IMAGE",
     )
 
 
-def _show_image_pixel_tooltip(app, e, tooltip, channel_label: str) -> None:
-    """Show x/y/value tooltip for a widget carrying `_raw_arr`, `_sz_w`, `_sz_h`."""
-    lbl = e.widget
+def _show_image_pixel_tooltip(app, event, channel_label: str, label=None) -> None:
+    """Show x/y/value tooltip for a QLabel carrying `_raw_arr`, `_sz_w`, `_sz_h`.
+
+    ``label`` is the QLabel the mouse is hovering; when omitted the Movie
+    Montage fluorescence label is used (back-compat).
+    """
+    lbl = label or getattr(app, "_montage_fluor_lbl", None)
     arr = getattr(lbl, "_raw_arr", None)
-    sz_w = getattr(lbl, "_sz_w", 1)
-    sz_h = getattr(lbl, "_sz_h", 1)
-    if arr is None or tooltip is None or not app._NP_AVAILABLE:
-        if tooltip is not None:
-            tooltip.hide()
+    if arr is None or not app._NP_AVAILABLE:
+        QToolTip.hideText()
         return
+    sz_w = getattr(lbl, "_sz_w", lbl.width() if lbl else 1)
+    sz_h = getattr(lbl, "_sz_h", lbl.height() if lbl else 1)
     arr = app._np.asarray(arr, dtype=app._np.float32)
     ih, iw = arr.shape[:2]
     scale = min(sz_w / max(iw, 1), sz_h / max(ih, 1))
     nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-    lw, lh = lbl.winfo_width(), lbl.winfo_height()
-    img_x = (e.x - (lw - nw) // 2) / max(scale, 1e-9)
-    img_y = (e.y - (lh - nh) // 2) / max(scale, 1e-9)
+    lw = lbl.width() if lbl else sz_w
+    lh = lbl.height() if lbl else sz_h
+    ex = int(event.position().x())
+    ey = int(event.position().y())
+    img_x = (ex - (lw - nw) // 2) / max(scale, 1e-9)
+    img_y = (ey - (lh - nh) // 2) / max(scale, 1e-9)
     if not (0 <= img_x < iw and 0 <= img_y < ih):
-        tooltip.hide()
+        QToolTip.hideText()
         return
     val = float(arr[int(img_y), int(img_x)])
-    sx = lbl.winfo_rootx() + e.x
-    sy = lbl.winfo_rooty() + e.y
-    tooltip.show(f"x={int(img_x)}  y={int(img_y)}  {channel_label}:{val:.1f}", sx, sy)
+    extra = ""
+    mask_arr = getattr(lbl, "_mask_arr", None)
+    if mask_arr is not None:
+        try:
+            nid = int(app._np.asarray(mask_arr)[int(img_y), int(img_x)])
+            if nid > 0:
+                extra = f"  cell:{nid}"
+        except Exception:
+            pass
+    global_pos = lbl.mapToGlobal(QPoint(ex, ey))
+    QToolTip.showText(global_pos, f"x={int(img_x)}  y={int(img_y)}  {channel_label}:{val:.1f}{extra}")
 
 
 def _wheel_steps(event) -> int:
-    """Normalize wheel/button events to signed integer step count."""
-    num = getattr(event, "num", None)
-    if num == 4:
-        return 1
-    if num == 5:
-        return -1
-    if num == 6:
-        return -1
-    if num == 7:
-        return 1
-    delta = int(getattr(event, "delta", 0) or 0)
+    """Normalize Qt wheel event to signed integer step count."""
+    try:
+        delta = event.angleDelta().y()
+    except AttributeError:
+        return 0
     if delta == 0:
         return 0
-    # Windows wheel notch is +/-120; high-resolution mice/trackpads emit
-    # larger/smaller values. Preserve magnitude as number of steps.
-    if abs(delta) >= 120:
-        steps = abs(delta) // 120
-    else:
-        steps = 1
+    steps = max(1, abs(delta) // 120)
     return steps if delta > 0 else -steps
 
 
@@ -139,8 +148,7 @@ def montage_zoom_steps(app, steps: int) -> None:
     if steps == 0:
         return
     cur = float(getattr(app, "_montage_zoom", 1.0) or 1.0)
-    factor = 1.15
-    app._montage_zoom = min(16.0, max(0.05, cur * (factor ** steps)))
+    app._montage_zoom = min(16.0, max(0.05, cur * (1.15 ** steps)))
     app._montage_redraw_at_zoom()
 
 
@@ -150,18 +158,18 @@ def montage_zoom_fit(app) -> None:
 
 
 def on_montage_wheel(app, event) -> None:
-    steps = _wheel_steps(event)
-    montage_zoom_steps(app, steps)
+    montage_zoom_steps(app, _wheel_steps(event))
 
 
 def on_montage_shift_wheel(app, event) -> None:
     steps = _wheel_steps(event)
-    if steps:
-        app._montage_canvas.xview_scroll(-3 * steps, "units")
+    if steps and hasattr(app, "_montage_scroll_area"):
+        sb = app._montage_scroll_area.horizontalScrollBar()
+        sb.setValue(sb.value() - steps * 60)
 
 
 def montage_redraw_at_zoom(app) -> None:
-    fov = app._preview_fov_var.get()
+    fov = app._preview_fov_cb.currentText()
     if fov == "—" or not app._montage_fluor_arrays:
         return
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]

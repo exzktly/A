@@ -1,14 +1,16 @@
-"""In-tab export style sidebar for matplotlib figures."""
+"""In-tab export style sidebar for matplotlib figures (Qt port)."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog
+from typing import Callable
 
-import tkinter as tk
-from tkinter import ttk
-from ui.theme import FM_BOLD, FM_TINY
-from well_viewer.ui_helpers import bind_mousewheel_scroll
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
+    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+)
 
 DEFAULT_EXPORT_STYLE_PREFS = {
     "axis_label_size": 22,
@@ -131,7 +133,6 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
             if ylo is not None or yhi is not None:
                 cur = ax.get_ylim()
                 ax.set_ylim(ylo if ylo is not None else cur[0], yhi if yhi is not None else cur[1])
-            # Keep categorical bar-plot x tick labels intact.
             if not getattr(ax, "_categorical_xaxis", False):
                 ax.set_xscale("log" if bool(prefs.get("x_log", False)) else "linear")
             ax.set_yscale("log" if bool(prefs.get("y_log", False)) else "linear")
@@ -156,11 +157,11 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
             if show_leg:
                 loc_name = str(prefs.get("legend_loc", "best"))
                 try:
-                    leg.set_loc(loc_name)  # Matplotlib >=3.8
+                    leg.set_loc(loc_name)
                 except Exception:
                     try:
                         from matplotlib.legend import Legend as _Legend
-                        leg._loc = _Legend.codes.get(loc_name, 0)  # fallback for older versions
+                        leg._loc = _Legend.codes.get(loc_name, 0)
                     except Exception:
                         pass
             for txt in leg.get_texts():
@@ -182,7 +183,6 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
         else:
             fig.set_layout_engine(None)
     except Exception:
-        # Fallback for older matplotlib
         fig.set_constrained_layout(use_constrained)
         if use_tight and not use_constrained:
             try:
@@ -198,11 +198,10 @@ def apply_export_style_to_current(app, fig, canvas=None) -> None:
         canvas.draw_idle()
 
 
-class _ExportStyleSidebar(ttk.Frame):
+class _ExportStyleSidebar(QWidget):
     def __init__(self, app, parent, fig, canvas, default_name: str):
-        super().__init__(parent, padding=(8, 8), style="Card.TFrame")
-        self.configure(width=220)
-        self.pack_propagate(False)
+        super().__init__(parent)
+        self.setObjectName("Card")
         self._app = app
         self._fig = fig
         self._canvas = canvas
@@ -210,160 +209,259 @@ class _ExportStyleSidebar(ttk.Frame):
         self._base_dir = Path(app._data_dir) if getattr(app, "_data_dir", None) else Path.cwd()
         self._prefs = _ensure_export_style_prefs(app)
         self._updating = False
+        self._getters: dict[str, Callable[[], object]] = {}
+        self._setters: dict[str, Callable[[object], None]] = {}
 
-        self._vars: dict[str, tk.Variable] = {
-            "axis_label_size": tk.IntVar(value=int(self._prefs["axis_label_size"])),
-            "tick_label_size": tk.IntVar(value=int(self._prefs["tick_label_size"])),
-            "title_size": tk.IntVar(value=int(self._prefs["title_size"])),
-            "x_tick_angle": tk.IntVar(value=int(self._prefs["x_tick_angle"])),
-            "format": tk.StringVar(value=str(self._prefs["format"])),
-            "axis_target": tk.StringVar(value=str(self._prefs.get("axis_target", "All"))),
-            "legend_show": tk.BooleanVar(value=bool(self._prefs["legend_show"])),
-            "legend_font_size": tk.DoubleVar(value=float(self._prefs["legend_font_size"])),
-            "legend_loc": tk.StringVar(value=str(self._prefs["legend_loc"])),
-            "line_width": tk.DoubleVar(value=float(self._prefs["line_width"])),
-            "marker_size": tk.DoubleVar(value=float(self._prefs["marker_size"])),
-            "marker_edge_width": tk.DoubleVar(value=float(self._prefs["marker_edge_width"])),
-            "grid_show": tk.BooleanVar(value=bool(self._prefs["grid_show"])),
-            "grid_alpha": tk.DoubleVar(value=float(self._prefs["grid_alpha"])),
-            "grid_style": tk.StringVar(value=str(self._prefs["grid_style"])),
-            "x_lim_min": tk.StringVar(value=str(self._prefs["x_lim_min"])),
-            "x_lim_max": tk.StringVar(value=str(self._prefs["x_lim_max"])),
-            "y_lim_min": tk.StringVar(value=str(self._prefs["y_lim_min"])),
-            "y_lim_max": tk.StringVar(value=str(self._prefs["y_lim_max"])),
-            "x_log": tk.BooleanVar(value=bool(self._prefs["x_log"])),
-            "y_log": tk.BooleanVar(value=bool(self._prefs["y_log"])),
-            "tick_major": tk.BooleanVar(value=bool(self._prefs["tick_major"])),
-            "tick_minor": tk.BooleanVar(value=bool(self._prefs["tick_minor"])),
-            "tick_length": tk.DoubleVar(value=float(self._prefs["tick_length"])),
-            "tick_direction": tk.StringVar(value=str(self._prefs["tick_direction"])),
-            "layout_tight": tk.BooleanVar(value=bool(self._prefs["layout_tight"])),
-            "layout_constrained": tk.BooleanVar(value=bool(self._prefs["layout_constrained"])),
-            "export_profile": tk.StringVar(value=str(self._prefs["export_profile"])),
-        }
-
+        self.setFixedWidth(260)
         self._build_ui()
-        self._bind_auto_apply()
+
+    def _bind_getter_setter(self, key: str, widget) -> None:
+        """Register read/write hooks and wire a change signal to auto-apply."""
+        if isinstance(widget, QSpinBox):
+            self._getters[key] = widget.value
+            self._setters[key] = lambda v, w=widget: w.setValue(int(v))
+            widget.valueChanged.connect(lambda _v: self._on_fields_changed())
+        elif isinstance(widget, QDoubleSpinBox):
+            self._getters[key] = widget.value
+            self._setters[key] = lambda v, w=widget: w.setValue(float(v))
+            widget.valueChanged.connect(lambda _v: self._on_fields_changed())
+        elif isinstance(widget, QComboBox):
+            self._getters[key] = widget.currentText
+            self._setters[key] = lambda v, w=widget: w.setCurrentText(str(v))
+            widget.currentTextChanged.connect(lambda _t: self._on_fields_changed())
+        elif isinstance(widget, QCheckBox):
+            self._getters[key] = widget.isChecked
+            self._setters[key] = lambda v, w=widget: w.setChecked(bool(v))
+            widget.toggled.connect(lambda _c: self._on_fields_changed())
+        elif isinstance(widget, QLineEdit):
+            self._getters[key] = widget.text
+            self._setters[key] = lambda v, w=widget: w.setText(str(v))
+            widget.textChanged.connect(lambda _t: self._on_fields_changed())
 
     def _build_ui(self) -> None:
-        panel_bg = ttk.Style(self).lookup("Card.TFrame", "background") or "#2B2B2B"
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(4)
 
-        hdr = ttk.Frame(self, style="Card.TFrame")
-        hdr.pack(fill=tk.X)
-        ttk.Label(hdr, text="Export Style", style="Title.TLabel", font=FM_BOLD).pack(side=tk.LEFT)
-        ttk.Button(hdr, text="◂", width=3, command=lambda: self.pack_forget(), style="ActionSecondary.TButton").pack(side=tk.RIGHT)
+        hdr = QWidget(self)
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Export Style", hdr)
+        title.setProperty("role", "section")
+        hl.addWidget(title)
+        hl.addStretch(1)
+        close_btn = QPushButton("◂", hdr)
+        close_btn.setProperty("variant", "secondary")
+        close_btn.setFixedWidth(28)
+        close_btn.clicked.connect(lambda _=False: self._close_dock())
+        hl.addWidget(close_btn)
+        root.addWidget(hdr)
 
-        wrap = ttk.Frame(self, style="Card.TFrame")
-        wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-        canvas = tk.Canvas(wrap, width=200, height=430, highlightthickness=0, bd=0, bg=panel_bg)
-        vs = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
-        body = ttk.Frame(canvas, style="Card.TFrame")
-        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        win_id = canvas.create_window((0, 0), window=body, anchor="nw")
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
-        canvas.configure(yscrollcommand=vs.set)
-        bind_mousewheel_scroll(canvas)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vs.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget()
+        body.setObjectName("Card")
+        grid = QGridLayout(body)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(3)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
 
-        r = 0
-        def add(label, widget):
-            nonlocal r
-            ttk.Label(body, text=label, font=FM_TINY).grid(row=r, column=0, columnspan=4, sticky="w", pady=(4, 0))
-            widget.grid(row=r + 1, column=0, columnspan=4, sticky="ew", pady=(1, 2))
-            r += 2
+        row = 0
 
-        self._profile_combo = ttk.Combobox(
-            body,
-            values=_get_all_profile_names(self._app),
-            textvariable=self._vars["export_profile"],
-            state="readonly",
-            width=14,
-            font=FM_TINY,
-        )
-        add("Profile", self._profile_combo)
-        add("Format", ttk.Combobox(body, values=["png", "svg", "pdf", "eps"], textvariable=self._vars["format"], state="readonly", width=7, font=FM_TINY))
-        add("Axis #", ttk.Combobox(body, values=["All", *[str(i + 1) for i in range(len(self._fig.axes))]], textvariable=self._vars["axis_target"], state="readonly", width=7, font=FM_TINY))
-        add("Axis", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["axis_label_size"], width=7))
-        add("Ticks", ttk.Spinbox(body, from_=1, to=96, textvariable=self._vars["tick_label_size"], width=7))
-        add("Title", ttk.Spinbox(body, from_=1, to=128, textvariable=self._vars["title_size"], width=7))
-        add("X°", ttk.Spinbox(body, from_=0, to=90, textvariable=self._vars["x_tick_angle"], width=7))
+        def add_row(label: str, widget: QWidget, key: str | None = None) -> None:
+            nonlocal row
+            grid.addWidget(QLabel(label), row, 0)
+            grid.addWidget(widget, row, 1)
+            if key is not None:
+                self._bind_getter_setter(key, widget)
+            row += 1
 
-        add("Legend", ttk.Checkbutton(body, variable=self._vars["legend_show"]))
-        add("Leg size", ttk.Spinbox(body, from_=6, to=24, textvariable=self._vars["legend_font_size"], width=7))
-        add("Leg loc", ttk.Combobox(body, values=["best", "upper right", "upper left", "lower right", "lower left"], textvariable=self._vars["legend_loc"], state="readonly", width=9, font=FM_TINY))
+        self._profile_combo = QComboBox(body)
+        self._profile_combo.addItems(_get_all_profile_names(self._app))
+        self._profile_combo.setCurrentText(str(self._prefs.get("export_profile", "Custom")))
+        self._profile_combo.currentTextChanged.connect(lambda _t: self._on_profile_selected())
+        add_row("Profile", self._profile_combo, "export_profile")
 
-        add("Line w", ttk.Spinbox(body, from_=0.1, to=8.0, increment=0.1, textvariable=self._vars["line_width"], width=7))
-        add("Mkr sz", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["marker_size"], width=7))
-        add("Mkr edge", ttk.Spinbox(body, from_=0.0, to=5.0, increment=0.1, textvariable=self._vars["marker_edge_width"], width=7))
+        fmt_cb = QComboBox(body)
+        fmt_cb.addItems(["png", "svg", "pdf", "eps"])
+        fmt_cb.setCurrentText(str(self._prefs["format"]))
+        add_row("Format", fmt_cb, "format")
 
-        add("Grid", ttk.Checkbutton(body, variable=self._vars["grid_show"]))
-        add("Grid α", ttk.Spinbox(body, from_=0.0, to=1.0, increment=0.05, textvariable=self._vars["grid_alpha"], width=7))
-        add("Grid ls", ttk.Combobox(body, values=["-", "--", ":", "-."] , textvariable=self._vars["grid_style"], state="readonly", width=7, font=FM_TINY))
+        axis_cb = QComboBox(body)
+        axis_cb.addItems(["All", *[str(i + 1) for i in range(len(self._fig.axes))]])
+        axis_cb.setCurrentText(str(self._prefs.get("axis_target", "All")))
+        add_row("Axis #", axis_cb, "axis_target")
 
-        limrow = ttk.Frame(body)
-        ttk.Entry(limrow, textvariable=self._vars["x_lim_min"], width=6).pack(side=tk.LEFT)
-        ttk.Label(limrow, text="…", font=FM_TINY).pack(side=tk.LEFT, padx=2)
-        ttk.Entry(limrow, textvariable=self._vars["x_lim_max"], width=6).pack(side=tk.LEFT)
-        add("X lim", limrow)
+        for key, label, lo, hi in [
+            ("axis_label_size", "Axis", 1, 96),
+            ("tick_label_size", "Ticks", 1, 96),
+            ("title_size", "Title", 1, 128),
+            ("x_tick_angle", "X°", 0, 90),
+        ]:
+            sp = QSpinBox(body)
+            sp.setRange(lo, hi)
+            sp.setValue(int(self._prefs[key]))
+            add_row(label, sp, key)
 
-        limrow2 = ttk.Frame(body)
-        ttk.Entry(limrow2, textvariable=self._vars["y_lim_min"], width=6).pack(side=tk.LEFT)
-        ttk.Label(limrow2, text="…", font=FM_TINY).pack(side=tk.LEFT, padx=2)
-        ttk.Entry(limrow2, textvariable=self._vars["y_lim_max"], width=6).pack(side=tk.LEFT)
-        add("Y lim", limrow2)
+        cb = QCheckBox(body)
+        cb.setChecked(bool(self._prefs["legend_show"]))
+        add_row("Legend", cb, "legend_show")
 
-        row_scale = ttk.Frame(body)
-        ttk.Checkbutton(row_scale, text="X log", variable=self._vars["x_log"]).pack(side=tk.LEFT)
-        ttk.Checkbutton(row_scale, text="Y log", variable=self._vars["y_log"]).pack(side=tk.LEFT, padx=6)
-        add("Scale", row_scale)
+        sp = QSpinBox(body)
+        sp.setRange(6, 24)
+        sp.setValue(int(self._prefs["legend_font_size"]))
+        add_row("Leg size", sp, "legend_font_size")
 
-        row_tick = ttk.Frame(body)
-        ttk.Checkbutton(row_tick, text="Major", variable=self._vars["tick_major"]).pack(side=tk.LEFT)
-        ttk.Checkbutton(row_tick, text="Minor", variable=self._vars["tick_minor"]).pack(side=tk.LEFT, padx=6)
-        add("Tick vis", row_tick)
-        add("Tick len", ttk.Spinbox(body, from_=0.0, to=20.0, increment=0.5, textvariable=self._vars["tick_length"], width=7))
-        add("Tick dir", ttk.Combobox(body, values=["out", "in", "inout"], textvariable=self._vars["tick_direction"], state="readonly", width=7, font=FM_TINY))
-        lay = ttk.Frame(body)
-        ttk.Checkbutton(lay, text="Tight", variable=self._vars["layout_tight"]).pack(side=tk.LEFT)
-        ttk.Checkbutton(lay, text="Constrained", variable=self._vars["layout_constrained"]).pack(side=tk.LEFT, padx=6)
-        add("Layout", lay)
+        loc_cb = QComboBox(body)
+        loc_cb.addItems(["best", "upper right", "upper left", "lower right", "lower left"])
+        loc_cb.setCurrentText(str(self._prefs["legend_loc"]))
+        add_row("Leg loc", loc_cb, "legend_loc")
 
-        btns = ttk.Frame(body, style="Card.TFrame")
-        btns.grid(row=r, column=0, columnspan=4, sticky="ew", pady=(8, 0))
-        ttk.Button(btns, text="Reset", command=self._reset_defaults, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btns, text="Save Preset", command=self._save_preset, style="ActionSecondary.TButton").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btns, text="Export…", command=self._export, style="ActionSuccess.TButton").pack(side=tk.LEFT)
+        for key, label, lo, hi, step in [
+            ("line_width", "Line w", 0.1, 8.0, 0.1),
+            ("marker_size", "Mkr sz", 0.0, 20.0, 0.5),
+            ("marker_edge_width", "Mkr edge", 0.0, 5.0, 0.1),
+        ]:
+            dsp = QDoubleSpinBox(body)
+            dsp.setRange(lo, hi)
+            dsp.setSingleStep(step)
+            dsp.setValue(float(self._prefs[key]))
+            add_row(label, dsp, key)
 
-        for c in (1, 2, 3):
-            body.columnconfigure(c, weight=1)
+        gshow = QCheckBox(body)
+        gshow.setChecked(bool(self._prefs["grid_show"]))
+        add_row("Grid", gshow, "grid_show")
 
-    def _bind_auto_apply(self) -> None:
-        for var in self._vars.values():
-            var.trace_add("write", lambda *_args: self._on_fields_changed())
-        self._vars["export_profile"].trace_add("write", lambda *_args: self._on_profile_selected())
+        galpha = QDoubleSpinBox(body)
+        galpha.setRange(0.0, 1.0)
+        galpha.setSingleStep(0.05)
+        galpha.setValue(float(self._prefs["grid_alpha"]))
+        add_row("Grid α", galpha, "grid_alpha")
+
+        gstyle = QComboBox(body)
+        gstyle.addItems(["-", "--", ":", "-."])
+        gstyle.setCurrentText(str(self._prefs["grid_style"]))
+        add_row("Grid ls", gstyle, "grid_style")
+
+        for lim_key, label in [("x_lim", "X lim"), ("y_lim", "Y lim")]:
+            row_widget = QWidget(body)
+            rl = QHBoxLayout(row_widget)
+            rl.setContentsMargins(0, 0, 0, 0)
+            lo_edit = QLineEdit(str(self._prefs[f"{lim_key}_min"]), row_widget)
+            lo_edit.setFixedWidth(60)
+            rl.addWidget(lo_edit)
+            rl.addWidget(QLabel("…", row_widget))
+            hi_edit = QLineEdit(str(self._prefs[f"{lim_key}_max"]), row_widget)
+            hi_edit.setFixedWidth(60)
+            rl.addWidget(hi_edit)
+            self._bind_getter_setter(f"{lim_key}_min", lo_edit)
+            self._bind_getter_setter(f"{lim_key}_max", hi_edit)
+            grid.addWidget(QLabel(label), row, 0)
+            grid.addWidget(row_widget, row, 1)
+            row += 1
+
+        scale_row = QWidget(body)
+        srl = QHBoxLayout(scale_row)
+        srl.setContentsMargins(0, 0, 0, 0)
+        xlog_cb = QCheckBox("X log", scale_row)
+        xlog_cb.setChecked(bool(self._prefs["x_log"]))
+        srl.addWidget(xlog_cb)
+        ylog_cb = QCheckBox("Y log", scale_row)
+        ylog_cb.setChecked(bool(self._prefs["y_log"]))
+        srl.addWidget(ylog_cb)
+        self._bind_getter_setter("x_log", xlog_cb)
+        self._bind_getter_setter("y_log", ylog_cb)
+        grid.addWidget(QLabel("Scale"), row, 0)
+        grid.addWidget(scale_row, row, 1)
+        row += 1
+
+        tick_row = QWidget(body)
+        trl = QHBoxLayout(tick_row)
+        trl.setContentsMargins(0, 0, 0, 0)
+        maj_cb = QCheckBox("Major", tick_row)
+        maj_cb.setChecked(bool(self._prefs["tick_major"]))
+        trl.addWidget(maj_cb)
+        min_cb = QCheckBox("Minor", tick_row)
+        min_cb.setChecked(bool(self._prefs["tick_minor"]))
+        trl.addWidget(min_cb)
+        self._bind_getter_setter("tick_major", maj_cb)
+        self._bind_getter_setter("tick_minor", min_cb)
+        grid.addWidget(QLabel("Tick vis"), row, 0)
+        grid.addWidget(tick_row, row, 1)
+        row += 1
+
+        tlen = QDoubleSpinBox(body)
+        tlen.setRange(0.0, 20.0)
+        tlen.setSingleStep(0.5)
+        tlen.setValue(float(self._prefs["tick_length"]))
+        add_row("Tick len", tlen, "tick_length")
+
+        tdir = QComboBox(body)
+        tdir.addItems(["out", "in", "inout"])
+        tdir.setCurrentText(str(self._prefs["tick_direction"]))
+        add_row("Tick dir", tdir, "tick_direction")
+
+        lay_row = QWidget(body)
+        lrl = QHBoxLayout(lay_row)
+        lrl.setContentsMargins(0, 0, 0, 0)
+        tight_cb = QCheckBox("Tight", lay_row)
+        tight_cb.setChecked(bool(self._prefs["layout_tight"]))
+        lrl.addWidget(tight_cb)
+        cons_cb = QCheckBox("Constrained", lay_row)
+        cons_cb.setChecked(bool(self._prefs["layout_constrained"]))
+        lrl.addWidget(cons_cb)
+        self._bind_getter_setter("layout_tight", tight_cb)
+        self._bind_getter_setter("layout_constrained", cons_cb)
+        grid.addWidget(QLabel("Layout"), row, 0)
+        grid.addWidget(lay_row, row, 1)
+        row += 1
+
+        btns = QWidget(body)
+        bl = QHBoxLayout(btns)
+        bl.setContentsMargins(0, 8, 0, 0)
+        reset_btn = QPushButton("Reset", btns)
+        reset_btn.setProperty("variant", "secondary")
+        reset_btn.clicked.connect(lambda _=False: self._reset_defaults())
+        bl.addWidget(reset_btn)
+        save_btn = QPushButton("Save Preset", btns)
+        save_btn.setProperty("variant", "secondary")
+        save_btn.clicked.connect(lambda _=False: self._save_preset())
+        bl.addWidget(save_btn)
+        exp_btn = QPushButton("Export…", btns)
+        exp_btn.setProperty("variant", "primary")
+        exp_btn.clicked.connect(lambda _=False: self._export())
+        bl.addWidget(exp_btn)
+        grid.addWidget(btns, row, 0, 1, 2)
+        row += 1
+
+        grid.setColumnStretch(1, 1)
 
     def _on_profile_selected(self) -> None:
         if self._updating:
             return
-        profile = self._vars["export_profile"].get()
+        profile = self._profile_combo.currentText()
         overrides = EXPORT_PROFILES.get(profile, {})
         if not overrides:
             custom_profiles = _ensure_custom_export_profiles(self._app)
             overrides = custom_profiles.get(profile, {})
         if not overrides:
+            self._on_fields_changed()
             return
         self._updating = True
         try:
             for k, v in overrides.items():
-                if k in self._vars:
-                    self._vars[k].set(v)
+                if k in self._setters:
+                    self._setters[k](v)
         finally:
             self._updating = False
+        self._on_fields_changed()
 
     def _persist(self) -> None:
-        for k, var in self._vars.items():
-            self._prefs[k] = var.get()
+        for k, getter in self._getters.items():
+            self._prefs[k] = getter()
 
     def _on_fields_changed(self) -> None:
         if self._updating:
@@ -374,13 +472,18 @@ class _ExportStyleSidebar(ttk.Frame):
         except Exception:
             pass
 
+    def _close_dock(self) -> None:
+        self.hide()
+        dock = _resolve_export_dock(self._app, self._fig)
+        if dock is not None:
+            dock.setVisible(False)
+
     def _reset_defaults(self) -> None:
         self._updating = True
         try:
-            defaults = dict(DEFAULT_EXPORT_STYLE_PREFS)
-            for k, var in self._vars.items():
-                if k in defaults:
-                    var.set(defaults[k])
+            for k, v in DEFAULT_EXPORT_STYLE_PREFS.items():
+                if k in self._setters:
+                    self._setters[k](v)
         finally:
             self._updating = False
         self._on_fields_changed()
@@ -388,22 +491,25 @@ class _ExportStyleSidebar(ttk.Frame):
     def _save_preset(self) -> None:
         try:
             self._persist()
-            name = simpledialog.askstring("Save preset", "Preset name:", parent=self)
-            if not name:
+            name, ok = QInputDialog.getText(self, "Save preset", "Preset name:")
+            if not ok:
                 return
             preset_name = name.strip()
             if not preset_name:
                 return
             if preset_name in EXPORT_PROFILES:
-                messagebox.showwarning("Preset exists", "Cannot overwrite built-in preset name.", parent=self)
+                QMessageBox.warning(self, "Preset exists", "Cannot overwrite built-in preset name.")
                 return
             custom_profiles = _ensure_custom_export_profiles(self._app)
             custom_profiles[preset_name] = dict(self._prefs)
-            self._profile_combo.configure(values=_get_all_profile_names(self._app))
-            self._vars["export_profile"].set(preset_name)
+            self._profile_combo.blockSignals(True)
+            self._profile_combo.clear()
+            self._profile_combo.addItems(_get_all_profile_names(self._app))
+            self._profile_combo.setCurrentText(preset_name)
+            self._profile_combo.blockSignals(False)
             self._app._set_status(f"Saved export preset: {preset_name}")
         except Exception as exc:
-            messagebox.showerror("Save preset failed", str(exc), parent=self)
+            QMessageBox.critical(self, "Save preset failed", str(exc))
 
     def _export(self) -> None:
         try:
@@ -412,13 +518,10 @@ class _ExportStyleSidebar(ttk.Frame):
             initialfile = self._default_name
             if not initialfile.lower().endswith(f".{fmt}"):
                 initialfile = f"{Path(initialfile).stem}.{fmt}"
-            out = filedialog.asksaveasfilename(
-                parent=self,
-                title="Save figure",
-                defaultextension=f".{fmt}",
-                filetypes=[("Image", f"*.{fmt}"), ("All files", "*.*")],
-                initialdir=str(self._base_dir),
-                initialfile=initialfile,
+            start = str(self._base_dir / initialfile)
+            out, _filter = QFileDialog.getSaveFileName(
+                self, "Save figure", start,
+                f"Image (*.{fmt});;All files (*.*)",
             )
             if not out:
                 return
@@ -446,7 +549,7 @@ class _ExportStyleSidebar(ttk.Frame):
                     _mpl.rcParams["ps.fonttype"] = orig_ps
             self._app._set_status(f"Figure saved → {out_path.name}")
         except Exception as exc:
-            messagebox.showerror("Export failed", str(exc), parent=self)
+            QMessageBox.critical(self, "Export failed", str(exc))
 
 
 class _ExportEditorSession:
@@ -454,30 +557,49 @@ class _ExportEditorSession:
         self.sidebar = sidebar
 
 
-def launch_export_editor(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> _ExportEditorSession | None:
+def _resolve_export_dock(app, fig) -> QWidget | None:
+    """Return the pre-allocated right-side dock widget for a given figure, or None."""
+    mapping = (
+        ("_line_fig", "_line_export_dock"),
+        ("_bar_fig", "_bar_export_dock"),
+        ("_scatter_fig", "_scatter_export_dock"),
+        ("_scatter_agg_fig", "_scatter_agg_export_dock"),
+    )
+    for fig_attr, dock_attr in mapping:
+        if getattr(app, fig_attr, None) is fig:
+            return getattr(app, dock_attr, None)
+    return None
+
+
+def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
+                          canvas=None) -> _ExportEditorSession | None:
     try:
-        parent = canvas.get_tk_widget().master if canvas is not None else app
-        canvas_widget = canvas.get_tk_widget() if canvas is not None else None
+        dock = _resolve_export_dock(app, fig)
+        parent = dock if dock is not None else (canvas.parent() if canvas is not None else app)
         if not hasattr(app, "_export_style_sidebars"):
             app._export_style_sidebars = {}
         key = id(fig)
         sb = app._export_style_sidebars.get(key)
-        if sb is None or not sb.winfo_exists():
+        if sb is None:
             sb = _ExportStyleSidebar(app, parent, fig, canvas, default_name=default_name)
             app._export_style_sidebars[key] = sb
-        if canvas_widget is not None and canvas_widget.winfo_manager() == "pack":
-            try:
-                pinfo = dict(canvas_widget.pack_info())
-                canvas_widget.pack_forget()
-                pinfo["side"] = tk.LEFT
-                canvas_widget.pack(**pinfo)
-            except Exception:
-                pass
-        if not sb.winfo_ismapped():
-            sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 8), pady=(8, 8))
-            sb.lift()
+
+            if dock is not None and dock.layout() is not None:
+                dock.layout().addWidget(sb)
+            elif canvas is not None:
+                canvas_parent = canvas.parentWidget()
+                if canvas_parent is not None:
+                    parent_layout = canvas_parent.layout()
+                    if parent_layout is not None and hasattr(parent_layout, "addWidget"):
+                        parent_layout.addWidget(sb)
+
+        if dock is not None:
+            dock.setVisible(True)
+        sb.show()
+        sb.raise_()
         sb._on_fields_changed()
         return _ExportEditorSession(sb)
     except Exception as exc:
-        messagebox.showwarning("Export editor unavailable", str(exc), parent=app)
+        QMessageBox.warning(app if isinstance(app, QWidget) else None,
+                            "Export editor unavailable", str(exc))
         return None

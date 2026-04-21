@@ -45,17 +45,52 @@ import math
 import re
 import shutil
 import statistics
-import tkinter as tk
+import sys
 import threading
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QImage, QPixmap
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QSpinBox,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
@@ -138,10 +173,12 @@ from well_viewer.viewer_state import make_schema_extractor as _make_schema_extra
 from well_viewer.viewer_state import read_pipeline_info as _read_pipeline_info_shared
 from well_viewer.ui_helpers import (
     ask_name_dialog as _ui_ask_name_dialog,
+    BoolVar,
     btn_card as _btn_card,
     btn_danger as _btn_danger,
     btn_primary as _btn_primary,
     btn_secondary as _btn_secondary,
+    clear_layout as _clear_layout,
     make_scrollable_canvas as _ui_make_scrollable_canvas,
 )
 from ui.theme import (
@@ -219,7 +256,7 @@ except ImportError:
     _TIFFFILE_AVAILABLE = False
 
 try:
-    from PIL import Image as _PILImage, ImageTk as _PILImageTk
+    from PIL import Image as _PILImage
     _PIL_AVAILABLE = True
 except ImportError:
     _PIL_AVAILABLE = False
@@ -245,75 +282,52 @@ WELL_COLORS = [
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
-def make_scrollable_canvas(
-    parent: tk.Widget,
-    bg: str = BG_APP,
-    scrollbar_width: int = 7,
-) -> "tuple[tk.Canvas, tk.Frame]":
-    """
-    Create a vertically scrollable canvas inside *parent*.
+def make_scrollable_canvas(parent, bg: str = BG_APP, scrollbar_width: int = 7):
+    """Return (scroll_area, inner_widget) for a vertically scrollable panel."""
+    return _ui_make_scrollable_canvas(parent, bg=bg)
 
-    Returns (canvas, inner_frame).  The caller stores the canvas and inner_frame
-    as instance attributes and populates inner_frame with child widgets.  The
-    canvas scroll region is kept in sync automatically via a <Configure> binding
-    on inner_frame.  The canvas width is propagated to inner_frame via a second
-    <Configure> binding on the canvas itself, ensuring cards span the full width.
-
-    Replaces 2 near-identical vsb + canvas + create_window + binding blocks.
-    """
-    return _ui_make_scrollable_canvas(
-        parent,
-        bg=bg,
-        border=BORDER,
-        trough_bg=BG_SIDE,
-        scrollbar_width=scrollbar_width,
-    )
 
 # =============================================================================
 # Shared UI helpers
 # =============================================================================
 
-def ask_name_dialog(parent: tk.Widget, title: str = "Name",
-                    prompt: str = "Name:", default: str = "",
-                    width: int = 24) -> Optional[str]:
+def ask_name_dialog(parent, title: str = "Name", prompt: str = "Name:",
+                    default: str = "", width: int = 24) -> Optional[str]:
+    """Reusable modal text-input dialog."""
+    return _ui_ask_name_dialog(parent, title=title, prompt=prompt, default=default)
+
+
+def _set_combo_values(combo: object, values: List[str]) -> None:
+    """Set combobox values for both Qt and legacy widget shims.
+
+    Preserves the current selection when the new item list contains it, so a
+    tk-style ``currentIndexChanged`` handler that calls back into a refresh
+    function doesn't clobber the user's pick as a side-effect.
     """
-    Reusable modal text-input dialog.  Returns the entered string or None.
-
-    Replaces the near-identical _ask_name (BatchExportDialog) and
-    _ask_inline_name (WellViewerApp) methods.
-    """
-    return _ui_ask_name_dialog(
-        parent,
-        title=title,
-        prompt=prompt,
-        default=default,
-        width=width,
-        bg_app=BG_APP,
-        txt_pri=TXT_PRI,
-        txt_sec=TXT_SEC,
-        accent=ACCENT,
-        bg_panel=BG_PANEL,
-        border=BORDER,
-        bg_cell=BG_CELL,
-        bg_hover=BG_HOVER,
-        fm_ui=FM_UI,
-        fm_bold=FM_BOLD,
-        clr_white=CLR_WHITE,
-    )
+    vals = [str(v) for v in values]
+    if hasattr(combo, "clear") and hasattr(combo, "addItems"):
+        block = getattr(combo, "blockSignals", None)
+        prev_text = combo.currentText() if hasattr(combo, "currentText") else ""
+        if callable(block):
+            block(True)
+        combo.clear()  # type: ignore[attr-defined]
+        combo.addItems(vals)  # type: ignore[attr-defined]
+        if prev_text and prev_text in vals and hasattr(combo, "setCurrentIndex"):
+            combo.setCurrentIndex(vals.index(prev_text))  # type: ignore[attr-defined]
+        if callable(block):
+            block(False)
+        return
+    combo["values"] = vals  # type: ignore[index]
 
 
-# Canonical definitions live in well_viewer/views/well_label_widget.py
-from well_viewer.views.well_label_widget import WellLabel, build_plate_grid
+# Canonical definitions live in well_viewer/views/well_button.py
+from well_viewer.views.well_button import WellButton as WellLabel, build_plate_grid
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
                    lo: Optional[float], hi: Optional[float]):
-    """
-    Render a greyscale float32 array as a (sz_w × sz_h) PhotoImage.
-    Applies LUT [lo, hi]; falls back to array min/max if None.
-    Returns None if PIL or numpy is unavailable.
-    """
-    if arr is None or not _PIL_AVAILABLE or not _NP_AVAILABLE:
+    """Render a greyscale float32 array as a QPixmap with LUT [lo, hi]."""
+    if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr, dtype=_np.float32)
     alo = lo if lo is not None else float(arr.min())
@@ -321,21 +335,16 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
     if ahi <= alo:
         ahi = alo + 1.0
     disp = ((_np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
-    img  = _PILImage.fromarray(disp, mode="L").convert("RGB")
-    iw, ih = img.size
-    scale  = min(sz_w / iw, sz_h / ih, 1.0)
-    img    = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))),
-                        _PILImage.LANCZOS)
-    return _PILImageTk.PhotoImage(img)
+    rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    h, w, _ = rgb.shape
+    qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+    pm = QPixmap.fromImage(qimg)
+    return pm.scaled(int(sz_w), int(sz_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
 def make_overlay_thumb(arr, sz_w: int, sz_h: int):
-    """
-    Render a greyscale or RGB array as a (sz_w × sz_h) PhotoImage.
-    Handles both 2-D (greyscale, auto-stretched) and 3-D (RGB/RGBA) arrays.
-    Returns None if PIL or numpy is unavailable or the array is empty.
-    """
-    if arr is None or not _PIL_AVAILABLE or not _NP_AVAILABLE:
+    """Render a 2-D or 3-D array as a QPixmap scaled to (sz_w, sz_h)."""
+    if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr)
     if arr.ndim == 2:
@@ -344,54 +353,54 @@ def make_overlay_thumb(arr, sz_w: int, sz_h: int):
         if hi <= lo:
             hi = lo + 1.0
         disp = ((arr_f - lo) / (hi - lo) * 255).astype(_np.uint8)
-        img  = _PILImage.fromarray(disp, mode="L").convert("RGB")
+        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
     elif arr.ndim == 3 and arr.shape[2] >= 3:
         a = arr[:, :, :3]
         if a.dtype != _np.uint8:
             rng = max(a.max() - a.min(), 1)
             a = ((a.astype(_np.float32) - a.min()) / rng * 255).astype(_np.uint8)
-        img = _PILImage.fromarray(a, mode="RGB")
+        rgb = _np.ascontiguousarray(a)
     else:
         return None
-    iw, ih = img.size
-    scale  = min(sz_w / iw, sz_h / ih, 1.0)
-    img    = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))),
-                        _PILImage.LANCZOS)
-    return _PILImageTk.PhotoImage(img)
+    h, w, _ = rgb.shape
+    qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+    pm = QPixmap.fromImage(qimg)
+    return pm.scaled(int(sz_w), int(sz_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
-def _bind_drag(frame: tk.Widget, btn_store: Dict[str, "tk.Button"],
-               on_press, on_drag, on_release, *, button: int = 1) -> None:
-    """
-    Bind press/drag/release events for *button* on *frame* and every button
-    in *btn_store*.  Centralises the six-line boilerplate that otherwise
-    appears once per plate-map panel.
-    """
-    bp = f"<ButtonPress-{button}>"
-    bm = f"<B{button}-Motion>"
-    br = f"<ButtonRelease-{button}>"
-    frame.bind(bp, on_press)
-    frame.bind(bm, on_drag)
-    frame.bind(br, on_release)
-    for btn in btn_store.values():
-        btn.bind(bp, on_press)
-        btn.bind(bm, on_drag)
-        btn.bind(br, on_release)
+def _bind_drag(frame, btn_store, on_press, on_drag, on_release, *, button: int = 1) -> None:
+    """Bind press/drag/release events — stub retained for API compat under Qt."""
+    # Qt: wire mousePressEvent/mouseMoveEvent/mouseReleaseEvent overrides instead.
+    frame.mousePressEvent = on_press
+    frame.mouseMoveEvent = on_drag
+    frame.mouseReleaseEvent = on_release
 
 
-def save_json_file(parent: tk.Widget, data: object, *,
+def _wells_multiselect_listbox(parent, available, preselect=None):
+    """Return a QListWidget of *available* well labels with multi-selection."""
+    lb = QListWidget(parent)
+    lb.setSelectionMode(QAbstractItemView.MultiSelection)
+    preset = set(preselect or ())
+    for w in available:
+        item = QListWidgetItem(w)
+        lb.addItem(item)
+        if w in preset:
+            item.setSelected(True)
+    return lb
+
+
+def _selected_list_values(lb) -> list:
+    """Return the current selected item text list from a QListWidget."""
+    return [lb.item(i).text() for i in range(lb.count()) if lb.item(i).isSelected()]
+
+
+def save_json_file(parent, data: object, *,
                    title: str = "Save", default_name: str = "data.json",
                    initial_dir: Optional[str] = None) -> bool:
-    """
-    Show a save-file dialog and write *data* as indented JSON.
-    Returns True on success, False if cancelled or on error.
-    """
-    path_str = filedialog.asksaveasfilename(
-        parent=parent, title=title,
-        defaultextension=".json",
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        initialfile=default_name,
-        initialdir=initial_dir,
+    """Show a save-file dialog and write *data* as indented JSON."""
+    initial = default_name if not initial_dir else str(Path(initial_dir) / default_name)
+    path_str, _ = QFileDialog.getSaveFileName(
+        parent, title, initial, "JSON files (*.json);;All files (*.*)",
     )
     if not path_str:
         return False
@@ -400,21 +409,16 @@ def save_json_file(parent: tk.Widget, data: object, *,
             json.dump(data, fh, indent=2)
         return True
     except OSError as exc:
-        messagebox.showerror("Save failed", str(exc), parent=parent)
+        QMessageBox.critical(parent, "Save failed", str(exc))
         return False
 
 
-def load_json_file(parent: tk.Widget, *,
-                   title: str = "Load",
+def load_json_file(parent, *, title: str = "Load",
                    initial_dir: Optional[str] = None) -> Optional[object]:
-    """
-    Show an open-file dialog and return the parsed JSON object, or None if
-    cancelled or on error.
-    """
-    path_str = filedialog.askopenfilename(
-        parent=parent, title=title,
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        initialdir=initial_dir,
+    """Show an open-file dialog and return the parsed JSON object, or None."""
+    start_dir = initial_dir or ""
+    path_str, _ = QFileDialog.getOpenFileName(
+        parent, title, start_dir, "JSON files (*.json);;All files (*.*)",
     )
     if not path_str:
         return None
@@ -422,7 +426,7 @@ def load_json_file(parent: tk.Widget, *,
         with open(path_str, "r", encoding="utf-8") as fh:
             return json.load(fh)
     except (OSError, json.JSONDecodeError) as exc:
-        messagebox.showerror("Load failed", str(exc), parent=parent)
+        QMessageBox.critical(parent, "Load failed", str(exc))
         return None
 
 
@@ -445,450 +449,26 @@ def apply_ax_style(ax, title: str, ylabel: str) -> None:
     ax.grid(True, color=PLOT_GRD, linewidth=0.7, linestyle="-")
 
 
-# =============================================================================
-# Timepoint parser
-# =============================================================================
-
-def parse_timepoint_hours(tp: str) -> Optional[float]:
-    """
-    Convert a timepoint string to fractional hours.
-    Returns None when the string cannot be parsed at all.
-
-    Formats tried in order:
-      1. DDdHHhMMm  e.g. "02d04h30m" -> 52.5
-      2. Standalone unit suffix  e.g. "48h", "2d", "30m"
-      3. Pure number  e.g. "48" or "1.5" -> treated as hours
-      4. Prefixed ordinal  e.g. "T01", "day2" -> numeric suffix as index
-    """
-    s = tp.strip()
-    if not s:
-        return None
-
-    # 1. DDdHHhMMm (all components optional, at least one required)
-    m = re.fullmatch(r"(?:(\d{1,4})d)?(?:(\d{1,2})h)?(?:(\d{1,2})m)?", s, re.I)
-    if m and any(m.groups()):
-        return int(m.group(1) or 0)*24.0 + int(m.group(2) or 0) + int(m.group(3) or 0)/60.0
-
-    # 2. Standalone unit: "48h", "2d", "30m", "90min"
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(h(?:ours?)?|d(?:ays?)?|m(?:in(?:utes?)?)?)",
-                     s, re.I)
-    if m:
-        val, unit = float(m.group(1)), m.group(2)[0].lower()
-        if unit == "h": return val
-        if unit == "d": return val * 24.0
-        if unit == "m": return val / 60.0
-
-    # 3. Pure number (treated as hours)
-    try:
-        return float(s)
-    except ValueError:
-        pass
-
-    # 4. Prefixed ordinal: strip leading non-digit chars, keep trailing number
-    #    e.g. "T01" -> 1.0, "day02" -> 2.0, "tp_3" -> 3.0
-    m = re.search(r"(\d+(?:\.\d+)?)$", s)
-    if m:
-        return float(m.group(1))
-
-    return None
-
-# =============================================================================
-# CSV loading and aggregation
-# =============================================================================
-
-# Columns kept as strings (not coerced to float)
-_STRING_COLS = {"filename", "experiment", "channel", "well", "fov", "timepoint"}
-
-def row_is_included(row: dict) -> bool:
-    """Return True when CSV row is marked as included (Included == 1)."""
-    raw = row.get("Included", 1)
-    try:
-        return int(float(raw)) == 1
-    except (TypeError, ValueError):
-        return False
-
-
-def load_well_csv(path: Path) -> List[dict]:
-    rows: List[dict] = []
-    with path.open(newline="") as fh:
-        for row in csv.DictReader(fh):
-            if "Included" not in row:
-                row["Included"] = 1
-            coerced: dict = {}
-            for k, v in row.items():
-                key_norm = str(k).strip().lower()
-                if key_norm in _STRING_COLS:
-                    if key_norm == "fov" and str(v).strip() in {"", "-1"}:
-                        coerced[k] = "1"
-                    else:
-                        coerced[k] = v
-                else:
-                    try:
-                        coerced[k] = float(v)
-                    except (ValueError, TypeError):
-                        coerced[k] = v
-            rows.append(coerced)
-    return rows
-
-
-def detect_fluor_channels(rows: List[dict]) -> List[str]:
-    """
-    Inspect column names in *rows* and return a sorted list of fluorescent
-    channel prefixes that have a *_mean_intensity column.
-
-    e.g. columns ["gfp_mean_intensity", "mcherry_mean_intensity", ...]
-         -> ["gfp", "mcherry"]
-    """
-    if not rows:
-        return []
-    channels = []
-    for col in rows[0].keys():
-        if col.endswith("_mean_intensity"):
-            prefix = col[: -len("_mean_intensity")]
-            if prefix:
-                channels.append(prefix)
-    return sorted(channels)
-
-
-def detect_smfish_channels(rows: List[dict]) -> List[str]:
-    """
-    Inspect column names in *rows* and return a sorted list of smFISH
-    channel prefixes that have a *_smfish_count column.
-
-    e.g. columns ["gfp_smfish_count", "mcherry_smfish_count", ...]
-         -> ["gfp", "mcherry"]
-    """
-    if not rows:
-        return []
-    channels = []
-    for col in rows[0].keys():
-        if col.endswith("_smfish_count"):
-            prefix = col[: -len("_smfish_count")]
-            if prefix:
-                channels.append(prefix)
-    return sorted(channels)
-
-
-def detect_nuclear_channel_token(rows: List[dict]) -> str:
-    """Return the nuclear/segmentation channel token from the CSV 'channel' column (lowercase).
-
-    This is the imaging channel used for cell segmentation (e.g. 'nir', 'dapi').
-    """
-    if not rows:
-        return ""
-    return str(rows[0].get("channel", "") or "").strip().lower()
-
-
-def normalize_channel_tokens(tokens: List[str]) -> List[str]:
-    """Stable lower-case de-dupe for channel tokens."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for tok in tokens:
-        cleaned = str(tok or "").strip().lower()
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        out.append(cleaned)
-    return out
-
-
-def merge_fluor_channels(
-    pipeline_fluor: List[str],
-    detected_fluor: List[str],
-    seg_channel_token: str = "",
-) -> List[str]:
-    """Merge pipeline + detected channel lists with stable order, always including seg token."""
-    merged = normalize_channel_tokens(list(pipeline_fluor) + list(detected_fluor))
-    seg_tok = str(seg_channel_token or "").strip().lower()
-    if seg_tok and seg_tok not in merged:
-        merged.append(seg_tok)
-    return merged
-
-
-def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
-    """Return channel prefixes suitable for Review Image.
-
-    Harmonized policy:
-      - use the measured fluorescence channels
-      - include the explicit segmentation channel token from CSV `channel`
-    This avoids adding synthetic channel labels from metric columns that do not
-    necessarily map to real image filenames in the dataset.
-    """
-    chans: list[str] = []
-    seen: set[str] = set()
-    for ch in fluor_channels:
-        tok = str(ch or "").strip().lower()
-        if tok and tok not in seen:
-            seen.add(tok)
-            chans.append(tok)
-    seg_tok = str(seg_channel_token or "").strip().lower()
-    if seg_tok and seg_tok not in seen:
-        seen.add(seg_tok)
-        chans.append(seg_tok)
-    if not rows:
-        return chans
-    return chans
-
-
-# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
-# n_above : cells above threshold at this timepoint  → denominator for plot 1
-# n_total : all cells at this timepoint              → denominator for plot 2
-# These differ because plot 1 (mean GFP) only averages cells above threshold,
-# while plot 2 (fraction) counts ALL cells to form the denominator.
-AggPoint = Tuple[float, float, float, float, int, int]
-
-
-def _ordinal_timepoints(rows: List[dict], tp_col: str = "timepoint_hours") -> Dict[str, float]:
-    """
-    Build a string->ordinal mapping for rows whose numeric timepoint is NaN/missing.
-
-    Collects every distinct raw "timepoint" string that failed numeric parsing,
-    sorts them lexicographically, and assigns 0-based ordinal floats so that
-    T01 < T02 < T03, day1 < day2, etc. still plot in the right order.
-    """
-    raw_strings: set = set()
-    for row in rows:
-        raw = row.get(tp_col)
-        numeric_ok = isinstance(raw, float) and not math.isnan(raw)
-        if not numeric_ok:
-            tp_str = str(row.get("timepoint", ""))
-            if tp_str and parse_timepoint_hours(tp_str) is None:
-                raw_strings.add(tp_str)
-    return {s: float(i) for i, s in enumerate(sorted(raw_strings))}
-
-
-def aggregate_with_threshold(
-    rows: List[dict],
-    threshold: float,
-    use_sem: bool = False,
-    tp_col: str = "timepoint_hours",
-    val_col: str = "gfp_mean_intensity",
-    cell_area_threshold: float = 0.0,
-    fluor_gates: Optional[Dict[str, float]] = None,
-) -> List[AggPoint]:
-    """Group rows by timepoint; compute stats for cells above threshold.
-
-    Applies consistent gating criteria across all channels upfront, then computes
-    statistics on the filtered cell population. This ensures that "Fraction On"
-    and other metrics are computed on the same set of cells regardless of which
-    channel or metric is being plotted.
-
-    Timepoints are resolved in priority order:
-      1. Numeric value already in tp_col (written by the pipeline).
-      2. parse_timepoint_hours() on the raw timepoint string.
-      3. Lexicographic ordinal fallback: rows whose timepoint cannot be
-         parsed numerically are still included, sorted by string order.
-
-    Gating criteria (applied upfront to all rows):
-      - Cells with area_px <= cell_area_threshold are excluded
-      - Cells with any channel's intensity <= its gate threshold are excluded
-
-    Then, within the filtered population:
-      - val_col: the column to compute statistics on
-      - threshold: cells in val_col > threshold are counted for "Fraction On"
-
-    Args:
-        rows: List of cell dictionaries from CSV data
-        threshold: ThreshFracOn value for computing fraction above threshold
-        use_sem: If True, compute SEM; if False, compute SD
-        tp_col: Column name for timepoint
-        val_col: Column name for the value to aggregate
-        cell_area_threshold: Minimum cell area (FluorGating)
-        fluor_gates: Dict mapping channel name -> gate threshold (FluorGating).
-                     Cells below any gate are excluded. E.g., {"gfp": 10.0, "mcherry": 20.0}
-
-    Returns:
-        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total)
-    """
-    if fluor_gates is None:
-        fluor_gates = {}
-
-    all_v:   Dict[float, List[float]] = defaultdict(list)
-    above_v: Dict[float, List[float]] = defaultdict(list)
-
-    # Pre-build ordinal map for any unparseable timepoint strings.
-    ordinals = _ordinal_timepoints(rows, tp_col)
-
-    for row in rows:
-        if not row_is_included(row):
-            continue
-        # Step 1: Filter by cell area threshold (applies to all rows)
-        try:
-            area = float(row.get("area_px", 0))
-            if area <= cell_area_threshold:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        # Step 2: Filter by all channel fluorescence gates (applies to all rows)
-        # This ensures we only include cells that pass ALL QC criteria
-        gates_passed = True
-        for channel, gate_threshold in fluor_gates.items():
-            col = f"{channel}_mean_intensity"
-            try:
-                fluor = float(row.get(col, float('nan')))
-                if fluor != fluor or fluor <= gate_threshold:  # NaN or below gate
-                    gates_passed = False
-                    break
-            except (ValueError, TypeError):
-                gates_passed = False
-                break
-
-        if not gates_passed:
-            continue
-
-        # Step 3: Extract timepoint (same as before)
-        raw = row.get(tp_col)
-        if isinstance(raw, float) and not math.isnan(raw):
-            t: Optional[float] = raw
-        else:
-            tp_str = str(row.get("timepoint", ""))
-            t = parse_timepoint_hours(tp_str)
-            if t is None:
-                t = ordinals.get(tp_str)  # lexicographic ordinal
-            # No timepoint field in schema at all — treat all rows as t=0.
-            if t is None and not tp_str:
-                t = 0.0
-        if t is None:
-            continue
-
-        # Step 4: Get the value to aggregate on
-        try:
-            val = float(row[val_col])
-        except (KeyError, ValueError, TypeError):
-            continue
-
-        # At this point, row passes all gating criteria. Include in aggregation.
-        all_v[t].append(val)
-        if val > threshold:
-            above_v[t].append(val)
-
-    result: List[AggPoint] = []
-    for t in sorted(all_v):
-        above   = above_v.get(t, [])
-        n_total = len(all_v[t])
-        n_above = len(above)
-        mean    = sum(above) / n_above if n_above else float("nan")
-        spread  = 0.0
-        if n_above > 1:
-            sd     = statistics.pstdev(above)
-            spread = sd / math.sqrt(n_above) if use_sem else sd
-        result.append((t, mean, spread,
-                       n_above / n_total if n_total else float("nan"),
-                       n_above, n_total))
-    return result
-
-
-def _all_fluor_values(rows: List[dict], val_col: str = "gfp_mean_intensity") -> List[float]:
-    return [float(row[val_col]) for row in rows
-            if row_is_included(row)
-            if val_col in row and math.isfinite(float(row[val_col]))
-            if isinstance(row[val_col], (int, float)) and not isinstance(row[val_col], bool)]
-
-
-def _all_fluor_values_filtered(
-    rows: List[dict],
-    val_col: str = "gfp_mean_intensity",
-    cell_area_threshold: float = 0.0,
-    fluor_gates: Optional[Dict[str, float]] = None,
-) -> List[float]:
-    """Extract fluorescence values from rows, filtering by cell area and all fluorescence gates.
-
-    Args:
-        rows: List of cell dictionaries
-        val_col: Column to extract values from
-        cell_area_threshold: Minimum cell area (FluorGating)
-        fluor_gates: Dict mapping channel -> gate threshold (FluorGating).
-                     Cells below any gate are excluded.
-    """
-    if fluor_gates is None:
-        fluor_gates = {}
-
-    result = []
-    for row in rows:
-        if not row_is_included(row):
-            continue
-        # Filter by cell area threshold
-        try:
-            area = float(row.get("area_px", 0))
-            if area <= cell_area_threshold:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        # Filter by all fluorescence gates
-        gates_passed = True
-        for channel, gate_threshold in fluor_gates.items():
-            col = f"{channel}_mean_intensity"
-            try:
-                fluor = float(row.get(col, float('nan')))
-                if fluor != fluor or fluor <= gate_threshold:  # NaN or below gate
-                    gates_passed = False
-                    break
-            except (ValueError, TypeError):
-                gates_passed = False
-                break
-
-        if not gates_passed:
-            continue
-
-        # Extract the target value
-        try:
-            val = float(row[val_col])
-            if not math.isfinite(val):
-                continue
-            if not isinstance(val, (int, float)) or isinstance(val, bool):
-                continue
-            result.append(val)
-        except (KeyError, ValueError, TypeError):
-            continue
-
-    return result
-
-
-def _beeswarm_jitter(
-    values: List[float],
-    x_center: float = 0.0,
-    max_spread: float = 0.35,
-    n_bins: int = 40,
-) -> Tuple[List[float], List[float]]:
-    """
-    Compute x-jitter positions for a beeswarm column.
-
-    Values are binned vertically (by value magnitude); within each bin points
-    are spread left/right alternately from the centre.  Returns parallel lists
-    (xs, ys) ready for ax.scatter().
-
-    Pure Python + no external dependencies beyond what is already imported.
-    """
-    if not values:
-        return [], []
-
-    sorted_v = sorted(values)
-    lo, hi = sorted_v[0], sorted_v[-1]
-    rng = hi - lo if hi > lo else 1.0
-    bin_w = rng / n_bins
-
-    # Group indices by bin
-    bins: Dict[int, List[int]] = {}
-    for i, v in enumerate(values):
-        b = min(int((v - lo) / bin_w), n_bins - 1)
-        bins.setdefault(b, []).append(i)
-
-    step = max_spread / max(max(len(idxs) for idxs in bins.values()), 1)
-
-    xs = [0.0] * len(values)
-    ys = list(values)
-    for idxs in bins.values():
-        n = len(idxs)
-        # Sort by original value for visual consistency
-        idxs_sorted = sorted(idxs, key=lambda k: values[k])
-        for rank, idx in enumerate(idxs_sorted):
-            # Alternate: 0, +1, -1, +2, -2 …
-            offset = ((rank + 1) // 2) * (1 if rank % 2 == 1 else -1)
-            xs[idx] = x_center + offset * step
-
-    return xs, ys
+# Pure-data helpers live in data_loading.py. Re-exported here for backwards
+# compatibility with callers that import them from runtime_app.
+from well_viewer.data_loading import (
+    AggPoint,
+    _STRING_COLS,
+    _all_fluor_values,
+    _all_fluor_values_filtered,
+    _beeswarm_jitter,
+    _ordinal_timepoints,
+    aggregate_with_threshold,
+    detect_fluor_channels,
+    detect_nuclear_channel_token,
+    detect_review_image_channels,
+    detect_smfish_channels,
+    load_well_csv,
+    merge_fluor_channels,
+    normalize_channel_tokens,
+    parse_timepoint_hours,
+    row_is_included,
+)
 
 
 # =============================================================================
@@ -921,10 +501,7 @@ def _norm_well(raw: str) -> Optional[str]:
     return normalized or None
 
 
-def _extract_well_token(label: str) -> Optional[str]:
-    """'gfp_measurements_B10' → 'B10'."""
-    m = re.search(r"([A-Ha-h])(\d{1,2})$", label)
-    return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else None
+from well_viewer.data_loading import extract_well_token as _extract_well_token
 
 
 class _ImgRef:
@@ -1430,8 +1007,26 @@ from well_viewer.views.image_panel_view import _label_to_rgb
 # Tooltip
 # =============================================================================
 
-# Canonical definition lives in well_viewer/views/widgets.py
-from well_viewer.views.widgets import _Tooltip
+from PySide6.QtWidgets import QToolTip
+
+
+class _Tooltip:
+    """Lightweight pixel-tooltip helper backed by ``QToolTip``."""
+
+    def __init__(self, parent=None) -> None:
+        self._parent = parent
+
+    def show(self, x: int, y: int, text: str) -> None:
+        from PySide6.QtCore import QPoint
+        widget = self._parent
+        if widget is None:
+            QToolTip.showText(QPoint(int(x), int(y)), text)
+            return
+        global_pt = widget.mapToGlobal(QPoint(int(x), int(y)))
+        QToolTip.showText(global_pt, text, widget)
+
+    def hide(self) -> None:
+        QToolTip.hideText()
 
 # =============================================================================
 # Reusable image panel  (canonical: well_viewer/views/image_panel_view.py)
@@ -1508,104 +1103,94 @@ class _SubsetEntry:
 # CellGatingTab lives in well_viewer/cell_gating_tab.py
 from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
 
-class WellViewerApp(tk.Frame):
+class WellViewerApp(QWidget):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
-        # Support both embedded use (parent is a tk.Frame/Notebook tab)
-        # and standalone use (parent is None → create a tk.Tk root).
-        if parent is None:
-            self._tk_root = tk.Tk()
-            self._tk_root.title("Well Viewer")
-            self._tk_root.configure(bg=BG_APP)
-            self._tk_root.minsize(1000, 800)
-            self._position_root_on_screen(self._tk_root, preferred_w=1600, preferred_h=960)
-            super().__init__(self._tk_root)
-            self._tk_root.protocol("WM_DELETE_WINDOW", self._on_close)
-        else:
-            self._tk_root = None
-            super().__init__(parent)
-        self.configure(bg=BG_APP)
+        super().__init__(parent)
         self._NP_AVAILABLE = _NP_AVAILABLE
         self._np = _np
         self._theme_name = "Dark"
 
         # Data state
-        self._data_dir:   Optional[Path]        = None   # dir with CSVs (and out-zips)
-        self._in_dir:     Optional[Path]        = None   # dir with input well zips (fluor)
+        self._data_dir:   Optional[Path]        = None
+        self._in_dir:     Optional[Path]        = None
         self._tmp_dir:    Optional[Path]        = None
         self._well_paths: Dict[str, Path]       = {}
         self._cache:      Dict[str, List[dict]] = {}
         self._all_timepoints_cache: List[float] = []
         self._all_fovs_cache: List[str] = []
         self._last_sel:   Optional[str]         = None
-        self._prev_sel:   set                   = set()   # tracks prior selection for diffing
+        self._prev_sel:   set                   = set()
         self._sidebar_map_refresh_pending: bool = False
 
         # Active fluorescent channel (set when CSVs are loaded)
-        self._fluor_channels: List[str] = []          # e.g. ["gfp", "mcherry"]
+        self._fluor_channels: List[str] = []
         self._review_image_channels: List[str] = []
-        self._smfish_channels: set[str] = set()       # channels with smfish_count data
-        self._active_channel: str       = "gfp"       # plot/metric column prefix (overwritten on CSV load)
-        self._active_image_channel: str = "gfp"       # image-display channel for Movie Montage / Review Image
-        self._active_metric: str        = "mean_intensity"  # "mean_intensity" or "smfish_count"
-        self._active_val_col: str       = "gfp_mean_intensity"  # overwritten on CSV load
+        self._smfish_channels: set[str] = set()
+        self._active_channel: str       = "gfp"
+        self._active_image_channel: str = "gfp"
+        self._active_metric: str        = "mean_intensity"
+        self._active_val_col: str       = "gfp_mean_intensity"
 
-        # Plot controls
+        # Plot controls — widgets are assigned in _build_ui; keep placeholders
+        # until then so callers can inspect default state.
         self._threshold_min = 0.0
         self._threshold_max = 1.0
         self._threshold     = 50.0
-        self._use_sem       = tk.BooleanVar(value=True)
-        # Per-axes legend visibility; True = show, False = hidden
+        # Qt: concrete widgets are assigned in _build_ui() / view builders.
+        # Provide plain-Python defaults so early callers before _build_ui get sane values.
+        # SEM/SD toggle state — one BoolVar drives every per-toolbar SEM button.
+        # attach_plot_toolbar() registers each button in _sem_btns, so we must
+        # initialize both BEFORE any plot tab is built.
+        self._use_sem = BoolVar(True)
+        self._sem_btns: List = []
+        self._sem_btn = None
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
-        self._plot_chan_var = tk.StringVar(value="GFP")  # selected channel on plot tabs
-        self._montage_chan_var = tk.StringVar(value="GFP")  # selected channel on Movie Montage tab
-        self._review_image_chan_var = tk.StringVar(value="GFP")  # selected channel on Review Image tab
-        # Back-compat shared channel variable for older view code paths.
-        self._chan_var = self._plot_chan_var
-        self._bar_tp_var    = tk.StringVar(value="—")  # selected timepoint for bar plots
-        self._bar_swarm     = tk.BooleanVar(value=False)  # beeswarm mode toggle
-        self._bar_violin    = tk.BooleanVar(value=False)  # violin mode toggle
-        self._violin_bw     = tk.DoubleVar(value=0.4)     # KDE bandwidth (smoothing)
-        self._bar_log_scale = tk.BooleanVar(value=False)  # log y-axis (beeswarm)
-        self._bar_ylim_mean_lo = tk.StringVar(value="")   # fluor axis lower limit (auto="")
-        self._bar_ylim_mean_hi = tk.StringVar(value="")   # fluor axis upper limit
-        self._bar_ylim_frac_lo = tk.StringVar(value="")   # Fraction axis lower limit
-        self._bar_ylim_frac_hi = tk.StringVar(value="")   # Fraction axis upper limit
-        self._bar_order: Optional[List] = None            # custom bar ordering (None = natural)
-        self._rep_sets:          List[ReplicateSet] = []  # global pool of replicate sets
-        self._active_rep_idx:    int               = -1   # selected ReplicateSet in panel
-        self._rep_hidden:        set               = set()  # indices of hidden rep-sets
-        self._well_labels:       Dict[str, str]    = {}   # tok -> custom display label
-        self._bar_groups:        List[BarGroup]    = []   # grouping definitions
-        self._bar_active_grp:    int               = -1   # index of group being edited
-        # Quick replicate arrangement preferences
-        self._rep_quick_pair_dir   = "row"   # "row" or "col" — how pairs are formed
-        self._rep_quick_iter_order = "row"   # "row" or "col" — iteration direction
-        # Quick bar group arrangement preferences
-        self._bar_quick_pair_dir   = "row"   # "row" or "col" — how pairs are formed
-        self._bar_quick_iter_order = "row"   # "row" or "col" — iteration direction
-        self._entry_var     = tk.StringVar(value="50.0")
-        self._cdf_xmin_var  = tk.StringVar(value="0")
-        self._cdf_xmax_var  = tk.StringVar(value="300")
-        self._thr_dragging  = False   # True while the threshold line is being dragged
+        # Channel / timepoint comboboxes are assigned to these attrs in the view builders.
+        self._plot_chan_cb = None
+        self._montage_chan_cb = None
+        self._review_image_chan_cb = None
+        self._bar_tp_cb = None
+        self._bar_swarm_cb = None
+        self._bar_violin_cb = None
+        self._violin_bw_edit = None
+        self._bar_log_scale_cb = None
+        self._bar_ylim_mean_lo_edit = None
+        self._bar_ylim_mean_hi_edit = None
+        self._bar_ylim_frac_lo_edit = None
+        self._bar_ylim_frac_hi_edit = None
+        self._bar_order: Optional[List] = None
+        self._rep_sets:          List[ReplicateSet] = []
+        self._active_rep_idx:    int               = -1
+        self._rep_hidden:        set               = set()
+        self._well_labels:       Dict[str, str]    = {}
+        self._bar_groups:        List[BarGroup]    = []
+        self._bar_active_grp:    int               = -1
+        self._rep_quick_pair_dir   = "row"
+        self._rep_quick_iter_order = "row"
+        self._bar_quick_pair_dir   = "row"
+        self._bar_quick_iter_order = "row"
+        self._entry_edit = None
+        self._cdf_xmin_edit = None
+        self._cdf_xmax_edit = None
+        self._thr_dragging  = False
 
         # Plate-map well selection
-        self._selected_wells: set  = set()   # set of well tokens currently selected
-        self._tok_to_label:   Dict[str, str] = {}   # e.g. "B03" -> "gfp_measurements_B03" (display only)
+        self._selected_wells: set  = set()
+        self._tok_to_label:   Dict[str, str] = {}
 
         # Preview state
-        self._fov_tp_extractor = None          # set by _load_path from pipeline_info.json
+        self._fov_tp_extractor = None
         self._pipeline_info: Dict[str, object] = {}
-        self._preview_selected_well: Optional[str] = None  # preview tab single selection
-        self._preview_fov_var = tk.StringVar(value="—")     # selected FOV for montage
-        self._montage_photos: List[object] = []             # keep PhotoImage refs alive
-        self._preview_fov_var = tk.StringVar(value="—")
+        self._preview_selected_well: Optional[str] = None
+        self._preview_fov_cb = None
+        self._montage_photos: List[object] = []
         self._preview_fluor:   Dict[Tuple[str,str], _ImgRef] = {}
         self._preview_overlay: Dict[Tuple[str,str], _ImgRef] = {}
         self._preview_mask:    Dict[Tuple[str,str], _ImgRef] = {}
-        self._review_image_tp_var = tk.StringVar(value="—")
+        self._review_image_tp_cb = None
         self._review_image_selected_nucleus: Optional[int] = None
         self._review_image_nucleus_to_iid: Dict[int, str] = {}
         self._review_image_include_edit_mode: bool = False
@@ -1627,17 +1212,12 @@ class WellViewerApp(tk.Frame):
         self._apply_theme()
 
         if data_path is not None:
-            # Defer until after mainloop() so the window is mapped and
-            # the progress bar can actually render during the load.
-            self.after(100, lambda: self._load_path(data_path))
+            QTimer.singleShot(100, lambda: self._load_path(data_path))
 
     @staticmethod
-    def _position_root_on_screen(root: tk.Tk, *, preferred_w: int, preferred_h: int) -> None:
-        """Size and place root so it starts fully visible on screen."""
-        root.update_idletasks()
-        sw = max(1, int(root.winfo_screenwidth()))
-        sh = max(1, int(root.winfo_screenheight()))
-        margin = 40  # leave room for WM borders/titlebars
+    def _position_root_on_screen(root, *, preferred_w: int, preferred_h: int) -> None:
+        """Qt: no-op; window placement handled by QMainWindow / QWidget defaults."""
+        return
         w = min(preferred_w, max(1000, sw - margin))
         h = min(preferred_h, max(800, sh - margin))
         x = max(0, (sw - w) // 2)
@@ -1723,77 +1303,91 @@ class WellViewerApp(tk.Frame):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
         # Topbar
-        top = tk.Frame(self, bg=BG_APP, pady=8, padx=14)
-        top.pack(side=tk.TOP, fill=tk.X)
+        top = QWidget()
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(14, 8, 14, 8)
         self._top_bar = top
-        self._dir_label = tk.Label(top, text="No data loaded", font=FM_UI, fg=TXT_MUT, bg=BG_APP)
-        self._dir_label.pack(side=tk.LEFT)
+        self._dir_label = QLabel("No data loaded")
+        self._dir_label.setObjectName("Muted")
+        top_layout.addWidget(self._dir_label)
+        top_layout.addStretch(1)
+        open_btn = QPushButton("Open\u2026")
+        open_btn.setProperty("variant", "primary")
+        open_btn.clicked.connect(self._browse)
+        top_layout.addWidget(open_btn)
+        outer.addWidget(top)
 
-        # Single "Open…" button – accepts directory or archive
-        ttk.Button(top, text="Open…", command=self._browse,
-                   style="PrimaryDark.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+        self._top_sep = QFrame()
+        self._top_sep.setFrameShape(QFrame.HLine)
+        outer.addWidget(self._top_sep)
 
-        self._top_sep = tk.Frame(self, bg=BORDER, height=1)
-        self._top_sep.pack(fill=tk.X)
+        # ── Horizontal splitter: sidebar | plots ───────────────────────────
+        self._h_pane = QSplitter(Qt.Horizontal)
+        outer.addWidget(self._h_pane, 1)
 
-        # Status + log — MUST be packed side=BOTTOM before the expanding
-        # paned window so it claims its space first.
-        self._build_bottom()
+        sidebar = QWidget()
+        sidebar.setMinimumWidth(260)
+        sidebar.setMaximumWidth(600)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ── Horizontal PanedWindow: sidebar | plots ────────────────────────
-        self._h_pane = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        self._h_pane.pack(fill=tk.BOTH, expand=True)
+        self._sidebar_main_frame = QWidget()
+        QVBoxLayout(self._sidebar_main_frame).setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.addWidget(self._sidebar_main_frame, 1)
 
-        # Sidebar — contains two swappable panels:
-        #   _sidebar_line_frame: well picker (used by Line Graphs tab)
-        #   _sidebar_bar_frame:  group picker (used by Bar Plots tab)
-        sidebar = tk.Frame(self._h_pane, bg=BG_SIDE, width=340)
-        sidebar.pack_propagate(False)
-        self._h_pane.add(sidebar, weight=0)
-
-        # Single persistent well picker — shown for Line Graphs and Bar Plots.
-        self._sidebar_main_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Keep _sidebar_line_frame as an alias so nothing else breaks.
         self._sidebar_line_frame = self._sidebar_main_frame
+        # Companion frames stacked in the sidebar and toggled by
+        # _on_tab_change.  All are hidden initially; the tab handler shows
+        # the relevant one.
+        self._sidebar_groups_frame = QWidget()
+        self._sidebar_bar_frame = QWidget()
+        self._sidebar_preview_frame = QWidget()
+        self._sidebar_sample_frame = QWidget()
+        self._sidebar_stats_frame = QWidget()
+        for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
+                  self._sidebar_preview_frame, self._sidebar_sample_frame,
+                  self._sidebar_stats_frame):
+            QVBoxLayout(w).setContentsMargins(0, 0, 0, 0)
+            sidebar_layout.addWidget(w, 1)
+            w.hide()
 
-        # Off-screen frame used to build bar-map widgets that are now unused
-        # in the sidebar (bar plot uses the unified picker instead).
-        self._sidebar_groups_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_bar_frame    = tk.Frame(sidebar, bg=BG_SIDE)
-
-        self._sidebar_preview_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_sample_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        self._sidebar_stats_frame = tk.Frame(sidebar, bg=BG_SIDE)
-        # Not packed yet — shown only when tab-specific sidebars are active
-
+        self._h_pane.addWidget(sidebar)
         self._build_sidebar(self._sidebar_main_frame)
-        # Groups panel and preview picker built inside _build_centre.
 
         # Centre plots
-        centre = tk.Frame(self._h_pane, bg=BG_APP)
-        self._h_pane.add(centre, weight=3)
+        centre = QWidget()
+        QVBoxLayout(centre).setContentsMargins(0, 0, 0, 0)
+        self._h_pane.addWidget(centre)
+        self._h_pane.setStretchFactor(0, 0)
+        self._h_pane.setStretchFactor(1, 3)
+        self._h_pane.setChildrenCollapsible(False)
+        self._h_pane.setSizes([340, 1200])
         self._build_centre(centre)
 
-    def _build_sidebar(self, parent: tk.Frame) -> None:
+        # Status + log — packed last so it sits below the splitter.
+        self._build_bottom()
+
+    def _build_sidebar(self, parent) -> None:
         from well_viewer.views.sidebar_view import build_sidebar as _build_sidebar_view
         _build_sidebar_view(self, parent)
 
-    def _build_centre(self, parent: tk.Frame) -> None:
+    def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
-
         _build_centre_view(self, parent)
 
     # ── Statistics tab ────────────────────────────────────────────────────────
 
-    def _build_stats_tab(self, parent: tk.Frame) -> None:
+    def _build_stats_tab(self, parent) -> None:
         _build_stats_tab_view(self, parent, bg_app=BG_APP, bg_side=BG_SIDE)
 
     # ── Stats left: group editor ──────────────────────────────────────────────
 
-    def _build_stats_group_editor(self, parent: tk.Frame) -> None:
+    def _build_stats_group_editor(self, parent) -> None:
         _build_stats_group_editor_view(
             self,
             parent,
@@ -1848,139 +1442,81 @@ class WellViewerApp(tk.Frame):
         self._stats_refresh_single_btn(tok)
 
     def _stats_refresh_single_btn(self, tok: str) -> None:
-        from ui.theme import get_color
-        button_bg_color = get_color("button_bg")
-        button_text_color = get_color("button_text")
-        button_text_disabled_color = get_color("button_text_disabled")
-
-        btn = self._stats_map_btns.get(tok)
-        if btn is None or tok not in self._well_paths:
-            return
-        for gi, g in enumerate(self._stats_groups):
-            if tok in g.wells:
-                grp_color = WELL_COLORS[gi % len(WELL_COLORS)]
-                is_active = gi == self._stats_active_grp
-                btn.config(
-                    bg=grp_color,
-                    fg="white",
-                    relief=tk.SUNKEN if is_active else tk.FLAT,
-                    activebackground=self._mute_color(grp_color, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled_color,
-                )
-                return
-        btn.config(
-            bg=button_bg_color,
-            fg=button_text_color,
-            relief=tk.FLAT,
-            activebackground=button_bg_color,
-            activeforeground=button_text_color,
-            disabledforeground=button_text_disabled_color,
-        )
+        self._stats_refresh_map()
 
     def _stats_refresh_map(self) -> None:
-        from ui.theme import get_color
-        button_bg_color = get_color("button_bg")
-        button_text_color = get_color("button_text")
-        button_text_disabled_color = get_color("button_text_disabled")
-
+        bg, fg, fg_disabled = self._plate_theme_colors()
         avail = set(self._well_paths.keys())
         tok_color: Dict[str, str] = {}
         for gi, grp in enumerate(self._stats_groups):
             c = WELL_COLORS[gi % len(WELL_COLORS)]
             for w in grp.wells:
                 tok_color.setdefault(w, c)
-        active_wells: set = set()
         grp = self._stats_active_group()
-        if grp:
-            for w in grp.wells:
-                active_wells.add(w)
+        active_wells: set = set(grp.wells) if grp else set()
         for tok, btn in self._stats_map_btns.items():
             if tok not in avail:
-                btn.config(
-                    bg=button_bg_color,
-                    fg=button_text_disabled_color,
-                    state=tk.DISABLED,
-                    cursor="arrow",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                )
+                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
             elif tok in tok_color:
-                grp_color = tok_color[tok]
-                is_active = tok in active_wells
-                btn.config(
-                    bg=grp_color,
-                    fg="white",
-                    state=tk.NORMAL,
-                    relief=tk.SUNKEN if is_active else tk.FLAT,
-                    cursor="hand2",
-                    activebackground=self._mute_color(grp_color, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled_color,
+                self._plate_apply_colored(
+                    btn, tok_color[tok],
+                    active=tok in active_wells, fg_disabled=fg_disabled,
                 )
             else:
-                btn.config(
-                    bg=button_bg_color,
-                    fg=button_text_color,
-                    state=tk.NORMAL,
-                    relief=tk.FLAT,
-                    cursor="hand2",
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                )
+                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
 
     def _stats_refresh_group_list(self) -> None:
-        for w in self._stats_grp_inner.winfo_children():
-            w.destroy()
+        container = self._stats_grp_inner
+        layout = container.layout()
+        if layout is None:
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(4, 4, 4, 4)
+            layout.setSpacing(2)
+        _clear_layout(layout)
         if not self._stats_groups:
-            tk.Label(self._stats_grp_inner,
-                     text="No groups.  Click + Add to create one.",
-                     font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE,
-                     pady=8).pack(anchor="w", padx=8)
+            lbl = QLabel("No groups.  Click + Add to create one.")
+            lbl.setObjectName("Muted")
+            layout.addWidget(lbl)
             self._stats_refresh_map()
             return
         for gi, grp in enumerate(self._stats_groups):
             is_sel = (gi == self._stats_active_grp)
             color  = WELL_COLORS[gi % len(WELL_COLORS)]
-            bg     = BG_HOVER if is_sel else BG_PANEL
-            card   = tk.Frame(self._stats_grp_inner, bg=bg,
-                              highlightthickness=1,
-                              highlightbackground=ACCENT if is_sel else BORDER)
-            card.pack(fill=tk.X, padx=4, pady=2)
-
-            hdr = tk.Frame(card, bg=bg)
-            hdr.pack(fill=tk.X, padx=6, pady=(4, 2))
-            tk.Label(hdr, text="●", font=FM_BOLD, fg=color,
-                     bg=bg).pack(side=tk.LEFT, padx=(0, 4))
-            tk.Label(hdr, text=grp.name, font=FM_BOLD, fg=TXT_PRI,
-                     bg=bg).pack(side=tk.LEFT)
+            card = QFrame()
+            card.setObjectName("StatsGroupCard")
+            if is_sel:
+                card.setProperty("state", "selected")
+            hl = QHBoxLayout(card)
+            hl.setContentsMargins(6, 4, 6, 4)
+            dot = QLabel("\u25cf")
+            dot.setStyleSheet(f"color: {color};")
+            hl.addWidget(dot)
+            hl.addWidget(QLabel(grp.name))
             n_mem = len(grp.members)
             n_sol = len(grp.solo_wells)
             parts = []
             if n_mem: parts.append(f"{n_mem} set{'s' if n_mem!=1 else ''}")
             if n_sol: parts.append(f"{n_sol} solo well{'s' if n_sol!=1 else ''}")
             if not parts: parts = ["empty"]
-            tk.Label(hdr, text=f"  ({', '.join(parts)})",
-                     font=FM_TINY, fg=TXT_MUT, bg=bg).pack(side=tk.LEFT)
-
-            bf = tk.Frame(hdr, bg=bg)
-            bf.pack(side=tk.RIGHT)
+            meta = QLabel(f"  ({', '.join(parts)})")
+            meta.setObjectName("Muted")
+            hl.addWidget(meta)
+            hl.addStretch(1)
             idx = gi
-            tk.Button(bf, text="✕", font=FM_TINY, bg=bg, fg=TXT_MUT,
-                      relief=tk.FLAT, padx=4, cursor="hand2",
-                      command=lambda i=idx: self._stats_grp_delete(i)
-                      ).pack(side=tk.RIGHT)
-            tk.Button(bf, text="✎", font=FM_TINY, bg=bg, fg=TXT_MUT,
-                      relief=tk.FLAT, padx=4, cursor="hand2",
-                      command=lambda i=idx: self._stats_grp_rename(i)
-                      ).pack(side=tk.RIGHT)
+            ren_btn = QPushButton("\u270e")
+            ren_btn.setFlat(True)
+            ren_btn.clicked.connect(lambda _=False, i=idx: self._stats_grp_rename(i))
+            hl.addWidget(ren_btn)
+            del_btn = QPushButton("\u2715")
+            del_btn.setFlat(True)
+            del_btn.clicked.connect(lambda _=False, i=idx: self._stats_grp_delete(i))
+            hl.addWidget(del_btn)
 
-            card.bind("<Button-1>", lambda _e, i=idx: self._stats_select_grp(i))
-            for child in card.winfo_children():
-                child.bind("<Button-1>", lambda _e, i=idx: self._stats_select_grp(i))
-
+            def _click_select(ev, i=idx):
+                self._stats_select_grp(i)
+            card.mousePressEvent = _click_select
+            layout.addWidget(card)
+        layout.addStretch(1)
         self._stats_refresh_map()
 
     def _stats_select_grp(self, idx: int) -> None:
@@ -2004,28 +1540,10 @@ class WellViewerApp(tk.Frame):
         if not (0 <= idx < len(self._stats_groups)):
             return
         old = self._stats_groups[idx].name
-        dlg = tk.Toplevel(self)
-        dlg.title("Rename group")
-        dlg.grab_set()
-        dlg.configure(bg=BG_APP)
-        tk.Label(dlg, text="Name:", font=FM_TINY, bg=BG_APP,
-                 fg=TXT_SEC).pack(padx=12, pady=(10, 2), anchor="w")
-        var = tk.StringVar(value=old)
-        e = tk.Entry(dlg, textvariable=var, font=FM_TINY,
-                     relief=tk.FLAT, highlightthickness=1,
-                     highlightcolor=ACCENT, highlightbackground=BORDER,
-                     width=26)
-        e.pack(padx=12, pady=2)
-        e.select_range(0, tk.END)
-        e.focus_set()
-        def _ok():
-            v = var.get().strip()
-            if v:
-                self._stats_groups[idx].name = v
-            dlg.destroy()
+        name = ask_name_dialog(self, title="Rename group", default=old)
+        if name:
+            self._stats_groups[idx].name = name
             self._stats_refresh_group_list()
-        e.bind("<Return>", lambda _: _ok())
-        _btn_primary(dlg, "OK", _ok, padx=12, pady=4).pack(pady=(6, 10))
 
     def _stats_grp_clear_all(self) -> None:
         self._stats_groups.clear()
@@ -2039,7 +1557,7 @@ class WellViewerApp(tk.Frame):
 
     # ── Stats right: test selector + results ─────────────────────────────────
 
-    def _build_stats_results_panel(self, parent: tk.Frame) -> None:
+    def _build_stats_results_panel(self, parent) -> None:
         _build_stats_results_panel_view(
             self,
             parent,
@@ -2072,62 +1590,25 @@ class WellViewerApp(tk.Frame):
                     pass
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
-        self._stats_tp_cb["values"] = tp_strs or ["—"]
-        if tp_strs:
-            self._stats_tp_var.set(tp_strs[0])
-        else:
-            self._stats_tp_var.set("—")
+        _set_combo_values(self._stats_tp_cb, tp_strs or ["—"])
+        if hasattr(self._stats_tp_cb, "setCurrentText"):
+            self._stats_tp_cb.setCurrentText(tp_strs[0] if tp_strs else "—")
 
     def _stats_write_result(self, text: str) -> None:
-        self._stats_result_text.config(state=tk.NORMAL)
-        self._stats_result_text.delete("1.0", tk.END)
-        if text:
-            self._stats_result_text.insert(tk.END, text)
-        self._stats_result_text.config(state=tk.DISABLED)
+        self._stats_result_text.setReadOnly(False)
+        self._stats_result_text.setPlainText(text or "")
+        self._stats_result_text.setReadOnly(True)
 
     def _stats_refresh_colors(self) -> None:
-        """Refresh all statistics tab colors when theme changes."""
+        """Refresh matplotlib figure facecolor on theme change.
+
+        Widget colours are driven by the app-level QSS stylesheet; only the
+        embedded matplotlib figure needs an explicit repaint.
+        """
         from ui.theme import get_color
 
-        # Get current theme colors
-        bg_app = get_color("BG_APP")
-        bg_side = get_color("BG_SIDE")
-        bg_panel = get_color("BG_PANEL")
-        txt_pri = get_color("TXT_PRI")
-        txt_sec = get_color("TXT_SEC")
-        txt_mut = get_color("TXT_MUT")
-        border = get_color("BORDER")
-
-        # Update header frame
-        if hasattr(self, "_stats_hdr"):
-            self._stats_hdr.configure(bg=bg_side)
-            self._stats_hdr_label.configure(bg=bg_side, fg=txt_mut)
-
-        # Update control frame
-        if hasattr(self, "_stats_ctrl"):
-            self._stats_ctrl.configure(bg=bg_app)
-            self._stats_test_label.configure(bg=bg_app, fg=txt_sec)
-            self._stats_tp_label.configure(bg=bg_app, fg=txt_sec)
-
-        # Update separator
-        if hasattr(self, "_stats_sep"):
-            self._stats_sep.configure(bg=border)
-
-        # Update figure frame and matplotlib figure
-        if hasattr(self, "_stats_fig_frame"):
-            self._stats_fig_frame.configure(bg=bg_app)
         if hasattr(self, "_stats_fig"):
-            self._stats_fig.set_facecolor(bg_app)
-
-        # Update results frame
-        if hasattr(self, "_stats_res_frame"):
-            self._stats_res_frame.configure(bg=bg_app)
-
-        # Update results text widget
-        if hasattr(self, "_stats_result_text"):
-            self._stats_result_text.configure(bg=bg_panel, fg=txt_pri, highlightbackground=border)
-
-        # Redraw the canvas
+            self._stats_fig.set_facecolor(get_color("BG_APP"))
         if hasattr(self, "_stats_canvas_widget"):
             self._stats_canvas_widget.draw()
 
@@ -2152,7 +1633,7 @@ class WellViewerApp(tk.Frame):
 
     # ── Preview sidebar picker ────────────────────────────────────────────────
 
-    def _build_preview_picker(self, parent: tk.Frame) -> None:
+    def _build_preview_picker(self, parent) -> None:
         _build_preview_picker_view(
             self,
             parent,
@@ -2190,19 +1671,27 @@ class WellViewerApp(tk.Frame):
 
     # ── Bar-plot grouping panel ───────────────────────────────────────────────
 
-    def _build_bar_group_panel(self, parent: tk.Frame) -> None:
+    def _build_bar_group_panel(self, parent) -> None:
         from well_viewer.views.bar_group_panel_view import build_bar_group_panel as _v
         _v(self, parent)
 
-    def _build_groups_centre(self, parent: tk.Frame) -> None:
-        """Centre panel for the Sample Definitions tab (label editor only)."""
+    def _build_groups_centre(self, parent) -> None:
+        """Centre panel for the Sample Definitions tab: well-label editor only."""
+        from PySide6.QtWidgets import QVBoxLayout as _QVBoxLayout
+
+        outer_layout = parent.layout()
+        if outer_layout is None:
+            outer_layout = _QVBoxLayout(parent)
+            parent.setLayout(outer_layout)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
         self._build_label_editor(parent)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Replicate panel
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _build_replicate_panel(self, parent: tk.Frame) -> None:
+    def _build_replicate_panel(self, parent) -> None:
         from well_viewer.views.replicate_panel_view import build_replicate_panel as _v
         _v(self, parent)
 
@@ -2211,22 +1700,15 @@ class WellViewerApp(tk.Frame):
     def _rep_refresh_map(self) -> None:
         """Recolour the replicate-panel plate map.
 
-        Each defined ReplicateSet gets a distinct colour (WELL_COLORS index).
-        The active (selected) set's wells are rendered slightly brighter.
-        Unassigned loaded wells are shown in a neutral available colour.
-        No active set → all sets shown in colour, map not drag-editable (greyed hint).
+        Each defined ReplicateSet gets a distinct colour. The active set's
+        wells are sunken. If a group is the active target instead, its solo
+        wells are shown in the group palette colour so they can be edited
+        directly from the sidebar.
         """
-        from ui.theme import get_color
-
         if not hasattr(self, "_rep_map_btns"):
             return
+        bg, fg, fg_disabled = self._plate_theme_colors()
 
-        # Get current colors from theme
-        button_bg = get_color("button_bg")
-        button_text = get_color("button_text")
-        button_text_disabled = get_color("button_text_disabled")
-
-        # Build tok -> (color, is_active_set)
         tok_color: Dict[str, str] = {}
         tok_active: Dict[str, bool] = {}
         for si, rset in enumerate(self._rep_sets):
@@ -2235,111 +1717,56 @@ class WellViewerApp(tk.Frame):
                 tok_color[tok] = c
                 tok_active[tok] = (si == self._active_rep_idx)
 
-        has_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        active_color = (WELL_COLORS[self._active_rep_idx % len(WELL_COLORS)]
-                        if has_active else ACCENT)
+        has_rep_active = 0 <= self._active_rep_idx < len(self._rep_sets)
+        has_grp_active = 0 <= getattr(self, "_bar_active_grp", -1) < len(self._bar_groups)
+        grp_solo_toks: set = set()
+        grp_color = ACCENT
+        if has_grp_active:
+            grp = self._bar_groups[self._bar_active_grp]
+            grp_solo_toks = set(grp.solo_wells)
+            grp_color = WELL_COLORS[self._bar_active_grp % len(WELL_COLORS)]
+        has_active = has_rep_active or has_grp_active
 
         for tok, btn in self._rep_map_btns.items():
             if tok not in self._well_paths:
-                btn.config(
-                    bg=button_bg,
-                    fg=button_text_disabled,
-                    state=tk.DISABLED,
-                    cursor="arrow",
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
+                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
+            elif tok in grp_solo_toks:
+                self._plate_apply_colored(
+                    btn, grp_color, active=True, fg_disabled=fg_disabled,
                 )
             elif tok in tok_color:
-                act = tok_active.get(tok, False)
-                # Active-set wells: solid bright colour; other sets: dimmed (70 % alpha via lighter shade)
-                grp_color = tok_color[tok]
-                btn.config(
-                    bg=grp_color,
-                    fg="white",
-                    state=tk.NORMAL,
-                    cursor="hand2",
-                    relief=tk.SUNKEN if act else tk.FLAT,
-                    activebackground=self._mute_color(grp_color, 0.3) if act else grp_color,
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled,
+                self._plate_apply_colored(
+                    btn, tok_color[tok],
+                    active=tok_active.get(tok, False), fg_disabled=fg_disabled,
                 )
             else:
-                # Unassigned well — editable if a set is selected
-                if has_active:
-                    btn.config(
-                        bg=button_bg,
-                        fg=button_text,
-                        state=tk.NORMAL,
-                        cursor="hand2",
-                        relief=tk.FLAT,
-                        activebackground=button_bg,
-                        activeforeground=button_text,
-                        disabledforeground=button_text_disabled,
-                    )
-                else:
-                    btn.config(
-                        bg=button_bg,
-                        fg=button_text,
-                        state=tk.NORMAL,
-                        cursor="arrow",
-                        relief=tk.FLAT,
-                        activebackground=button_bg,
-                        activeforeground=button_text,
-                        disabledforeground=button_text_disabled,
-                    )
+                self._plate_apply_neutral(
+                    btn, bg, fg, fg_disabled,
+                    cursor="hand2" if has_active else "arrow",
+                )
 
-    def _rep_map_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
+    def _rep_map_tok_at(self, event) -> Optional[str]:
         return _gc_rep_map_tok_at(self, event)
 
-    def _rep_map_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _rep_map_press(self, event) -> None:
         _gc_rep_map_press(self, event)
 
-    def _rep_map_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _rep_map_drag(self, event) -> None:
         _gc_rep_map_drag(self, event)
 
-    def _rep_map_release(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _rep_map_release(self, _event) -> None:
         _gc_rep_map_release(self, _event)
 
     def _rep_map_apply(self, tok: str) -> None:
         _gc_rep_map_apply(self, tok)
 
     def _rep_refresh_map_single(self, tok: str) -> None:
-        """Update a single rep-map button (cheap mid-drag feedback)."""
-        if not hasattr(self, "_rep_map_btns"):
-            return
-        btn = self._rep_map_btns.get(tok)
-        if btn is None:
-            return
-        if tok not in self._well_paths:
-            return
-        # Find which set owns this well now
-        for si, rset in enumerate(self._rep_sets):
-            if tok in rset.wells:
-                act = (si == self._active_rep_idx)
-                btn.config(
-                    bg=button_bg,
-                    fg=button_text,
-                    state=tk.NORMAL,
-                    cursor="hand2",
-                    relief=tk.SUNKEN if act else tk.FLAT,
-                    activebackground=button_bg,
-                    activeforeground=button_text,
-                    disabledforeground=button_text_disabled,
-                )
-                return
-        # Unassigned
-        has_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        btn.config(
-            bg=button_bg,
-            fg=button_text,
-            state=tk.NORMAL,
-            cursor="hand2" if has_active else "arrow",
-            relief=tk.FLAT,
-            activebackground=button_bg,
-            activeforeground=button_text,
-            disabledforeground=button_text_disabled,
-        )
+        """Update a single rep-map button (cheap mid-drag feedback).
+
+        Delegates to the full refresh to keep group-solo/rep-set colouring
+        consistent — the grid is at most 96 cells so the cost is negligible.
+        """
+        self._rep_refresh_map()
 
     def _rep_panel_refresh(self) -> None:
         from well_viewer.views.grouping_view import rep_panel_refresh as _rep_panel_refresh_view
@@ -2348,66 +1775,49 @@ class WellViewerApp(tk.Frame):
 
     def _rep_select(self, idx: int) -> None:
         self._active_rep_idx = idx
+        # Replicate-set and group selections are mutually exclusive so the
+        # sidebar plate grid has a single unambiguous edit target.
+        self._bar_active_grp = -1
         self._groups_centre_refresh()   # card list
         self._rep_refresh_map()         # plate map: highlight selected set
 
     def _rep_add(self) -> None:
         """Open dialog to create a new named ReplicateSet."""
-        dlg = tk.Toplevel(self)
-        dlg.title("New Replicate Set")
-        dlg.configure(bg=BG_APP)
-        dlg.grab_set()
-        dlg.resizable(False, False)
-
-        name_var = tk.StringVar(value=f"Rep {len(self._rep_sets)+1}")
-        tk.Label(dlg, text="Name:", font=FM_BOLD, fg=TXT_SEC,
-                 bg=BG_APP).pack(padx=16, pady=(12, 2), anchor="w")
-        tk.Entry(dlg, textvariable=name_var, font=FM_UI,
-                 bg=BG_PANEL, fg=TXT_PRI, relief=tk.FLAT,
-                 highlightthickness=1, highlightcolor=ACCENT,
-                 highlightbackground=BORDER, width=24).pack(padx=16, anchor="w")
-
-        tk.Label(dlg, text="Select wells:", font=FM_BOLD, fg=TXT_SEC,
-                 bg=BG_APP).pack(padx=16, pady=(10, 2), anchor="w")
-
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New Replicate Set")
+        dlg.setModal(True)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel("Name:"))
+        name_edit = QLineEdit(f"Rep {len(self._rep_sets)+1}")
+        v.addWidget(name_edit)
+        v.addWidget(QLabel("Select wells:"))
         available = sorted(self._well_paths.keys(),
                            key=lambda l: self._parse_rc(l))
-        lb_fr = tk.Frame(dlg, bg=BG_APP)
-        lb_fr.pack(fill=tk.BOTH, expand=True, padx=16)
-        vsb = tk.Scrollbar(lb_fr, relief=tk.FLAT, width=7,
-                           bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        lb = tk.Listbox(lb_fr, selectmode=tk.MULTIPLE,
-                        bg=BG_PANEL, fg=TXT_PRI, font=FM_MONO,
-                        selectbackground=ACCENT, selectforeground=CLR_WHITE,
-                        activestyle="none", relief=tk.FLAT,
-                        highlightthickness=1, highlightcolor=ACCENT,
-                        highlightbackground=BORDER,
-                        yscrollcommand=vsb.set, exportselection=False,
-                        height=min(len(available), 12))
-        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=lb.yview)
-        for w in available:
-            lb.insert(tk.END, w)
-
-        btn_row = tk.Frame(dlg, bg=BG_APP)
-        btn_row.pack(fill=tk.X, padx=16, pady=(8, 12))
+        lb = _wells_multiselect_listbox(dlg, available)
+        v.addWidget(lb, 1)
+        btn_row = QHBoxLayout()
+        v.addLayout(btn_row)
+        ok_btn = QPushButton("Create")
+        ok_btn.setProperty("variant", "primary")
+        cancel_btn = QPushButton("Cancel")
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch(1)
 
         def _ok():
-            sel = lb.curselection()
+            sel = _selected_list_values(lb)
             if not sel:
-                messagebox.showwarning("No wells", "Select at least one well.",
-                                       parent=dlg)
+                QMessageBox.warning(dlg, "No wells", "Select at least one well.")
                 return
-            wells = [available[i] for i in sel]
-            name  = name_var.get().strip() or f"Rep {len(self._rep_sets)+1}"
-            self._rep_sets.append(ReplicateSet(name, wells))
+            name = name_edit.text().strip() or f"Rep {len(self._rep_sets)+1}"
+            self._rep_sets.append(ReplicateSet(name, sel))
             self._active_rep_idx = len(self._rep_sets) - 1
-            dlg.destroy()
+            dlg.accept()
             self._rebuild_all()
 
-        _btn_primary(btn_row, "Create", _ok, padx=12, pady=4).pack(side=tk.LEFT)
-        _btn_secondary(btn_row, "Cancel", dlg.destroy, padx=8, pady=4).pack(side=tk.LEFT, padx=(6, 0))
+        ok_btn.clicked.connect(_ok)
+        cancel_btn.clicked.connect(dlg.reject)
+        dlg.exec()
 
     def _rep_rename(self, idx: int) -> None:
         if not (0 <= idx < len(self._rep_sets)):
@@ -2416,55 +1826,6 @@ class WellViewerApp(tk.Frame):
         if name:
             self._rep_sets[idx].name = name
             self._rebuild_all()
-
-    def _rep_edit_wells(self, idx: int) -> None:
-        """Re-open well-selection dialog for an existing ReplicateSet."""
-        if not (0 <= idx < len(self._rep_sets)):
-            return
-        rset = self._rep_sets[idx]
-        available = sorted(self._well_paths.keys(), key=lambda l: self._parse_rc(l))
-
-        dlg = tk.Toplevel(self)
-        dlg.title(f"Edit wells — {rset.name}")
-        dlg.configure(bg=BG_APP)
-        dlg.grab_set()
-        dlg.resizable(False, False)
-
-        tk.Label(dlg, text=f"Select wells for \"{rset.name}\":",
-                 font=FM_BOLD, fg=TXT_SEC, bg=BG_APP
-                 ).pack(padx=16, pady=(12, 2), anchor="w")
-
-        lb_fr = tk.Frame(dlg, bg=BG_APP)
-        lb_fr.pack(fill=tk.BOTH, expand=True, padx=16)
-        vsb = tk.Scrollbar(lb_fr, relief=tk.FLAT, width=7,
-                           bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        lb = tk.Listbox(lb_fr, selectmode=tk.MULTIPLE,
-                        bg=BG_PANEL, fg=TXT_PRI, font=FM_MONO,
-                        selectbackground=ACCENT, selectforeground=CLR_WHITE,
-                        activestyle="none", relief=tk.FLAT,
-                        highlightthickness=1, highlightcolor=ACCENT,
-                        highlightbackground=BORDER,
-                        yscrollcommand=vsb.set, exportselection=False,
-                        height=min(len(available), 12))
-        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=lb.yview)
-        for i, w in enumerate(available):
-            lb.insert(tk.END, w)
-            if w in rset.wells:
-                lb.selection_set(i)
-
-        btn_row = tk.Frame(dlg, bg=BG_APP)
-        btn_row.pack(fill=tk.X, padx=16, pady=(8, 12))
-
-        def _ok():
-            sel = lb.curselection()
-            rset.wells = [available[i] for i in sel]
-            dlg.destroy()
-            self._rebuild_all()
-
-        _btn_primary(btn_row, "Save", _ok, padx=12, pady=4).pack(side=tk.LEFT)
-        _btn_secondary(btn_row, "Cancel", dlg.destroy, padx=8, pady=4).pack(side=tk.LEFT, padx=(6, 0))
 
     def _rep_delete(self, idx: int) -> None:
         if not (0 <= idx < len(self._rep_sets)):
@@ -2482,10 +1843,13 @@ class WellViewerApp(tk.Frame):
     def _rep_clear_all(self) -> None:
         if not self._rep_sets:
             return
-        if messagebox.askyesno("Clear all replicate sets?",
-                               f"Remove all {len(self._rep_sets)} set(s)?\n"
-                               "Groups referencing them will also lose those members.",
-                               parent=self):
+        resp = QMessageBox.question(
+            self, "Clear all replicate sets?",
+            f"Remove all {len(self._rep_sets)} set(s)?\n"
+            "Groups referencing them will also lose those members.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if resp == QMessageBox.Yes:
             for grp in self._bar_groups:
                 grp.members.clear()
             self._rep_sets.clear()
@@ -2497,7 +1861,7 @@ class WellViewerApp(tk.Frame):
     # Group definition panel
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _build_group_def_panel(self, parent: tk.Frame) -> None:
+    def _build_group_def_panel(self, parent) -> None:
         from well_viewer.views.grouping_view import build_group_def_panel as _v
         _v(self, parent)
 
@@ -2543,7 +1907,7 @@ class WellViewerApp(tk.Frame):
     # Well-label editor
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _build_label_editor(self, parent: tk.Frame) -> None:
+    def _build_label_editor(self, parent) -> None:
         from well_viewer.views.label_editor_view import build_label_editor as _v
         _v(self, parent)
 
@@ -2567,7 +1931,7 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_notebook"):
             try:
                 tab_visible = (
-                    self._notebook.tab(self._notebook.select(), "text")
+                    self._notebook.tabText(self._notebook.currentIndex())
                     == "Sample Definitions")
             except Exception:
                 pass
@@ -2578,7 +1942,7 @@ class WellViewerApp(tk.Frame):
             self._label_panel_refresh()
         self._rep_refresh_map()
 
-    def _build_bar_perwell_strip(self, parent: tk.Frame) -> None:
+    def _build_bar_perwell_strip(self, parent) -> None:
         from well_viewer.views.bar_group_panel_view import build_bar_perwell_strip as _v
         _v(self, parent)
 
@@ -2595,7 +1959,7 @@ class WellViewerApp(tk.Frame):
         if getattr(self, "_grp_ui_pending", False):
             return
         self._grp_ui_pending = True
-        self.after(0, self._bar_rebuild_groups_ui_now)
+        QTimer.singleShot(0, self._bar_rebuild_groups_ui_now)
 
     def _bar_rebuild_groups_ui_now(self) -> None:
         from well_viewer.views.bar_group_panel_view import rebuild_groups_ui_now as _v
@@ -2636,7 +2000,7 @@ class WellViewerApp(tk.Frame):
         self._redraw()
         if hasattr(self, "_notebook"):
             try:
-                tab = self._notebook.tab(self._notebook.select(), "text")
+                tab = self._notebook.tabText(self._notebook.currentIndex())
             except Exception:
                 tab = ""
             if tab == "Line Graphs":
@@ -2656,7 +2020,7 @@ class WellViewerApp(tk.Frame):
         self._redraw()
         if hasattr(self, "_notebook"):
             try:
-                tab = self._notebook.tab(self._notebook.select(), "text")
+                tab = self._notebook.tabText(self._notebook.currentIndex())
             except Exception:
                 tab = ""
             if tab == "Line Graphs":
@@ -2668,7 +2032,7 @@ class WellViewerApp(tk.Frame):
         name = ask_name_dialog(self, default=f"Group {len(self._bar_groups) + 1}")
         if name is None:
             return
-        self._bar_groups.append(BarGroup(name, replicates=[]))
+        self._bar_groups.append(BarGroup(name, members=[]))
         self._bar_active_grp = len(self._bar_groups) - 1
         self._bar_active_rep  = -1
         self._bar_rebuild_groups()
@@ -2677,9 +2041,12 @@ class WellViewerApp(tk.Frame):
         """Remove all bar groups after confirmation."""
         if not self._bar_groups:
             return
-        if messagebox.askyesno("Clear all groups?",
-                               f"Remove all {len(self._bar_groups)} group(s)?",
-                               parent=self):
+        resp = QMessageBox.question(
+            self, "Clear all groups?",
+            f"Remove all {len(self._bar_groups)} group(s)?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if resp == QMessageBox.Yes:
             self._bar_groups.clear()
             self._bar_active_grp = -1
             self._bar_active_rep  = -1
@@ -2718,71 +2085,45 @@ class WellViewerApp(tk.Frame):
         assigned = {w for rset in grp.replicates for w in rset.wells}
         available = [lbl for lbl in self._well_paths if lbl not in assigned]
         if not available:
-            messagebox.showinfo("All assigned",
-                                "All loaded wells are already in a replicate set.",
-                                parent=self)
+            QMessageBox.information(self, "All assigned",
+                                    "All loaded wells are already in a replicate set.")
             return
 
-        dlg = tk.Toplevel(self)
-        dlg.title("New Replicate Set")
-        dlg.configure(bg=BG_APP)
-        dlg.grab_set()
-        dlg.resizable(False, False)
-
-        name_var = tk.StringVar(value=f"R{len(grp.replicates)+1}")
-        tk.Label(dlg, text="Replicate set name:", font=FM_BOLD,
-                 fg=TXT_SEC, bg=BG_APP).pack(padx=16, pady=(12, 2), anchor="w")
-        tk.Entry(dlg, textvariable=name_var, font=FM_UI,
-                 bg=BG_PANEL, fg=TXT_PRI, relief=tk.FLAT,
-                 highlightthickness=1, highlightcolor=ACCENT,
-                 highlightbackground=BORDER, width=24).pack(padx=16, anchor="w")
-
-        tk.Label(dlg, text="Select wells in this replicate set:",
-                 font=FM_BOLD, fg=TXT_SEC, bg=BG_APP).pack(
-                 padx=16, pady=(10, 2), anchor="w")
-
-        lb_frame = tk.Frame(dlg, bg=BG_APP)
-        lb_frame.pack(fill=tk.BOTH, expand=True, padx=16)
-        vsb = tk.Scrollbar(lb_frame, relief=tk.FLAT, width=7,
-                           bg=BORDER, troughcolor=BG_SIDE)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        lb = tk.Listbox(lb_frame, selectmode=tk.MULTIPLE,
-                        bg=BG_PANEL, fg=TXT_PRI, font=FM_MONO,
-                        selectbackground=ACCENT, selectforeground=CLR_WHITE,
-                        activestyle="none", relief=tk.FLAT,
-                        highlightthickness=1, highlightcolor=ACCENT,
-                        highlightbackground=BORDER,
-                        yscrollcommand=vsb.set, exportselection=False,
-                        height=min(len(available), 10))
-        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=lb.yview)
-        for w in sorted(available, key=lambda l: self._parse_rc(l)):
-            lb.insert(tk.END, w)
-
-        btn_row = tk.Frame(dlg, bg=BG_APP)
-        btn_row.pack(fill=tk.X, padx=16, pady=(8, 12))
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New Replicate Set")
+        dlg.setModal(True)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel("Replicate set name:"))
+        name_edit = QLineEdit(f"R{len(grp.replicates)+1}")
+        v.addWidget(name_edit)
+        v.addWidget(QLabel("Select wells in this replicate set:"))
+        sorted_available = sorted(available, key=lambda l: self._parse_rc(l))
+        lb = _wells_multiselect_listbox(dlg, sorted_available)
+        v.addWidget(lb, 1)
+        btn_row = QHBoxLayout()
+        v.addLayout(btn_row)
+        add_btn = QPushButton("Add Replicate Set")
+        add_btn.setProperty("variant", "primary")
+        cancel_btn = QPushButton("Cancel")
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch(1)
 
         def _ok():
-            sel = lb.curselection()
+            sel = _selected_list_values(lb)
             if not sel:
-                messagebox.showwarning("No wells selected",
-                                       "Select at least one well.", parent=dlg)
+                QMessageBox.warning(dlg, "No wells selected",
+                                    "Select at least one well.")
                 return
-            wells = [available[i] for i in sel]
-            name  = name_var.get().strip() or f"R{len(grp.replicates)+1}"
-            grp.replicates.append(ReplicateSet(name, wells))
-            dlg.destroy()
+            name = name_edit.text().strip() or f"R{len(grp.replicates)+1}"
+            grp.replicates.append(ReplicateSet(name, sel))
+            dlg.accept()
             self._bar_active_rep = len(grp.replicates) - 1
             self._bar_rebuild_groups()
 
-        tk.Button(btn_row, text="Add Replicate Set", command=_ok,
-                  font=FM_BOLD, bg=ACCENT, fg=CLR_WHITE,
-                  activebackground=ACCENT, relief=tk.FLAT,
-                  padx=12, pady=4, cursor="hand2").pack(side=tk.LEFT)
-        tk.Button(btn_row, text="Cancel", command=dlg.destroy,
-                  font=FM_TINY, bg=BG_CELL, fg=TXT_SEC,
-                  activebackground=BG_HOVER, relief=tk.FLAT,
-                  padx=8, pady=4, cursor="hand2").pack(side=tk.LEFT, padx=(6, 0))
+        add_btn.clicked.connect(_ok)
+        cancel_btn.clicked.connect(dlg.reject)
+        dlg.exec()
 
     def _bar_remove_replicate_set(self, group_idx: int, set_idx: int) -> None:
         """Remove one ReplicateSet from the group."""
@@ -2831,66 +2172,55 @@ class WellViewerApp(tk.Frame):
 
     # ── Right-click rubber-band: toggle visibility for all groups in rectangle ─
 
-    def _bg_vis_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        """Record the screen-space anchor and open the rubber-band Toplevel."""
-        sx = event.widget.winfo_rootx() + event.x
-        sy = event.widget.winfo_rooty() + event.y
+    def _bg_vis_press(self, event) -> None:
+        """Record the screen-space anchor and open the rubber-band overlay."""
+        gp = event.globalPosition().toPoint()
+        sx, sy = gp.x(), gp.y()
         self._vis_anchor_screen: tuple = (sx, sy)
 
-        # Snapshot each button's screen-space centre for release hit-testing.
         self._vis_btn_centres: Dict[str, tuple] = {}
         for tok, btn in self._bar_map_btns.items():
-            if btn.winfo_ismapped() and btn.cget("state") != tk.DISABLED:
-                cx = btn.winfo_rootx() + btn.winfo_width()  // 2
-                cy = btn.winfo_rooty() + btn.winfo_height() // 2
-                self._vis_btn_centres[tok] = (cx, cy)
+            if btn.isVisible() and btn.isEnabled():
+                rect = btn.rect()
+                centre_local = rect.center()
+                centre_global = btn.mapToGlobal(centre_local)
+                self._vis_btn_centres[tok] = (centre_global.x(), centre_global.y())
 
-        # Destroy any previous rubber-band window.
         if self._vis_rubber_win is not None:
             try:
-                self._vis_rubber_win.destroy()
+                self._vis_rubber_win.deleteLater()
             except Exception:
                 pass
-        # Floating Toplevel: no decorations, semi-transparent red fill.
-        # Drawn entirely outside the main window's widget hierarchy so it
-        # renders on top of all buttons without intercepting their events.
-        win = tk.Toplevel(self)
-        win.overrideredirect(True)
-        try:
-            win.attributes("-alpha", 0.30)
-        except Exception:
-            pass
-        win.configure(bg=WELL_COLOR_2)
-        win.geometry("1x1+0+0")
-        win.lift()
+        win = QWidget(self, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
+        win.setAttribute(Qt.WA_TranslucentBackground, False)
+        win.setWindowOpacity(0.30)
+        win.setStyleSheet(f"background-color: {WELL_COLOR_2};")
+        win.setGeometry(0, 0, 1, 1)
+        win.show()
+        win.raise_()
         self._vis_rubber_win = win
 
-    def _bg_vis_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        """Resize the floating Toplevel to span anchor → cursor (screen coords)."""
+    def _bg_vis_drag(self, event) -> None:
+        """Resize the overlay to span anchor → cursor (screen coords)."""
         if not hasattr(self, "_vis_anchor_screen") or self._vis_rubber_win is None:
             return
-        cx = event.widget.winfo_rootx() + event.x
-        cy = event.widget.winfo_rooty() + event.y
+        gp = event.globalPosition().toPoint()
+        cx, cy = gp.x(), gp.y()
         ax, ay = self._vis_anchor_screen
         x0, y0 = min(ax, cx), min(ay, cy)
         w  = max(2, abs(cx - ax))
         h  = max(2, abs(cy - ay))
-        self._vis_rubber_win.geometry(f"{w}x{h}+{x0}+{y0}")
+        self._vis_rubber_win.setGeometry(x0, y0, w, h)
 
-    def _bg_vis_release(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        """
-        Toggle visibility of replicate sets whose wells fall inside the
-        rubber-band rectangle, then destroy the floating Toplevel.
-        """
-        # Tear down the rubber-band window first — must happen regardless.
+    def _bg_vis_release(self, event) -> None:
+        """Toggle visibility of replicate sets whose wells fall inside the rectangle."""
         if self._vis_rubber_win is not None:
             try:
-                self._vis_rubber_win.destroy()
+                self._vis_rubber_win.deleteLater()
             except Exception:
                 pass
             self._vis_rubber_win = None
 
-        # Collect state set by _bg_vis_press, then clear it.
         anchor     = getattr(self, "_vis_anchor_screen", None)
         btn_centres = getattr(self, "_vis_btn_centres", {})
         for attr in ("_vis_anchor_screen", "_vis_btn_centres"):
@@ -2902,9 +2232,8 @@ class WellViewerApp(tk.Frame):
         if anchor is None:
             return
 
-        # Rectangle in screen coordinates.
-        cx = event.widget.winfo_rootx() + event.x
-        cy = event.widget.winfo_rooty() + event.y
+        gp = event.globalPosition().toPoint()
+        cx, cy = gp.x(), gp.y()
         ax, ay = anchor
         x0, x1 = min(ax, cx), max(ax, cx)
         y0, y1 = min(ay, cy), max(ay, cy)
@@ -3053,11 +2382,13 @@ class WellViewerApp(tk.Frame):
         if not new_sets:
             return
         if self._rep_sets:
-            if not messagebox.askyesno(
-                    "Replace replicate sets?",
-                    f"This will replace the current {len(self._rep_sets)} "
-                    "replicate set(s). Continue?",
-                    parent=self):
+            resp = QMessageBox.question(
+                self, "Replace replicate sets?",
+                f"This will replace the current {len(self._rep_sets)} "
+                "replicate set(s). Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
                 return
             for grp in self._bar_groups:
                 grp.members.clear()
@@ -3097,7 +2428,7 @@ class WellViewerApp(tk.Frame):
 
         # Rebuild the Replicates tab card list only if it is visible
         try:
-            active_tab = self._notebook.tab(self._notebook.select(), "text")
+            active_tab = self._notebook.tabText(self._notebook.currentIndex())
         except Exception:
             active_tab = ""
         if active_tab == "Sample Definitions":
@@ -3107,13 +2438,13 @@ class WellViewerApp(tk.Frame):
         # _on_tab_change already triggers redraws on tab switch, so skipping
         # these when the user is on another tab has no visible effect.
         try:
-            active_tab = self._notebook.tab(self._notebook.select(), "text")
+            active_tab = self._notebook.tabText(self._notebook.currentIndex())
         except Exception:
             active_tab = ""
         if active_tab == "Bar Plots":
-            self.after(0, self._redraw_bars)
+            QTimer.singleShot(0, self._redraw_bars)
         elif active_tab == "Line Graphs":
-            self.after(0, self._redraw)
+            QTimer.singleShot(0, self._redraw)
 
     def _make_replicate_pairs(self, toks: List[str], prefix: str) -> List[ReplicateSet]:
         """Pair adjacent tokens into ReplicateSets; singletons become solo sets."""
@@ -3152,7 +2483,7 @@ class WellViewerApp(tk.Frame):
                     if not loaded:
                         continue
                     sets = self._make_replicate_pairs(loaded, row_ltr)
-                    self._bar_groups.append(BarGroup(f"Row {row_ltr}", replicates=sets))
+                    self._bar_groups.append(BarGroup(f"Row {row_ltr}", members=sets))
             else:
                 # Group by column (column-first): Column groups with row pairs within
                 for col in _PLATE_COLS:
@@ -3167,7 +2498,7 @@ class WellViewerApp(tk.Frame):
                         if loaded:
                             pairs_in_col.extend(self._make_replicate_pairs(loaded, col))
                     if pairs_in_col:
-                        self._bar_groups.append(BarGroup(f"Col {col}", replicates=pairs_in_col))
+                        self._bar_groups.append(BarGroup(f"Col {col}", members=pairs_in_col))
         else:
             # Column pairs with grouping by row or column
             if iter_order == "col":
@@ -3178,7 +2509,7 @@ class WellViewerApp(tk.Frame):
                     if not loaded:
                         continue
                     sets = self._make_replicate_pairs(loaded, col)
-                    self._bar_groups.append(BarGroup(f"Col {col}", replicates=sets))
+                    self._bar_groups.append(BarGroup(f"Col {col}", members=sets))
             else:
                 # Group by row (row-first): Row groups with column pairs within
                 for row_ltr in _PLATE_ROWS:
@@ -3193,12 +2524,12 @@ class WellViewerApp(tk.Frame):
                         if loaded:
                             pairs_in_row.extend(self._make_replicate_pairs(loaded, col))
                     if pairs_in_row:
-                        self._bar_groups.append(BarGroup(f"Row {row_ltr}", replicates=pairs_in_row))
+                        self._bar_groups.append(BarGroup(f"Row {row_ltr}", members=pairs_in_row))
 
         if self._bar_groups:
             self._bar_active_grp = 0
         self._bar_rebuild_groups_ui_now()        # instant: show cards
-        self.after(50, self._bar_rebuild_groups) # deferred: update plots
+        QTimer.singleShot(50, self._bar_rebuild_groups) # deferred: update plots
 
     def _bar_quick_groups_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _bar_quick_groups()."""
@@ -3267,21 +2598,18 @@ class WellViewerApp(tk.Frame):
     def _bar_save_groups(self) -> None:
         """Write current bar groups to a JSON file chosen by the user."""
         if not self._bar_groups:
-            messagebox.showwarning(
-                "Nothing to save",
+            QMessageBox.warning(
+                self, "Nothing to save",
                 "Define at least one group before saving.",
-                parent=self,
             )
             return
-        out_dir = self._app._data_dir if self._app._data_dir else None
-        path_str = filedialog.asksaveasfilename(
-            parent=self,
-            title="Save bar group definitions",
-            defaultextension=".json",
-            filetypes=[("Group definitions JSON", "*.json"),
-                       ("All files", "*.*")],
-            initialfile="bar_groups.json",
-            initialdir=str(out_dir) if out_dir else None,
+        out_dir = self._data_dir if self._data_dir else None
+        init_dir = str(out_dir) if out_dir else ""
+        init_path = str(Path(init_dir) / "bar_groups.json") if init_dir else "bar_groups.json"
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Save bar group definitions",
+            init_path,
+            "Group definitions JSON (*.json);;All files (*.*)",
         )
         if not path_str:
             return
@@ -3290,17 +2618,16 @@ class WellViewerApp(tk.Frame):
                 json.dump(self._bar_groups_to_dict(), fh, indent=2)
             _logger.info("Bar groups saved to %s", path_str)
         except OSError as exc:
-            messagebox.showerror("Save failed", str(exc), parent=self)
+            QMessageBox.critical(self, "Save failed", str(exc))
 
     def _bar_load_groups(self) -> None:
         """Load bar groups from a previously saved JSON file."""
-        out_dir = self._app._data_dir if self._app._data_dir else None
-        path_str = filedialog.askopenfilename(
-            parent=self,
-            title="Load bar group definitions",
-            filetypes=[("Group definitions JSON", "*.json"),
-                       ("All files", "*.*")],
-            initialdir=str(out_dir) if out_dir else None,
+        out_dir = self._data_dir if self._data_dir else None
+        init_dir = str(out_dir) if out_dir else ""
+        path_str, _ = QFileDialog.getOpenFileName(
+            self, "Load bar group definitions",
+            init_dir,
+            "Group definitions JSON (*.json);;All files (*.*)",
         )
         if not path_str:
             return
@@ -3310,19 +2637,19 @@ class WellViewerApp(tk.Frame):
             if not isinstance(data, list):
                 raise ValueError("Expected a JSON array at the top level.")
         except (OSError, json.JSONDecodeError, ValueError) as exc:
-            messagebox.showerror(
-                "Load failed",
+            QMessageBox.critical(
+                self, "Load failed",
                 f"Could not read group definitions:\n{exc}",
-                parent=self,
             )
             return
         if self._bar_groups:
-            if not messagebox.askyesno(
-                "Replace existing groups?",
+            resp = QMessageBox.question(
+                self, "Replace existing groups?",
                 f"Loading will replace the current {len(self._bar_groups)} "
                 f"group(s).  Continue?",
-                parent=self,
-            ):
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
                 return
         self._bar_groups_from_dict(data)
         self._bar_rebuild_groups()
@@ -3344,10 +2671,12 @@ class WellViewerApp(tk.Frame):
 
     # ── Bar-map drag helpers ──────────────────────────────────────────────────
 
-    def _bar_map_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
-        sx = event.widget.winfo_rootx() + event.x
-        sy = event.widget.winfo_rooty() + event.y
-        w  = event.widget.winfo_containing(sx, sy)
+    def _bar_map_tok_at(self, event) -> Optional[str]:
+        try:
+            gp = event.globalPosition().toPoint()
+        except Exception:
+            return None
+        w = QApplication.widgetAt(gp)
         for tok, btn in self._bar_map_btns.items():
             if btn is w:
                 return tok
@@ -3361,13 +2690,13 @@ class WellViewerApp(tk.Frame):
     # exist (a configuration that is no longer exposed in the UI but kept for
     # backward compatibility with saved session files).
 
-    def _bg_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _bg_press(self, event) -> None:
         self._sb_press(event)
 
-    def _bg_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _bg_drag(self, event) -> None:
         self._sb_drag(event)
 
-    def _bg_release(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _bg_release(self, _event) -> None:
         self._sb_release(None)
 
     def _bg_on_rep_change(self) -> None:
@@ -3398,12 +2727,12 @@ class WellViewerApp(tk.Frame):
         hidden-group colour logic only lives in one place."""
         self._bar_refresh_map()
 
-    def _build_right_panel(self, parent: tk.Frame) -> None:
+    def _build_right_panel(self, parent) -> None:
         from well_viewer.views.preview_panel_view import build_right_panel as _build_right_panel_view
 
         _build_right_panel_view(self, parent)
 
-    def _build_review_image_panel(self, parent: tk.Frame) -> None:
+    def _build_review_image_panel(self, parent) -> None:
         from well_viewer.views.preview_panel_view import build_review_image_panel as _build_review_image_panel_view
 
         _build_review_image_panel_view(self, parent)
@@ -3425,26 +2754,24 @@ class WellViewerApp(tk.Frame):
         if preloaded is None:
             preloaded = getattr(self, "_montage_tophat_preloaded", False)
 
-        if preloaded:
-            self._mon_tophat_var.set(True)
-            self._th_checkbox.config(state=tk.DISABLED)
-            self._th_label.config(
-                text="Top-hat background subtraction",
-                fg=TXT_MUT)
-            self._th_radius_label.config(fg=TXT_MUT)
-            self._th_radius_hint.config(fg=TXT_MUT)
-            self._th_radius_entry.config(state=tk.DISABLED)
-            self._th_preload_badge.config(text="● from output zip")
-        else:
-            self._mon_tophat_var.set(False)
-            self._th_checkbox.config(state=tk.NORMAL)
-            self._th_label.config(
-                text="Top-hat background subtraction",
-                fg=TXT_SEC)
-            self._th_radius_label.config(fg=TXT_MUT)
-            self._th_radius_hint.config(fg=TXT_MUT)
-            self._th_radius_entry.config(state=tk.NORMAL)
-            self._th_preload_badge.config(text="")
+        # Block toggled() so the programmatic state sync doesn't re-kick off
+        # the tophat filter thread via _montage_tophat_toggled.
+        _prev = self._th_checkbox.blockSignals(True)
+        try:
+            if preloaded:
+                self._mon_tophat_var.set(True)
+                self._th_checkbox.setEnabled(False)
+                self._th_checkbox.setText("Top-hat background subtraction")
+                self._th_radius_entry.setEnabled(False)
+                self._th_preload_badge.setText("\u25cf from output zip")
+            else:
+                self._mon_tophat_var.set(False)
+                self._th_checkbox.setEnabled(True)
+                self._th_checkbox.setText("Top-hat background subtraction")
+                self._th_radius_entry.setEnabled(True)
+                self._th_preload_badge.setText("")
+        finally:
+            self._th_checkbox.blockSignals(_prev)
 
     def _refresh_preview_montage(self) -> None:
         """
@@ -3457,11 +2784,10 @@ class WellViewerApp(tk.Frame):
         # Reset zoom to fit on each new well load
         self._montage_zoom = 1.0
         if hasattr(self, "_montage_zoom_lbl"):
-            self._montage_zoom_lbl.config(text="100%")
+            self._montage_zoom_lbl.setText("100%")
 
         # Clear previous content
-        for w in self._montage_inner.winfo_children():
-            w.destroy()
+        _clear_layout(self._montage_inner.layout())
         self._montage_photos.clear()
         self._montage_fluor_arrays         = []
         self._montage_overlay_arrays     = []
@@ -3472,12 +2798,12 @@ class WellViewerApp(tk.Frame):
 
         well = self._preview_selected_well
         if well is None:
-            self._montage_status.config(text="Select a well in the left panel.")
+            self._montage_status.setText("Select a well in the left panel.")
             return
 
         fov = self._preview_fov_var.get()
         if fov == "—":
-            self._montage_status.config(text="No images found for this well.")
+            self._montage_status.setText("No images found for this well.")
             return
 
         montage_load_debug = (
@@ -3511,7 +2837,7 @@ class WellViewerApp(tk.Frame):
         n = len(fluor_refs)
 
         if n == 0:
-            self._montage_status.config(text="No images for this FOV.")
+            self._montage_status.setText("No images for this FOV.")
             return
 
         if montage_load_debug:
@@ -3539,8 +2865,8 @@ class WellViewerApp(tk.Frame):
                     getattr(ref, "full_path_str", str(ref)),
                 )
 
-        self._montage_status.config(text=f"Loading {n} timepoint(s)…")
-        self.update_idletasks()
+        self._montage_status.setText(f"Loading {n} timepoint(s)…")
+        QApplication.processEvents()
 
         self._montage_fluor_refs     = [ref for _, ref in fluor_refs]
         self._montage_overlay_refs = [ov_map.get(tp) for tp, _ in fluor_refs]
@@ -3569,22 +2895,14 @@ class WellViewerApp(tk.Frame):
             tp in tophat_by_tp for tp, _ in fluor_refs
         )
 
-        self._montage_status.config(text="")
+        self._montage_status.setText("")
         self._montage_auto_lut(redraw=False)  # set initial LUT from data
         self._update_tophat_controls()        # sync UI to actual preload result
         self._draw_montage_thumbs([(tp, _) for tp, _ in fluor_refs])
 
     def _draw_montage_thumbs(self, tp_list: list) -> None:
         """Render fluorescence + overlay thumbnail pairs, one column per timepoint."""
-        def _bind_if_supported(widget, sequence: str, callback) -> None:
-            try:
-                widget.bind(sequence, callback)
-            except tk.TclError:
-                # Some Tk builds reject extended mouse button events (e.g. Button-6/7).
-                pass
-
-        for w in self._montage_inner.winfo_children():
-            w.destroy()
+        _clear_layout(self._montage_inner.layout())
         self._montage_photos.clear()
         # Overlay label refs must be rebuilt each time since all widgets are destroyed
         self._montage_th_overlay_lbls = []
@@ -3615,7 +2933,7 @@ class WellViewerApp(tk.Frame):
 
         # Compute thumb size: base size × zoom factor.
         # Base size is the width that fits all timepoints in the canvas at 1×.
-        cw = self._montage_canvas.winfo_width() or 400
+        cw = self._montage_canvas.viewport().width() or 400
         n  = len(tp_list)
         GAP = 6
         fit_sz = max(60, (cw - GAP) // max(n, 1) - GAP)
@@ -3623,112 +2941,129 @@ class WellViewerApp(tk.Frame):
         zoom   = getattr(self, "_montage_zoom", 1.0)
         sz_w   = max(40, int(fit_sz * zoom))
         sz_h   = max(35, int(sz_w * 0.8))
-        # Update zoom label
         if hasattr(self, "_montage_zoom_lbl"):
-            self._montage_zoom_lbl.config(text=f"{int(zoom * 100)}%")
+            self._montage_zoom_lbl.setText(f"{int(zoom * 100)}%")
 
-        channel_row_lbl = tk.Label(
-            self._montage_inner,
-            text=self._active_image_channel.upper(),
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_APP,
-            anchor="e",
-        )
-        channel_row_lbl.grid(row=1, column=0, padx=(3, 6), pady=(0, 2), sticky="e")
-        overlay_row_lbl = tk.Label(
-            self._montage_inner,
-            text="overlay",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_APP,
-            anchor="e",
-        )
-        overlay_row_lbl.grid(row=2, column=0, padx=(3, 6), pady=(2, 0), sticky="e")
+        grid = self._montage_inner.layout()
+        if grid is not None and not isinstance(grid, QGridLayout):
+            # Re-parent the stale (e.g. QHBoxLayout left over from a tophat
+            # refresh) to a throwaway so we can install a fresh QGridLayout.
+            _tmp = QWidget()
+            _tmp.setLayout(grid)
+            _tmp.deleteLater()
+            grid = None
+        if grid is None:
+            grid = QGridLayout(self._montage_inner)
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setSpacing(3)
+
+        channel_row_lbl = QLabel(self._active_image_channel.upper())
+        channel_row_lbl.setObjectName("Muted")
+        channel_row_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(channel_row_lbl, 1, 0)
+        overlay_row_lbl = QLabel("overlay")
+        overlay_row_lbl.setObjectName("Muted")
+        overlay_row_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(overlay_row_lbl, 2, 0)
+
+        def _install_montage_events(w, is_fluor):
+            def _wheel(ev):
+                if ev.modifiers() & Qt.ShiftModifier:
+                    self._on_montage_shift_wheel(ev)
+                else:
+                    self._on_montage_wheel(ev)
+            w.wheelEvent = _wheel
+            if is_fluor:
+                def _move(ev):
+                    self._on_montage_fluor_motion(ev)
+                def _leave(ev):
+                    try:
+                        self._montage_tooltip.hide()
+                    except Exception:
+                        pass
+                w.setMouseTracking(True)
+                w.mouseMoveEvent = _move
+                w.leaveEvent = _leave
 
         for col_idx, ((tp, _), fluor_arr, ov_arr) in enumerate(
                 zip(tp_list, display_source, self._montage_overlay_arrays)):
 
-            col = tk.Frame(self._montage_inner, bg=BG_APP)
-            col.grid(row=0, column=col_idx + 1, padx=3, pady=4, sticky="n")
+            col = QWidget()
+            col_layout = QVBoxLayout(col)
+            col_layout.setContentsMargins(0, 0, 0, 0)
+            col_layout.setSpacing(2)
+            grid.addWidget(col, 0, col_idx + 1, 3, 1, Qt.AlignTop)
 
-            tk.Label(col, text=tp, font=FM_TINY, fg=TXT_MUT,
-                     bg=BG_APP, pady=2).pack()
+            tp_lbl = QLabel(tp)
+            tp_lbl.setObjectName("Muted")
+            tp_lbl.setAlignment(Qt.AlignCenter)
+            col_layout.addWidget(tp_lbl)
 
-            # ── GFP thumbnail ───────────────────────────────────────────────
-            fluor_cell = tk.Frame(col, bg=BG_CELL, highlightthickness=1,
-                                highlightbackground=BORDER)
-            fluor_cell.pack(pady=(0, 2))
-            # Use pre-filtered array (computed in background thread) or raw
+            # fluorescence thumbnail
+            fluor_cell = QFrame()
+            fluor_cell.setFrameShape(QFrame.Box)
+            fluor_cell_layout = QVBoxLayout(fluor_cell)
+            fluor_cell_layout.setContentsMargins(1, 1, 1, 1)
+            col_layout.addWidget(fluor_cell)
             display_arr = fluor_arr
-            photo_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi)
-            if photo_fluor:
-                self._montage_photos.append(photo_fluor)
-                lbl_fluor = tk.Label(fluor_cell, image=photo_fluor, bg=BG_APP,
-                                   cursor="crosshair", bd=0)
+            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi)
+            if pix_fluor:
+                self._montage_photos.append(pix_fluor)
+                lbl_fluor = QLabel()
+                lbl_fluor.setPixmap(pix_fluor)
+                lbl_fluor.setCursor(Qt.CrossCursor)
                 lbl_fluor._raw_arr = display_arr  # type: ignore[attr-defined]
                 lbl_fluor._sz_w    = sz_w        # type: ignore[attr-defined]
                 lbl_fluor._sz_h    = sz_h        # type: ignore[attr-defined]
                 lbl_fluor._lo      = lo          # type: ignore[attr-defined]
                 lbl_fluor._hi      = hi          # type: ignore[attr-defined]
-                lbl_fluor.pack()
-                lbl_fluor.bind("<Motion>", self._on_montage_fluor_motion)
-                lbl_fluor.bind("<Leave>",  lambda _e: self._montage_tooltip.hide())
-                lbl_fluor.bind("<MouseWheel>", self._on_montage_wheel)
-                lbl_fluor.bind("<Shift-MouseWheel>", self._on_montage_shift_wheel)
-                lbl_fluor.bind("<Button-4>", lambda _e: self._montage_zoom_step(+1))
-                lbl_fluor.bind("<Button-5>", lambda _e: self._montage_zoom_step(-1))
-                _bind_if_supported(lbl_fluor, "<Button-6>", self._on_montage_shift_wheel)
-                _bind_if_supported(lbl_fluor, "<Button-7>", self._on_montage_shift_wheel)
+                fluor_cell_layout.addWidget(lbl_fluor)
+                _install_montage_events(lbl_fluor, is_fluor=True)
             else:
-                tk.Label(fluor_cell, text=f"{self._active_image_channel.upper()}\nunavail", font=FM_TINY,
-                         fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
-                         height=sz_h // 16).pack()
+                miss = QLabel(f"{self._active_image_channel.upper()}\nunavail")
+                miss.setObjectName("Muted")
+                miss.setAlignment(Qt.AlignCenter)
+                fluor_cell_layout.addWidget(miss)
 
-            # ── Top-hat status overlay ───────────────────────────────────────
-            # Shows "⏳ filtering…" or "✓ filtered" on top of the GFP cell.
-            # Only visible while top-hat is enabled.
             th_on = (getattr(self, "_mon_tophat_var", None) is not None
                      and self._mon_tophat_var.get())
             th_state = (self._montage_th_status[col_idx]
                         if col_idx < len(self._montage_th_status) else "")
             if th_on and th_state == "pending":
-                overlay_txt, overlay_bg, overlay_fg = "⏳ filtering…", CLR_SLATE_BG, CLR_SLATE_TEXT
+                overlay_txt, overlay_bg, overlay_fg = "\u23f3 filtering\u2026", CLR_SLATE_BG, CLR_SLATE_TEXT
             elif th_on and th_state == "done":
-                overlay_txt, overlay_bg, overlay_fg = "✓ filtered",   CLR_SUCCESS_BG_DARK, CLR_SUCCESS_TEXT_SOFT
+                overlay_txt, overlay_bg, overlay_fg = "\u2713 filtered", CLR_SUCCESS_BG_DARK, CLR_SUCCESS_TEXT_SOFT
             else:
                 overlay_txt = ""
             if overlay_txt:
-                th_lbl = tk.Label(fluor_cell, text=overlay_txt,
-                                  font=FM_TINY, fg=overlay_fg, bg=overlay_bg,
-                                  padx=4, pady=1, anchor="center")
-                th_lbl.place(relx=0.0, rely=1.0, relwidth=1.0, anchor="sw")
+                th_lbl = QLabel(overlay_txt, fluor_cell)
+                th_lbl.setStyleSheet(f"background: {overlay_bg}; color: {overlay_fg}; padding: 1px 4px;")
+                th_lbl.setAlignment(Qt.AlignCenter)
+                th_lbl.show()
                 self._montage_th_overlay_lbls.append(th_lbl)
             else:
                 self._montage_th_overlay_lbls.append(None)
 
-            # ── Overlay thumbnail ────────────────────────────────────────────
-            ov_cell = tk.Frame(col, bg=BG_CELL, highlightthickness=1,
-                               highlightbackground=BORDER)
-            ov_cell.pack(pady=(2, 0))
-            photo_ov = make_overlay_thumb(ov_arr, sz_w, sz_h)
-            if photo_ov:
-                self._montage_photos.append(photo_ov)
-                lbl_ov = tk.Label(ov_cell, image=photo_ov, bg=BG_APP, bd=0)
-                lbl_ov.pack()
-                lbl_ov.bind("<MouseWheel>", self._on_montage_wheel)
-                lbl_ov.bind("<Shift-MouseWheel>", self._on_montage_shift_wheel)
-                lbl_ov.bind("<Button-4>", lambda _e: self._montage_zoom_step(+1))
-                lbl_ov.bind("<Button-5>", lambda _e: self._montage_zoom_step(-1))
-                _bind_if_supported(lbl_ov, "<Button-6>", self._on_montage_shift_wheel)
-                _bind_if_supported(lbl_ov, "<Button-7>", self._on_montage_shift_wheel)
+            ov_cell = QFrame()
+            ov_cell.setFrameShape(QFrame.Box)
+            ov_cell_layout = QVBoxLayout(ov_cell)
+            ov_cell_layout.setContentsMargins(1, 1, 1, 1)
+            col_layout.addWidget(ov_cell)
+            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h)
+            if pix_ov:
+                self._montage_photos.append(pix_ov)
+                lbl_ov = QLabel()
+                lbl_ov.setPixmap(pix_ov)
+                ov_cell_layout.addWidget(lbl_ov)
+                _install_montage_events(lbl_ov, is_fluor=False)
             else:
-                tk.Label(ov_cell, text="overlay\nunavail", font=FM_TINY,
-                         fg=TXT_MUT, bg=BG_CELL, width=sz_w // 7,
-                         height=sz_h // 16).pack()
+                miss = QLabel("overlay\nunavail")
+                miss.setObjectName("Muted")
+                miss.setAlignment(Qt.AlignCenter)
+                ov_cell_layout.addWidget(miss)
         n_ov = sum(1 for a in self._montage_overlay_arrays if a is not None)
-        self._montage_status.config(
-            text=f"{n} timepoint(s)  ·  {n_ov} overlay(s)")
+        self._montage_status.setText(
+            f"{n} timepoint(s)  \u00b7  {n_ov} overlay(s)")
 
     # _montage_make_thumb and _montage_make_overlay_thumb replaced by
     # module-level make_fluor_thumb() / make_overlay_thumb()
@@ -3750,7 +3085,7 @@ class WellViewerApp(tk.Frame):
     def _montage_resize_deferred(self) -> None:
         _montage_resize_deferred_controller(self)
 
-    def _on_montage_fluor_motion(self, e: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_montage_fluor_motion(self, e) -> None:
         _on_montage_fluor_motion_controller(self, e)
 
     # ── Montage zoom helpers ──────────────────────────────────────────────────
@@ -3761,10 +3096,10 @@ class WellViewerApp(tk.Frame):
     def _montage_zoom_fit(self) -> None:
         _montage_zoom_fit_controller(self)
 
-    def _on_montage_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_montage_wheel(self, event) -> None:
         _on_montage_wheel_controller(self, event)
 
-    def _on_montage_shift_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_montage_shift_wheel(self, event) -> None:
         _on_montage_shift_wheel_controller(self, event)
 
     def _montage_redraw_at_zoom(self) -> None:
@@ -3776,73 +3111,44 @@ class WellViewerApp(tk.Frame):
         _build_bottom_view(self)
 
     def _apply_theme(self) -> None:
-        from ui.theme import apply_all_well_theme
-        apply_all_well_theme(ttk.Style(self))
+        """Apply QSS stylesheet for the active theme."""
+        try:
+            from ui.theme import build_stylesheet  # type: ignore
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyleSheet(build_stylesheet(self._theme_name))
+        except Exception:
+            pass
 
     def _on_theme_change(self, theme_name: str = None) -> None:
-        """Handle theme change notifications from ThemeManager.
-
-        Refreshes all UI components to use the new theme colors.
-        """
-        from ui.theme import rebuild_widget_colors, get_color
-
+        """Re-apply QSS stylesheet when theme switches."""
         new_theme = theme_name or self._theme_name
-        old_theme = self._theme_name
         self._theme_name = new_theme
-
-        # Apply TTK style changes
         self._apply_theme()
 
-        # Refresh preview tab colors
-        if self._sidebar_preview_frame and self._sidebar_preview_frame.winfo_children():
-            self._refresh_preview_picker()
-
-        # Refresh replicate sets panel colors
         if hasattr(self, '_rep_cards_frame') and self._rep_cards_frame:
             self._rep_panel_refresh()
-
-        # Refresh groups panel colors
         if hasattr(self, '_grp_cards_frame') and self._grp_cards_frame:
             self._grp_panel_refresh()
-
-        # Refresh statistics tab colors
         if hasattr(self, '_stats_fig') and self._stats_fig:
             self._stats_refresh_colors()
-
-        # Re-map tk widget colors after any panel rebuilds performed above.
-        rebuild_widget_colors(self, old_theme, new_theme)
-
-        # Refresh custom notebook chrome (header/separators/active-tab highlight).
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "refresh_theme_colors"):
-            self._notebook.refresh_theme_colors(
-                bg_side=get_color("BG_SIDE"),
-                bg_app=get_color("BG_APP"),
-                border=get_color("BORDER"),
-                txt_pri=get_color("TXT_PRI"),
-            )
-
-        # Refresh top dataset bar colors explicitly (dataset path label + separator).
-        if hasattr(self, "_top_bar"):
-            self._top_bar.configure(bg=get_color("BG_APP"))
-        if hasattr(self, "_dir_label"):
-            self._dir_label.configure(bg=get_color("BG_APP"), fg=get_color("TXT_MUT"))
-        if hasattr(self, "_top_sep"):
-            self._top_sep.configure(bg=get_color("BORDER"))
-
-        # Refresh well-picker colors immediately so theme changes are visible
-        # without waiting for another tab change interaction.
         if hasattr(self, "_sidebar_btns"):
             self._sidebar_map_refresh_pending = False
             self._refresh_sidebar_map_now()
+        try:
+            from well_viewer.ui_helpers import refresh_plot_toolbar_icons
+            refresh_plot_toolbar_icons(self)
+        except Exception:
+            pass
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
     def _browse(self) -> None:
         """Open a directory picker. Expects in/ + out/ subdirs or a flat CSV dir."""
-        d = filedialog.askdirectory(title="Open results directory")
+        d = QFileDialog.getExistingDirectory(self, "Open results directory")
         if d:
             # Defer so the dialog closes and the window repaints before load
-            self.after(50, lambda: self._load_path(Path(d)))
+            QTimer.singleShot(50, lambda: self._load_path(Path(d)))
 
     def _load_path(self, path):
         _load_path_controller(self, path)
@@ -3867,10 +3173,7 @@ class WellViewerApp(tk.Frame):
 
     def _on_close(self) -> None:
         self._cleanup_tmp()
-        if self._tk_root is not None:
-            self._tk_root.destroy()
-        else:
-            self.destroy()
+        self.close()
 
     # ── Plate-map sidebar helpers ─────────────────────────────────────────────
 
@@ -3966,112 +3269,51 @@ class WellViewerApp(tk.Frame):
         if self._sidebar_map_refresh_pending:
             return
         self._sidebar_map_refresh_pending = True
-        self.after(0, self._refresh_sidebar_map_now)
+        QTimer.singleShot(0, self._refresh_sidebar_map_now)
 
     def _refresh_sidebar_map_now(self) -> None:
         """Recolour every sidebar button to reflect rep-set visibility.
 
-        Rep-set mode (when _rep_sets are defined):
-          • Visible set  → full WELL_COLOR, normal relief
-          • Hidden set   → muted (grey-blended) colour, flat relief
-          • Not in any set → neutral, available for individual selection
-
-        Per-well mode (no rep-sets):
-          • Selected → ACCENT blue
-          • Unselected → neutral
-          • Missing → disabled
+        Rep-set mode: visible set = full colour sunken, hidden = muted flat,
+        unassigned = neutral. Per-well mode: selected = ACCENT sunken, else
+        neutral. Missing wells are disabled.
         """
-        from ui.theme import get_color
-
-        # Get current colors from theme (not cached imports)
-        button_bg_color = get_color("button_bg")
-        button_text_color = get_color("button_text")
-        button_text_disabled_color = get_color("button_text_disabled")
-
+        bg, fg, fg_disabled = self._plate_theme_colors()
         rep_sets = getattr(self, "_rep_sets", [])
         rep_mode = bool(rep_sets)
 
-        # Build tok -> (full_color, muted_color, si, is_hidden)
         tok_rep: Dict[str, tuple] = {}
         for si, rset in enumerate(rep_sets):
-            full_c  = WELL_COLORS[si % len(WELL_COLORS)]
-            muted_c = self._mute_color(full_c)
-            hidden  = si in self._rep_hidden
+            full_c = WELL_COLORS[si % len(WELL_COLORS)]
+            hidden = si in self._rep_hidden
             for tok in rset.wells:
-                tok_rep[tok] = (full_c, muted_c, si, hidden)
+                tok_rep[tok] = (full_c, hidden)
 
         for tok, btn in self._sidebar_btns.items():
             if tok not in self._well_paths:
-                btn.config(
-                    bg=button_bg_color,
-                    fg=button_text_disabled_color,
-                    state=tk.DISABLED,
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                    cursor="arrow",
-                    relief=tk.FLAT,
-                )
+                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
             elif rep_mode and tok in tok_rep:
-                _full_c, _muted_c, _si, hidden = tok_rep[tok]
+                full_c, hidden = tok_rep[tok]
                 if hidden:
-                    # Dimmed: muted colour, lighter text, FLAT relief
-                    btn.config(
-                        bg=_muted_c,
-                        fg="white",
-                        state=tk.NORMAL,
-                        activebackground=_full_c,
-                        activeforeground="white",
-                        disabledforeground=button_text_disabled_color,
-                        cursor="hand2",
-                        relief=tk.FLAT,
+                    # Hidden sets: muted bg, full colour on hover, flat relief.
+                    self._style_plate_button(
+                        btn, bg=self._mute_color(full_c), fg="white",
+                        state="normal", cursor="hand2", relief="flat",
+                        activebackground=full_c, activeforeground="white",
+                        disabledforeground=fg_disabled,
                     )
                 else:
-                    # Visible: full colour, SUNKEN relief
-                    btn.config(
-                        bg=_full_c,
-                        fg="white",
-                        state=tk.NORMAL,
-                        activebackground=self._mute_color(_full_c, 0.3),
-                        activeforeground="white",
-                        disabledforeground=button_text_disabled_color,
-                        cursor="hand2",
-                        relief=tk.SUNKEN,
+                    self._plate_apply_colored(
+                        btn, full_c, active=True, fg_disabled=fg_disabled,
                     )
             elif rep_mode:
-                # Well exists but not in any rep-set — neutral
-                btn.config(
-                    bg=button_bg_color,
-                    fg=button_text_color,
-                    state=tk.NORMAL,
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                    cursor="hand2",
-                    relief=tk.FLAT,
-                )
+                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
             elif tok in self._selected_wells:
-                btn.config(
-                    bg=ACCENT,
-                    fg="white",
-                    state=tk.NORMAL,
-                    activebackground=self._mute_color(ACCENT, 0.3),
-                    activeforeground="white",
-                    disabledforeground=button_text_disabled_color,
-                    cursor="hand2",
-                    relief=tk.SUNKEN,
+                self._plate_apply_colored(
+                    btn, ACCENT, active=True, fg_disabled=fg_disabled,
                 )
             else:
-                btn.config(
-                    bg=button_bg_color,
-                    fg=button_text_color,
-                    state=tk.NORMAL,
-                    activebackground=button_bg_color,
-                    activeforeground=button_text_color,
-                    disabledforeground=button_text_disabled_color,
-                    cursor="hand2",
-                    relief=tk.FLAT,
-                )
+                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
 
         # Count label / hint
         loaded  = self._rep_sets_loaded() if rep_mode else []
@@ -4080,23 +3322,145 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_sel_count_lbl"):
             if rep_mode:
                 n_hid = sum(1 for i in range(n_loaded) if i in self._rep_hidden)
-                self._sel_count_lbl.config(
-                    text=(f"{n_vis}/{n_loaded} set(s) visible"
+                self._sel_count_lbl.setText((f"{n_vis}/{n_loaded} set(s) visible"
                           if n_hid else f"{n_loaded} set(s) — all visible"))
             else:
-                self._sel_count_lbl.config(
-                    text=(f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
+                self._sel_count_lbl.setText((f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
                           if n_vis else "No wells selected"))
         if hasattr(self, "_line_group_hint"):
             if rep_mode:
-                self._line_group_hint.config(
-                    text="Click a well to toggle its set's visibility on the plot.")
+                self._line_group_hint.setText("Click a well to toggle its set's visibility on the plot.")
             else:
-                self._line_group_hint.config(text="")
+                self._line_group_hint.setText("")
 
         self._sidebar_map_refresh_pending = False
 
-    def _sidebar_tok_at(self, event: tk.Event) -> Optional[str]:  # type: ignore[type-arg]
+    def _style_plate_button(
+        self,
+        btn: Any,
+        *,
+        bg: str,
+        fg: str,
+        state: str = "normal",
+        cursor: str = "hand2",
+        relief: str = "flat",
+        activebackground: Optional[str] = None,
+        activeforeground: Optional[str] = None,
+        disabledforeground: Optional[str] = None,
+    ) -> None:
+        """Apply plate-map button styling to a ``QPushButton``."""
+        state_str = str(state).lower()
+        relief_str = str(relief).lower()
+        is_enabled = not state_str.endswith("disabled")
+        is_sunken = relief_str.endswith("sunken")
+
+        btn.setEnabled(is_enabled)
+        if hasattr(btn, "setCursor"):
+            btn.setCursor(Qt.PointingHandCursor if cursor == "hand2" else Qt.ArrowCursor)
+
+        hover_bg = activebackground or bg
+        hover_fg = activeforeground or fg
+        disabled_fg = disabledforeground or fg
+        # Uniform 2px border width across every state so fixed-size circles
+        # never change dimensions. Wells with no data get a transparent
+        # border; wells with data get a smooth solid black border. The
+        # embossed/depressed 3D cue is painted by WellButton.paintEvent —
+        # QSS outset/inset collapses to solid once border-radius is set.
+        if not is_enabled:
+            border = "2px solid transparent"
+        else:
+            border = "2px solid #000000"
+        # Drive the paint-event-based 3D cue.
+        if hasattr(btn, "set_emboss"):
+            if not is_enabled:
+                btn.set_emboss("none")
+            elif is_sunken:
+                btn.set_emboss("depressed")
+            else:
+                btn.set_emboss("raised")
+
+        # Setting a per-widget stylesheet overrides the application QSS for
+        # this widget's selector. Restate the plate-well layout properties
+        # (fixed size, padding, border-radius) here so wells render as
+        # identical circles regardless of which code path styles them. Must
+        # match QPushButton#WellButton in dark.qss / light.qss. No font-size
+        # is set (Qt rejects <=0pt); button text is always empty anyway.
+        base_layout = (
+            "min-width: 18px;"
+            "min-height: 18px;"
+            "max-width: 18px;"
+            "max-height: 18px;"
+            "padding: 0;"
+            "border-radius: 9px;"
+        )
+
+        btn.setStyleSheet(
+            "\n".join(
+                [
+                    (
+                        "QPushButton{"
+                        f"{base_layout}"
+                        f"background-color: {bg};"
+                        f"color: {fg};"
+                        f"border: {border};"
+                        "}"
+                    ),
+                    (
+                        "QPushButton:hover{"
+                        f"{base_layout}"
+                        f"background-color: {hover_bg};"
+                        f"color: {hover_fg};"
+                        f"border: {border};"
+                        "}"
+                    ),
+                    (
+                        "QPushButton:disabled{"
+                        f"{base_layout}"
+                        f"background-color: {bg};"
+                        f"color: {disabled_fg};"
+                        f"border: {border};"
+                        "}"
+                    ),
+                ]
+            )
+        )
+
+    def _plate_theme_colors(self) -> tuple:
+        from ui.theme import get_color
+        return (
+            get_color("button_bg"),
+            get_color("button_text"),
+            get_color("button_text_disabled"),
+        )
+
+    def _plate_apply_disabled(self, btn, bg: str, fg: str, fg_disabled: str) -> None:
+        self._style_plate_button(
+            btn, bg=bg, fg=fg_disabled, state="disabled", cursor="arrow",
+            activebackground=bg, activeforeground=fg,
+            disabledforeground=fg_disabled, relief="flat",
+        )
+
+    def _plate_apply_colored(
+        self, btn, color: str, *, active: bool, fg_disabled: str,
+    ) -> None:
+        self._style_plate_button(
+            btn, bg=color, fg="white", state="normal", cursor="hand2",
+            relief="sunken" if active else "flat",
+            activebackground=self._mute_color(color, 0.3) if active else color,
+            activeforeground="white", disabledforeground=fg_disabled,
+        )
+
+    def _plate_apply_neutral(
+        self, btn, bg: str, fg: str, fg_disabled: str,
+        *, cursor: str = "hand2", relief: str = "flat",
+    ) -> None:
+        self._style_plate_button(
+            btn, bg=bg, fg=fg, state="normal", cursor=cursor, relief=relief,
+            activebackground=bg, activeforeground=fg,
+            disabledforeground=fg_disabled,
+        )
+
+    def _sidebar_tok_at(self, event) -> Optional[str]:
         from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at
 
         return _sidebar_tok_at(self, event)
@@ -4108,7 +3472,7 @@ class WellViewerApp(tk.Frame):
     # rep-set toggle logic.  The three helpers below centralise it.
     #
     # Callers supply:
-    #   btn_dict  – {tok: tk.Button} for the active map
+    #   btn_dict  – {tok: QPushButton} for the active map
     #   well_set  – mutable set used in per-well mode
     #   ds        – drag-state dict  {"adding": bool,
     #                                 "visited": set,
@@ -4123,7 +3487,7 @@ class WellViewerApp(tk.Frame):
     def _plate_drag_apply(
         self,
         tok: str,
-        btn_dict: "Dict[str, tk.Button]",
+        btn_dict: "Dict[str, QPushButton]",
         well_set: set,
         ds: dict,
     ) -> None:
@@ -4150,17 +3514,17 @@ class WellViewerApp(tk.Frame):
 
     # ── Line-graph sidebar wrappers ───────────────────────────────────────────
 
-    def _sb_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _sb_press(self, event) -> None:
         from well_viewer.selection_controller import sb_press as _sb_press
 
         _sb_press(self, event)
 
-    def _sb_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _sb_drag(self, event) -> None:
         from well_viewer.selection_controller import sb_drag as _sb_drag
 
         _sb_drag(self, event)
 
-    def _sb_release(self, _event=None) -> None:  # type: ignore[type-arg]
+    def _sb_release(self, _event=None) -> None:
         from well_viewer.selection_controller import sb_release as _sb_release
 
         _sb_release(self)
@@ -4232,9 +3596,7 @@ class WellViewerApp(tk.Frame):
         for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
             if hasattr(self, frame_attr):
                 frame = getattr(self, frame_attr)
-                frame.pack_forget()
-                if self._active_channel in self._smfish_channels:
-                    frame.pack(side=tk.LEFT, padx=(0, 12))
+                frame.setVisible(self._active_channel in self._smfish_channels)
 
         # Always refresh timepoint menus regardless of whether intensity
         # values exist — single-timepoint experiments still need the bar menu.
@@ -4271,17 +3633,32 @@ class WellViewerApp(tk.Frame):
             self._active_metric = "mean_intensity"
         # Derive val_col from channel and metric
         self._active_val_col = f"{channel}_{self._active_metric}"
+        # Keep both plot-tab channel selectors in sync so switching channel
+        # on one tab is reflected on the other.
+        ch_upper = channel.upper()
+        for attr in ("_chan_cb_line", "_chan_cb_bar"):
+            cb = getattr(self, attr, None)
+            if cb is None:
+                continue
+            if str(cb.currentText() or "") == ch_upper:
+                continue
+            idx = cb.findText(ch_upper)
+            if idx >= 0:
+                blocked = cb.blockSignals(True)
+                try:
+                    cb.setCurrentIndex(idx)
+                finally:
+                    cb.blockSignals(blocked)
         # Reset threshold to the range of the new channel.
         self._recalculate_threshold()
         self._invalidate_stats_cache()
         self._redraw()
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
-        ch_upper = channel.upper()
         if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.config(text=f"({ch_upper} x range)")
+            self._cdf_chan_lbl.setText(f"({ch_upper} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.config(text=f"{ch_upper} y:")
+            self._bar_ylim_chan_lbl.setText(f"{ch_upper} y:")
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
@@ -4315,9 +3692,9 @@ class WellViewerApp(tk.Frame):
         if hasattr(self, "_review_image_chan_var"):
             self._review_image_chan_var.set(ch_upper)
         if hasattr(self, "_mon_lut_chan_lbl"):
-            self._mon_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+            self._mon_lut_chan_lbl.setText(f"{ch_upper} LUT min:")
         if hasattr(self, "_review_lut_chan_lbl"):
-            self._review_lut_chan_lbl.config(text=f"{ch_upper} LUT min:")
+            self._review_lut_chan_lbl.setText(f"{ch_upper} LUT min:")
         saved_review_lut = self._review_image_lut_by_channel.get(channel)
         if saved_review_lut and hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
             self._review_lut_min_var.set(f"{saved_review_lut[0]:.0f}")
@@ -4343,8 +3720,8 @@ class WellViewerApp(tk.Frame):
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug("[RI-CHSW step 1] Review Image channel ComboboxSelected event received")
         selected_ui_value = ""
-        if hasattr(self, "_review_image_chan_cb"):
-            selected_ui_value = str(self._review_image_chan_cb.get() or "").strip()
+        if getattr(self, "_review_image_chan_cb", None) is not None:
+            selected_ui_value = str(self._review_image_chan_cb.currentText() or "").strip()
         if not selected_ui_value and hasattr(self, "_review_image_chan_var"):
             selected_ui_value = self._review_image_chan_var.get()
         if _debug_flags.review_image_channel_switch_debug_enabled():
@@ -4357,13 +3734,29 @@ class WellViewerApp(tk.Frame):
 
     def _on_plot_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for line/bar plot tabs."""
-        self._set_active_channel(self._plot_chan_var.get().lower())
+        # _plot_chan_var is bound to _chan_cb_line, so reading it returns a
+        # stale value when the user changes _chan_cb_bar. Prefer the sender
+        # widget when the signal came from a QComboBox, otherwise fall back
+        # to the line-tab ComboVar.
+        label = ""
+        try:
+            sender = self.sender()
+        except Exception:
+            sender = None
+        if sender is not None and hasattr(sender, "currentText"):
+            try:
+                label = str(sender.currentText() or "")
+            except Exception:
+                label = ""
+        if not label:
+            label = self._plot_chan_var.get()
+        self._set_active_channel(label.lower())
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
         selected_ui_value = ""
         if hasattr(self, "_chan_cb_preview"):
-            selected_ui_value = str(self._chan_cb_preview.get() or "").strip()
+            selected_ui_value = str(self._chan_cb_preview.currentText() or "").strip()
         if not selected_ui_value and hasattr(self, "_montage_chan_var"):
             selected_ui_value = self._montage_chan_var.get()
         if _debug_flags.movie_montage_debug_enabled():
@@ -4409,11 +3802,11 @@ class WellViewerApp(tk.Frame):
         # Update channel selector instances
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
-                getattr(self, attr).config(values=labels)
+                _set_combo_values(getattr(self, attr), labels)
         if hasattr(self, "_chan_cb_preview"):
-            self._chan_cb_preview.config(values=montage_labels)
+            _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
-            self._review_image_chan_cb.config(values=review_labels)
+            _set_combo_values(self._review_image_chan_cb, review_labels)
         active_label = self._active_channel.upper()
 
         def _pick_valid(current: str, candidates: List[str], fallback_label: str) -> str:
@@ -4454,7 +3847,7 @@ class WellViewerApp(tk.Frame):
             tab_label = ""
             if hasattr(self, "_notebook"):
                 try:
-                    tab_label = self._notebook.tab(self._notebook.select(), "text")
+                    tab_label = self._notebook.tabText(self._notebook.currentIndex())
                 except Exception:
                     tab_label = ""
             if tab_label == "Movie Montage":
@@ -4468,11 +3861,16 @@ class WellViewerApp(tk.Frame):
         self._invalidate_stats_cache()
         self._use_sem.set(not self._use_sem.get())
         is_sem = self._use_sem.get()
-        self._sem_btn.config(text="SEM" if is_sem else "SD")
-        self._sem_btn.configure(style="SEM.TButton" if is_sem else "SEMWarn.TButton")
+        text = "SEM" if is_sem else "SD"
+        variant = "sem" if is_sem else "sem_warn"
+        for btn in list(getattr(self, "_sem_btns", []) or []):
+            btn.setText(text)
+            btn.setProperty("variant", variant)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
         self._redraw()
         if hasattr(self, "_notebook"):
-            if self._notebook.tab(self._notebook.select(), "text") == "Bar Plots":
+            if self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
                 self._redraw_bars()
 
     # ── Well selection (plate-map backed) ─────────────────────────────────────
@@ -4503,35 +3901,34 @@ class WellViewerApp(tk.Frame):
         channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
         if well_label is None:
             if hasattr(self, "_preview_well_lbl"):
-                self._preview_well_lbl.config(text="No well selected")
+                self._preview_well_lbl.setText("No well selected")
             if hasattr(self, "_review_image_well_lbl"):
-                self._review_image_well_lbl.config(text="No well selected")
+                self._review_image_well_lbl.setText("No well selected")
             if hasattr(self, "_fov_menu"):
-                self._fov_menu["values"] = ["—"]
+                _set_combo_values(self._fov_menu, ["—"])
                 self._preview_fov_var.set("—")
             if hasattr(self, "_review_image_fov_menu"):
-                self._review_image_fov_menu["values"] = ["—"]
+                _set_combo_values(self._review_image_fov_menu, ["—"])
             if hasattr(self, "_review_image_tp_menu"):
-                self._review_image_tp_menu["values"] = ["—"]
+                _set_combo_values(self._review_image_tp_menu, ["—"])
                 self._review_image_tp_var.set("—")
             self._preview_fluor = self._preview_overlay = self._preview_mask = {}
             if hasattr(self, "_montage_inner"):
-                for w in self._montage_inner.winfo_children():
-                    w.destroy()
+                _clear_layout(self._montage_inner.layout())
                 self._montage_photos.clear()
-                self._montage_status.config(text="Select a well in the left panel.")
+                self._montage_status.setText("Select a well in the left panel.")
             if hasattr(self, "_review_image_status"):
-                self._review_image_status.config(text="Select a well in the left panel.")
+                self._review_image_status.setText("Select a well in the left panel.")
             if channel_switch_debug:
                 _logger.debug("[RI-CHSW step 4] update_preview early return: no well selected")
             return
 
         if hasattr(self, "_preview_well_lbl"):
             tok = _extract_well_token(well_label) or well_label
-            self._preview_well_lbl.config(text=tok)
+            self._preview_well_lbl.setText(tok)
         if hasattr(self, "_review_image_well_lbl"):
             tok = _extract_well_token(well_label) or well_label
-            self._review_image_well_lbl.config(text=tok)
+            self._review_image_well_lbl.setText(tok)
 
         try:
             active_image_channel = str(self._active_image_channel or "").strip().lower()
@@ -4607,25 +4004,25 @@ class WellViewerApp(tk.Frame):
 
         if not (fluor or overlay or mask or tophat_fluor):
             if hasattr(self, "_fov_menu"):
-                self._fov_menu["values"] = ["—"]
+                _set_combo_values(self._fov_menu, ["—"])
                 self._preview_fov_var.set("—")
             tok = _extract_well_token(well_label) or well_label
             dirs = f"in={self._in_dir}  out={self._data_dir}"
             msg = f"No images found for {tok}. Searched: {dirs}"
             _logger.warning(msg)
             if hasattr(self, "_montage_status"):
-                self._montage_status.config(text=f"No images found for {tok} — check Log for details.")
+                self._montage_status.setText(f"No images found for {tok} — check Log for details.")
             return
 
         if hasattr(self, "_fov_menu"):
-            self._fov_menu["values"] = all_fovs
+            _set_combo_values(self._fov_menu, all_fovs)
             cur = self._preview_fov_var.get()
             if all_fovs:
                 self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
             else:
                 self._preview_fov_var.set("—")
         if hasattr(self, "_review_image_fov_menu"):
-            self._review_image_fov_menu["values"] = all_fovs or ["—"]
+            _set_combo_values(self._review_image_fov_menu, all_fovs or ["—"])
 
         cur = self._preview_fov_var.get()
         if all_fovs and cur not in all_fovs:
@@ -4673,51 +4070,33 @@ class WellViewerApp(tk.Frame):
             _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
 
-    def _refresh_review_image(self) -> None:
-        if not hasattr(self, "_review_image_label"):
-            return
-        channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
-        image_debug = False
-        image_load_debug = _debug_flags.review_image_load_debug_enabled()
-        well = self._preview_selected_well
-        if well is None:
-            if channel_switch_debug:
-                _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
-            return
-        def _norm(v: object) -> str:
-            s = str(v or "").strip()
-            if not s:
-                return ""
-            try:
-                return f"{float(s):g}"
-            except Exception:
-                return s
+    @staticmethod
+    def _review_norm_fov(v: object) -> str:
+        s = str(v or "").strip()
+        if not s:
+            return ""
+        try:
+            return f"{float(s):g}"
+        except Exception:
+            return s
 
-        fov_raw = str(self._preview_fov_var.get() or "").strip()
-        fov = _norm(fov_raw)
-        if not fov_raw or fov_raw == "—" or not fov:
-            self._review_image_status.config(text="No FOV selected.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
-                    fov_raw,
-                    fov,
-                )
-            return
+    @staticmethod
+    def _review_tp_sort_key(tp: str) -> Tuple[int, float, str]:
+        parsed = parse_timepoint_hours(str(tp))
+        if parsed is not None:
+            return (0, parsed, str(tp))
+        return (1, 0.0, str(tp))
 
-        def _tp_sort_key(tp: str) -> Tuple[int, float, str]:
-            parsed = parse_timepoint_hours(str(tp))
-            if parsed is not None:
-                return (0, parsed, str(tp))
-            return (1, 0.0, str(tp))
-
+    def _review_collect_timepoints(self, fov: str) -> list:
+        """Sorted list of timepoints available for ``fov`` (fluor + pipeline)."""
+        _norm = self._review_norm_fov
         tp_values = sorted(
             {
                 self._norm_timepoint(tp)
                 for (f, tp) in self._preview_fluor.keys()
                 if _norm(f) == fov and self._norm_timepoint(tp)
             },
-            key=_tp_sort_key,
+            key=self._review_tp_sort_key,
         )
         pipeline_tp_values = sorted(
             {
@@ -4725,152 +4104,34 @@ class WellViewerApp(tk.Frame):
                 for tp in (getattr(self, "_pipeline_info", {}) or {}).get("available_timepoints", [])
                 if self._norm_timepoint(tp)
             },
-            key=_tp_sort_key,
+            key=self._review_tp_sort_key,
         )
         if pipeline_tp_values:
-            tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=_tp_sort_key)
-        if channel_switch_debug:
-            _logger.debug(
-                "[RI-CHSW step 6] refresh_review_image start well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
-                well,
-                fov_raw,
-                fov,
-                getattr(self, "_active_image_channel", ""),
-            )
-        if image_debug:
-            _logger.debug(
-                "Review image timepoint dropdown population for well=%s fov=%s (raw=%s):",
-                well,
-                fov,
-                fov_raw,
-            )
-            fluor_candidates = [
-                (k_fov, k_tp, ref)
-                for (k_fov, k_tp), ref in self._preview_fluor.items()
-                if _norm(k_fov) == fov
-            ]
-            if fluor_candidates:
-                for k_fov, k_tp, ref in sorted(
-                    fluor_candidates,
-                    key=lambda row: (_tp_sort_key(row[1]), str(row[0])),
-                ):
-                    _logger.debug(
-                        "  fluor candidate fov=%s tp=%s path=%s",
-                        k_fov,
-                        k_tp,
-                        getattr(ref, "full_path_str", str(ref)),
-                    )
-            else:
-                _logger.debug("  no fluorescence candidates found for selected FOV")
+            tp_values = sorted(set(tp_values) | set(pipeline_tp_values), key=self._review_tp_sort_key)
+        return tp_values
 
-            tophat_candidates = [
-                (k_fov, k_tp, ref)
-                for (k_fov, k_tp), ref in getattr(self, "_preview_tophat_fluor", {}).items()
-                if _norm(k_fov) == fov
-            ]
-            if tophat_candidates:
-                for k_fov, k_tp, ref in sorted(
-                    tophat_candidates,
-                    key=lambda row: (_tp_sort_key(row[1]), str(row[0])),
-                ):
-                    _logger.debug(
-                        "  tophat candidate fov=%s tp=%s path=%s",
-                        k_fov,
-                        k_tp,
-                        getattr(ref, "full_path_str", str(ref)),
-                    )
-        self._review_image_tp_menu["values"] = tp_values or ["—"]
-        if tp_values and self._review_image_tp_var.get() not in tp_values:
-            self._review_image_tp_var.set(tp_values[0])
-        tp_raw = str(self._review_image_tp_var.get() or "").strip()
-        tp = self._norm_timepoint(tp_raw)
-        if not tp_raw or tp_raw == "—" or not tp:
-            self._review_image_status.config(text="No timepoint selected.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
-                    tp_raw,
-                    tp,
-                )
-            return
-
+    def _review_resolve_image_refs(self, *, fov_raw: str, tp_raw: str):
+        """Resolve (fluor_ref, mask_ref), preferring top-hat if available."""
         fluor_ref = _resolve_ref_by_fov_tp(
             getattr(self, "_preview_tophat_fluor", {}),
-            fov_raw=fov_raw,
-            tp_raw=tp_raw,
+            fov_raw=fov_raw, tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
         if fluor_ref is None:
             fluor_ref = _resolve_ref_by_fov_tp(
-                self._preview_fluor,
-                fov_raw=fov_raw,
-                tp_raw=tp_raw,
+                self._preview_fluor, fov_raw=fov_raw, tp_raw=tp_raw,
                 norm_timepoint=self._norm_timepoint,
             )
         mask_ref = _resolve_ref_by_fov_tp(
-            self._preview_mask,
-            fov_raw=fov_raw,
-            tp_raw=tp_raw,
+            self._preview_mask, fov_raw=fov_raw, tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
-        if image_debug:
-            fov_tp_match_fluor = sum(
-                1
-                for (k_fov, k_tp) in self._preview_fluor.keys()
-                if _norm(k_fov) == fov and self._norm_timepoint(k_tp) == tp
-            )
-            fov_tp_match_tophat = sum(
-                1
-                for (k_fov, k_tp) in getattr(self, "_preview_tophat_fluor", {}).keys()
-                if _norm(k_fov) == fov and self._norm_timepoint(k_tp) == tp
-            )
-            _logger.debug(
-                "refresh_review_image refs_resolved well=%r fov=%r tp=%r fluor_ref=%s mask_ref=%s "
-                "final_key_counts fluor=%d tophat=%d",
-                well,
-                fov,
-                tp,
-                getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None,
-                getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None,
-                fov_tp_match_fluor,
-                fov_tp_match_tophat,
-            )
-        if image_load_debug:
-            fluor_path = getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None
-            mask_path = getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None
-            _debug_flags.debug_with_source(
-                _logger,
-                "Review Image load attempt well=%s fov=%s tp=%s fluor_path=%s",
-                well,
-                fov,
-                tp,
-                fluor_path,
-            )
-            _debug_flags.debug_with_source(
-                _logger,
-                "Review Image load attempt well=%s fov=%s tp=%s mask_path=%s",
-                well,
-                fov,
-                tp,
-                mask_path,
-            )
-        if fluor_ref is None or mask_ref is None:
-            self._review_image_status.config(text="Missing fluorescence image or label map for selected FOV/timepoint.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
-                    fluor_ref,
-                    mask_ref,
-                )
-            return
-        self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
+        return fluor_ref, mask_ref
 
-        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
-        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
-        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
-            self._review_image_status.config(text="Could not render review image (numpy/PIL unavailable).")
-            return
-
+    def _review_build_include_map(
+        self, mask_arr, well: str, fov: str, tp: str,
+    ) -> Dict[int, bool]:
+        """Build {nid: is_included} for all labels in ``mask_arr``."""
         center = _np.asarray(mask_arr)
         include_by_nid: Dict[int, bool] = {
             int(nid): True for nid in _np.unique(center) if int(nid) > 0
@@ -4886,16 +4147,90 @@ class WellViewerApp(tk.Frame):
                 continue
             incl = str(row.get("Included", "1")).strip()
             include_by_nid[nid] = (incl != "0")
+        return include_by_nid
+
+    def _refresh_review_image(self) -> None:
+        if not hasattr(self, "_review_image_label"):
+            return
+        channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
+        image_load_debug = _debug_flags.review_image_load_debug_enabled()
+        well = self._preview_selected_well
+        if well is None:
+            if channel_switch_debug:
+                _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
+            return
+
+        fov_raw = str(self._preview_fov_var.get() or "").strip()
+        fov = self._review_norm_fov(fov_raw)
+        if not fov_raw or fov_raw == "—" or not fov:
+            self._review_image_status.setText("No FOV selected.")
+            if channel_switch_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
+                    fov_raw, fov,
+                )
+            return
+
+        tp_values = self._review_collect_timepoints(fov)
+        if channel_switch_debug:
+            _logger.debug(
+                "[RI-CHSW step 6] refresh_review_image start well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
+                well, fov_raw, fov, getattr(self, "_active_image_channel", ""),
+            )
+        _set_combo_values(self._review_image_tp_menu, tp_values or ["—"])
+        if tp_values and self._review_image_tp_var.get() not in tp_values:
+            self._review_image_tp_var.set(tp_values[0])
+        tp_raw = str(self._review_image_tp_var.get() or "").strip()
+        tp = self._norm_timepoint(tp_raw)
+        if not tp_raw or tp_raw == "—" or not tp:
+            self._review_image_status.setText("No timepoint selected.")
+            if channel_switch_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
+                    tp_raw, tp,
+                )
+            return
+
+        fluor_ref, mask_ref = self._review_resolve_image_refs(
+            fov_raw=fov_raw, tp_raw=tp_raw,
+        )
+        if image_load_debug:
+            fluor_path = getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None
+            mask_path = getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None
+            _debug_flags.debug_with_source(
+                _logger,
+                "Review Image load attempt well=%s fov=%s tp=%s fluor_path=%s",
+                well, fov, tp, fluor_path,
+            )
+            _debug_flags.debug_with_source(
+                _logger,
+                "Review Image load attempt well=%s fov=%s tp=%s mask_path=%s",
+                well, fov, tp, mask_path,
+            )
+        if fluor_ref is None or mask_ref is None:
+            self._review_image_status.setText("Missing fluorescence image or label map for selected FOV/timepoint.")
+            if channel_switch_debug:
+                _logger.debug(
+                    "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
+                    fluor_ref, mask_ref,
+                )
+            return
+        self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
+
+        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
+        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
+        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
+            self._review_image_status.setText("Could not render review image (numpy/PIL unavailable).")
+            return
+
+        include_by_nid = self._review_build_include_map(mask_arr, well, fov, tp)
         preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
         self._review_image_preserve_view_on_refresh = False
         if channel_switch_debug:
             _logger.debug("[RI-CHSW step 6->7] draw_review_image preserve_view=%s", preserve_view)
         self._draw_review_image(
-            fluor_arr,
-            mask_arr,
-            include_by_nid,
-            fit_lut=False,
-            preserve_view=preserve_view,
+            fluor_arr, mask_arr, include_by_nid,
+            fit_lut=False, preserve_view=preserve_view,
         )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
@@ -4973,10 +4308,10 @@ class WellViewerApp(tk.Frame):
         else:
             lo, hi = self._review_image_resolve_lut(arr)
         if hasattr(self, "_review_lut_chan_lbl"):
-            self._review_lut_chan_lbl.config(text=f"{self._active_image_channel.upper()} LUT min:")
-        if hasattr(self, "_review_lut_min_var") and hasattr(self, "_review_lut_max_var"):
-            self._review_lut_min_var.set(f"{lo:.0f}")
-            self._review_lut_max_var.set(f"{hi:.0f}")
+            self._review_lut_chan_lbl.setText(f"{self._active_image_channel.upper()} LUT min:")
+        if hasattr(self, "_review_lut_min_edit") and hasattr(self, "_review_lut_max_edit"):
+            self._review_lut_min_edit.setText(f"{lo:.0f}")
+            self._review_lut_max_edit.setText(f"{hi:.0f}")
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
         rgb = _np.dstack([base, base, base])
 
@@ -4997,7 +4332,7 @@ class WellViewerApp(tk.Frame):
         rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
         sel_nid = self._review_image_selected_nucleus
         if sel_nid is not None:
-            sel_boundary = draw_boundary & (center == int(sel_nid))
+            sel_boundary = boundary & (center == int(sel_nid))
             rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
 
         img = _PILImage.fromarray(rgb, mode="RGB")
@@ -5009,20 +4344,37 @@ class WellViewerApp(tk.Frame):
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label._raw_arr = arr      # type: ignore[attr-defined]
-        self._review_image_label.bind("<Motion>", self._on_review_image_hover)
-        self._review_image_label.bind("<Leave>", lambda _e: self._review_image_tooltip.hide())
-        self._review_image_label.bind("<MouseWheel>", self._on_review_image_wheel)
-        self._review_image_label.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
-        self._review_image_label.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
-        self._review_image_label.bind("<ButtonPress-1>", self._on_review_image_press)
-        self._review_image_label.bind("<B1-Motion>", self._on_review_image_drag)
-        self._review_image_label.bind("<ButtonRelease-1>", self._on_review_image_release)
-        self._review_image_label.config(
-            cursor=("pirate" if getattr(self, "_review_image_include_edit_mode", False) else "hand2")
-        )
-        suffix = f"  ·  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
-        self._review_image_status.config(
-            text=f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
+        lbl = self._review_image_label
+        lbl.setMouseTracking(True)
+
+        def _ri_move(ev):
+            self._on_review_image_hover(ev)
+        def _ri_leave(ev):
+            try:
+                self._review_image_tooltip.hide()
+            except Exception:
+                pass
+        def _ri_wheel(ev):
+            self._on_review_image_wheel(ev)
+        def _ri_press(ev):
+            self._on_review_image_press(ev)
+        def _ri_move_drag(ev):
+            if ev.buttons() & Qt.LeftButton:
+                self._on_review_image_drag(ev)
+            else:
+                _ri_move(ev)
+        def _ri_release(ev):
+            self._on_review_image_release(ev)
+
+        lbl.mouseMoveEvent = _ri_move_drag
+        lbl.leaveEvent = _ri_leave
+        lbl.wheelEvent = _ri_wheel
+        lbl.mousePressEvent = _ri_press
+        lbl.mouseReleaseEvent = _ri_release
+        lbl.setCursor(Qt.ForbiddenCursor if getattr(self, "_review_image_include_edit_mode", False) else Qt.PointingHandCursor)
+        suffix = f"  \u00b7  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
+        self._review_image_status.setText(
+            f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
         )
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
@@ -5040,22 +4392,29 @@ class WellViewerApp(tk.Frame):
             _logger.debug("[RI-CHSW step 7] render_review_image_display start")
         img = self._review_image_base_pil
         iw, ih = img.size
-        cw = max(1, int(getattr(self, "_review_image_canvas").winfo_width() - 16))
-        ch = max(1, int(getattr(self, "_review_image_canvas").winfo_height() - 16))
+        vp = self._review_image_canvas.viewport()
+        cw = max(1, vp.width())
+        ch = max(1, vp.height())
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
         shown = img.resize((nw, nh), _PILImage.NEAREST)
-        self._review_image_photo = _PILImageTk.PhotoImage(shown)
-        self._review_image_label.configure(image=self._review_image_photo)
+        if shown.mode != "RGBA":
+            shown = shown.convert("RGBA")
+        data = shown.tobytes("raw", "RGBA")
+        qimg = QImage(data, nw, nh, 4 * nw, QImage.Format_RGBA8888).copy()
+        pm = QPixmap.fromImage(qimg)
+        self._review_image_label.setPixmap(pm)
+        self._review_image_label.resize(max(nw, cw), max(nh, ch))
         self._review_image_scale = scale
-        base_x = max(8, (cw - nw) // 2)
-        base_y = max(8, (ch - nh) // 2)
-        self._review_image_canvas.coords(
-            self._review_image_window,
-            base_x + float(getattr(self, "_review_image_pan_x", 0.0)),
-            base_y + float(getattr(self, "_review_image_pan_y", 0.0)),
-        )
+        pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
+        pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
+        hbar = self._review_image_canvas.horizontalScrollBar()
+        vbar = self._review_image_canvas.verticalScrollBar()
+        cx = max(0, (max(nw, cw) - cw) // 2) - int(pan_x)
+        cy = max(0, (max(nh, ch) - ch) // 2) - int(pan_y)
+        hbar.setValue(max(hbar.minimum(), min(hbar.maximum(), cx)))
+        vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), cy)))
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
                 "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f",
@@ -5080,33 +4439,37 @@ class WellViewerApp(tk.Frame):
         self._review_image_pan_y = 0.0
         self._render_review_image_display()
 
-    def _on_review_image_wheel(self, event: tk.Event) -> None:  # type: ignore[type-arg]
-        direction = +1 if getattr(event, "delta", 0) > 0 else -1
-        if getattr(event, "num", None) == 4:
-            direction = +1
-        elif getattr(event, "num", None) == 5:
-            direction = -1
-        self._review_image_zoom_step(direction)
+    def _on_review_image_wheel(self, event) -> None:
+        try:
+            dy = int(event.angleDelta().y())
+        except Exception:
+            dy = 0
+        direction = +1 if dy > 0 else -1 if dy < 0 else 0
+        if direction:
+            self._review_image_zoom_step(direction)
 
-    def _on_review_image_press(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_press(self, event) -> None:
         self._review_image_dragging = True
         self._review_image_drag_moved = False
-        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+        gp = event.globalPosition().toPoint()
+        self._review_image_drag_last_xy = (int(gp.x()), int(gp.y()))
 
-    def _on_review_image_drag(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_drag(self, event) -> None:
         if not getattr(self, "_review_image_dragging", False):
             return
+        gp = event.globalPosition().toPoint()
+        gx, gy = int(gp.x()), int(gp.y())
         lx, ly = self._review_image_drag_last_xy
-        dx = int(event.x_root) - lx
-        dy = int(event.y_root) - ly
+        dx = gx - lx
+        dy = gy - ly
         if dx or dy:
             self._review_image_drag_moved = True
         self._review_image_pan_x = float(getattr(self, "_review_image_pan_x", 0.0) + dx)
         self._review_image_pan_y = float(getattr(self, "_review_image_pan_y", 0.0) + dy)
-        self._review_image_drag_last_xy = (int(event.x_root), int(event.y_root))
+        self._review_image_drag_last_xy = (gx, gy)
         self._render_review_image_display()
 
-    def _on_review_image_release(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_release(self, event) -> None:
         was_dragging = getattr(self, "_review_image_dragging", False)
         moved = getattr(self, "_review_image_drag_moved", False)
         self._review_image_dragging = False
@@ -5114,19 +4477,24 @@ class WellViewerApp(tk.Frame):
         if was_dragging and not moved:
             self._on_review_image_click(event)
 
-    def _on_review_image_hover(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_hover(self, event: Any) -> None:
         if not hasattr(self, "_review_image_label"):
             return
-        self._review_image_label._sz_w = self._review_image_label.winfo_width()  # type: ignore[attr-defined]
-        self._review_image_label._sz_h = self._review_image_label.winfo_height()  # type: ignore[attr-defined]
+        pm = self._review_image_label.pixmap()
+        if pm is not None and not pm.isNull():
+            self._review_image_label._sz_w = int(pm.width())  # type: ignore[attr-defined]
+            self._review_image_label._sz_h = int(pm.height())  # type: ignore[attr-defined]
+        else:
+            self._review_image_label._sz_w = int(self._review_image_label.width())  # type: ignore[attr-defined]
+            self._review_image_label._sz_h = int(self._review_image_label.height())  # type: ignore[attr-defined]
         _show_image_pixel_tooltip_controller(
             self,
             event,
-            getattr(self, "_review_image_tooltip", None),
             f"{self._active_image_channel.upper()}",
+            label=self._review_image_label,
         )
 
-    def _on_review_image_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_image_click(self, event: Any) -> None:
         _on_review_image_click_controller(self, event, _logger)
 
     def _select_review_csv_row_for_cell(self, fov: str, tp: str, nucleus_id: str) -> None:
@@ -5135,7 +4503,7 @@ class WellViewerApp(tk.Frame):
     def _set_review_image_include_mode(self, enabled: bool) -> None:
         self._review_image_include_edit_mode = bool(enabled)
         if hasattr(self, "_review_image_label"):
-            self._review_image_label.config(cursor=("pirate" if enabled else "hand2"))
+            self._review_image_label.setCursor(Qt.ForbiddenCursor if enabled else Qt.PointingHandCursor)
         if enabled:
             self._set_status("Review Image Include edit mode ON: click a cell to set Included=0.")
         else:
@@ -5179,8 +4547,9 @@ class WellViewerApp(tk.Frame):
         if img is None:
             return
         iw, ih = img.size
-        cw = max(1, int(self._review_image_canvas.winfo_width() - 16))
-        ch = max(1, int(self._review_image_canvas.winfo_height() - 16))
+        vp = self._review_image_canvas.viewport()
+        cw = max(1, vp.width())
+        ch = max(1, vp.height())
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
@@ -5190,7 +4559,7 @@ class WellViewerApp(tk.Frame):
         self._review_image_pan_y = (ch / 2.0) - base_y - (cy * scale)
         self._render_review_image_display()
 
-    def _on_review_csv_row_double_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+    def _on_review_csv_row_double_click(self, event) -> None:
         _on_review_csv_row_double_click_controller(self, event)
 
     # ── Export ────────────────────────────────────────────────────────────────
@@ -5209,7 +4578,7 @@ class WellViewerApp(tk.Frame):
 
     def _open_batch_export(self) -> None:
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -5243,35 +4612,37 @@ class WellViewerApp(tk.Frame):
 
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
-        tab = self._notebook.tab(self._notebook.select(), "text")
+        if not hasattr(self, "_line_ax_mean"):
+            return
+        tab = self._notebook.tabText(self._notebook.currentIndex())
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))
 
-        self._sidebar_main_frame.pack_forget()
-        self._sidebar_preview_frame.pack_forget()
-        self._sidebar_sample_frame.pack_forget()
-        self._sidebar_groups_frame.pack_forget()
-        self._sidebar_stats_frame.pack_forget()
+        self._sidebar_main_frame.setVisible(False)
+        self._sidebar_preview_frame.setVisible(False)
+        self._sidebar_sample_frame.setVisible(False)
+        self._sidebar_groups_frame.setVisible(False)
+        self._sidebar_stats_frame.setVisible(False)
 
         if tab == "Movie Montage":
             self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
         elif tab == "Review Image":
             self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
             self._refresh_review_image()
 
         elif tab == "Sample Definitions":
-            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_sample_frame.setVisible(True)
             self._groups_centre_refresh()
 
         elif tab == "Statistics":
-            self._sidebar_stats_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_stats_frame.setVisible(True)
             # Auto-populate from rep-sets on first visit
             if not self._stats_groups and hasattr(self, "_stats_grp_inner"):
                 self._stats_sync_from_app()
@@ -5279,29 +4650,32 @@ class WellViewerApp(tk.Frame):
                 self._stats_update_tp_menu()
 
         elif tab == "Batch Export":
-            # Batch Export owns its own in-tab well/group picker, so avoid
-            # showing the global sidebar well picker to prevent duplicate maps.
-            self._sidebar_sample_frame.pack(fill=tk.BOTH, expand=True)
-            self._groups_centre_refresh()
+            # Batch Export uses the standard sidebar well picker.
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
+            self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
                 self._batch_export_set_mode(mode)
 
         elif tab == "Review CSV":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             self._refresh_review_csv()
 
         elif tab == "smFISH":
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
+            self._sidebar_main_frame.setVisible(True)
             if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.pack_forget()
+                self._sidebar_rc_frame.setVisible(False)
             if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.pack_forget()
+                self._sidebar_allnone_frame.setVisible(False)
             if len(self._selected_wells) > 1:
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
@@ -5309,13 +4683,23 @@ class WellViewerApp(tk.Frame):
             if hasattr(self, "_smfish_tab"):
                 self._smfish_tab.sync_from_app()
 
+        elif tab == "Cell Gating":
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
+            self._refresh_sidebar_map()
+            if hasattr(self, "_cell_gating_tab") and self._cell_gating_tab is not None:
+                self._cell_gating_tab._load_cell_areas()
+
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
-            self._sidebar_main_frame.pack(fill=tk.BOTH, expand=True)
-            if hasattr(self, "_sidebar_rc_frame") and not self._sidebar_rc_frame.winfo_manager():
-                self._sidebar_rc_frame.pack(fill=tk.X, padx=6, pady=(0, 4))
-            if hasattr(self, "_sidebar_allnone_frame") and not self._sidebar_allnone_frame.winfo_manager():
-                self._sidebar_allnone_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+            self._sidebar_main_frame.setVisible(True)
+            if hasattr(self, "_sidebar_rc_frame"):
+                self._sidebar_rc_frame.setVisible(True)
+            if hasattr(self, "_sidebar_allnone_frame"):
+                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             if tab == "Bar Plots":
                 self._update_bar_tp_menu()
@@ -5396,7 +4780,7 @@ class WellViewerApp(tk.Frame):
         """No-op: the unified well picker is always visible for plot tabs."""
         pass
 
-    def _build_review_csv_tab(self, parent: tk.Frame) -> None:
+    def _build_review_csv_tab(self, parent) -> None:
         from well_viewer.tabs.review_csv_tab_view import build_review_csv_tab as _v
         _v(self, parent)
 
@@ -5405,26 +4789,28 @@ class WellViewerApp(tk.Frame):
             return
         sels = sorted(self._selected_wells, key=self._parse_rc)
         if not sels:
-            self._review_well_var.set("(select well(s))")
-            self._review_fov_cb["values"] = []
-            self._review_tp_cb["values"] = []
-            self._review_fov_var.set("")
-            self._review_tp_var.set("")
+            self._review_well_lbl.setText("(select well(s))")
+            _set_combo_values(self._review_fov_cb, [])
+            _set_combo_values(self._review_tp_cb, [])
+            self._review_fov_cb.setCurrentText("")
+            self._review_tp_cb.setCurrentText("")
             self._refresh_review_csv_rows([])
-            self._review_csv_msg.set("Select one or more wells in the picker.")
+            self._review_csv_msg_lbl.setText("Select one or more wells in the picker.")
             return
 
-        self._review_well_var.set(", ".join(sels[:3]) + (f" (+{len(sels) - 3} more)" if len(sels) > 3 else ""))
+        self._review_well_lbl.setText(
+            ", ".join(sels[:3]) + (f" (+{len(sels) - 3} more)" if len(sels) > 3 else "")
+        )
         rows: List[dict] = []
         for label in sels:
             rows.extend(self._review_load_rows(label))
         if not rows:
-            self._review_fov_cb["values"] = []
-            self._review_tp_cb["values"] = []
-            self._review_fov_var.set("")
-            self._review_tp_var.set("")
+            _set_combo_values(self._review_fov_cb, [])
+            _set_combo_values(self._review_tp_cb, [])
+            self._review_fov_cb.setCurrentText("")
+            self._review_tp_cb.setCurrentText("")
             self._refresh_review_csv_rows([])
-            self._review_csv_msg.set("No CSV rows loaded for selected well(s).")
+            self._review_csv_msg_lbl.setText("No CSV rows loaded for selected well(s).")
             return
 
         fovs = sorted({
@@ -5442,20 +4828,19 @@ class WellViewerApp(tk.Frame):
             seen_tps.add(norm_tp)
             tps.append(norm_tp)
         tps.sort(key=lambda tp: (parse_timepoint_hours(tp) is None, parse_timepoint_hours(tp) or 0.0, tp))
-        self._review_fov_cb["values"] = fovs
-        self._review_tp_cb["values"] = tps
-        if fovs and self._review_fov_var.get() not in fovs:
-            self._review_fov_var.set(fovs[0])
-        if tps and self._review_tp_var.get() not in tps:
-            self._review_tp_var.set(tps[0])
+        _set_combo_values(self._review_fov_cb, fovs)
+        _set_combo_values(self._review_tp_cb, tps)
+        if fovs and self._review_fov_cb.currentText() not in fovs:
+            self._review_fov_cb.setCurrentText(fovs[0])
+        if tps and self._review_tp_cb.currentText() not in tps:
+            self._review_tp_cb.setCurrentText(tps[0])
         self._refresh_review_csv_rows(rows)
 
     def _refresh_review_csv_rows(self, rows: Optional[List[dict]] = None) -> None:
         if not hasattr(self, "_review_csv_table"):
             return
         table = self._review_csv_table
-        for iid in table.get_children():
-            table.delete(iid)
+        table.setRowCount(0)
 
         if rows is None:
             sels = sorted(self._selected_wells, key=self._parse_rc)
@@ -5472,8 +4857,8 @@ class WellViewerApp(tk.Frame):
             except Exception:
                 return s
 
-        fov_sel = _norm(self._review_fov_var.get()) if hasattr(self, "_review_fov_var") else ""
-        tp_sel = self._norm_timepoint(self._review_tp_var.get()) if hasattr(self, "_review_tp_var") else ""
+        fov_sel = _norm(self._review_fov_cb.currentText()) if hasattr(self, "_review_fov_cb") else ""
+        tp_sel = self._norm_timepoint(self._review_tp_cb.currentText()) if hasattr(self, "_review_tp_cb") else ""
         filtered = []
         for row in rows:
             row_fov = _norm(row.get("fov", row.get("FOV", "")))
@@ -5491,13 +4876,13 @@ class WellViewerApp(tk.Frame):
                 fov_sel, tp_sel, len(rows),
             )
             if not rows:
-                table["columns"] = ()
-                self._review_csv_msg.set("No rows are available for the selected well(s).")
+                table.setColumnCount(0)
+                self._review_csv_msg_lbl.setText("No rows are available for the selected well(s).")
                 return
             # Fallback: if the filters are mismatched for any reason, still
             # show all loaded rows from selected well(s) instead of an empty table.
             filtered = list(rows)
-            self._review_csv_msg.set(
+            self._review_csv_msg_lbl.setText(
                 "No exact Well/FOV/Timepoint match. Showing all selected rows instead."
             )
             ctx = getattr(self, "_review_csv_lookup_context", {}) or {}
@@ -5510,13 +4895,16 @@ class WellViewerApp(tk.Frame):
             )
 
         cols = list(filtered[0].keys())
-        table["columns"] = cols
-        for c in cols:
-            table.heading(c, text=c)
-            table.column(c, width=120, minwidth=60, stretch=True, anchor="w")
+        table.setColumnCount(len(cols))
+        table.setHorizontalHeaderLabels(cols)
+        for ci in range(len(cols)):
+            table.setColumnWidth(ci, 120)
         for row in filtered:
-            table.insert("", tk.END, values=[row.get(c, "") for c in cols])
-        self._review_csv_msg.set(f"Showing {len(filtered):,} row(s).")
+            r = table.rowCount()
+            table.insertRow(r)
+            for ci, c in enumerate(cols):
+                table.setItem(r, ci, QTableWidgetItem(str(row.get(c, ""))))
+        self._review_csv_msg_lbl.setText(f"Showing {len(filtered):,} row(s).")
 
     def _review_load_rows(self, label: str) -> List[dict]:
         try:
@@ -5552,8 +4940,8 @@ class WellViewerApp(tk.Frame):
         but the dropdown must remain usable even when nothing is selected yet.
         """
         if not self._well_paths:
-            self._bar_tp_cb["values"] = ["—"]
-            self._bar_tp_var.set("—")
+            _set_combo_values(self._bar_tp_cb, ["—"])
+            self._bar_tp_cb.setCurrentText("—")
             return
 
         all_tps: set = set(self._all_timepoints_cache)
@@ -5566,38 +4954,29 @@ class WellViewerApp(tk.Frame):
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
 
-        cur = self._bar_tp_var.get()
-        self._bar_tp_cb["values"] = tp_strs
+        cur = self._bar_tp_cb.currentText()
+        _set_combo_values(self._bar_tp_cb, tp_strs)
         if cur in tp_strs:
-            self._bar_tp_var.set(cur)
+            self._bar_tp_cb.setCurrentText(cur)
         elif tp_strs:
-            self._bar_tp_var.set(tp_strs[0])
+            self._bar_tp_cb.setCurrentText(tp_strs[0])
         else:
-            self._bar_tp_var.set("—")
+            self._bar_tp_cb.setCurrentText("—")
 
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
-    def _bar_pixel_to_data_x(self, tk_x: int) -> "Optional[float]":
-        """Convert a Tk widget pixel x to data-x in _ax_bar_mean.
+    def _bar_event_xdata(self, event) -> "Optional[float]":
+        """Return data-x for a matplotlib MouseEvent over either bar axis.
 
-        Returns None if the pixel is outside the axes bounding box.
-        Tk widget origin is top-left; matplotlib figure origin is bottom-left.
-        The x-axis direction matches so no horizontal offset correction is needed.
+        Returns None if the cursor is outside the bar plot axes.
         """
-        ax  = self._ax_bar_mean
-        fig = self._bar_fig
-        try:
-            renderer = fig.canvas.get_renderer()
-        except Exception as exc:
+        ax = getattr(event, "inaxes", None)
+        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac:
             return None
-        bbox  = ax.get_window_extent(renderer=renderer)
-        mpl_x = float(tk_x)
-        if not (bbox.x0 <= mpl_x <= bbox.x1):
+        xdata = getattr(event, "xdata", None)
+        if xdata is None:
             return None
-        inv     = ax.transData.inverted()
-        data_pt = inv.transform((mpl_x, (bbox.y0 + bbox.y1) / 2.0))
-        xdata   = float(data_pt[0])
-        return xdata
+        return float(xdata)
 
     def _bar_current_keys(self) -> List:
         """Return the ordered list of keys currently rendered on the bar plot.
@@ -5614,12 +4993,16 @@ class WellViewerApp(tk.Frame):
 
     def _bar_reset_order(self) -> None:
         self._bar_order = None
-        self._bar_reset_order_btn.configure(style="ToggleMuted.TButton")
+        self._bar_reset_order_btn.setProperty("variant", "toggle_muted")
+        self._bar_reset_order_btn.style().unpolish(self._bar_reset_order_btn)
+        self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
         self._redraw_bars()
 
     def _on_bar_drag_press(self, event) -> None:
-        """Begin drag — record which bar was pressed (Tk ButtonPress-1)."""
-        xdata = self._bar_pixel_to_data_x(event.x)
+        """Begin drag — record which bar was pressed."""
+        if getattr(event, "button", None) != 1:
+            return
+        xdata = self._bar_event_xdata(event)
         if xdata is None:
             return
         keys = self._bar_current_keys()
@@ -5630,11 +5013,11 @@ class WellViewerApp(tk.Frame):
         self._bar_drag_state.update(active=True, src_idx=idx, cur_idx=idx)
 
     def _on_bar_drag_motion(self, event) -> None:
-        """Update drop-target indicator while dragging (Tk B1-Motion)."""
+        """Update drop-target indicator while dragging."""
         ds = self._bar_drag_state
         if not ds["active"]:
             return
-        xdata = self._bar_pixel_to_data_x(event.x)
+        xdata = self._bar_event_xdata(event)
         if xdata is None:
             return
         keys = self._bar_current_keys()
@@ -5687,14 +5070,19 @@ class WellViewerApp(tk.Frame):
         item = keys.pop(src)
         keys.insert(tgt, item)
         self._bar_order = keys
-        self._bar_reset_order_btn.configure(style="ToggleAccent.TButton")
+        self._bar_reset_order_btn.setProperty("variant", "toggle_accent")
+        self._bar_reset_order_btn.style().unpolish(self._bar_reset_order_btn)
+        self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
         self._redraw_bars()
 
     def _toggle_log_scale(self) -> None:
         """Toggle log y-axis for beeswarm fluor panel."""
         self._bar_log_scale.set(not self._bar_log_scale.get())
         on = self._bar_log_scale.get()
-        self._bar_log_btn.configure(style="ToggleWarn.TButton" if on else "Toggle.TButton")
+        self._bar_log_btn.setChecked(on)
+        self._bar_log_btn.setProperty("variant", "toggle_warn" if on else "toggle")
+        self._bar_log_btn.style().unpolish(self._bar_log_btn)
+        self._bar_log_btn.style().polish(self._bar_log_btn)
         self._redraw_bars()
 
     def _apply_bar_ylims(
@@ -5710,26 +5098,24 @@ class WellViewerApp(tk.Frame):
         """Toggle beeswarm / bar mode and update the button appearance."""
         self._bar_swarm.set(not self._bar_swarm.get())
         on = self._bar_swarm.get()
-        self._swarm_btn.configure(style="ToggleActive.TButton" if on else "Toggle.TButton")
+        self._swarm_btn.setChecked(on)
         if on and self._bar_violin.get():
             # Swarm and violin are mutually exclusive
             self._bar_violin.set(False)
-            self._violin_btn.configure(style="Toggle.TButton")
-            self._violin_slider.config(state=tk.DISABLED)
+            self._violin_btn.setChecked(False)
+            self._violin_slider.setEnabled(False)
         self._redraw_bars()
 
     def _toggle_violin(self) -> None:
         """Toggle violin / bar mode and update the button appearance."""
         self._bar_violin.set(not self._bar_violin.get())
         on = self._bar_violin.get()
-        self._violin_btn.configure(style="ToggleActive.TButton" if on else "Toggle.TButton")
-        self._violin_slider.config(
-            state=tk.NORMAL if on else tk.DISABLED,
-            fg=TXT_SEC if on else TXT_MUT)
+        self._violin_btn.setChecked(on)
+        self._violin_slider.setEnabled(on)
         if on and self._bar_swarm.get():
             # Mutually exclusive with beeswarm
             self._bar_swarm.set(False)
-            self._swarm_btn.configure(style="Toggle.TButton")
+            self._swarm_btn.setChecked(False)
         self._redraw_bars()
 
     def _draw_violin(
@@ -5761,7 +5147,9 @@ class WellViewerApp(tk.Frame):
 
         import numpy as np_local
         n       = len(wells)
-        bw      = max(0.05, self._violin_bw.get())
+        slider = getattr(self, "_violin_slider", None)
+        bw_raw = float(slider.value()) / 100.0 if slider is not None else 1.0
+        bw      = max(0.05, bw_raw)
         bar_w   = min(0.4, 3.0 / max(n, 1))   # half-width of each violin
 
         xs_ticks = list(range(n))
@@ -6219,6 +5607,22 @@ class WellViewerApp(tk.Frame):
         return [r for r in getattr(self, "_rep_sets", [])
                 if any(w in self._well_paths for w in r.wells)]
 
+    def _groups_from_rep_sets(self) -> "List[BarGroup]":
+        """Mirror of BatchExportPanel._groups_from_rep_sets for app-level callers.
+
+        Returns one BarGroup per loaded ReplicateSet when any are defined,
+        otherwise a deep copy of the existing _bar_groups.
+        """
+        loaded = self._rep_sets_loaded()
+        if loaded:
+            groups: "List[BarGroup]" = []
+            for rset in loaded:
+                grp = BarGroup(rset.name)
+                grp.members.append(rset)
+                groups.append(grp)
+            return groups
+        return copy.deepcopy(self._bar_groups)
+
     def _rep_sets_active(self) -> "List[ReplicateSet]":
         """Loaded ReplicateSets that are not hidden — these appear on plots."""
         return [r for i, r in enumerate(self._rep_sets_loaded())
@@ -6434,7 +5838,7 @@ class WellViewerApp(tk.Frame):
     def _open_bar_batch_export(self) -> None:
         """Switch Batch Export tab to the inline bar-plot export builder."""
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Bar Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Bar Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -6444,7 +5848,7 @@ class WellViewerApp(tk.Frame):
     def _open_scatter_cells_batch_export(self) -> None:
         """Switch Batch Export tab to the inline scatter-cells export builder."""
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Scatter Cells Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Scatter Cells Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -6454,7 +5858,7 @@ class WellViewerApp(tk.Frame):
     def _open_scatter_agg_batch_export(self) -> None:
         """Switch Batch Export tab to the inline aggregate-scatter export builder."""
         if not self._well_paths:
-            messagebox.showwarning("No data", "Load data before opening Scatter Aggregate Batch Export.")
+            QMessageBox.warning(self, "No data", "Load data before opening Scatter Aggregate Batch Export.")
             return
         if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
             self._notebook.select_by_text("Batch Export")
@@ -6530,8 +5934,8 @@ class WellViewerApp(tk.Frame):
             if ch in self._smfish_channels:
                 scatter_ch_options.append(f"{ch} (spots)")
 
-        self._scatter_ch_x_cb.config(values=scatter_ch_options)
-        self._scatter_ch_y_cb.config(values=scatter_ch_options)
+        _set_combo_values(self._scatter_ch_x_cb, scatter_ch_options)
+        _set_combo_values(self._scatter_ch_y_cb, scatter_ch_options)
 
         if scatter_ch_options:
             if self._scatter_ch_x_var.get() not in scatter_ch_options:
@@ -6542,7 +5946,7 @@ class WellViewerApp(tk.Frame):
         # Update timepoint dropdown for cells scatter
         timepoints = list(self._all_timepoints_cache) or _scatter_get_timepoints(self)
         tp_strs = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0"]
-        self._scatter_tp_cb.config(values=tp_strs)
+        _set_combo_values(self._scatter_tp_cb, tp_strs)
 
         if tp_strs and self._scatter_tp_var.get() not in tp_strs:
             self._scatter_tp_var.set(tp_strs[0])
@@ -6556,8 +5960,8 @@ class WellViewerApp(tk.Frame):
             if ch in self._smfish_channels:
                 statistics.append(f"smFISH Count {ch.upper()}")
 
-        self._scatter_agg_stat_x_cb.config(values=statistics)
-        self._scatter_agg_stat_y_cb.config(values=statistics)
+        _set_combo_values(self._scatter_agg_stat_x_cb, statistics)
+        _set_combo_values(self._scatter_agg_stat_y_cb, statistics)
 
         if statistics:
             if self._scatter_agg_stat_x_var.get() not in statistics:
@@ -6565,30 +5969,27 @@ class WellViewerApp(tk.Frame):
             if self._scatter_agg_stat_y_var.get() not in statistics:
                 self._scatter_agg_stat_y_var.set(statistics[1] if len(statistics) > 1 else statistics[0])
 
-        # Update timepoint selections for aggregate scatter
-        # Initialize or rebuild with all timepoints checked by default
+        # Update timepoint selections for aggregate scatter; all default checked.
+        from well_viewer.tabs.scatter_agg_tab_view import BoolHolder as _BoolHolder
         if hasattr(self, '_scatter_agg_tp_selections'):
-            # Save previously selected timepoints
-            prev_selected = {tp_str for tp_str, var in self._scatter_agg_tp_selections.items() if var.get()}
+            prev_selected = {tp_str for tp_str, v in self._scatter_agg_tp_selections.items() if v.get()}
             self._scatter_agg_tp_selections.clear()
         else:
             prev_selected = set()
             self._scatter_agg_tp_selections = {}
 
-        # Rebuild with new timepoints, all checked by default
         for tp_str in tp_strs:
-            var = tk.BooleanVar(value=True)  # All timepoints checked by default
-            self._scatter_agg_tp_selections[tp_str] = var
+            self._scatter_agg_tp_selections[tp_str] = _BoolHolder(True)
 
-        # Update the display label
         self._update_tp_selection_display()
 
     def _update_tp_selection_display(self) -> None:
         """Update the aggregate scatter label showing selected timepoints."""
-        count = sum(1 for var in self._scatter_agg_tp_selections.values() if var.get())
+        count = sum(1 for v in self._scatter_agg_tp_selections.values() if v.get())
         total = len(self._scatter_agg_tp_selections)
         label_text = f"(All {count} selected)" if count == total else f"({count}/{total} selected)"
-        self._scatter_agg_tp_label.config(text=label_text)
+        if hasattr(self, "_scatter_agg_tp_label") and self._scatter_agg_tp_label is not None:
+            self._scatter_agg_tp_label.setText(label_text)
 
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
@@ -6705,7 +6106,8 @@ class WellViewerApp(tk.Frame):
         """Open or update the scatter cell viewer window."""
         from well_viewer.scatter_callbacks import ScatterCellViewer
 
-        if not hasattr(self, '_scatter_cell_viewer') or self._scatter_cell_viewer is None or not self._scatter_cell_viewer.winfo_exists():
+        existing = getattr(self, "_scatter_cell_viewer", None)
+        if existing is None or not existing.isVisible():
             self._scatter_cell_viewer = ScatterCellViewer(
                 self,
                 self,
@@ -6714,10 +6116,11 @@ class WellViewerApp(tk.Frame):
                 nuclear_id,
                 row_idx,
             )
+            self._scatter_cell_viewer.show()
         else:
-            self._scatter_cell_viewer.update_cell(well_label, filename, nuclear_id, row_idx)
-            self._scatter_cell_viewer.lift()
-            self._scatter_cell_viewer.focus()
+            existing.update_cell(well_label, filename, nuclear_id, row_idx)
+            existing.raise_()
+            existing.activateWindow()
 
     def _export_scatter_data(self) -> None:
         """Export scatter plot data to CSV."""
@@ -6863,9 +6266,7 @@ class WellViewerApp(tk.Frame):
         except Exception:
             lo, hi = 0.0, 300.0
         new_thr = max(lo, min(hi, event.xdata))
-        # Update the stored value and the Entry field
         self._threshold = new_thr
-        self._entry_var.set(f"{new_thr:.2f}")
         self._invalidate_stats_cache()
         # Lightweight redraw: just update the vline and axvspan positions
         self._redraw()
@@ -6880,44 +6281,41 @@ class WellViewerApp(tk.Frame):
     # ── Log / status helpers ──────────────────────────────────────────────────
 
     def _set_status(self, msg: str) -> None:
-        self._status_lbl.config(text=msg)
+        self._status_lbl.setText(msg)
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""
-        self._progress_var.set(0)
-        self._progress_bar.config(maximum=max(1, maximum))
-        # Pack before the log button (which is already packed on the right)
-        self._progress_bar.pack(side=tk.RIGHT, padx=(4, 2), pady=2,
-                                before=self._log_btn)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setMaximum(max(1, maximum))
+        self._progress_bar.setVisible(True)
         if msg:
             self._set_status(msg)
-        self.update()
+        QApplication.processEvents()
 
     def _step_progress(self, value: int, msg: str = "") -> None:
         """Advance the progress bar to *value* and repaint immediately."""
-        self._progress_var.set(value)
+        self._progress_bar.setValue(value)
         if msg:
             self._set_status(msg)
-        self.update()
+        QApplication.processEvents()
 
     def _hide_progress(self) -> None:
         """Remove the progress bar."""
-        self._progress_bar.pack_forget()
-        self._progress_var.set(0)
+        self._progress_bar.setVisible(False)
+        self._progress_bar.setValue(0)
 
     def _toggle_log(self) -> None:
         self._log_visible = not self._log_visible
         if self._log_visible:
-            self._log_frame.pack(fill=tk.X, before=self._status_lbl.master)
-            self._log_btn.config(text="Log ▼")
+            self._log_frame.setVisible(True)
+            self._log_btn.setText("Log ▼")
         else:
-            self._log_frame.pack_forget()
-            self._log_btn.config(text="Log ▲")
+            self._log_frame.setVisible(False)
+            self._log_btn.setText("Log ▲")
 
     def _clear_log(self) -> None:
-        self._log_text.configure(state=tk.NORMAL)
-        self._log_text.delete("1.0", tk.END)
-        self._log_text.configure(state=tk.DISABLED)
+        if hasattr(self, "_log_text") and self._log_text is not None:
+            self._log_text.clear()
 
 # =============================================================================
 # Entry point
@@ -6929,9 +6327,14 @@ def main() -> None:
     ap.add_argument("--data_dir", type=Path, default=None,
                     help="Directory of per-well CSVs, or a .zip / .tar.gz archive.")
     args = ap.parse_args()
+    qapp = QApplication.instance() or QApplication(sys.argv)
+    win = QMainWindow()
+    win.setWindowTitle("Well Viewer")
     app = WellViewerApp(data_path=args.data_dir)
-    app.pack(fill=tk.BOTH, expand=True)
-    app._tk_root.mainloop()
+    win.setCentralWidget(app)
+    win.resize(1400, 900)
+    win.show()
+    qapp.exec()
 
 
 __all__ = ["WellViewerApp", "BarGroup", "ReplicateSet", "main"]

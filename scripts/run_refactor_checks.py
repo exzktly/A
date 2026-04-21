@@ -15,7 +15,7 @@ COMMANDS: list[list[str]] = [
         "-m",
         "py_compile",
         "well_viewer/runtime_app.py",
-        "well_viewer/app.py",
+        "well_viewer/data_loading.py",
         "well_viewer/viewer_state.py",
         "well_viewer/preview_controller.py",
         "well_viewer/barplot_controller.py",

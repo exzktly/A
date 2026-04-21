@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import csv
 import logging
-
 from pathlib import Path
-from tkinter import messagebox
+
+from PySide6.QtWidgets import QMessageBox
 
 
 def load_path(app, path: Path) -> None:
     if not path.is_dir():
-        messagebox.showerror("Not a directory", f"Expected a directory:\n{path}")
+        QMessageBox.critical(app, "Not a directory", f"Expected a directory:\n{path}")
         return
     app._cleanup_tmp()
     in_dir = path / "in"
@@ -43,13 +43,14 @@ def load_directory(app, d: Path, label=None) -> None:
         )
     if not csvs:
         if csvs_all:
-            messagebox.showwarning(
+            QMessageBox.warning(
+                app,
                 "No compatible CSVs",
                 "CSV files were found, but none looked like well-measurement input files.\n"
                 "Please select the analysis output folder containing per-well CSVs.",
             )
         else:
-            messagebox.showwarning("No CSVs", f"No .csv files found in:\n{d}")
+            QMessageBox.warning(app, "No CSVs", f"No .csv files found in:\n{d}")
         return
     app._data_dir = d
     app._well_paths.clear()
@@ -80,7 +81,7 @@ def load_directory(app, d: Path, label=None) -> None:
         app._refresh_preview_picker()
     app._label_panel_refresh()
     display = label or str(d)
-    app._dir_label.config(text=display)
+    app._dir_label.setText(display)
     app._set_status(f"Loaded {n} well(s) — {display}")
     app._recalculate_threshold()
     app._redraw()
@@ -107,8 +108,3 @@ def _looks_like_well_measurement_csv(path: Path) -> bool:
 
 def build_tok_to_label(app) -> None:
     app._tok_to_label = {tok: p.stem for tok, p in app._well_paths.items()}
-    if hasattr(app, "_sidebar_btns"):
-        for btn in app._sidebar_btns.values():
-            btn.bind("<ButtonPress-1>", app._sb_press)
-            btn.bind("<B1-Motion>", app._sb_drag)
-            btn.bind("<ButtonRelease-1>", app._sb_release)

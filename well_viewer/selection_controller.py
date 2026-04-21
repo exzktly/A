@@ -1,4 +1,4 @@
-"""Plate/sidebar selection and drag handlers extracted from runtime_app."""
+"""Plate/sidebar selection and drag handlers for WellViewerApp."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def _active_tab(app) -> str:
     if not hasattr(app, "_notebook"):
         return ""
     try:
-        return app._notebook.tab(app._notebook.select(), "text")
+        return app._notebook.tabText(app._notebook.currentIndex())
     except Exception:
         return ""
 
@@ -38,6 +38,9 @@ def _refresh_after_selection_change(app) -> None:
     elif tab == "smFISH":
         if hasattr(app, "_smfish_tab"):
             app._smfish_tab.sync_from_app()
+    elif tab == "Cell Gating":
+        if hasattr(app, "_cell_gating_tab") and app._cell_gating_tab is not None:
+            app._cell_gating_tab._load_cell_areas()
     else:
         app._redraw()
 
@@ -53,8 +56,6 @@ def plate_drag_press(app, tok: str, well_set: set, ds: dict) -> None:
 
 
 def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
-    from well_viewer import runtime_app as rt
-
     if tok in ds["visited"]:
         return
     ds["visited"].add(tok)
@@ -73,29 +74,19 @@ def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
         loaded = app._rep_sets_loaded()
         if si < len(loaded):
             rset = loaded[si]
-            full_c = rt.WELL_COLORS[si % len(rt.WELL_COLORS)]
-            muted = app._mute_color(full_c)
             hidden = si in app._rep_hidden
             for w in rset.wells:
                 b = btn_dict.get(w)
-                if b:
-                    b.config(
-                        bg=muted if hidden else full_c,
-                        fg=rt.CLR_MUTED_TEXT_SOFT if hidden else rt.CLR_WHITE,
-                        activebackground=full_c,
-                        relief=rt.tk.FLAT if hidden else rt.tk.SUNKEN,
-                    )
+                if b is not None and hasattr(b, "set_state"):
+                    b.set_state("rep_hidden" if hidden else "active")
     else:
         if ds["adding"]:
             well_set.add(tok)
         else:
             well_set.discard(tok)
         btn = btn_dict.get(tok)
-        if btn:
-            if tok in well_set:
-                btn.config(bg=rt.ACCENT, fg=rt.CLR_WHITE, activebackground=rt.CLR_ACCENT_DARK, relief=rt.tk.SUNKEN)
-            else:
-                btn.config(bg=rt.BG_PANEL, fg=rt.TXT_PRI, activebackground=rt.BG_HOVER, relief=rt.tk.FLAT)
+        if btn is not None and hasattr(btn, "set_state"):
+            btn.set_state("selected" if tok in well_set else "empty")
 
 
 def plate_drag_release(app, ds: dict, on_rep_change, on_well_change) -> None:
@@ -144,7 +135,7 @@ def on_plate_sel_change(app) -> None:
         app._last_sel = deselected if cur_labels else None
     app._prev_sel = cur_labels
     if hasattr(app, "_notebook"):
-        tab = app._notebook.tab(app._notebook.select(), "text")
+        tab = app._notebook.tabText(app._notebook.currentIndex())
         if tab == "smFISH" and len(app._selected_wells) > 1:
             keep = app._last_sel if app._last_sel in app._selected_wells else next(iter(app._selected_wells))
             app._selected_wells = {keep}
@@ -215,7 +206,6 @@ def select_none(app) -> None:
     if app._rep_sets:
         loaded = app._rep_sets_loaded()
         app._rep_hidden = set(range(len(loaded)))
-    # Always clear individual well selection, regardless of whether rep sets exist
     app._selected_wells.clear()
     app._last_sel = None
     app._prev_sel = set()

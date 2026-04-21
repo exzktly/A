@@ -1,279 +1,270 @@
-"""View builder extracted from runtime_app."""
+"""Movie montage / review-image view builders (Qt port)."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import ttk
 from typing import List, Optional
 
-from well_viewer.runtime_app import (
-    ACCENT,
-    BG_APP,
-    BG_CELL,
-    BG_HOVER,
-    BG_PANEL,
-    BG_SIDE,
-    BORDER,
-    CLR_SUCCESS,
-    FM_BOLD,
-    FM_TINY,
-    TXT_MUT,
-    TXT_PRI,
-    TXT_SEC,
+from PySide6.QtCore import Qt, QEvent
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
+    QVBoxLayout, QWidget,
 )
-from well_viewer.views.widgets import _Tooltip
-from well_viewer.ui_helpers import btn_card, btn_secondary
+
+from well_viewer.ui_helpers import btn_card, btn_secondary, CheckBoxVar, ComboVar, LineEditVar
 
 
-def build_right_panel(self, parent: tk.Frame) -> None:
-        inner = tk.Frame(parent, bg=BG_SIDE)
-        inner.pack(fill=tk.BOTH, expand=True)
-    
-        # Top controls: well name + channel + FOV dropdown
-        ctrl = tk.Frame(inner, bg=BG_SIDE, pady=6, padx=10)
-        ctrl.pack(fill=tk.X)
-        self._preview_well_lbl = tk.Label(ctrl, text="No well selected",
-                                          font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE)
-        self._preview_well_lbl.pack(side=tk.LEFT)
+def build_right_panel(self, parent: QWidget) -> None:
+    """Movie Montage tab: header + scrollable thumbnail grid + LUT / zoom row."""
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
 
-        tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC,
-                 bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
-        self._chan_cb_preview = ttk.Combobox(ctrl, textvariable=self._montage_chan_var,
-                                             values=["GFP"], state="readonly",
-                                             width=10, font=FM_BOLD)
-        self._chan_cb_preview.pack(side=tk.LEFT, padx=(0, 14))
-        self._chan_cb_preview.bind("<<ComboboxSelected>>", self._on_preview_channel_selected)
+    inner = QWidget(parent)
+    il = QVBoxLayout(inner)
+    il.setContentsMargins(0, 0, 0, 0)
+    il.setSpacing(0)
+    layout.addWidget(inner, 1)
 
-        tk.Label(ctrl, text="FOV:", font=FM_TINY, fg=TXT_MUT,
-                 bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._fov_menu = ttk.Combobox(ctrl, textvariable=self._preview_fov_var,
-                                       values=["—"], state="readonly",
-                                       width=8, font=FM_TINY)
-        self._fov_menu.pack(side=tk.LEFT)
-        self._fov_menu.bind("<<ComboboxSelected>>",
-                             lambda _e: self._refresh_preview_montage())
+    ctrl = QWidget(inner)
+    cl = QHBoxLayout(ctrl)
+    cl.setContentsMargins(10, 6, 10, 6)
+    self._preview_well_lbl = QLabel("No well selected", ctrl)
+    cl.addWidget(self._preview_well_lbl)
 
-        btn_secondary(ctrl, "Save Montage…", self._save_montage_figure,
-                      padx=8).pack(side=tk.RIGHT)
-    
-        tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X)
-    
-        # Status / loading label
-        self._montage_status = tk.Label(inner, text="", font=FM_TINY,
-                                         fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-        self._montage_status.pack(fill=tk.X, padx=8, pady=2)
-    
-        # Scrollable canvas for thumbnail grid
-        scroll_outer = tk.Frame(inner, bg=BG_SIDE)
-        scroll_outer.pack(fill=tk.BOTH, expand=True)
-        vsb = tk.Scrollbar(scroll_outer, orient=tk.VERTICAL)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        hsb = tk.Scrollbar(scroll_outer, orient=tk.HORIZONTAL)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self._montage_canvas = tk.Canvas(scroll_outer, bg=BG_APP,
-                                          yscrollcommand=vsb.set,
-                                          xscrollcommand=hsb.set,
-                                          highlightthickness=0)
-        self._montage_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=self._montage_canvas.yview)
-        hsb.config(command=self._montage_canvas.xview)
-        self._montage_inner = tk.Frame(self._montage_canvas, bg=BG_APP)
-        self._montage_win   = self._montage_canvas.create_window(
-            (0, 0), window=self._montage_inner, anchor="nw")
-        self._montage_inner.bind(
-            "<Configure>",
-            lambda _e: self._montage_canvas.configure(
-                scrollregion=self._montage_canvas.bbox("all")))
-        self._montage_canvas.bind("<Configure>", self._on_montage_canvas_resize)
-    
-        # Tooltip for GFP pixel values in montage
-        self._montage_tooltip = _Tooltip(inner)
-    
-        # LUT controls below the canvas
-        lut_row = tk.Frame(inner, bg=BG_SIDE, pady=4, padx=8)
-        lut_row.pack(fill=tk.X, side=tk.BOTTOM)
-        self._mon_lut_chan_lbl = tk.Label(lut_row,
-                                          text=f"{self._active_image_channel.upper()} LUT min:",
-                                          font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE)
-        self._mon_lut_chan_lbl.pack(side=tk.LEFT)
-        self._mon_lmin_var = tk.StringVar(value="auto")
-        self._mon_lmax_var = tk.StringVar(value="auto")
-        for var, padx in ((self._mon_lmin_var, (3, 8)), (self._mon_lmax_var, (3, 12))):
-            prefix = "max:" if var is self._mon_lmax_var else ""
-            if prefix:
-                tk.Label(lut_row, text=prefix, font=FM_TINY,
-                         fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-            e = tk.Entry(lut_row, textvariable=var, width=7, font=FM_TINY,
-                         fg=ACCENT, bg=BG_PANEL, relief=tk.FLAT,
-                         highlightthickness=1, highlightcolor=ACCENT,
-                         highlightbackground=BORDER)
-            e.pack(side=tk.LEFT, padx=padx)
-            e.bind("<Return>",   lambda _e: self._montage_redraw_at_zoom())
-            e.bind("<FocusOut>", lambda _e: self._montage_redraw_at_zoom())
-        btn_secondary(lut_row, "Auto LUT", self._montage_auto_lut,
-                      padx=8).pack(side=tk.LEFT)
-    
-        # Zoom controls — packed on the right of the same lut_row
-        tk.Frame(lut_row, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y,
-                                                     padx=(12, 8))
-        tk.Label(lut_row, text="Zoom:", font=FM_TINY,
-                 fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-        btn_card(lut_row, "−", lambda: self._montage_zoom_step(-1),
-                 width=2).pack(side=tk.LEFT, padx=(4, 1))
-        self._montage_zoom_lbl = tk.Label(lut_row, text="100%", font=FM_TINY,
-                                           fg=TXT_SEC, bg=BG_SIDE, width=5)
-        self._montage_zoom_lbl.pack(side=tk.LEFT)
-        btn_card(lut_row, "+", lambda: self._montage_zoom_step(+1),
-                 width=2).pack(side=tk.LEFT, padx=(1, 4))
-        btn_secondary(lut_row, "Fit", self._montage_zoom_fit).pack(side=tk.LEFT)
-    
-        # Top-hat background subtraction controls (second row in controls area)
-        th_row = tk.Frame(inner, bg=BG_SIDE, pady=2, padx=8)
-        th_row.pack(fill=tk.X, side=tk.BOTTOM)
-        self._mon_tophat_var    = tk.BooleanVar(value=False)
-        self._mon_tophat_radius = tk.StringVar(value="50")
-        self._th_checkbox = tk.Checkbutton(th_row, text="",
-                       variable=self._mon_tophat_var,
-                       font=FM_TINY, fg=TXT_SEC, bg=BG_SIDE,
-                       activebackground=BG_SIDE,
-                       command=self._montage_tophat_toggled)
-        self._th_checkbox.pack(side=tk.LEFT)
-        self._th_label = tk.Label(th_row, text="Top-hat background subtraction",
-                                  font=FM_TINY, fg=TXT_SEC, bg=BG_SIDE)
-        self._th_label.pack(side=tk.LEFT)
-        self._th_radius_label = tk.Label(th_row, text="   radius:",
-                                         font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE)
-        self._th_radius_label.pack(side=tk.LEFT)
-        self._th_radius_entry = tk.Entry(th_row, textvariable=self._mon_tophat_radius,
-                        width=5, font=FM_TINY, fg=ACCENT, bg=BG_PANEL,
-                        relief=tk.FLAT, highlightthickness=1,
-                        highlightcolor=ACCENT, highlightbackground=BORDER)
-        self._th_radius_entry.pack(side=tk.LEFT)
-        self._th_radius_entry.bind("<Return>",   lambda _e: self._montage_redraw_at_zoom())
-        self._th_radius_entry.bind("<FocusOut>", lambda _e: self._montage_redraw_at_zoom())
-        self._th_radius_hint = tk.Label(th_row,
-                 text="px",
-                 font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE)
-        self._th_radius_hint.pack(side=tk.LEFT, padx=(4, 0))
-        # Status badge: shown when pre-filtered tophat images are loaded from disk
-        self._th_preload_badge = tk.Label(th_row, text="",
-                 font=FM_TINY, fg=CLR_SUCCESS, bg=BG_SIDE)
-        self._th_preload_badge.pack(side=tk.LEFT, padx=(10, 0))
-    
-        # Storage for loaded arrays (set in _refresh_preview_montage)
-        self._montage_fluor_arrays:    List[object]  = []
-        self._montage_overlay_arrays: List[object] = []
-        self._montage_fluor_refs:      List[object]  = []
-        self._montage_overlay_refs:  List[object]  = []
-        self._montage_resize_job:    Optional[str] = None
-        self._montage_zoom:          float         = 1.0
-        self._montage_base_sz:       int           = 120  # base px, updated on fit
-    
-        # Mouse-wheel zoom on the canvas
-        self._montage_canvas.bind("<MouseWheel>",
-                                   self._on_montage_wheel)          # Windows / macOS
-        self._montage_canvas.bind("<Shift-MouseWheel>",
-                                  self._on_montage_shift_wheel)     # Horizontal scroll
-        self._montage_canvas.bind("<Button-4>",
-                                   lambda e: self._montage_zoom_step(+1))  # Linux scroll up
-        self._montage_canvas.bind("<Button-5>",
-                                   lambda e: self._montage_zoom_step(-1))  # Linux scroll down
-        for seq in ("<Button-6>", "<Button-7>"):
-            try:
-                self._montage_canvas.bind(seq, self._on_montage_shift_wheel)  # Linux horizontal wheel
-            except tk.TclError:
-                # Not all Tk builds define extra mouse buttons; ignore gracefully.
-                pass
-    
-    # ── Inline preview montage ────────────────────────────────────────────────
+    cl.addWidget(QLabel("Channel:", ctrl))
+    self._chan_cb_preview = QComboBox(ctrl)
+    self._chan_cb_preview.addItems(["GFP"])
+    self._chan_cb_preview.currentIndexChanged.connect(
+        lambda _i: self._on_preview_channel_selected(None)
+    )
+    cl.addWidget(self._chan_cb_preview)
+    self._montage_chan_var = ComboVar(self._chan_cb_preview)
+
+    cl.addWidget(QLabel("FOV:", ctrl))
+    self._fov_menu = QComboBox(ctrl)
+    self._fov_menu.addItems(["—"])
+    self._fov_menu.currentIndexChanged.connect(
+        lambda _i: self._refresh_preview_montage()
+    )
+    cl.addWidget(self._fov_menu)
+    self._preview_fov_var = ComboVar(self._fov_menu)
+    self._preview_fov_cb = self._fov_menu  # alias used by preview / export callers
+    cl.addStretch(1)
+    cl.addWidget(btn_secondary(ctrl, "Save Montage…", self._save_montage_figure))
+    il.addWidget(ctrl)
+
+    sep = QFrame(inner)
+    sep.setObjectName("Separator")
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFixedHeight(1)
+    il.addWidget(sep)
+
+    self._montage_status = QLabel("", inner)
+    self._montage_status.setObjectName("Muted")
+    il.addWidget(self._montage_status)
+
+    self._montage_canvas = QScrollArea(inner)
+    self._montage_canvas.setWidgetResizable(True)
+    self._montage_canvas.setFrameShape(QFrame.NoFrame)
+    self._montage_inner = QWidget()
+    # Layout is created on demand by _refresh_preview_montage (QGridLayout).
+    self._montage_canvas.setWidget(self._montage_inner)
+    il.addWidget(self._montage_canvas, 1)
+    self._montage_win = None
+
+    # LUT + zoom row
+    lut_row = QWidget(inner)
+    lr = QHBoxLayout(lut_row)
+    lr.setContentsMargins(8, 4, 8, 4)
+    self._mon_lut_chan_lbl = QLabel(
+        f"{self._active_image_channel.upper()} LUT min:", lut_row,
+    )
+    lr.addWidget(self._mon_lut_chan_lbl)
+
+    self._mon_lmin_entry = QLineEdit("auto", lut_row)
+    self._mon_lmin_entry.setFixedWidth(80)
+    self._mon_lmin_entry.editingFinished.connect(self._montage_redraw_at_zoom)
+    lr.addWidget(self._mon_lmin_entry)
+    self._mon_lmin_var = LineEditVar(self._mon_lmin_entry)
+    self._mon_lmin_edit = self._mon_lmin_entry  # alias used by montage / export callers
+
+    lr.addWidget(QLabel("max:", lut_row))
+    self._mon_lmax_entry = QLineEdit("auto", lut_row)
+    self._mon_lmax_entry.setFixedWidth(80)
+    self._mon_lmax_entry.editingFinished.connect(self._montage_redraw_at_zoom)
+    lr.addWidget(self._mon_lmax_entry)
+    self._mon_lmax_var = LineEditVar(self._mon_lmax_entry)
+    self._mon_lmax_edit = self._mon_lmax_entry  # alias used by montage / export callers
+
+    lr.addWidget(btn_secondary(lut_row, "Auto LUT", self._montage_auto_lut))
+
+    lr.addWidget(QLabel("Zoom:", lut_row))
+    lr.addWidget(btn_card(lut_row, "−", lambda: self._montage_zoom_step(-1)))
+    self._montage_zoom_lbl = QLabel("100%", lut_row)
+    self._montage_zoom_lbl.setFixedWidth(50)
+    lr.addWidget(self._montage_zoom_lbl)
+    lr.addWidget(btn_card(lut_row, "+", lambda: self._montage_zoom_step(+1)))
+    lr.addWidget(btn_secondary(lut_row, "Fit", self._montage_zoom_fit))
+    lr.addStretch(1)
+    il.addWidget(lut_row)
+
+    # Top-hat controls
+    th_row = QWidget(inner)
+    tr = QHBoxLayout(th_row)
+    tr.setContentsMargins(8, 2, 8, 2)
+    self._th_checkbox = QCheckBox("Top-hat background subtraction", th_row)
+    self._th_checkbox.toggled.connect(
+        lambda _b: self._montage_tophat_toggled()
+    )
+    tr.addWidget(self._th_checkbox)
+    self._mon_tophat_var = CheckBoxVar(self._th_checkbox)
+    self._mon_tophat_cb = self._th_checkbox  # alias used by montage / export callers
+
+    tr.addWidget(QLabel("   radius:", th_row))
+    self._th_radius_entry = QLineEdit("50", th_row)
+    self._th_radius_entry.setFixedWidth(60)
+    self._th_radius_entry.editingFinished.connect(self._montage_redraw_at_zoom)
+    tr.addWidget(self._th_radius_entry)
+    self._mon_tophat_radius_edit = self._th_radius_entry  # alias used by montage / export callers
+    tr.addWidget(QLabel("px", th_row))
+    self._th_preload_badge = QLabel("", th_row)
+    tr.addWidget(self._th_preload_badge)
+    tr.addStretch(1)
+    il.addWidget(th_row)
+
+    self._montage_fluor_arrays: List[object] = []
+    self._montage_overlay_arrays: List[object] = []
+    self._montage_fluor_refs: List[object] = []
+    self._montage_overlay_refs: List[object] = []
+    self._montage_resize_job: Optional[str] = None
+    self._montage_zoom: float = 1.0
+    self._montage_base_sz: int = 120
+
+    # Wheel zoom on the montage
+    def _wheel(event):
+        delta = event.angleDelta().y()
+        if event.modifiers() & Qt.ShiftModifier:
+            if hasattr(self, "_on_montage_shift_wheel"):
+                self._on_montage_shift_wheel(event)
+        elif delta > 0:
+            self._montage_zoom_step(+1)
+        elif delta < 0:
+            self._montage_zoom_step(-1)
+
+    self._montage_canvas.wheelEvent = _wheel
 
 
-def build_review_image_panel(self, parent: tk.Frame) -> None:
-        inner = tk.Frame(parent, bg=BG_SIDE)
-        inner.pack(fill=tk.BOTH, expand=True)
+def build_review_image_panel(self, parent: QWidget) -> None:
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        parent.setLayout(layout)
+    layout.setContentsMargins(0, 0, 0, 0)
 
-        ctrl = tk.Frame(inner, bg=BG_SIDE, pady=6, padx=10)
-        ctrl.pack(fill=tk.X)
-        self._review_image_well_lbl = tk.Label(
-            ctrl, text="No well selected", font=FM_BOLD, fg=TXT_PRI, bg=BG_SIDE
-        )
-        self._review_image_well_lbl.pack(side=tk.LEFT)
+    inner = QWidget(parent)
+    il = QVBoxLayout(inner)
+    il.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(inner, 1)
 
-        tk.Label(ctrl, text="Channel:", font=FM_BOLD, fg=TXT_SEC, bg=BG_SIDE).pack(side=tk.LEFT, padx=(14, 6))
-        self._review_image_chan_cb = ttk.Combobox(
-            ctrl, textvariable=self._review_image_chan_var, values=["GFP"], state="readonly", width=10, font=FM_BOLD
-        )
-        self._review_image_chan_cb.pack(side=tk.LEFT, padx=(0, 10))
-        self._review_image_chan_cb.bind("<<ComboboxSelected>>", self._on_review_image_channel_selected)
+    ctrl = QWidget(inner)
+    cl = QHBoxLayout(ctrl)
+    cl.setContentsMargins(10, 6, 10, 6)
+    self._review_image_well_lbl = QLabel("No well selected", ctrl)
+    cl.addWidget(self._review_image_well_lbl)
 
-        tk.Label(ctrl, text="FOV:", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._review_image_fov_menu = ttk.Combobox(
-            ctrl, textvariable=self._preview_fov_var, values=["—"], state="readonly", width=8, font=FM_TINY
-        )
-        self._review_image_fov_menu.pack(side=tk.LEFT, padx=(0, 10))
-        self._review_image_fov_menu.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_image())
+    cl.addWidget(QLabel("Channel:", ctrl))
+    self._review_image_chan_cb = QComboBox(ctrl)
+    self._review_image_chan_cb.addItems(["GFP"])
+    self._review_image_chan_cb.currentIndexChanged.connect(
+        lambda _i: self._on_review_image_channel_selected(None)
+    )
+    cl.addWidget(self._review_image_chan_cb)
+    self._review_image_chan_var = ComboVar(self._review_image_chan_cb)
 
-        tk.Label(ctrl, text="Timepoint:", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT, padx=(0, 4))
-        self._review_image_tp_var = tk.StringVar(value="—")
-        self._review_image_tp_menu = ttk.Combobox(
-            ctrl, textvariable=self._review_image_tp_var, values=["—"], state="readonly", width=10, font=FM_TINY
-        )
-        self._review_image_tp_menu.pack(side=tk.LEFT)
-        self._review_image_tp_menu.bind("<<ComboboxSelected>>", lambda _e: self._refresh_review_image())
+    cl.addWidget(QLabel("FOV:", ctrl))
+    self._review_image_fov_menu = QComboBox(ctrl)
+    self._review_image_fov_menu.addItems(["—"])
+    self._review_image_fov_menu.currentIndexChanged.connect(
+        lambda _i: self._refresh_review_image()
+    )
+    cl.addWidget(self._review_image_fov_menu)
 
-        btn_card(ctrl, "−", lambda: self._review_image_zoom_step(-1), width=2).pack(side=tk.RIGHT, padx=(6, 2))
-        btn_card(ctrl, "+", lambda: self._review_image_zoom_step(+1), width=2).pack(side=tk.RIGHT, padx=(2, 6))
-        btn_secondary(ctrl, "Fit", self._review_image_zoom_fit, padx=8).pack(side=tk.RIGHT)
-        btn_secondary(ctrl, "Toggle Included", self._toggle_selected_review_cell, padx=8).pack(side=tk.RIGHT)
+    cl.addWidget(QLabel("Timepoint:", ctrl))
+    self._review_image_tp_menu = QComboBox(ctrl)
+    self._review_image_tp_menu.addItems(["—"])
+    self._review_image_tp_menu.currentIndexChanged.connect(
+        lambda _i: self._refresh_review_image()
+    )
+    cl.addWidget(self._review_image_tp_menu)
+    self._review_image_tp_var = ComboVar(self._review_image_tp_menu)
+    self._review_image_tp_cb = self._review_image_tp_menu  # alias for review_image_controller
+    cl.addStretch(1)
 
-        tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X)
+    cl.addWidget(btn_secondary(ctrl, "Toggle Included",
+                               self._toggle_selected_review_cell))
+    cl.addWidget(btn_secondary(ctrl, "Fit", self._review_image_zoom_fit))
+    cl.addWidget(btn_card(ctrl, "−", lambda: self._review_image_zoom_step(-1)))
+    cl.addWidget(btn_card(ctrl, "+", lambda: self._review_image_zoom_step(+1)))
+    il.addWidget(ctrl)
 
-        self._review_image_status = tk.Label(inner, text="", font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE, anchor="w")
-        self._review_image_status.pack(fill=tk.X, padx=8, pady=2)
+    sep = QFrame(inner)
+    sep.setObjectName("Separator")
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFixedHeight(1)
+    il.addWidget(sep)
 
-        lut_row = tk.Frame(inner, bg=BG_SIDE, pady=2, padx=8)
-        lut_row.pack(fill=tk.X)
-        self._review_lut_chan_lbl = tk.Label(
-            lut_row,
-            text=f"{self._active_image_channel.upper()} LUT min:",
-            font=FM_TINY,
-            fg=TXT_MUT,
-            bg=BG_SIDE,
-        )
-        self._review_lut_chan_lbl.pack(side=tk.LEFT)
-        self._review_lut_min_var = tk.StringVar(value="auto")
-        self._review_lut_max_var = tk.StringVar(value="auto")
-        for var, padx in ((self._review_lut_min_var, (3, 8)), (self._review_lut_max_var, (3, 12))):
-            prefix = "max:" if var is self._review_lut_max_var else ""
-            if prefix:
-                tk.Label(lut_row, text=prefix, font=FM_TINY, fg=TXT_MUT, bg=BG_SIDE).pack(side=tk.LEFT)
-            entry = tk.Entry(
-                lut_row,
-                textvariable=var,
-                width=7,
-                font=FM_TINY,
-                fg=ACCENT,
-                bg=BG_PANEL,
-                relief=tk.FLAT,
-                highlightthickness=1,
-                highlightcolor=ACCENT,
-                highlightbackground=BORDER,
-            )
-            entry.pack(side=tk.LEFT, padx=padx)
-            entry.bind("<Return>", lambda _e: self._review_image_commit_lut())
-            entry.bind("<FocusOut>", lambda _e: self._review_image_commit_lut())
-        btn_secondary(lut_row, "Auto LUT", self._review_image_auto_lut, padx=8).pack(side=tk.LEFT)
+    self._review_image_status = QLabel("", inner)
+    self._review_image_status.setObjectName("Muted")
+    il.addWidget(self._review_image_status)
 
-        self._review_image_canvas = tk.Canvas(inner, bg=BG_APP, highlightthickness=0)
-        self._review_image_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        self._review_image_label = tk.Label(self._review_image_canvas, bg=BG_APP, bd=0, cursor="hand2")
-        self._review_image_window = self._review_image_canvas.create_window((8, 8), window=self._review_image_label, anchor="nw")
-        self._review_image_canvas.bind("<Configure>", lambda _e: self._render_review_image_display())
-        self._review_image_canvas.bind("<MouseWheel>", self._on_review_image_wheel)
-        self._review_image_canvas.bind("<Button-4>", lambda _e: self._review_image_zoom_step(+1))
-        self._review_image_canvas.bind("<Button-5>", lambda _e: self._review_image_zoom_step(-1))
-        self._review_image_canvas.bind("<ButtonPress-1>", self._on_review_image_press)
-        self._review_image_canvas.bind("<B1-Motion>", self._on_review_image_drag)
-        self._review_image_canvas.bind("<ButtonRelease-1>", self._on_review_image_release)
+    lut_row = QWidget(inner)
+    lr = QHBoxLayout(lut_row)
+    lr.setContentsMargins(8, 2, 8, 2)
+    self._review_lut_chan_lbl = QLabel(
+        f"{self._active_image_channel.upper()} LUT min:", lut_row,
+    )
+    lr.addWidget(self._review_lut_chan_lbl)
 
-        self._review_image_tooltip = _Tooltip(inner)
+    self._review_lmin_entry = QLineEdit("auto", lut_row)
+    self._review_lmin_entry.setFixedWidth(80)
+    self._review_lmin_entry.editingFinished.connect(self._review_image_commit_lut)
+    lr.addWidget(self._review_lmin_entry)
+    self._review_lut_min_var = LineEditVar(self._review_lmin_entry)
+
+    lr.addWidget(QLabel("max:", lut_row))
+    self._review_lmax_entry = QLineEdit("auto", lut_row)
+    self._review_lmax_entry.setFixedWidth(80)
+    self._review_lmax_entry.editingFinished.connect(self._review_image_commit_lut)
+    lr.addWidget(self._review_lmax_entry)
+    self._review_lut_max_var = LineEditVar(self._review_lmax_entry)
+
+    lr.addWidget(btn_secondary(lut_row, "Auto LUT", self._review_image_auto_lut))
+    lr.addStretch(1)
+    il.addWidget(lut_row)
+
+    self._review_image_canvas = QScrollArea(inner)
+    self._review_image_canvas.setWidgetResizable(False)
+    self._review_image_canvas.setAlignment(Qt.AlignCenter)
+    self._review_image_canvas.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    self._review_image_canvas.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+    self._review_image_label = QLabel(self._review_image_canvas)
+    self._review_image_label.setAlignment(Qt.AlignCenter)
+    self._review_image_label.setMouseTracking(True)
+    self._review_image_canvas.setWidget(self._review_image_label)
+    il.addWidget(self._review_image_canvas, 1)
+
+    # Install wheel + mouse hooks for zoom / drag
+    def _wheel(event):
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self._review_image_zoom_step(+1)
+        elif delta < 0:
+            self._review_image_zoom_step(-1)
+    self._review_image_label.wheelEvent = _wheel
+    self._review_image_label.mousePressEvent = self._on_review_image_press
+    self._review_image_label.mouseMoveEvent = self._on_review_image_drag
+    self._review_image_label.mouseReleaseEvent = self._on_review_image_release
