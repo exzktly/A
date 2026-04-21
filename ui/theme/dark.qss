@@ -74,14 +74,14 @@ QPushButton#WellButton {
 }
 /* No dataset — no border, flat. */
 QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
-/* Has data, unselected — smooth black border, embossed (outset 3D). */
-QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; border: 2px outset #000000; }
-/* Has data, selected — smooth black border, depressed (inset 3D). */
-QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         border: 2px inset  #000000; }
-/* Coloured replicate/group states — smooth black border, embossed. */
-QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    border: 2px outset #000000; }
-QPushButton#WellButton[state="warn"]      { background: ${WARN};           border: 2px outset #000000; }
-QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     border: 2px outset #000000; }
+/* Wells with data — smooth solid black border; emboss/depress is painted
+   on top by WellButton.paintEvent since QSS outset/inset collapses to
+   solid once border-radius is set. */
+QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; border: 2px solid #000000; }
+QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         border: 2px solid #000000; }
+QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    border: 2px solid #000000; }
+QPushButton#WellButton[state="warn"]      { background: ${WARN};           border: 2px solid #000000; }
+QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     border: 2px solid #000000; }
 QPushButton#WellButton:hover              { background: ${CLR_AVAIL_HOVER}; }
 QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
 

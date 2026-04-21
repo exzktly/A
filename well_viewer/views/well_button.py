@@ -8,13 +8,18 @@ ignored bg).
 Wells are rendered as small fixed-size circles (the shape of real multi-well
 plate wells). The well token is stored as an instance attribute and surfaced
 as a tooltip rather than as a visible text label.
+
+Qt's QSS engine collapses ``border-style: outset`` / ``inset`` into plain
+``solid`` once ``border-radius`` is set, so the 3D emboss/depress cue is
+drawn manually in ``paintEvent`` on top of the base QSS render.
 """
 
 from __future__ import annotations
 
 from typing import Callable, Dict, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 
@@ -37,21 +42,83 @@ class WellButton(QPushButton):
         self.setToolTip(text)
         self._state = "empty"
         self.setProperty("state", self._state)
+        # Independent 3D cue, driven either by set_state() (preview picker) or
+        # by _style_plate_button (inline-styled replicate wells). Values:
+        # "none" | "raised" | "depressed".
+        self._emboss = "none"
 
     @property
     def tok(self) -> str:
         return self._tok
 
     def set_state(self, state: str) -> None:
-        if state == self._state:
+        if state != self._state:
+            self._state = state
+            self.setProperty("state", state)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        # Keep the 3D cue in sync with the symbolic state.
+        if state == "empty":
+            self.set_emboss("none")
+        elif state == "selected":
+            self.set_emboss("depressed")
+        else:
+            self.set_emboss("raised")
+
+    def set_emboss(self, mode: str) -> None:
+        if mode == self._emboss:
             return
-        self._state = state
-        self.setProperty("state", state)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        self._emboss = mode
+        self.update()
 
     def state(self) -> str:  # type: ignore[override]
         return self._state
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        # Render the QSS-styled base first (fill + smooth black border).
+        super().paintEvent(event)
+
+        if self._emboss == "none" or not self.isEnabled():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        # Paint a highlight arc on one half and a shadow arc on the other to
+        # simulate a raised (unselected) or sunken (selected) 3D edge just
+        # inside the black border. Inset so the arcs sit inside the border.
+        inset = 2.0
+        rect = QRectF(inset, inset,
+                      float(self.width()) - 2 * inset,
+                      float(self.height()) - 2 * inset)
+
+        if self._emboss == "depressed":
+            # Shadow along the top-left quadrant,
+            # highlight along the bottom-right quadrant.
+            top_color = QColor(0, 0, 0, 190)
+            bot_color = QColor(255, 255, 255, 110)
+        else:
+            # Raised: highlight along the top-left quadrant,
+            # shadow along the bottom-right quadrant.
+            top_color = QColor(255, 255, 255, 210)
+            bot_color = QColor(0, 0, 0, 150)
+
+        pen = QPen()
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.FlatCap)
+
+        # Qt arc angles are in 1/16th of a degree, measured CCW from 3 o'clock.
+        # Top-left quadrant spans 90°–180° (upper-left arc of the circle).
+        pen.setColor(top_color)
+        painter.setPen(pen)
+        painter.drawArc(rect, 90 * 16, 90 * 16)
+
+        # Bottom-right quadrant spans 270°–360° (lower-right arc).
+        pen.setColor(bot_color)
+        painter.setPen(pen)
+        painter.drawArc(rect, 270 * 16, 90 * 16)
+
+        painter.end()
 
 
 def build_plate_grid(

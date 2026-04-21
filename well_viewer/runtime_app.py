@@ -4006,16 +4006,22 @@ class WellViewerApp(QWidget):
         hover_fg = activeforeground or fg
         disabled_fg = disabledforeground or fg
         # Uniform 2px border width across every state so fixed-size circles
-        # never change dimensions. A well with no data gets a transparent
-        # border; wells with data get a smooth solid black border rendered
-        # as outset (embossed / unselected) or inset (depressed / selected)
-        # so Qt draws a proper 3D edge.
+        # never change dimensions. Wells with no data get a transparent
+        # border; wells with data get a smooth solid black border. The
+        # embossed/depressed 3D cue is painted by WellButton.paintEvent —
+        # QSS outset/inset collapses to solid once border-radius is set.
         if not is_enabled:
             border = "2px solid transparent"
-        elif is_sunken:
-            border = "2px inset #000000"
         else:
-            border = "2px outset #000000"
+            border = "2px solid #000000"
+        # Drive the paint-event-based 3D cue.
+        if hasattr(btn, "set_emboss"):
+            if not is_enabled:
+                btn.set_emboss("none")
+            elif is_sunken:
+                btn.set_emboss("depressed")
+            else:
+                btn.set_emboss("raised")
 
         # Setting a per-widget stylesheet overrides the application QSS for
         # this widget's selector. Restate the plate-well layout properties
