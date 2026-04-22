@@ -2956,6 +2956,14 @@ class WellViewerApp(QWidget):
             grid = QGridLayout(self._montage_inner)
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setSpacing(3)
+        # Keep the labelled rows/columns at their natural content size. Without
+        # these the scroll area's widgetResizable=True grows the grid to fill
+        # the viewport, spreads extra space evenly across every row/column, and
+        # leaves the "GFP"/"overlay" labels floating in whitespace instead of
+        # sitting immediately left of the thumbnails.
+        grid.setRowStretch(3, 1)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(len(tp_list) + 1, 1)
 
         channel_row_lbl = QLabel(self._active_image_channel.upper())
         channel_row_lbl.setObjectName("Muted")
