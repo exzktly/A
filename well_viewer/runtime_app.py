@@ -2956,6 +2956,14 @@ class WellViewerApp(QWidget):
             grid = QGridLayout(self._montage_inner)
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setSpacing(3)
+        # Keep the labelled rows/columns at their natural content size. Without
+        # these the scroll area's widgetResizable=True grows the grid to fill
+        # the viewport, spreads extra space evenly across every row/column, and
+        # leaves the "GFP"/"overlay" labels floating in whitespace instead of
+        # sitting immediately left of the thumbnails.
+        grid.setRowStretch(3, 1)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(len(tp_list) + 1, 1)
 
         channel_row_lbl = QLabel(self._active_image_channel.upper())
         channel_row_lbl.setObjectName("Muted")
@@ -2988,23 +2996,17 @@ class WellViewerApp(QWidget):
         for col_idx, ((tp, _), fluor_arr, ov_arr) in enumerate(
                 zip(tp_list, display_source, self._montage_overlay_arrays)):
 
-            col = QWidget()
-            col_layout = QVBoxLayout(col)
-            col_layout.setContentsMargins(0, 0, 0, 0)
-            col_layout.setSpacing(2)
-            grid.addWidget(col, 0, col_idx + 1, 3, 1, Qt.AlignTop)
-
             tp_lbl = QLabel(tp)
             tp_lbl.setObjectName("Muted")
             tp_lbl.setAlignment(Qt.AlignCenter)
-            col_layout.addWidget(tp_lbl)
+            grid.addWidget(tp_lbl, 0, col_idx + 1)
 
             # fluorescence thumbnail
             fluor_cell = QFrame()
             fluor_cell.setFrameShape(QFrame.Box)
             fluor_cell_layout = QVBoxLayout(fluor_cell)
             fluor_cell_layout.setContentsMargins(1, 1, 1, 1)
-            col_layout.addWidget(fluor_cell)
+            grid.addWidget(fluor_cell, 1, col_idx + 1)
             display_arr = fluor_arr
             pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi)
             if pix_fluor:
@@ -3048,7 +3050,7 @@ class WellViewerApp(QWidget):
             ov_cell.setFrameShape(QFrame.Box)
             ov_cell_layout = QVBoxLayout(ov_cell)
             ov_cell_layout.setContentsMargins(1, 1, 1, 1)
-            col_layout.addWidget(ov_cell)
+            grid.addWidget(ov_cell, 2, col_idx + 1)
             pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h)
             if pix_ov:
                 self._montage_photos.append(pix_ov)
