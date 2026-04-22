@@ -47,6 +47,21 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
         hi = lo + 1.0
     app._mon_lmin_edit.setText(f"{lo:.0f}")
     app._mon_lmax_edit.setText(f"{hi:.0f}")
+
+    # Overlay LUT: pool per-image min/max so the window is consistent across
+    # timepoints, matching the fluor channel behaviour above.
+    ov_lmin_edit = getattr(app, "_mon_ov_lmin_edit", None)
+    ov_lmax_edit = getattr(app, "_mon_ov_lmax_edit", None)
+    if ov_lmin_edit is not None and ov_lmax_edit is not None:
+        ov_source = [a for a in getattr(app, "_montage_overlay_arrays", []) if a is not None]
+        if ov_source:
+            ov_lo = min(float(app._np.asarray(a).min()) for a in ov_source)
+            ov_hi = max(float(app._np.asarray(a).max()) for a in ov_source)
+            if ov_hi <= ov_lo:
+                ov_hi = ov_lo + 1.0
+            ov_lmin_edit.setText(f"{ov_lo:.0f}")
+            ov_lmax_edit.setText(f"{ov_hi:.0f}")
+
     if redraw:
         fov = app._preview_fov_cb.currentText()
         tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]

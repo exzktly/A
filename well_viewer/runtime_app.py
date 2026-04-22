@@ -342,23 +342,32 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
     return pm.scaled(int(sz_w), int(sz_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
-def make_overlay_thumb(arr, sz_w: int, sz_h: int):
-    """Render a 2-D or 3-D array as a QPixmap scaled to (sz_w, sz_h)."""
+def make_overlay_thumb(arr, sz_w: int, sz_h: int,
+                       lo: Optional[float] = None, hi: Optional[float] = None):
+    """Render a 2-D or 3-D array as a QPixmap scaled to (sz_w, sz_h).
+
+    If ``lo``/``hi`` are given they override the per-image auto range so the
+    Movie Montage overlay LUT controls can tune brightness/contrast. For 3-D
+    RGB overlays the [lo, hi] window is applied uniformly across channels.
+    """
     if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr)
     if arr.ndim == 2:
         arr_f = arr.astype(_np.float32)
-        lo, hi = float(arr_f.min()), float(arr_f.max())
-        if hi <= lo:
-            hi = lo + 1.0
-        disp = ((arr_f - lo) / (hi - lo) * 255).astype(_np.uint8)
+        alo = lo if lo is not None else float(arr_f.min())
+        ahi = hi if hi is not None else float(arr_f.max())
+        if ahi <= alo:
+            ahi = alo + 1.0
+        disp = ((_np.clip(arr_f, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
         rgb = _np.stack([disp, disp, disp], axis=-1).copy()
     elif arr.ndim == 3 and arr.shape[2] >= 3:
-        a = arr[:, :, :3]
-        if a.dtype != _np.uint8:
-            rng = max(a.max() - a.min(), 1)
-            a = ((a.astype(_np.float32) - a.min()) / rng * 255).astype(_np.uint8)
+        a = arr[:, :, :3].astype(_np.float32)
+        alo = lo if lo is not None else float(a.min())
+        ahi = hi if hi is not None else float(a.max())
+        if ahi <= alo:
+            ahi = alo + 1.0
+        a = _np.clip((a - alo) / (ahi - alo) * 255.0, 0, 255).astype(_np.uint8)
         rgb = _np.ascontiguousarray(a)
     else:
         return None
@@ -2916,6 +2925,17 @@ class WellViewerApp(QWidget):
         except ValueError:
             hi = None
 
+        ov_lmin_var = getattr(self, "_mon_ov_lmin_var", None)
+        ov_lmax_var = getattr(self, "_mon_ov_lmax_var", None)
+        try:
+            ov_lo = float(ov_lmin_var.get()) if ov_lmin_var is not None else None
+        except (ValueError, AttributeError):
+            ov_lo = None
+        try:
+            ov_hi = float(ov_lmax_var.get()) if ov_lmax_var is not None else None
+        except (ValueError, AttributeError):
+            ov_hi = None
+
         # Use pre-filtered display arrays: either loaded from disk (preloaded)
         # or computed on-the-fly by the tophat thread.
         preloaded = getattr(self, "_montage_tophat_preloaded", False)
@@ -3051,7 +3071,7 @@ class WellViewerApp(QWidget):
             ov_cell_layout = QVBoxLayout(ov_cell)
             ov_cell_layout.setContentsMargins(1, 1, 1, 1)
             grid.addWidget(ov_cell, 2, col_idx + 1)
-            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h)
+            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi)
             if pix_ov:
                 self._montage_photos.append(pix_ov)
                 lbl_ov = QLabel()
