@@ -35,7 +35,6 @@ def on_review_image_click(app, event, logger) -> None:
     nid = int(mask_arr[y, x])
     if nid <= 0:
         return
-    app._review_image_selected_nucleus = nid
     fov = app._preview_fov_cb.currentText().strip()
     tp_cb = getattr(app, "_review_image_tp_cb", None)
     tp = tp_cb.currentText().strip() if tp_cb is not None else ""
@@ -43,6 +42,9 @@ def on_review_image_click(app, event, logger) -> None:
         app._set_review_cell_included(fov, tp, str(nid), "0")
         app._set_status(f"Set Included=0 for nucleus {nid} at FOV {fov}, TP {tp}.")
         return
+    app._review_image_selected_nucleus = nid
+    app._review_image_preserve_view_on_refresh = True
+    app._refresh_review_image()
     app._select_review_csv_row_for_cell(fov, tp, str(nid))
 
 
