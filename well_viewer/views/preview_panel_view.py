@@ -101,6 +101,28 @@ def build_right_panel(self, parent: QWidget) -> None:
 
     lr.addWidget(btn_secondary(lut_row, "Auto LUT", self._montage_auto_lut))
 
+    # Overlay LUT — tune brightness/contrast of the segmentation overlay.
+    ov_sep = QFrame(lut_row)
+    ov_sep.setFrameShape(QFrame.VLine)
+    ov_sep.setFixedWidth(1)
+    lr.addWidget(ov_sep)
+
+    lr.addWidget(QLabel("Overlay LUT min:", lut_row))
+    self._mon_ov_lmin_entry = QLineEdit("auto", lut_row)
+    self._mon_ov_lmin_entry.setFixedWidth(80)
+    self._mon_ov_lmin_entry.editingFinished.connect(self._montage_redraw_at_zoom)
+    lr.addWidget(self._mon_ov_lmin_entry)
+    self._mon_ov_lmin_var = LineEditVar(self._mon_ov_lmin_entry)
+    self._mon_ov_lmin_edit = self._mon_ov_lmin_entry
+
+    lr.addWidget(QLabel("max:", lut_row))
+    self._mon_ov_lmax_entry = QLineEdit("auto", lut_row)
+    self._mon_ov_lmax_entry.setFixedWidth(80)
+    self._mon_ov_lmax_entry.editingFinished.connect(self._montage_redraw_at_zoom)
+    lr.addWidget(self._mon_ov_lmax_entry)
+    self._mon_ov_lmax_var = LineEditVar(self._mon_ov_lmax_entry)
+    self._mon_ov_lmax_edit = self._mon_ov_lmax_entry
+
     lr.addWidget(QLabel("Zoom:", lut_row))
     lr.addWidget(btn_card(lut_row, "−", lambda: self._montage_zoom_step(-1)))
     self._montage_zoom_lbl = QLabel("100%", lut_row)

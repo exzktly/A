@@ -201,6 +201,16 @@ def save_montage_figure(app) -> None:
         hi = float(app._mon_lmax_edit.text())
     except ValueError:
         hi = None
+    ov_lmin_edit = getattr(app, "_mon_ov_lmin_edit", None)
+    ov_lmax_edit = getattr(app, "_mon_ov_lmax_edit", None)
+    try:
+        ov_lo = float(ov_lmin_edit.text()) if ov_lmin_edit is not None else None
+    except (ValueError, AttributeError):
+        ov_lo = None
+    try:
+        ov_hi = float(ov_lmax_edit.text()) if ov_lmax_edit is not None else None
+    except (ValueError, AttributeError):
+        ov_hi = None
     tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
     use_display = tophat_on and hasattr(app, "_montage_fluor_display_arrays") and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
     fluor_source = app._montage_fluor_display_arrays if use_display else app._montage_fluor_arrays
@@ -225,15 +235,19 @@ def save_montage_figure(app) -> None:
         if ov_arr is not None and rt._NP_AVAILABLE:
             arr = rt._np.asarray(ov_arr)
             if arr.ndim == 2:
-                lo_o, hi_o = float(arr.min()), float(arr.max())
+                arr_f = arr.astype(rt._np.float32)
+                lo_o = ov_lo if ov_lo is not None else float(arr_f.min())
+                hi_o = ov_hi if ov_hi is not None else float(arr_f.max())
                 if hi_o <= lo_o:
                     hi_o = lo_o + 1.0
-                ax_o.imshow(arr, cmap="gray", vmin=lo_o, vmax=hi_o, aspect="auto")
+                ax_o.imshow(arr_f, cmap="gray", vmin=lo_o, vmax=hi_o, aspect="auto")
             elif arr.ndim == 3:
-                a = arr[:, :, :3]
-                if a.dtype != rt._np.uint8:
-                    rng = max(a.max() - a.min(), 1)
-                    a = ((a.astype(rt._np.float32) - a.min()) / rng * 255).astype(rt._np.uint8)
+                a = arr[:, :, :3].astype(rt._np.float32)
+                lo_o = ov_lo if ov_lo is not None else float(a.min())
+                hi_o = ov_hi if ov_hi is not None else float(a.max())
+                if hi_o <= lo_o:
+                    hi_o = lo_o + 1.0
+                a = rt._np.clip((a - lo_o) / (hi_o - lo_o) * 255.0, 0, 255).astype(rt._np.uint8)
                 ax_o.imshow(a, aspect="auto")
         else:
             ax_o.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_o.transAxes, color=rt.TXT_MUT)
