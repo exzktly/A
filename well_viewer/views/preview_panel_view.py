@@ -7,7 +7,7 @@ from typing import List, Optional
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
-    QVBoxLayout, QWidget,
+    QToolTip, QVBoxLayout, QWidget,
 )
 
 from well_viewer.ui_helpers import btn_card, btn_secondary, CheckBoxVar, ComboVar, LineEditVar
@@ -288,5 +288,16 @@ def build_review_image_panel(self, parent: QWidget) -> None:
             self._review_image_zoom_step(-1)
     self._review_image_label.wheelEvent = _wheel
     self._review_image_label.mousePressEvent = self._on_review_image_press
-    self._review_image_label.mouseMoveEvent = self._on_review_image_drag
+    self._review_image_label.mouseMoveEvent = self._on_review_image_move
     self._review_image_label.mouseReleaseEvent = self._on_review_image_release
+
+    def _leave(_ev):
+        try:
+            QToolTip.hideText()
+        except Exception:
+            pass
+    self._review_image_label.leaveEvent = _leave
+
+    # Default cursor reflects the initial Include-edit-mode state
+    # (ForbiddenCursor when remove-cell mode is active).
+    self._apply_review_image_cursor()

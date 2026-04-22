@@ -4372,34 +4372,7 @@ class WellViewerApp(QWidget):
         self._render_review_image_display()
         self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
         self._review_image_label._raw_arr = arr      # type: ignore[attr-defined]
-        lbl = self._review_image_label
-        lbl.setMouseTracking(True)
-
-        def _ri_move(ev):
-            self._on_review_image_hover(ev)
-        def _ri_leave(ev):
-            try:
-                self._review_image_tooltip.hide()
-            except Exception:
-                pass
-        def _ri_wheel(ev):
-            self._on_review_image_wheel(ev)
-        def _ri_press(ev):
-            self._on_review_image_press(ev)
-        def _ri_move_drag(ev):
-            if ev.buttons() & Qt.LeftButton:
-                self._on_review_image_drag(ev)
-            else:
-                _ri_move(ev)
-        def _ri_release(ev):
-            self._on_review_image_release(ev)
-
-        lbl.mouseMoveEvent = _ri_move_drag
-        lbl.leaveEvent = _ri_leave
-        lbl.wheelEvent = _ri_wheel
-        lbl.mousePressEvent = _ri_press
-        lbl.mouseReleaseEvent = _ri_release
-        lbl.setCursor(Qt.ForbiddenCursor if getattr(self, "_review_image_include_edit_mode", False) else Qt.PointingHandCursor)
+        self._apply_review_image_cursor()
         suffix = f"  \u00b7  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
         self._review_image_status.setText(
             f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
@@ -4505,6 +4478,13 @@ class WellViewerApp(QWidget):
         if was_dragging and not moved:
             self._on_review_image_click(event)
 
+    def _on_review_image_move(self, event: Any) -> None:
+        """Unified mouseMove handler: drag when LMB held, otherwise hover."""
+        if event.buttons() & Qt.LeftButton:
+            self._on_review_image_drag(event)
+        else:
+            self._on_review_image_hover(event)
+
     def _on_review_image_hover(self, event: Any) -> None:
         if not hasattr(self, "_review_image_label"):
             return
@@ -4525,13 +4505,31 @@ class WellViewerApp(QWidget):
     def _on_review_image_click(self, event: Any) -> None:
         _on_review_image_click_controller(self, event, _logger)
 
+    def _apply_review_image_cursor(self) -> None:
+        """Set the Review Image cursor based on include-edit mode.
+
+        ForbiddenCursor (the ⊘ 'no entry' icon) indicates remove-cell mode;
+        PointingHandCursor indicates normal select/highlight mode. Applied
+        to both the label and the scroll viewport so it does not flicker
+        back to the arrow over scrollbar gutters or padding.
+        """
+        enabled = bool(getattr(self, "_review_image_include_edit_mode", False))
+        cursor = Qt.ForbiddenCursor if enabled else Qt.PointingHandCursor
+        if hasattr(self, "_review_image_label"):
+            self._review_image_label.setCursor(cursor)
+        canvas = getattr(self, "_review_image_canvas", None)
+        if canvas is not None:
+            canvas.setCursor(cursor)
+            vp = canvas.viewport()
+            if vp is not None:
+                vp.setCursor(cursor)
+
     def _select_review_csv_row_for_cell(self, fov: str, tp: str, nucleus_id: str) -> None:
         _select_review_csv_row_for_cell_controller(self, fov, tp, nucleus_id, _logger)
 
     def _set_review_image_include_mode(self, enabled: bool) -> None:
         self._review_image_include_edit_mode = bool(enabled)
-        if hasattr(self, "_review_image_label"):
-            self._review_image_label.setCursor(Qt.ForbiddenCursor if enabled else Qt.PointingHandCursor)
+        self._apply_review_image_cursor()
         if enabled:
             self._set_status("Review Image Include edit mode ON: click a cell to set Included=0.")
         else:
