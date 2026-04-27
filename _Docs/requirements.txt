@@ -1,24 +1,38 @@
 # requirements.txt
 # -----------------
-# Pip-only dependencies for AllWell — Apple Silicon macOS.
-# Python 3.10.14, tensorflow-macos 2.13.0, tensorflow-metal 1.1.0
+# Pip-only dependencies for AllWell — supports macOS (Apple Silicon) and
+# Windows (x86_64). Platform-specific packages are gated by pip environment
+# markers so the same file works on both.
+# Python 3.10.14, tensorflow 2.13 line.
 #
-# ── ENVIRONMENT SETUP ────────────────────────────────────────────────────────
-#
-# Step 1 — create environment (setuptools pinned to <70 via mamba):
+# ── ENVIRONMENT SETUP (macOS) ────────────────────────────────────────────────
 #
 #   mamba create -n allwell python=3.10.14 setuptools=69.5.1 \
 #       "numpy>=1.24,<1.25" scipy scikit-image matplotlib pillow imageio h5py \
 #       -c conda-forge -y
+#   mamba activate allwell
+#   pip install --no-build-isolation -r requirements.txt
+#
+# ── ENVIRONMENT SETUP (Windows) ──────────────────────────────────────────────
+#
+#   mamba create -n allwell python=3.10.14 setuptools=69.5.1 \
+#       "numpy>=1.24,<1.25" scipy scikit-image matplotlib pillow imageio h5py \
+#       pyside6 -c conda-forge -y
+#   conda activate allwell
+#   pip install --no-build-isolation -r requirements.txt
+#
+#   Notes for Windows:
+#   - Native Windows TensorFlow has been CPU-only since TF 2.11. For GPU
+#     acceleration on Windows, run the app under WSL2 with the Linux
+#     tensorflow build + NVIDIA CUDA drivers.
+#   - Installing pyside6 via conda-forge avoids needing admin to install
+#     the Microsoft Visual C++ redistributable system-wide.
+#
+# ── COMMON ───────────────────────────────────────────────────────────────────
 #
 # Step 2 — verify pkg_resources works:
 #
-#   mamba activate allwell
 #   python -c "import pkg_resources; print('OK')"
-#
-# Step 3 — install pip packages:
-#
-#   pip install --no-build-isolation -r requirements.txt
 #
 # IMPORTANT:
 #   - setuptools must stay at <70. Modern setuptools (v70+) removed
@@ -30,11 +44,15 @@
 # ── VERIFY GPU AFTER INSTALL ─────────────────────────────────────────────────
 #
 #   python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
-#   # Expected: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+#   # Expected on macOS: [PhysicalDevice(name='/physical_device:GPU:0', ...)]
+#   # Expected on Windows native: []  (CPU-only — see WSL2 note above)
 
-# ── TensorFlow (Apple Silicon native) ────────────────────────────────────────
-tensorflow-macos==2.13.0
-tensorflow-metal==1.1.0
+# ── TensorFlow ───────────────────────────────────────────────────────────────
+# macOS (Apple Silicon native + Metal GPU plugin)
+tensorflow-macos==2.13.0 ; sys_platform == "darwin"
+tensorflow-metal==1.1.0  ; sys_platform == "darwin" and platform_machine == "arm64"
+# Windows (CPU-only; TF 2.11+ dropped native Windows GPU support)
+tensorflow==2.13.0       ; sys_platform == "win32"
 keras==2.13.1
 protobuf==3.20.3
 
