@@ -48,5 +48,12 @@ llvmlite==0.40.1
 tifffile==2023.9.26
 imagecodecs==2023.9.18
 
+# ── GUI toolkit (Qt for Python) ──────────────────────────────────────────────
+# Replaces tkinter. Pulls in shiboken6 transitively at the matching version.
+# On Windows, prefer `mamba install -c conda-forge pyside6` so the MSVC
+# runtime DLLs are provided by the `vc`/`vs2015_runtime` conda packages
+# (avoids needing admin to install the system vcredist).
+PySide6==6.7.3
+
 # ── Build tooling (build only) ───────────────────────────────────────────────
 pyinstaller==6.1.0
