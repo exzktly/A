@@ -111,18 +111,32 @@ def _show_image_pixel_tooltip(app, event, channel_label: str, label=None) -> Non
     sz_w = getattr(lbl, "_sz_w", lbl.width() if lbl else 1)
     sz_h = getattr(lbl, "_sz_h", lbl.height() if lbl else 1)
     arr = app._np.asarray(arr, dtype=app._np.float32)
-    ih, iw = arr.shape[:2]
-    scale = min(sz_w / max(iw, 1), sz_h / max(ih, 1))
-    nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+    full_h, full_w = arr.shape[:2]
+    crop = getattr(lbl, "_crop", None)
+    if crop is not None:
+        # Pixmap displays only the cropped region; scale and offset must be
+        # computed against the cropped dimensions, then offset back into
+        # full-image coords for the reported (x, y).
+        cy0, cx0, cy1, cx1 = crop
+        view_w = max(1, int(cx1) - int(cx0))
+        view_h = max(1, int(cy1) - int(cy0))
+        offset_y, offset_x = int(cy0), int(cx0)
+    else:
+        view_w, view_h = full_w, full_h
+        offset_y = offset_x = 0
+    scale = min(sz_w / max(view_w, 1), sz_h / max(view_h, 1))
+    nw, nh = max(1, int(view_w * scale)), max(1, int(view_h * scale))
     lw = lbl.width() if lbl else sz_w
     lh = lbl.height() if lbl else sz_h
     ex = int(event.position().x())
     ey = int(event.position().y())
-    img_x = (ex - (lw - nw) // 2) / max(scale, 1e-9)
-    img_y = (ey - (lh - nh) // 2) / max(scale, 1e-9)
-    if not (0 <= img_x < iw and 0 <= img_y < ih):
+    rel_x = (ex - (lw - nw) // 2) / max(scale, 1e-9)
+    rel_y = (ey - (lh - nh) // 2) / max(scale, 1e-9)
+    if not (0 <= rel_x < view_w and 0 <= rel_y < view_h):
         QToolTip.hideText()
         return
+    img_x = offset_x + rel_x
+    img_y = offset_y + rel_y
     val = float(arr[int(img_y), int(img_x)])
     extra = ""
     mask_arr = getattr(lbl, "_mask_arr", None)

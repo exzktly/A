@@ -325,11 +325,26 @@ from well_viewer.views.well_button import WellButton as WellLabel, build_plate_g
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
-                   lo: Optional[float], hi: Optional[float]):
-    """Render a greyscale float32 array as a QPixmap with LUT [lo, hi]."""
+                   lo: Optional[float], hi: Optional[float],
+                   crop=None):
+    """Render a greyscale float32 array as a QPixmap with LUT [lo, hi].
+
+    When ``crop`` is a (y0, x0, y1, x1) tuple, the array is sliced to that
+    sub-region before LUT application and scaling so the resulting thumbnail
+    shows only the selected square area at the requested display size.
+    """
     if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr, dtype=_np.float32)
+    if crop is not None:
+        y0, x0, y1, x1 = crop
+        ih, iw = arr.shape[:2]
+        y0 = max(0, min(int(y0), ih))
+        y1 = max(y0, min(int(y1), ih))
+        x0 = max(0, min(int(x0), iw))
+        x1 = max(x0, min(int(x1), iw))
+        if y1 > y0 and x1 > x0:
+            arr = arr[y0:y1, x0:x1]
     alo = lo if lo is not None else float(arr.min())
     ahi = hi if hi is not None else float(arr.max())
     if ahi <= alo:
@@ -343,16 +358,28 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
 
 
 def make_overlay_thumb(arr, sz_w: int, sz_h: int,
-                       lo: Optional[float] = None, hi: Optional[float] = None):
+                       lo: Optional[float] = None, hi: Optional[float] = None,
+                       crop=None):
     """Render a 2-D or 3-D array as a QPixmap scaled to (sz_w, sz_h).
 
     If ``lo``/``hi`` are given they override the per-image auto range so the
     Movie Montage overlay LUT controls can tune brightness/contrast. For 3-D
     RGB overlays the [lo, hi] window is applied uniformly across channels.
+    When ``crop`` is supplied, the same (y0, x0, y1, x1) sub-region is used
+    so overlay thumbnails align with the cropped fluorescence thumbnails.
     """
     if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr)
+    if crop is not None:
+        y0, x0, y1, x1 = crop
+        ih, iw = arr.shape[:2]
+        y0 = max(0, min(int(y0), ih))
+        y1 = max(y0, min(int(y1), ih))
+        x0 = max(0, min(int(x0), iw))
+        x1 = max(x0, min(int(x1), iw))
+        if y1 > y0 and x1 > x0:
+            arr = arr[y0:y1, x0:x1]
     if arr.ndim == 2:
         arr_f = arr.astype(_np.float32)
         alo = lo if lo is not None else float(arr_f.min())
@@ -1227,6 +1254,15 @@ class WellViewerApp(QWidget):
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
         self._review_image_raw_btn = None
+        # Movie Montage square-region crop. _montage_crop is (y0, x0, y1, x1)
+        # in source-image pixels and is reset whenever the FOV changes; when
+        # _montage_crop_mode is on, dragging on a fluorescence thumbnail
+        # rubber-bands a square that becomes the new crop on release.
+        self._montage_crop_mode: bool = False
+        self._montage_crop = None  # type: ignore[assignment]
+        self._montage_crop_btn = None
+        self._montage_crop_status_lbl = None
+        self._montage_crop_drag = None  # transient drag state
 
         self._build_ui()
         self._apply_theme()
@@ -2810,6 +2846,13 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_montage_zoom_lbl"):
             self._montage_zoom_lbl.setText("100%")
 
+        # Each FOV may have a different image size; an old crop in pixel
+        # coordinates may no longer fit. Reset on every reload and refresh
+        # the indicator.
+        self._montage_crop = None
+        if hasattr(self, "_refresh_montage_crop_indicator"):
+            self._refresh_montage_crop_indicator()
+
         # Clear previous content
         _clear_layout(self._montage_inner.layout())
         self._montage_photos.clear()
@@ -3018,7 +3061,27 @@ class WellViewerApp(QWidget):
             w.wheelEvent = _wheel
             if is_fluor:
                 def _move(ev):
+                    # When mid-drag in crop mode, pump the rubber band update
+                    # instead of the pixel-tooltip helper so the box tracks
+                    # the cursor without flickering tooltips on top of it.
+                    if (
+                        getattr(self, "_montage_crop_mode", False)
+                        and self._montage_crop_drag is not None
+                    ):
+                        self._on_montage_crop_drag(ev)
+                        return
                     self._on_montage_fluor_motion(ev)
+                def _press(ev):
+                    if getattr(self, "_montage_crop_mode", False):
+                        self._on_montage_crop_press(w, ev)
+                        return
+                def _release(ev):
+                    if (
+                        getattr(self, "_montage_crop_mode", False)
+                        and self._montage_crop_drag is not None
+                    ):
+                        self._on_montage_crop_release(ev)
+                        return
                 def _leave(ev):
                     try:
                         self._montage_tooltip.hide()
@@ -3026,6 +3089,8 @@ class WellViewerApp(QWidget):
                         pass
                 w.setMouseTracking(True)
                 w.mouseMoveEvent = _move
+                w.mousePressEvent = _press
+                w.mouseReleaseEvent = _release
                 w.leaveEvent = _leave
 
         for col_idx, ((tp, _), fluor_arr, ov_arr) in enumerate(
@@ -3043,7 +3108,8 @@ class WellViewerApp(QWidget):
             fluor_cell_layout.setContentsMargins(1, 1, 1, 1)
             grid.addWidget(fluor_cell, 1, col_idx + 1)
             display_arr = fluor_arr
-            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi)
+            crop = getattr(self, "_montage_crop", None)
+            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi, crop=crop)
             if pix_fluor:
                 self._montage_photos.append(pix_fluor)
                 lbl_fluor = QLabel()
@@ -3054,6 +3120,7 @@ class WellViewerApp(QWidget):
                 lbl_fluor._sz_h    = sz_h        # type: ignore[attr-defined]
                 lbl_fluor._lo      = lo          # type: ignore[attr-defined]
                 lbl_fluor._hi      = hi          # type: ignore[attr-defined]
+                lbl_fluor._crop    = crop        # type: ignore[attr-defined]
                 fluor_cell_layout.addWidget(lbl_fluor)
                 _install_montage_events(lbl_fluor, is_fluor=True)
             else:
@@ -3086,7 +3153,7 @@ class WellViewerApp(QWidget):
             ov_cell_layout = QVBoxLayout(ov_cell)
             ov_cell_layout.setContentsMargins(1, 1, 1, 1)
             grid.addWidget(ov_cell, 2, col_idx + 1)
-            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi)
+            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi, crop=crop)
             if pix_ov:
                 self._montage_photos.append(pix_ov)
                 lbl_ov = QLabel()
@@ -3110,6 +3177,155 @@ class WellViewerApp(QWidget):
 
     # _montage_make_thumb and _montage_make_overlay_thumb replaced by
     # module-level make_fluor_thumb() / make_overlay_thumb()
+
+    # ── Movie Montage square-region crop ─────────────────────────────────────
+
+    def _montage_label_to_image_xy(self, label, lx: int, ly: int):
+        """Translate label-local pixel coords → full source-image pixel coords.
+
+        The label's pixmap is the cropped (and KeepAspectRatio-scaled) view
+        of the underlying full array. We invert that scaling and add back the
+        crop offset so a click at (lx, ly) in the label resolves to the
+        source-image pixel that visually appears under the cursor — even if
+        a previous crop has already shrunk the displayed region.
+        """
+        if not _NP_AVAILABLE:
+            return None
+        pm = label.pixmap()
+        arr = getattr(label, "_raw_arr", None)
+        if pm is None or arr is None or pm.width() <= 0 or pm.height() <= 0:
+            return None
+        crop = getattr(label, "_crop", None)
+        full_h, full_w = _np.asarray(arr).shape[:2]
+        if crop is not None:
+            y0, x0, y1, x1 = crop
+            view_h = max(1, int(y1) - int(y0))
+            view_w = max(1, int(x1) - int(x0))
+        else:
+            y0 = x0 = 0
+            view_h, view_w = full_h, full_w
+        pw, ph = pm.width(), pm.height()
+        lw, lh = label.width(), label.height()
+        offset_x = (lw - pw) // 2
+        offset_y = (lh - ph) // 2
+        px = lx - offset_x
+        py = ly - offset_y
+        # Allow snapping when the user drags slightly past the pixmap edge.
+        px = max(0, min(pw, px))
+        py = max(0, min(ph, py))
+        img_x = int(round(x0 + px * view_w / pw))
+        img_y = int(round(y0 + py * view_h / ph))
+        img_x = max(0, min(full_w, img_x))
+        img_y = max(0, min(full_h, img_y))
+        return (img_y, img_x)
+
+    def _on_montage_crop_press(self, label, event) -> None:
+        if event.button() != Qt.LeftButton:
+            return
+        from PySide6.QtWidgets import QRubberBand
+        pos = event.position()
+        lx, ly = int(pos.x()), int(pos.y())
+        rb = QRubberBand(QRubberBand.Rectangle, label)
+        rb.setGeometry(lx, ly, 1, 1)
+        rb.show()
+        self._montage_crop_drag = {
+            "label": label, "x0": lx, "y0": ly, "rb": rb,
+        }
+
+    def _on_montage_crop_drag(self, event) -> None:
+        drag = self._montage_crop_drag
+        if drag is None:
+            return
+        pos = event.position()
+        lx, ly = int(pos.x()), int(pos.y())
+        x0, y0 = drag["x0"], drag["y0"]
+        # Constrain the rubber band to a square anchored at the press point;
+        # both axes use the same scale (KeepAspectRatio), so a square in
+        # label pixels is also a square in image pixels.
+        side = max(abs(lx - x0), abs(ly - y0))
+        if side <= 0:
+            drag["rb"].setGeometry(x0, y0, 1, 1)
+            return
+        sign_x = 1 if lx >= x0 else -1
+        sign_y = 1 if ly >= y0 else -1
+        x1 = x0 + sign_x * side
+        y1 = y0 + sign_y * side
+        rx = min(x0, x1)
+        ry = min(y0, y1)
+        drag["rb"].setGeometry(rx, ry, side, side)
+
+    def _on_montage_crop_release(self, _event) -> None:
+        drag = self._montage_crop_drag
+        if drag is None:
+            return
+        self._montage_crop_drag = None
+        rb = drag["rb"]
+        geom = rb.geometry()
+        rb.hide()
+        rb.deleteLater()
+        label = drag["label"]
+        if geom.width() < 4 or geom.height() < 4:
+            # Treat tiny drags as accidental clicks — leave the existing crop
+            # untouched rather than dropping in a 1-pixel zoom.
+            return
+        tl = self._montage_label_to_image_xy(label, geom.left(), geom.top())
+        br = self._montage_label_to_image_xy(label, geom.right(), geom.bottom())
+        if tl is None or br is None:
+            return
+        y0, x0 = tl
+        y1, x1 = br
+        if y1 <= y0 or x1 <= x0:
+            return
+        # Round-trip from label → image coords can introduce a 1-pixel
+        # asymmetry, so re-square in image space.
+        side = max(y1 - y0, x1 - x0)
+        side = max(2, side)
+        full_h, full_w = _np.asarray(getattr(label, "_raw_arr", None)).shape[:2]
+        side = min(side, full_h - y0, full_w - x0)
+        if side < 2:
+            return
+        self._montage_crop = (int(y0), int(x0), int(y0 + side), int(x0 + side))
+        self._refresh_montage_crop_indicator()
+        self._montage_redraw_at_zoom()
+
+    def _toggle_montage_crop_mode(self) -> None:
+        self._montage_crop_mode = not bool(getattr(self, "_montage_crop_mode", False))
+        self._refresh_montage_crop_indicator()
+        # Redraw so each fluor label picks up the new cursor / event hooks.
+        self._montage_redraw_at_zoom()
+
+    def _clear_montage_crop(self) -> None:
+        self._montage_crop = None
+        self._refresh_montage_crop_indicator()
+        self._montage_redraw_at_zoom()
+
+    def _refresh_montage_crop_indicator(self) -> None:
+        """Sync the Crop button + status label with current crop state."""
+        btn = getattr(self, "_montage_crop_btn", None)
+        if btn is not None:
+            on = bool(getattr(self, "_montage_crop_mode", False))
+            btn.setChecked(on)
+            btn.setText("Crop ✓" if on else "Crop")
+            btn.setProperty("variant", "toggle")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.setToolTip(
+                "Crop-selection mode is ON.\n"
+                "Click and drag on a fluorescence thumbnail to define a "
+                "square region; the entire montage zooms into that region."
+                if on else
+                "Click to enter crop-selection mode.\n"
+                "Then click and drag on a fluorescence thumbnail to define "
+                "a square region that all timepoints will zoom into."
+            )
+        lbl = getattr(self, "_montage_crop_status_lbl", None)
+        if lbl is not None:
+            crop = getattr(self, "_montage_crop", None)
+            if crop is None:
+                lbl.setText("(full FOV)")
+            else:
+                y0, x0, y1, x1 = crop
+                lbl.setText(f"Crop: {x1 - x0}×{y1 - y0} px @ ({x0},{y0})")
 
     def _montage_tophat_toggled(self) -> None:
         from well_viewer.preview_callbacks import montage_tophat_toggled as _montage_tophat_toggled

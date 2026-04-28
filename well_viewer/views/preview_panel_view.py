@@ -130,6 +130,36 @@ def build_right_panel(self, parent: QWidget) -> None:
     lr.addWidget(self._montage_zoom_lbl)
     lr.addWidget(btn_card(lut_row, "+", lambda: self._montage_zoom_step(+1)))
     lr.addWidget(btn_secondary(lut_row, "Fit", self._montage_zoom_fit))
+
+    # Region-of-interest crop controls. The Crop toggle puts the next
+    # click-drag on a fluorescence thumbnail into rubber-band mode; once
+    # released, the resulting square zooms every timepoint of the film
+    # strip into that region. Reset clears the crop.
+    crop_sep = QFrame(lut_row)
+    crop_sep.setFrameShape(QFrame.VLine)
+    crop_sep.setFixedWidth(1)
+    lr.addWidget(crop_sep)
+
+    from PySide6.QtWidgets import QPushButton
+    self._montage_crop_btn = QPushButton("Crop", lut_row)
+    self._montage_crop_btn.setProperty("variant", "toggle")
+    self._montage_crop_btn.setCheckable(True)
+    self._montage_crop_btn.setToolTip(
+        "Click to enter crop-selection mode.\n"
+        "Then click and drag on a fluorescence thumbnail to define a "
+        "square region that all timepoints will zoom into."
+    )
+    self._montage_crop_btn.clicked.connect(
+        lambda _=False: self._toggle_montage_crop_mode()
+    )
+    lr.addWidget(self._montage_crop_btn)
+
+    lr.addWidget(btn_secondary(lut_row, "Reset Crop", self._clear_montage_crop))
+
+    self._montage_crop_status_lbl = QLabel("(full FOV)", lut_row)
+    self._montage_crop_status_lbl.setObjectName("Muted")
+    lr.addWidget(self._montage_crop_status_lbl)
+
     lr.addStretch(1)
     il.addWidget(lut_row)
 
