@@ -217,6 +217,7 @@ def aggregate_with_threshold(
     val_col: str = "gfp_mean_intensity",
     cell_area_threshold: float = 0.0,
     fluor_gates: Optional[Dict[str, float]] = None,
+    per_fov_spread: bool = False,
 ) -> List[AggPoint]:
     """Group rows by timepoint; compute stats for cells above threshold.
 
@@ -224,6 +225,12 @@ def aggregate_with_threshold(
     statistics on the filtered cell population. This ensures that "Fraction On"
     and other metrics are computed on the same set of cells regardless of which
     channel or metric is being plotted.
+
+    When ``per_fov_spread`` is True, the spread on the mean (third tuple field)
+    is the SD/SEM **across per-FOV mean intensities** at each timepoint instead
+    of the SD/SEM across individual cells. The reported mean, fraction, and
+    counts are unaffected. Use this in single-well mode to treat FOVs as
+    technical replicates within the well.
 
     Returns:
         List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total)
@@ -233,6 +240,7 @@ def aggregate_with_threshold(
 
     all_v:   Dict[float, List[float]] = defaultdict(list)
     above_v: Dict[float, List[float]] = defaultdict(list)
+    fov_above: Dict[float, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
     ordinals = _ordinal_timepoints(rows, tp_col)
 
@@ -282,6 +290,9 @@ def aggregate_with_threshold(
         all_v[t].append(val)
         if val > threshold:
             above_v[t].append(val)
+            if per_fov_spread:
+                fov = str(row.get("fov", "1") or "1").strip() or "1"
+                fov_above[t][fov].append(val)
 
     result: List[AggPoint] = []
     for t in sorted(all_v):
@@ -290,9 +301,16 @@ def aggregate_with_threshold(
         n_above = len(above)
         mean    = sum(above) / n_above if n_above else float("nan")
         spread  = 0.0
-        if n_above > 1:
-            sd     = statistics.pstdev(above)
-            spread = sd / math.sqrt(n_above) if use_sem else sd
+        if per_fov_spread:
+            fov_means = [sum(vs) / len(vs) for vs in fov_above.get(t, {}).values() if vs]
+            n_fov = len(fov_means)
+            if n_fov > 1:
+                sd = statistics.pstdev(fov_means)
+                spread = sd / math.sqrt(n_fov) if use_sem else sd
+        else:
+            if n_above > 1:
+                sd     = statistics.pstdev(above)
+                spread = sd / math.sqrt(n_above) if use_sem else sd
         result.append((t, mean, spread,
                        n_above / n_total if n_total else float("nan"),
                        n_above, n_total))

@@ -101,11 +101,12 @@ def redraw_line_plots(
     else:
         cell_area_threshold = app._get_cell_area_threshold()
         fluor_gates = app._get_all_fluor_gates()
+        per_fov_spread = app._use_fov_spread_active()
         for i, label in enumerate(selected):
             color = well_colors[i % len(well_colors)]
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
-            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates)
+            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
             if pts:
                 times, means, spreads, fracs, *_ = zip(*pts)
                 vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]

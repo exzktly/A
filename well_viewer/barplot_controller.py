@@ -103,9 +103,10 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
     items = []
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
+    per_fov_spread = app._use_fov_spread_active()
     for label in bar_selected:
         rows = app._get_rows(label)
-        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates)
+        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
         matched = [(m, s, f) for t, m, s, f, *_ in pts if abs(t - target_t) < 1e-6]
         if matched:
             m, s, f = matched[0]

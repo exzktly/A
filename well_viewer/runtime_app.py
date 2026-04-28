@@ -1154,6 +1154,13 @@ class WellViewerApp(QWidget):
         self._use_sem = BoolVar(True)
         self._sem_btns: List = []
         self._sem_btn = None
+        # Per-FOV replicate toggle. When True (and no replicate sets are
+        # active), the bar/line plots compute the error band across per-FOV
+        # means within each well rather than across individual cells. The
+        # toggle is silently ignored whenever replicate sets are defined.
+        self._use_fov_replicates = BoolVar(False)
+        self._fov_btns: List = []
+        self._fov_btn = None
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
@@ -3905,6 +3912,50 @@ class WellViewerApp(QWidget):
             if self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
                 self._redraw_bars()
 
+    # ── Per-FOV-replicates toggle ────────────────────────────────────────────
+
+    def _fov_replicates_available(self) -> bool:
+        """Per-FOV spread is only meaningful when no replicate sets are active."""
+        return not self._rep_sets_active()
+
+    def _use_fov_spread_active(self) -> bool:
+        """Effective state of the per-FOV-replicates toggle for plotting."""
+        return bool(self._use_fov_replicates.get()) and self._fov_replicates_available()
+
+    def _toggle_fov_replicates(self) -> None:
+        if not self._fov_replicates_available():
+            # Pressing the button when replicate sets exist is a no-op; just
+            # re-sync the visual state in case it got out of sync.
+            self._refresh_fov_btn_state()
+            return
+        self._use_fov_replicates.set(not self._use_fov_replicates.get())
+        self._invalidate_stats_cache()
+        self._refresh_fov_btn_state()
+        self._redraw()
+        if hasattr(self, "_notebook") and self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
+            self._redraw_bars()
+
+    def _refresh_fov_btn_state(self) -> None:
+        """Sync every per-FOV toggle button's enabled/text/variant state."""
+        available = self._fov_replicates_available()
+        is_on = bool(self._use_fov_replicates.get()) and available
+        text = "FOV ✓" if is_on else "FOV"
+        variant = "toggle_active" if is_on else ("toggle" if available else "toggle_muted")
+        tooltip = (
+            "Compute error bands across per-FOV means within each well.\n"
+            "Disabled while replicate sets are active."
+            if not available else
+            "Compute error bands across per-FOV means within each well\n"
+            "instead of across individual cells. Pairs with the SEM/SD toggle."
+        )
+        for btn in list(getattr(self, "_fov_btns", []) or []):
+            btn.setEnabled(available)
+            btn.setText(text)
+            btn.setToolTip(tooltip)
+            btn.setProperty("variant", variant)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
     # ── Well selection (plate-map backed) ─────────────────────────────────────
 
     def _select_all(self) -> None:
@@ -5720,6 +5771,10 @@ class WellViewerApp(QWidget):
     def _invalidate_stats_cache(self) -> None:
         """Discard cached group statistics. Call whenever group definitions change."""
         self._stats_cache: dict = {}
+        # Replicate-set visibility may have shifted, so re-check whether the
+        # per-FOV toggle is still applicable. Cheap; only walks _fov_btns.
+        if hasattr(self, "_refresh_fov_btn_state"):
+            self._refresh_fov_btn_state()
 
     def _compute_group_stats(
         self,

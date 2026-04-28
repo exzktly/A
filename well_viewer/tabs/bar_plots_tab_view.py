@@ -135,7 +135,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     install_canvas_wheel_scroll(app._bar_canvas, app._bar_scroll_canvas)
     right_l.addWidget(app._bar_scroll_canvas, 1)
 
-    attach_plot_toolbar(right_l, app._bar_canvas, bar_right, app)
+    attach_plot_toolbar(right_l, app._bar_canvas, bar_right, app, with_fov=True)
 
     # Y-axis limit controls
     ylim_row = QWidget(bar_right)

@@ -313,6 +313,7 @@ def attach_plot_toolbar(
     app: Any = None,
     *,
     with_sem: bool = True,
+    with_fov: bool = False,
 ) -> Any:
     """Create a themed matplotlib nav toolbar, append it to *layout* (at bottom),
     and optionally embed the shared SEM/SD toggle button.
@@ -320,6 +321,10 @@ def attach_plot_toolbar(
     Returns the toolbar. When ``with_sem`` and ``app`` are provided, the toolbar
     hosts a SEM/SD button wired through ``app._toggle_sem``; ``app._sem_btns``
     collects every such button so ``_toggle_sem`` can update them all.
+
+    When ``with_fov`` is also true, a "FOV" toggle is appended that controls
+    whether the error band is computed across per-FOV means (single-well mode
+    only). It is auto-disabled whenever replicate sets are active.
     """
     cls = _themed_nav_toolbar_class()
     toolbar = cls(canvas, parent)
@@ -340,6 +345,23 @@ def attach_plot_toolbar(
         app._sem_btns.append(sem_btn)
         if not getattr(app, "_sem_btn", None):
             app._sem_btn = sem_btn
+
+        if with_fov:
+            fov_lbl = QLabel(" Spread ", toolbar)
+            fov_lbl.setObjectName("Muted")
+            toolbar.addWidget(fov_lbl)
+            fov_btn = QPushButton("FOV", toolbar)
+            fov_btn.setProperty("variant", "toggle")
+            fov_btn.clicked.connect(lambda _=False: app._toggle_fov_replicates())
+            toolbar.addWidget(fov_btn)
+            if not hasattr(app, "_fov_btns") or app._fov_btns is None:
+                app._fov_btns = []
+            app._fov_btns.append(fov_btn)
+            if not getattr(app, "_fov_btn", None):
+                app._fov_btn = fov_btn
+            # Initialize visual state (handles "replicates active → disabled").
+            if hasattr(app, "_refresh_fov_btn_state"):
+                app._refresh_fov_btn_state()
 
     layout.addWidget(toolbar)
     return toolbar
