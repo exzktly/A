@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from well_viewer.crop_tool import CropTool
 from well_viewer.ui_helpers import btn_primary, btn_secondary
 
 
@@ -45,6 +46,12 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         app._image_table_last_render = {}
     if not hasattr(app, "_image_table_image_cache"):
         app._image_table_image_cache = {}
+    # Shared square-region crop helper. on_change re-runs Generate so the
+    # rendered grid follows mode toggles and crop changes automatically.
+    if not hasattr(app, "_image_table_crop_tool"):
+        app._image_table_crop_tool = CropTool(
+            on_change=lambda: app._image_table_generate(),
+        )
 
     scroll = QScrollArea(parent)
     scroll.setWidgetResizable(True)
@@ -125,6 +132,16 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     ))
     al.addWidget(btn_primary(actions, "Generate", app._image_table_generate))
     al.addWidget(btn_secondary(actions, "Export", app._image_table_export))
+
+    # Reuse the shared CropTool helper (also used by Movie Montage).
+    crop_sep = QFrame(actions)
+    crop_sep.setFrameShape(QFrame.VLine)
+    crop_sep.setFixedWidth(1)
+    al.addWidget(crop_sep)
+    al.addWidget(app._image_table_crop_tool.make_button(actions))
+    al.addWidget(app._image_table_crop_tool.make_reset_button(actions))
+    al.addWidget(app._image_table_crop_tool.make_status_label(actions))
+
     al.addStretch(1)
     il.addWidget(actions)
 

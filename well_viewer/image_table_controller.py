@@ -396,6 +396,7 @@ def image_table_generate(app) -> None:
 
     cache: Dict[Tuple[str, str], Dict] = {}
     rendered: Dict[Tuple[int, int], Any] = {}
+    crop_tool = getattr(app, "_image_table_crop_tool", None)
 
     for r, row in enumerate(cells):
         for c, cell in enumerate(row):
@@ -428,7 +429,16 @@ def image_table_generate(app) -> None:
             img_label.setAlignment(Qt.AlignCenter)
             img_label.setMinimumSize(220, 220)
             if arr is not None:
-                pix = make_fluor_thumb(arr, 240, 240, lo, hi)
+                # Apply the shared crop (no-op when not set) and render.
+                cropped = crop_tool.apply_to_array(arr) if crop_tool else arr
+                pix = make_fluor_thumb(cropped, 240, 240, lo, hi)
+                # CropTool needs the FULL source array + the active crop on
+                # the label so label-pixel → image-pixel coord conversion
+                # works correctly even when the label already shows a crop.
+                img_label._raw_arr = arr  # type: ignore[attr-defined]
+                img_label._crop = crop_tool.crop if crop_tool else None  # type: ignore[attr-defined]
+                if crop_tool is not None:
+                    crop_tool.install_events(img_label)
                 if pix is not None:
                     img_label.setPixmap(pix)
                 else:
@@ -525,6 +535,7 @@ def image_table_export(app) -> None:
 
     cache: Dict[Tuple[str, str], Dict] = dict(getattr(app, "_image_table_image_cache", None) or {})
     rendered = getattr(app, "_image_table_last_render", None) or {}
+    crop_tool = getattr(app, "_image_table_crop_tool", None)
 
     fig = Figure(
         figsize=(max(2.4, cols * 2.6), max(2.4, rows * 2.8)),
@@ -545,6 +556,8 @@ def image_table_export(app) -> None:
             arr = rendered.get((r, c))
             if arr is None and well and chan and tp and fov:
                 arr = _load_array(app, cache, well, chan, tp, fov)
+            if arr is not None and crop_tool is not None:
+                arr = crop_tool.apply_to_array(arr)
 
             if arr is not None:
                 a = _np.asarray(arr, dtype=_np.float32)
