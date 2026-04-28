@@ -4409,10 +4409,19 @@ class WellViewerApp(QWidget):
             (center != padded[1:-1, :-2]) |
             (center != padded[1:-1, 2:])
         )
-        include_mask = _np.zeros(center.shape, dtype=bool)
-        for nid, included in include_by_nid.items():
-            if included:
-                include_mask |= (center == nid)
+        # Build the inclusion mask via a single np.isin pass over the label
+        # image. The previous per-nucleus loop allocated a fresh image-sized
+        # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
+        # with ~1000 cells per FOV churned ~4 GB of transient bool arrays
+        # per refresh. Most got GC'd, but Linux's allocator does not return
+        # those pages to the OS, so RSS grew on every click. np.isin runs
+        # the comparison in C with O(image_pixels) extra memory.
+        included_ids = [int(nid) for nid, inc in include_by_nid.items() if inc]
+        if included_ids:
+            included_arr = _np.fromiter(included_ids, dtype=center.dtype, count=len(included_ids))
+            include_mask = _np.isin(center, included_arr)
+        else:
+            include_mask = _np.zeros(center.shape, dtype=bool)
         draw_boundary = boundary & include_mask
         rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
         sel_nid = self._review_image_selected_nucleus
