@@ -1295,10 +1295,14 @@ class WellViewerApp(QWidget):
 
                 row["Included"] = include
 
+        # CRITICAL: Do NOT call _refresh_review_csv_rows() here. It rebuilds
+        # the Review CSV table by deep-copying every cached row across every
+        # well (``[dict(row) for row in self._get_rows(label)]``), which
+        # produces tens of thousands of new dicts per well and balloons RAM
+        # usage into the hundreds of GB on modestly-sized inputs. The Review
+        # CSV table refreshes on its own user-driven events; gating only
+        # needs to invalidate the stats cache.
         self._invalidate_stats_cache()
-        # Keep Review CSV table in sync whenever Included is recomputed.
-        if hasattr(self, "_refresh_review_csv_rows"):
-            self._refresh_review_csv_rows()
 
     def _get_thresh_frac_on(self, channel: Optional[str] = None) -> float:
         """Get ThreshFracOn threshold. Uses active channel if not specified."""

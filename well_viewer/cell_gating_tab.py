@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Optional
 
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget,
 )
@@ -12,6 +15,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from ui.theme import get_color
+from well_viewer import debug_flags as _debug_flags
 from well_viewer.ui_helpers import attach_plot_toolbar, install_canvas_wheel_scroll
 
 try:
@@ -20,6 +24,110 @@ try:
 except ImportError:
     _np = None  # type: ignore[assignment]
     _NP_AVAILABLE = False
+
+
+logger = logging.getLogger("well_viewer.gating_worker")
+
+
+class GatingWorker(QThread):
+    """Apply cell-gating thresholds to every cached well row off the GUI thread.
+
+    Emits ``progress`` after each well is processed so the status bar advances
+    incrementally (1/N → 2/N → …). On clean completion, invalidates the stats
+    cache and emits ``finished_ok``.
+
+    The cancellation flag is checked between wells; setting it via
+    ``cancel()`` aborts cleanly without touching the stats cache.
+    """
+
+    progress = Signal(int, int)  # (current, total)
+    finished_ok = Signal()
+
+    def __init__(self, app, parent: Optional[object] = None) -> None:
+        super().__init__(parent)
+        self._app = app
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        debug = _debug_flags.cell_gating_debug_enabled()
+        cell_area_threshold = self._app._get_cell_area_threshold()
+        fluor_gates = self._app._get_all_fluor_gates()
+        labels = list(self._app._well_paths)
+        total = len(labels)
+
+        if debug:
+            logger.info(
+                "GatingWorker start: wells=%d cell_area_threshold=%.4f fluor_gates=%s",
+                total, cell_area_threshold, fluor_gates,
+            )
+
+        included_total = 0
+        excluded_total = 0
+
+        for idx, label in enumerate(labels):
+            if self._cancelled:
+                if debug:
+                    logger.info(
+                        "GatingWorker cancelled at well %d/%d (%s)",
+                        idx, total, label,
+                    )
+                return
+
+            rows = self._app._get_rows(label)
+            well_included = 0
+            for row in rows:
+                include = 1
+                try:
+                    area = float(row.get("area_px", 0))
+                    if area <= cell_area_threshold:
+                        include = 0
+                except (ValueError, TypeError):
+                    include = 0
+
+                if include:
+                    for channel, gate_threshold in fluor_gates.items():
+                        col = f"{channel}_mean_intensity"
+                        try:
+                            fluor = float(row.get(col, float("nan")))
+                            if fluor != fluor or fluor <= gate_threshold:
+                                include = 0
+                                break
+                        except (ValueError, TypeError):
+                            include = 0
+                            break
+
+                row["Included"] = include
+                if include:
+                    well_included += 1
+
+            included_total += well_included
+            excluded_total += len(rows) - well_included
+
+            if debug:
+                logger.info(
+                    "GatingWorker progress %d/%d well=%s rows=%d included=%d",
+                    idx + 1, total, label, len(rows), well_included,
+                )
+
+            self.progress.emit(idx + 1, total)
+            # Yield to the GUI thread so the progress bar can repaint and the
+            # cancel button stays responsive between wells.
+            time.sleep(0.01)
+
+        if not self._cancelled:
+            # CRITICAL: Only invalidate stats cache, NOT _refresh_review_csv_rows.
+            # That call deep-copies every cached row across every well and
+            # blows up memory by orders of magnitude.
+            self._app._invalidate_stats_cache()
+            if debug:
+                logger.info(
+                    "GatingWorker finished: wells=%d included=%d excluded=%d",
+                    total, included_total, excluded_total,
+                )
+            self.finished_ok.emit()
 
 
 class CellGatingTab(QWidget):
@@ -36,6 +144,7 @@ class CellGatingTab(QWidget):
         self._canvas: Optional[FigureCanvas] = None
         self._ax = None
         self._axes_stack: list = []
+        self._gating_worker: Optional[GatingWorker] = None
 
         self._build_ui()
 
@@ -333,12 +442,46 @@ class CellGatingTab(QWidget):
             float(self._cell_area_edit.text())
             for edit in self._fluor_gate_edits.values():
                 float(edit.text())
-            self._axes_stack = []
-            self._plot_cdf()
-            self._app._apply_cell_gating_to_included()
-            self._app._redraw()
         except ValueError:
-            pass
+            return
+
+        self._axes_stack = []
+        self._plot_cdf()
+        self._start_gating_worker()
+
+    def _start_gating_worker(self) -> None:
+        # If a previous worker is still running, cancel it before starting
+        # a new pass so threshold edits don't pile up.
+        prev = self._gating_worker
+        if prev is not None and prev.isRunning():
+            prev.cancel()
+            prev.wait()
+
+        worker = GatingWorker(self._app)
+        worker.progress.connect(self._on_gating_progress)
+        worker.finished_ok.connect(self._on_gating_finished)
+        self._gating_worker = worker
+        bar = getattr(self._app, "_progress_bar", None)
+        if bar is not None:
+            bar.setRange(0, max(1, len(self._app._well_paths)))
+            bar.setValue(0)
+            bar.show()
+        worker.start()
+
+    def _on_gating_progress(self, current: int, total: int) -> None:
+        bar = getattr(self._app, "_progress_bar", None)
+        if bar is None:
+            return
+        if bar.maximum() != total:
+            bar.setRange(0, total)
+        bar.setValue(current)
+
+    def _on_gating_finished(self) -> None:
+        bar = getattr(self._app, "_progress_bar", None)
+        if bar is not None:
+            bar.setValue(0)
+            bar.hide()
+        self._app._redraw()
 
     def _on_threshold_frac_on_change(self) -> None:
         try:
