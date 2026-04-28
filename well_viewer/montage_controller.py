@@ -30,7 +30,16 @@ def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> No
         )
 
 
-def montage_auto_lut(app, redraw: bool = True) -> None:
+def montage_auto_lut(app, redraw: bool = True, force: bool = True) -> None:
+    """Recompute the fluor + overlay LUT line edits from loaded arrays.
+
+    When ``force`` is True (the default — used by the "Auto LUT" button),
+    each line edit is overwritten with the pooled min/max across the active
+    image source. When False (used by _refresh_preview_montage on well/FOV
+    change), the existing user-set values are preserved if they parse as
+    floats so the LUT survives navigation; only fields the user hasn't
+    populated get auto-filled.
+    """
     tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
     display_arrays_exist = (
         tophat_on
@@ -41,12 +50,26 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
     source = [a for a in (app._montage_fluor_display_arrays if display_arrays_exist else app._montage_fluor_arrays) if a is not None]
     if not source:
         return
-    lo = min(float(app._np.asarray(a).min()) for a in source)
-    hi = max(float(app._np.asarray(a).max()) for a in source)
-    if hi <= lo:
-        hi = lo + 1.0
-    app._mon_lmin_edit.setText(f"{lo:.0f}")
-    app._mon_lmax_edit.setText(f"{hi:.0f}")
+
+    def _is_float_text(edit) -> bool:
+        try:
+            float(edit.text())
+            return True
+        except (ValueError, AttributeError):
+            return False
+
+    fluor_set = (
+        not force
+        and _is_float_text(app._mon_lmin_edit)
+        and _is_float_text(app._mon_lmax_edit)
+    )
+    if not fluor_set:
+        lo = min(float(app._np.asarray(a).min()) for a in source)
+        hi = max(float(app._np.asarray(a).max()) for a in source)
+        if hi <= lo:
+            hi = lo + 1.0
+        app._mon_lmin_edit.setText(f"{lo:.0f}")
+        app._mon_lmax_edit.setText(f"{hi:.0f}")
 
     # Overlay LUT: pool per-image min/max so the window is consistent across
     # timepoints, matching the fluor channel behaviour above.
@@ -55,12 +78,18 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
     if ov_lmin_edit is not None and ov_lmax_edit is not None:
         ov_source = [a for a in getattr(app, "_montage_overlay_arrays", []) if a is not None]
         if ov_source:
-            ov_lo = min(float(app._np.asarray(a).min()) for a in ov_source)
-            ov_hi = max(float(app._np.asarray(a).max()) for a in ov_source)
-            if ov_hi <= ov_lo:
-                ov_hi = ov_lo + 1.0
-            ov_lmin_edit.setText(f"{ov_lo:.0f}")
-            ov_lmax_edit.setText(f"{ov_hi:.0f}")
+            overlay_set = (
+                not force
+                and _is_float_text(ov_lmin_edit)
+                and _is_float_text(ov_lmax_edit)
+            )
+            if not overlay_set:
+                ov_lo = min(float(app._np.asarray(a).min()) for a in ov_source)
+                ov_hi = max(float(app._np.asarray(a).max()) for a in ov_source)
+                if ov_hi <= ov_lo:
+                    ov_hi = ov_lo + 1.0
+                ov_lmin_edit.setText(f"{ov_lo:.0f}")
+                ov_lmax_edit.setText(f"{ov_hi:.0f}")
 
     if redraw:
         fov = app._preview_fov_cb.currentText()

@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QImage, QPixmap
+from PySide6.QtGui import QAction, QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -2846,10 +2846,12 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_montage_zoom_lbl"):
             self._montage_zoom_lbl.setText("100%")
 
-        # Each FOV may have a different image size; an old crop in pixel
-        # coordinates may no longer fit. Reset on every reload and refresh
-        # the indicator.
-        self._montage_crop = None
+        # Preserve _montage_crop and the user-set LUT across well/FOV changes
+        # so a region of interest stays selected as the user sweeps the data.
+        # The crop is in pixel coords; make_fluor_thumb already clamps it
+        # against each image's bounds, so a slightly off-image crop simply
+        # shrinks instead of erroring on differently-sized FOVs. Refresh the
+        # indicator so the status label still reflects the current crop.
         if hasattr(self, "_refresh_montage_crop_indicator"):
             self._refresh_montage_crop_indicator()
 
@@ -2963,7 +2965,9 @@ class WellViewerApp(QWidget):
         )
 
         self._montage_status.setText("")
-        self._montage_auto_lut(redraw=False)  # set initial LUT from data
+        # Preserve user-set LUT values across well/FOV changes; only auto-fill
+        # fluor/overlay LUTs when the line edits don't already hold a number.
+        self._montage_auto_lut(redraw=False, force=False)
         self._update_tophat_controls()        # sync UI to actual preload result
         self._draw_montage_thumbs([(tp, _) for tp, _ in fluor_refs])
 
@@ -3109,7 +3113,33 @@ class WellViewerApp(QWidget):
             grid.addWidget(fluor_cell, 1, col_idx + 1)
             display_arr = fluor_arr
             crop = getattr(self, "_montage_crop", None)
-            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi, crop=crop)
+            crop_mode = bool(getattr(self, "_montage_crop_mode", False))
+            # In crop-selection mode, render the FULL FOV with a box overlay
+            # showing where the active crop sits, so the user can always see
+            # where the selection will appear and adjust it. Outside crop
+            # mode, the thumbnail itself is the cropped/zoomed view.
+            apply_crop = crop if not crop_mode else None
+            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi, crop=apply_crop)
+            if pix_fluor and crop_mode and crop is not None and display_arr is not None:
+                # Draw the active crop box on top of the full-FOV pixmap.
+                pm = QPixmap(pix_fluor)
+                painter = QPainter(pm)
+                pen = QPen(QColor(255, 80, 80))
+                pen.setWidth(2)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                ih, iw = _np.asarray(display_arr).shape[:2]
+                pw, ph = pm.width(), pm.height()
+                scale_x = pw / max(iw, 1)
+                scale_y = ph / max(ih, 1)
+                y0, x0, y1, x1 = crop
+                rx = int(round(x0 * scale_x))
+                ry = int(round(y0 * scale_y))
+                rw = max(1, int(round((x1 - x0) * scale_x)))
+                rh = max(1, int(round((y1 - y0) * scale_y)))
+                painter.drawRect(rx, ry, rw, rh)
+                painter.end()
+                pix_fluor = pm
             if pix_fluor:
                 self._montage_photos.append(pix_fluor)
                 lbl_fluor = QLabel()
@@ -3120,7 +3150,10 @@ class WellViewerApp(QWidget):
                 lbl_fluor._sz_h    = sz_h        # type: ignore[attr-defined]
                 lbl_fluor._lo      = lo          # type: ignore[attr-defined]
                 lbl_fluor._hi      = hi          # type: ignore[attr-defined]
-                lbl_fluor._crop    = crop        # type: ignore[attr-defined]
+                # When painting the full FOV with an overlay, leave _crop
+                # unset so the pixel-tooltip / rubber-band coord conversions
+                # operate against the full image.
+                lbl_fluor._crop    = apply_crop  # type: ignore[attr-defined]
                 fluor_cell_layout.addWidget(lbl_fluor)
                 _install_montage_events(lbl_fluor, is_fluor=True)
             else:
@@ -3153,7 +3186,29 @@ class WellViewerApp(QWidget):
             ov_cell_layout = QVBoxLayout(ov_cell)
             ov_cell_layout.setContentsMargins(1, 1, 1, 1)
             grid.addWidget(ov_cell, 2, col_idx + 1)
-            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi, crop=crop)
+            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi, crop=apply_crop)
+            if pix_ov and crop_mode and crop is not None and ov_arr is not None:
+                # Mirror the box overlay on the overlay row so the user can
+                # see the same selection on both fluor and segmentation.
+                pm = QPixmap(pix_ov)
+                painter = QPainter(pm)
+                pen = QPen(QColor(255, 80, 80))
+                pen.setWidth(2)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                _ov_arr_np = _np.asarray(ov_arr)
+                ih, iw = _ov_arr_np.shape[:2]
+                pw, ph = pm.width(), pm.height()
+                scale_x = pw / max(iw, 1)
+                scale_y = ph / max(ih, 1)
+                y0, x0, y1, x1 = crop
+                rx = int(round(x0 * scale_x))
+                ry = int(round(y0 * scale_y))
+                rw = max(1, int(round((x1 - x0) * scale_x)))
+                rh = max(1, int(round((y1 - y0) * scale_y)))
+                painter.drawRect(rx, ry, rw, rh)
+                painter.end()
+                pix_ov = pm
             if pix_ov:
                 self._montage_photos.append(pix_ov)
                 lbl_ov = QLabel()
@@ -3335,8 +3390,8 @@ class WellViewerApp(QWidget):
     def _montage_tophat_done(self, filtered_arrays: list, partial: bool = False) -> None:
         _montage_tophat_done_controller(self, filtered_arrays, partial=partial)
 
-    def _montage_auto_lut(self, redraw: bool = True) -> None:
-        _montage_auto_lut_controller(self, redraw=redraw)
+    def _montage_auto_lut(self, redraw: bool = True, force: bool = True) -> None:
+        _montage_auto_lut_controller(self, redraw=redraw, force=force)
 
     def _on_montage_canvas_resize(self, _e=None) -> None:
         _on_montage_canvas_resize_controller(self, _e)
