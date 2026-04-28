@@ -116,6 +116,20 @@ from well_viewer.image_resolver import (
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
 from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
 from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
+from well_viewer.image_table_controller import (
+    image_table_apply_dimensions as _it_apply_dimensions,
+    image_table_apply_global as _it_apply_global,
+    image_table_auto_lut as _it_auto_lut,
+    image_table_clear_active as _it_clear_active,
+    image_table_distribute_wells as _it_distribute_wells,
+    image_table_export as _it_export,
+    image_table_generate as _it_generate,
+    image_table_pick_well as _it_pick_well,
+    image_table_rebuild_grid as _it_rebuild_grid,
+    image_table_refresh_picker as _it_refresh_picker,
+    image_table_repopulate_dropdowns as _it_repopulate_dropdowns,
+    image_table_select_all as _it_select_all,
+)
 from well_viewer.lineplot_controller import redraw_line_plots as _lineplot_redraw
 from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
 from well_viewer.scatter_controller import redraw_scatter as _scatter_redraw
@@ -1407,10 +1421,12 @@ class WellViewerApp(QWidget):
         self._sidebar_groups_frame = QWidget()
         self._sidebar_bar_frame = QWidget()
         self._sidebar_preview_frame = QWidget()
+        self._sidebar_image_table_frame = QWidget()
         self._sidebar_sample_frame = QWidget()
         self._sidebar_stats_frame = QWidget()
         for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
-                  self._sidebar_preview_frame, self._sidebar_sample_frame,
+                  self._sidebar_preview_frame, self._sidebar_image_table_frame,
+                  self._sidebar_sample_frame,
                   self._sidebar_stats_frame):
             QVBoxLayout(w).setContentsMargins(0, 0, 0, 0)
             sidebar_layout.addWidget(w, 1)
@@ -1728,6 +1744,44 @@ class WellViewerApp(QWidget):
             clr_accent_dark=get_color("ACCENT_DARK"),
             extract_well_token_fn=_extract_well_token,
         )
+
+    # ── Image Table tab ───────────────────────────────────────────────────────
+
+    def _image_table_pick_well(self, tok: str) -> None:
+        _it_pick_well(self, tok)
+
+    def _image_table_refresh_picker(self) -> None:
+        _it_refresh_picker(self)
+
+    def _image_table_select_all(self) -> None:
+        _it_select_all(self)
+
+    def _image_table_clear_active(self) -> None:
+        _it_clear_active(self)
+
+    def _image_table_repopulate_dropdowns(self) -> None:
+        _it_repopulate_dropdowns(self)
+
+    def _image_table_apply_dimensions(self) -> None:
+        _it_apply_dimensions(self)
+
+    def _image_table_rebuild_grid(self) -> None:
+        _it_rebuild_grid(self)
+
+    def _image_table_apply_global(self, field: str) -> None:
+        _it_apply_global(self, field)
+
+    def _image_table_distribute_wells(self) -> None:
+        _it_distribute_wells(self)
+
+    def _image_table_generate(self) -> None:
+        _it_generate(self)
+
+    def _image_table_auto_lut(self, channel: str) -> None:
+        _it_auto_lut(self, channel)
+
+    def _image_table_export(self) -> None:
+        _it_export(self)
 
     # ── Bar-plot grouping panel ───────────────────────────────────────────────
 
@@ -5037,6 +5091,8 @@ class WellViewerApp(QWidget):
 
         self._sidebar_main_frame.setVisible(False)
         self._sidebar_preview_frame.setVisible(False)
+        if hasattr(self, "_sidebar_image_table_frame"):
+            self._sidebar_image_table_frame.setVisible(False)
         self._sidebar_sample_frame.setVisible(False)
         self._sidebar_groups_frame.setVisible(False)
         self._sidebar_stats_frame.setVisible(False)
@@ -5053,6 +5109,12 @@ class WellViewerApp(QWidget):
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
             self._refresh_review_image()
+
+        elif tab == "Image Table":
+            if hasattr(self, "_sidebar_image_table_frame"):
+                self._sidebar_image_table_frame.setVisible(True)
+            self._image_table_repopulate_dropdowns()
+            self._image_table_refresh_picker()
 
         elif tab == "Sample Definitions":
             self._sidebar_sample_frame.setVisible(True)
