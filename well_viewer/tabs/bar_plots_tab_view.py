@@ -116,11 +116,12 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     right_l.addWidget(bar_ctrl)
 
     # Matplotlib figure inside a scroll area
-    app._bar_fig = Figure(figsize=(6.2, 8.4), dpi=100)
-    app._ax_bar_mean = app._bar_fig.add_subplot(2, 1, 1)
-    app._ax_bar_frac = app._bar_fig.add_subplot(2, 1, 2)
+    app._bar_fig = Figure(figsize=(6.2, 11.0), dpi=100)
+    app._ax_bar_mean = app._bar_fig.add_subplot(3, 1, 1)
+    app._ax_bar_frac = app._bar_fig.add_subplot(3, 1, 2)
+    app._ax_bar_n = app._bar_fig.add_subplot(3, 1, 3)
     app._bar_fig.subplots_adjust(
-        hspace=0.65, top=0.95, bottom=0.14, left=0.15, right=0.97,
+        hspace=0.65, top=0.96, bottom=0.10, left=0.15, right=0.97,
     )
 
     app._bar_canvas = FigureCanvas(app._bar_fig)

@@ -1223,6 +1223,10 @@ class WellViewerApp(QWidget):
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
         self._review_image_last_fluor_arr = None
         self._review_image_preserve_view_on_refresh: bool = False
+        # When True, the Review Image tab loads the unprocessed fluorescence
+        # frame; when False (default) it prefers the top-hat-filtered output.
+        self._review_image_show_raw: bool = False
+        self._review_image_raw_btn = None
 
         self._build_ui()
         self._apply_theme()
@@ -4194,15 +4198,29 @@ class WellViewerApp(QWidget):
         return tp_values
 
     def _review_resolve_image_refs(self, *, fov_raw: str, tp_raw: str):
-        """Resolve (fluor_ref, mask_ref), preferring top-hat if available."""
+        """Resolve (fluor_ref, mask_ref).
+
+        Honors ``_review_image_show_raw``: when True, prefer the unprocessed
+        fluorescence channel and fall back to the top-hat-filtered output if
+        the raw frame is unavailable; when False (default), prefer top-hat
+        and fall back to raw — the original behaviour. Falling back rather
+        than failing keeps Review Image usable on datasets that only ship
+        one of the two image kinds for a given FOV/timepoint.
+        """
+        raw_first = bool(getattr(self, "_review_image_show_raw", False))
+        tophat_map = getattr(self, "_preview_tophat_fluor", {})
+        raw_map = self._preview_fluor
+        if raw_first:
+            primary, fallback = raw_map, tophat_map
+        else:
+            primary, fallback = tophat_map, raw_map
         fluor_ref = _resolve_ref_by_fov_tp(
-            getattr(self, "_preview_tophat_fluor", {}),
-            fov_raw=fov_raw, tp_raw=tp_raw,
+            primary, fov_raw=fov_raw, tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
         if fluor_ref is None:
             fluor_ref = _resolve_ref_by_fov_tp(
-                self._preview_fluor, fov_raw=fov_raw, tp_raw=tp_raw,
+                fallback, fov_raw=fov_raw, tp_raw=tp_raw,
                 norm_timepoint=self._norm_timepoint,
             )
         mask_ref = _resolve_ref_by_fov_tp(
@@ -4210,6 +4228,38 @@ class WellViewerApp(QWidget):
             norm_timepoint=self._norm_timepoint,
         )
         return fluor_ref, mask_ref
+
+    def _toggle_review_image_source(self) -> None:
+        """Flip raw vs top-hat preference for the Review Image fluorescence channel."""
+        self._review_image_show_raw = not bool(getattr(self, "_review_image_show_raw", False))
+        # The LUT range for raw vs top-hat differs significantly, so drop the
+        # cached LUT for the active channel so the new image gets a fresh
+        # auto-fit instead of a stale clip.
+        chan = str(getattr(self, "_active_image_channel", "") or "").lower()
+        if chan in self._review_image_lut_by_channel:
+            del self._review_image_lut_by_channel[chan]
+        self._refresh_review_image_source_btn()
+        self._review_image_preserve_view_on_refresh = True
+        self._refresh_review_image()
+
+    def _refresh_review_image_source_btn(self) -> None:
+        """Sync the raw/top-hat toggle button's caption + variant with state."""
+        btn = getattr(self, "_review_image_raw_btn", None)
+        if btn is None:
+            return
+        on = bool(getattr(self, "_review_image_show_raw", False))
+        btn.setChecked(on)
+        btn.setText("Raw" if on else "Top-hat")
+        btn.setProperty("variant", "toggle")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+        btn.setToolTip(
+            "Showing the unprocessed fluorescence frame.\n"
+            "Click to switch back to the top-hat-filtered image."
+            if on else
+            "Showing the top-hat-filtered fluorescence frame (default).\n"
+            "Click to switch to the unprocessed raw image."
+        )
 
     def _review_build_include_map(
         self, mask_arr, well: str, fov: str, tp: str,
@@ -5105,12 +5155,13 @@ class WellViewerApp(QWidget):
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
     def _bar_event_xdata(self, event) -> "Optional[float]":
-        """Return data-x for a matplotlib MouseEvent over either bar axis.
+        """Return data-x for a matplotlib MouseEvent over any bar axis.
 
-        Returns None if the cursor is outside the bar plot axes.
+        Accepts events on the mean, fraction, or N panels. Returns None if
+        the cursor is outside the bar plot axes.
         """
         ax = getattr(event, "inaxes", None)
-        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac:
+        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac and ax is not getattr(self, "_ax_bar_n", None):
             return None
         xdata = getattr(event, "xdata", None)
         if xdata is None:
@@ -5169,7 +5220,9 @@ class WellViewerApp(QWidget):
         ds["cur_idx"] = tgt
 
         # Draw a vertical guide line in both axes at the drop position
-        for ax in (self._ax_bar_mean, self._ax_bar_frac):
+        for ax in (self._ax_bar_mean, self._ax_bar_frac, getattr(self, "_ax_bar_n", None)):
+            if ax is None:
+                continue
             for ln in list(ax.lines):
                 if getattr(ln, "_bar_drag_guide", False):
                     ln.remove()
@@ -5190,7 +5243,9 @@ class WellViewerApp(QWidget):
         ds["active"] = False
 
         # Remove guide lines
-        for ax in (self._ax_bar_mean, self._ax_bar_frac):
+        for ax in (self._ax_bar_mean, self._ax_bar_frac, getattr(self, "_ax_bar_n", None)):
+            if ax is None:
+                continue
             for ln in list(ax.lines):
                 if getattr(ln, "_bar_drag_guide", False):
                     ln.remove()
@@ -5473,8 +5528,11 @@ class WellViewerApp(QWidget):
         """Draw bar/violin/beeswarm views for the selected timepoint."""
         ax_mean = self._ax_bar_mean
         ax_frac = self._ax_bar_frac
+        ax_n = getattr(self, "_ax_bar_n", None)
         ax_mean.cla()
         ax_frac.cla()
+        if ax_n is not None:
+            ax_n.cla()
 
         use_sem = self._use_sem.get()
         band_lbl = "SEM" if use_sem else "SD"
@@ -5490,21 +5548,24 @@ class WellViewerApp(QWidget):
         apply_ax_style(ax_frac,
                        "Fraction of Cells Above Threshold",
                        "Fraction")
+        if ax_n is not None:
+            apply_ax_style(ax_n, "Cells per well/group (N)", "N")
         ax_frac.set_ylim(-0.05, 1.05)
 
         if not bar_selected and not active_rsets:
-            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG)
+            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG, ax_n=ax_n)
             return
 
         tp_data = self._resolve_bar_timepoint()
         if tp_data is None:
-            self._draw_bar_empty_state(ax_mean, ax_frac, "Select a timepoint above")
+            self._draw_bar_empty_state(ax_mean, ax_frac, "Select a timepoint above", ax_n=ax_n)
             return
         target_t, tp_str = tp_data
 
         if self._draw_per_cell_bar_mode(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             active_rsets=active_rsets,
             target_t=target_t,
             tp_str=tp_str,
@@ -5514,6 +5575,7 @@ class WellViewerApp(QWidget):
         self._draw_grouped_bar_mode(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             active_rsets=active_rsets,
             target_t=target_t,
             tp_str=tp_str,
@@ -5533,8 +5595,11 @@ class WellViewerApp(QWidget):
             key=lambda lbl: self._parse_rc(lbl),
         )
 
-    def _draw_bar_empty_state(self, ax_mean, ax_frac, message: str) -> None:
-        for ax in (ax_mean, ax_frac):
+    def _draw_bar_empty_state(self, ax_mean, ax_frac, message: str, *, ax_n=None) -> None:
+        axes = [ax_mean, ax_frac]
+        if ax_n is not None:
+            axes.append(ax_n)
+        for ax in axes:
             ax.text(
                 0.5,
                 0.5,
@@ -5562,6 +5627,7 @@ class WellViewerApp(QWidget):
         *,
         ax_mean,
         ax_frac,
+        ax_n=None,
         active_rsets: "List[ReplicateSet]",
         target_t: float,
         tp_str: str,
@@ -5615,14 +5681,58 @@ class WellViewerApp(QWidget):
                 ax_frac,
                 log_scale=self._bar_log_scale.get() and self._bar_swarm.get(),
             )
+            # Even in violin/beeswarm mode the user wants to see N per well
+            # so the population size is visible alongside the distribution.
+            if ax_n is not None:
+                self._draw_per_well_n_bars(ax_n, plot_wells, plot_colors, plot_labels, target_t, threshold)
         self._bar_canvas.draw_idle()
         return True
+
+    def _draw_per_well_n_bars(
+        self,
+        ax_n,
+        wells: List[str],
+        colors: List[str],
+        xlabels: List[str],
+        target_t: float,
+        threshold: float,
+    ) -> None:
+        """Render the N (cell-count) panel for the per-cell view modes."""
+        from matplotlib.ticker import MaxNLocator
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        n = len(wells)
+        bar_w = min(0.6, 5.0 / max(n, 1))
+        for i, lbl in enumerate(wells):
+            rows = self._get_rows(lbl)
+            pts = aggregate_with_threshold(
+                rows, threshold, use_sem=False,
+                val_col=self._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+            n_total = int(matched[0][5]) if matched else 0
+            color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
+            if n_total > 0:
+                ax_n.bar(i, n_total, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+            else:
+                ax_n.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER, linewidth=1, edgecolor=CLR_DISABLED_WELL, linestyle="--", zorder=3)
+        xs = list(range(n))
+        ax_n.set_xticks(xs)
+        ax_n.set_xticklabels(xlabels, rotation=45 if n > 8 else 0, ha="right" if n > 8 else "center", fontsize=7)
+        ax_n.set_xlim(-0.6, n - 0.4)
+        cur_lo, cur_hi = ax_n.get_ylim()
+        ax_n.set_ylim(0, max(cur_hi, 1))
+        ax_n.yaxis.set_major_locator(MaxNLocator(integer=True))
+        setattr(ax_n, "_categorical_xaxis", True)
 
     def _draw_grouped_bar_mode(
         self,
         *,
         ax_mean,
         ax_frac,
+        ax_n=None,
         active_rsets: "List[ReplicateSet]",
         target_t: float,
         tp_str: str,
@@ -5644,6 +5754,7 @@ class WellViewerApp(QWidget):
                 if not rset:
                     continue
                 gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
+                n_cells = self._compute_rep_n(rset, target_t)
                 base_lbl = self._replicate_display_label(rset)
                 display = base_lbl
                 ordered.append(
@@ -5656,14 +5767,15 @@ class WellViewerApp(QWidget):
                         g_err_f,
                         not math.isnan(gm),
                         color_by_key.get(rset.name, WELL_COLORS[0]),
+                        int(n_cells),
                     )
                 )
             xlabels = [display for _, display, *_ in ordered]
             draw_items = ordered
         else:
-            # Per-well items are (label, mean, spread, frac, frac_spread, has);
+            # Per-well items are (label, mean, spread, frac, frac_spread, has, n_cells);
             # preserve the full tuple so the renderer can draw the fraction
-            # error bar when per-FOV spread is enabled.
+            # error bar when per-FOV spread is enabled and the N panel.
             key_to_item = {item[0]: item for item in items}
             ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
             draw_items = [key_to_item[k] for k in ordered_keys]
@@ -5672,6 +5784,7 @@ class WellViewerApp(QWidget):
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             use_groups=use_groups,
             items=draw_items,
             xlabels=xlabels,
@@ -5699,6 +5812,15 @@ class WellViewerApp(QWidget):
             fontweight="bold",
             pad=6,
         )
+        if ax_n is not None:
+            ax_n.set_title(
+                f"Cells per well/group (N)  —  t = {tp_str} h",
+                color=TXT_PRI,
+                fontsize=9,
+                fontweight="bold",
+                pad=6,
+            )
+            ax_n.set_ylabel("N", fontsize=8, labelpad=5)
         self._apply_bar_ylims(ax_mean, ax_frac, log_scale=False)
         self._bar_canvas.draw_idle()
 
@@ -5829,6 +5951,41 @@ class WellViewerApp(QWidget):
         self._stats_cache[cache_key] = result
         return result
 
+    def _compute_rep_n(self, rset: "ReplicateSet", target_t: float) -> int:
+        """Total cell count contributing to *rset* at *target_t*.
+
+        Sums n_total across loaded wells of the set after gating, so the
+        bar plot's N panel reports the same denominator that drives the
+        mean and fraction values.
+        """
+        if not hasattr(self, "_stats_cache"):
+            self._stats_cache = {}
+        threshold = self._get_thresh_frac_on(self._active_channel)
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        cache_key = ("rep_n", rset.name, tuple(rset.wells), target_t, threshold,
+                     self._active_val_col, cell_area_threshold,
+                     tuple(sorted(fluor_gates.items())))
+        if cache_key in self._stats_cache:
+            return self._stats_cache[cache_key]
+
+        total = 0
+        for lbl in rset.wells:
+            if lbl not in self._well_paths:
+                continue
+            rows = self._get_rows(lbl)
+            pts = aggregate_with_threshold(
+                rows, threshold, use_sem=False,
+                val_col=self._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+            if matched:
+                total += int(matched[0][5])
+        self._stats_cache[cache_key] = total
+        return total
+
     def _invalidate_stats_cache(self) -> None:
         """Discard cached group statistics. Call whenever group definitions change."""
         self._stats_cache: dict = {}
@@ -5937,25 +6094,31 @@ class WellViewerApp(QWidget):
         band_lbl  = "SEM" if use_sem else "SD"
         threshold = self._get_thresh_frac_on(self._active_channel)
 
-        fig = _Figure(figsize=(8, 7), dpi=300, facecolor=PLOT_BG)
-        ax_mean = fig.add_subplot(2, 1, 1)
-        ax_frac = fig.add_subplot(2, 1, 2)
-        fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.12, left=0.13, right=0.97)
+        fig = _Figure(figsize=(8, 10), dpi=300, facecolor=PLOT_BG)
+        ax_mean = fig.add_subplot(3, 1, 1)
+        ax_frac = fig.add_subplot(3, 1, 2)
+        ax_n = fig.add_subplot(3, 1, 3)
+        fig.subplots_adjust(hspace=0.55, top=0.94, bottom=0.10, left=0.13, right=0.97)
 
         _ch = self._active_channel.upper()
         apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, f"Fraction above threshold  —  t = {tp_str} h", "Fraction")
+        apply_ax_style(ax_n, f"Cells per well/group (N)  —  t = {tp_str} h", "N")
         ax_frac.set_ylim(-0.05, 1.05)
 
         use_groups, items, _ = self._collect_bar_items(target_t)
         if use_groups:
             rep_by_name = {r.name: r for r in self._rep_sets_active()}
             xlabels = [self._replicate_display_label(rep_by_name[name]) if name in rep_by_name else name for name, *_ in items]
-            draw_items = [
-                (name, xlbl, gm, g_err_m, gf, g_err_f, has, color)
-                for (name, gm, g_err_m, gf, g_err_f, has, color), xlbl in zip(items, xlabels)
-            ]
+            draw_items = []
+            for item, xlbl in zip(items, xlabels):
+                # collect_bar_items rep-set items are 8-tuples
+                # (name, gm, g_err_m, gf, g_err_f, has, color, n_cells).
+                # Older callers may still emit a 7-tuple without n_cells.
+                name, gm, g_err_m, gf, g_err_f, has, color = item[:7]
+                n_cells = int(item[7]) if len(item) >= 8 else 0
+                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_cells))
         else:
             draw_items = items
             xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
@@ -5963,6 +6126,7 @@ class WellViewerApp(QWidget):
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             use_groups=use_groups,
             items=draw_items,
             xlabels=xlabels,

@@ -227,6 +227,22 @@ def build_review_image_panel(self, parent: QWidget) -> None:
 
     cl.addWidget(btn_secondary(ctrl, "Toggle Included",
                                self._toggle_selected_review_cell))
+
+    # Raw vs top-hat fluorescence source toggle. Defaults to top-hat.
+    from PySide6.QtWidgets import QPushButton
+    self._review_image_raw_btn = QPushButton("Top-hat", ctrl)
+    self._review_image_raw_btn.setProperty("variant", "toggle")
+    self._review_image_raw_btn.setCheckable(True)
+    self._review_image_raw_btn.setChecked(bool(getattr(self, "_review_image_show_raw", False)))
+    self._review_image_raw_btn.setToolTip(
+        "Showing the top-hat-filtered fluorescence frame (default).\n"
+        "Click to switch to the unprocessed raw image."
+    )
+    self._review_image_raw_btn.clicked.connect(
+        lambda _=False: self._toggle_review_image_source()
+    )
+    cl.addWidget(self._review_image_raw_btn)
+
     cl.addWidget(btn_secondary(ctrl, "Fit", self._review_image_zoom_fit))
     cl.addWidget(btn_card(ctrl, "−", lambda: self._review_image_zoom_step(-1)))
     cl.addWidget(btn_card(ctrl, "+", lambda: self._review_image_zoom_step(+1)))
