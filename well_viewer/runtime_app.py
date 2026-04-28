@@ -4219,8 +4219,10 @@ class WellViewerApp(QWidget):
         include_by_nid: Dict[int, bool] = {
             int(nid): True for nid in _np.unique(center) if int(nid) > 0
         }
-        rows = self._review_load_rows(well)
-        for row in rows:
+        # Iterate the canonical cached rows in place — never deep-copy them.
+        # On a 6-well x ~10k-cell dataset this used to allocate ~60k transient
+        # dicts per refresh, which dominated Review Image RAM growth.
+        for row in self._review_load_rows(well):
             row_fov, row_tp, row_nid = self._review_row_keys(row)
             if row_fov != fov or row_tp != tp or not row_nid:
                 continue
@@ -4228,7 +4230,7 @@ class WellViewerApp(QWidget):
                 nid = int(float(row_nid))
             except Exception:
                 continue
-            incl = str(row.get("Included", "1")).strip()
+            incl = self._review_effective_included(well, row).strip()
             include_by_nid[nid] = (incl != "0")
         return include_by_nid
 
@@ -4604,7 +4606,11 @@ class WellViewerApp(QWidget):
         prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
         prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
         prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
-        self._refresh_review_csv_rows()
+        # Skip a full Review CSV table rebuild here — the user is on the
+        # Review Image tab and rebuilding tens of thousands of QTableWidgetItems
+        # per click was the dominant memory leak. The table reads the effective
+        # Included via override on the next refresh (combobox change / Refresh
+        # button / well-selection change), so the value is never lost.
         self._refresh_review_image()
         self._review_image_zoom = prev_zoom
         self._review_image_pan_x = prev_pan_x
@@ -4980,33 +4986,76 @@ class WellViewerApp(QWidget):
         table.setHorizontalHeaderLabels(cols)
         for ci in range(len(cols)):
             table.setColumnWidth(ci, 120)
+        # Rows are now references into the per-well row caches (no deep copy),
+        # so row['Included'] reflects the gating-computed value, not any user
+        # override applied via the Review Image tab. Compute the effective
+        # value at display time so the table mirrors what the image overlay
+        # shows.
+        try:
+            included_col = cols.index("Included")
+        except ValueError:
+            included_col = -1
         for row in filtered:
             r = table.rowCount()
             table.insertRow(r)
+            well_label = str(row.get("well", "") or "")
             for ci, c in enumerate(cols):
-                table.setItem(r, ci, QTableWidgetItem(str(row.get(c, ""))))
+                if ci == included_col and well_label:
+                    value = self._review_effective_included(well_label, row)
+                else:
+                    value = row.get(c, "")
+                table.setItem(r, ci, QTableWidgetItem(str(value)))
         self._review_csv_msg_lbl.setText(f"Showing {len(filtered):,} row(s).")
 
-    def _review_load_rows(self, label: str) -> List[dict]:
-        try:
-            # Use cached/parsed rows so Review CSV reflects runtime-added columns
-            # (e.g. Included) and latest gating-driven inclusion updates.
-            rows = [dict(row) for row in self._get_rows(label)]
+    def _review_normalize_row(self, label: str, row: dict) -> None:
+        """Idempotently upgrade a cached row to canonical review form, in place.
+
+        Adds a 'well' field, promotes legacy 'included' to canonical 'Included',
+        and removes the legacy key. Safe to call repeatedly.
+        """
+        if "well" not in row:
             tok = self._extract_well_token(label) or label
+            row["well"] = tok
+        if "Included" not in row:
+            legacy = str(row.get("included", "")).strip()
+            row["Included"] = legacy or "1"
+        if "included" in row:
+            row.pop("included", None)
+
+    def _review_effective_included(self, label: str, row: dict) -> str:
+        """Effective Included value for a cached row.
+
+        User overrides set via the Review Image tab take precedence over the
+        gating-computed ``Included`` field stored on the cached row. Overrides
+        are kept in a separate dict so they survive subsequent gating recomputes
+        (which rewrite the canonical row['Included']).
+        """
+        fov, tp, nid = self._review_row_keys(row)
+        if fov and tp and nid:
+            ovr = self._review_included_overrides.get((label, fov, tp, nid))
+            if ovr is not None:
+                return ovr
+        return str(row.get("Included", "1"))
+
+    def _review_load_rows(self, label: str) -> List[dict]:
+        """Return the canonical cached rows for ``label`` (no copies).
+
+        Each row is lazily normalized on first access. The returned list is the
+        live cache list — callers must NOT mutate row contents beyond the
+        canonical 'well'/'Included' fields, and must use
+        ``_review_effective_included`` instead of reading row['Included']
+        directly when they want overrides applied.
+
+        Avoiding the per-call ``[dict(row) for row ...]`` deep copy is
+        critical: with thousands of cells per well across multiple wells, the
+        previous behavior allocated tens of thousands of new dicts on every
+        Review Image / Review CSV refresh and pinned hundreds of MB of RAM
+        until the next major GC.
+        """
+        try:
+            rows = self._get_rows(label)
             for row in rows:
-                row.setdefault("well", tok)
-                if "Included" not in row:
-                    # Canonical review flag column; defaults to included.
-                    # Promote legacy lowercase field if present.
-                    row["Included"] = str(row.get("included", "")).strip() or "1"
-                if "included" in row:
-                    row.pop("included", None)
-                fov, tp, nid = self._review_row_keys(row)
-                if fov and tp and nid:
-                    key = (label, fov, tp, nid)
-                    override = self._review_included_overrides.get(key)
-                    if override is not None:
-                        row["Included"] = override
+                self._review_normalize_row(label, row)
             return rows
         except Exception:
             return []
