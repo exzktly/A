@@ -78,6 +78,70 @@ import imageio.v3 as iio
 _STARDIST_MODEL: "StarDist2D | None" = None
 
 
+def _report_worker_failure(well_label: str, output_dir: "Path | None", exc: BaseException) -> None:
+    """Log a worker failure with classification + a pointer to the trace file.
+
+    Generic ``OSError: [Errno 9] Bad file descriptor`` and ``BrokenProcessPool``
+    re-raised at the parent's ``future.result()`` call site otherwise look
+    identical, even though they mean very different things (an internal error
+    vs. the worker process dying outside Python). Spell out the difference and
+    point the user at the per-well trace file written by the worker.
+    """
+    err_dir = (output_dir / "errors") if output_dir is not None else None
+    err_hint = f"  (see worker traces in {err_dir})" if err_dir is not None else ""
+    cls = type(exc).__name__
+    if cls == "BrokenProcessPool":
+        log.error(
+            "FAILED well %s: worker process died unexpectedly (%s: %s).%s "
+            "This typically means the worker was killed by the OS — most "
+            "commonly out-of-memory, signal, or a native crash inside a "
+            "C extension (StarDist / TF / tifffile). Reduce --workers or "
+            "the per-well memory footprint and try again.",
+            well_label, cls, exc, err_hint,
+        )
+        return
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) == 9:
+        log.error(
+            "FAILED well %s: %s — Bad file descriptor (errno 9).%s "
+            "If the trace file is empty the worker's stderr was likely "
+            "broken before the error site; the per-well trace file is the "
+            "authoritative source.",
+            well_label, cls, err_hint, exc_info=True,
+        )
+        return
+    log.error("FAILED well %s: %s.%s", well_label, exc, err_hint, exc_info=True)
+
+
+def _dump_well_failure_trace(output_dir: Path, well_label: str, exc: BaseException) -> "Path | None":
+    """Persist a worker-side exception trace for *well_label*.
+
+    ProcessPoolExecutor pickles the exception back to the parent, but if the
+    worker's stderr is muted (e.g. broken pipe to the GUI log queue) the
+    underlying traceback never reaches the user — they only see a generic
+    ``OSError: [Errno 9] Bad file descriptor`` re-raised at the parent's
+    ``future.result()`` call site. Writing the full ``traceback.format_exc()``
+    to ``<output_dir>/errors/<well>_pid<N>.txt`` guarantees a readable trace
+    even when the live log path is broken.
+
+    Returns the trace-file path on success, or None if the trace could not be
+    written (e.g. read-only output dir).
+    """
+    import traceback as _tb
+    try:
+        err_dir = output_dir / "errors"
+        err_dir.mkdir(parents=True, exist_ok=True)
+        err_path = err_dir / f"{well_label}_pid{os.getpid()}.txt"
+        with err_path.open("w") as fh:
+            fh.write(f"Well: {well_label}\n")
+            fh.write(f"PID:  {os.getpid()}\n")
+            fh.write(f"Exception type: {type(exc).__name__}\n")
+            fh.write("\n")
+            fh.write(_tb.format_exc())
+        return err_path
+    except Exception:                # noqa: BLE001
+        return None
+
+
 def _ensure_stardist_runtime_deps() -> None:
     """
     Fail fast with a clear message when StarDist runtime deps are missing.
@@ -1196,6 +1260,25 @@ def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
         format="%(asctime)s  %(levelname)-8s  [worker %(process)d]  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # Defensive: if the worker's stderr was broken before this point (rare,
+    # but observed when the parent's pipe to a GUI log queue gets closed),
+    # try fd 1 instead. Both ends of the GUI's pipe receive the same merged
+    # stream, so this just dodges a stale stderr handle. Wrap in a try so any
+    # platform-specific oddity doesn't sink the worker before it does work.
+    try:
+        import sys as _sys2
+        _sys2.stderr.write("")
+        _sys2.stderr.flush()
+    except OSError:
+        try:
+            import os as _os2
+            _os2.dup2(1, 2)
+            _sys2.stderr = _sys2.stdout                     # noqa: F841
+            for _h in list(logging.getLogger().handlers):
+                if isinstance(_h, logging.StreamHandler) and getattr(_h, "stream", None) is not None:
+                    _h.stream = _sys2.stdout
+        except Exception:
+            pass
 
     # ── Device note for logging ────────────────────────────────────────────────
     if force_cpu:
@@ -1337,45 +1420,61 @@ def process_well_zip_task(
             remove_directory(_stale)
 
     try:
-        tmp_extract.mkdir(parents=True, exist_ok=True)
-        tmp_images.mkdir(parents=True,  exist_ok=True)
+        try:
+            tmp_extract.mkdir(parents=True, exist_ok=True)
+            tmp_images.mkdir(parents=True,  exist_ok=True)
 
-        groups, needed_members = find_image_groups_in_zip(
-            zip_path,
-            nuclear_token,
-            fluor_tokens,
-            tmp_extract,
-            schema=schema,
-            sep=sep,
-        )
-        if not groups:
-            log.warning("Well %s: no image groups found in %s.", well_label, zip_path.name)
-            return [], []
+            groups, needed_members = find_image_groups_in_zip(
+                zip_path,
+                nuclear_token,
+                fluor_tokens,
+                tmp_extract,
+                schema=schema,
+                sep=sep,
+            )
+            if not groups:
+                log.warning("Well %s: no image groups found in %s.", well_label, zip_path.name)
+                return [], []
 
-        n_extracted = extract_zip(zip_path, tmp_extract, members_to_extract=needed_members)
-        log.info(
-            "Well %s: extracted %d/%d required image file(s).",
-            well_label,
-            n_extracted,
-            len(needed_members),
-        )
+            n_extracted = extract_zip(zip_path, tmp_extract, members_to_extract=needed_members)
+            log.info(
+                "Well %s: extracted %d/%d required image file(s).",
+                well_label,
+                n_extracted,
+                len(needed_members),
+            )
 
-        kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
-        records, failed = _process_groups_in_worker(groups, kwargs, well_label)
+            kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
+            records, failed = _process_groups_in_worker(groups, kwargs, well_label)
 
-        if records:
-            safe_well = _safe_well(well_label)
-            csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
-            _write_single_csv(records, csv_path)
-            log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
-        else:
-            log.warning("Well %s: no records produced; CSV not written.", well_label)
+            if records:
+                safe_well = _safe_well(well_label)
+                csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
+                _write_single_csv(records, csv_path)
+                log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
+            else:
+                log.warning("Well %s: no records produced; CSV not written.", well_label)
 
-        out_zip = output_dir / f"{well_label}_out.zip"
-        n_compressed = compress_images_to_zip(tmp_images, out_zip)
-        log.info("Well %s: %d image(s) -> %s", well_label, n_compressed, out_zip.name)
+            out_zip = output_dir / f"{well_label}_out.zip"
+            n_compressed = compress_images_to_zip(tmp_images, out_zip)
+            log.info("Well %s: %d image(s) -> %s", well_label, n_compressed, out_zip.name)
 
-        return records, failed
+            return records, failed
+        except BaseException as exc:
+            trace_path = _dump_well_failure_trace(output_dir, well_label, exc)
+            if trace_path is not None:
+                log.error(
+                    "Well %s failed (%s: %s); worker trace written to %s",
+                    well_label, type(exc).__name__, exc, trace_path,
+                    exc_info=True,
+                )
+            else:
+                log.error(
+                    "Well %s failed (%s: %s); could not write worker trace file",
+                    well_label, type(exc).__name__, exc,
+                    exc_info=True,
+                )
+            raise
 
     finally:
         remove_directory(tmp_extract)
@@ -1419,57 +1518,78 @@ def process_well_folder_task(
 
     _committed = False
     try:
-        tmp_images.mkdir(parents=True, exist_ok=True)
+        try:
+            tmp_images.mkdir(parents=True, exist_ok=True)
 
-        groups = find_image_groups(
-            well_folder, nuclear_token, fluor_tokens, schema=schema, sep=sep
-        )
-        if not groups:
-            log.warning("Well %s: no image groups found in %s.", well_label, well_folder)
-            return [], []
+            groups = find_image_groups(
+                well_folder, nuclear_token, fluor_tokens, schema=schema, sep=sep
+            )
+            if not groups:
+                log.warning("Well %s: no image groups found in %s.", well_label, well_folder)
+                return [], []
 
-        kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
-        records, failed = _process_groups_in_worker(groups, kwargs, well_label)
+            kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
+            records, failed = _process_groups_in_worker(groups, kwargs, well_label)
 
-        if records:
-            safe_well = _safe_well(well_label)
-            csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
-            _write_single_csv(records, csv_path)
-            log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
-        else:
-            log.warning("Well %s: no records produced; CSV not written.", well_label)
+            if records:
+                safe_well = _safe_well(well_label)
+                csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
+                _write_single_csv(records, csv_path)
+                log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
+            else:
+                log.warning("Well %s: no records produced; CSV not written.", well_label)
 
-        # Atomically rename staging dir to final output folder.
-        final_out = output_dir / well_label
-        if final_out.exists():
-            remove_directory(final_out)
-        tmp_images.rename(final_out)
-        log.info("Well %s: output folder -> %s", well_label, final_out.name)
+            # Atomically rename staging dir to final output folder.
+            final_out = output_dir / well_label
+            if final_out.exists():
+                remove_directory(final_out)
+            tmp_images.rename(final_out)
+            log.info("Well %s: output folder -> %s", well_label, final_out.name)
 
-        if compress_output_well_folders:
-            out_zip = output_dir / f"{well_label}_out.zip"
-            n_out = compress_folder_images_to_zip_and_remove(final_out, out_zip)
-            if n_out > 0:
-                log.info(
-                    "Well %s: compressed output folder -> %s (%d image(s))",
-                    well_label,
-                    out_zip.name,
-                    n_out,
+            if compress_output_well_folders:
+                out_zip = output_dir / f"{well_label}_out.zip"
+                n_out = compress_folder_images_to_zip_and_remove(final_out, out_zip)
+                if n_out > 0:
+                    log.info(
+                        "Well %s: compressed output folder -> %s (%d image(s))",
+                        well_label,
+                        out_zip.name,
+                        n_out,
+                    )
+
+            if compress_input_well_folders:
+                in_zip = well_folder.parent / f"{well_label}.zip"
+                n_in = compress_folder_images_to_zip_and_remove(well_folder, in_zip)
+                if n_in > 0:
+                    log.info(
+                        "Well %s: compressed input folder -> %s (%d image(s))",
+                        well_label,
+                        in_zip.name,
+                        n_in,
+                    )
+            _committed = True
+
+            return records, failed
+        except BaseException as exc:
+            # Capture the worker-side traceback to disk before propagating.
+            # ProcessPoolExecutor pickles the exception back to the parent,
+            # but generic OSError("Bad file descriptor") re-raises at
+            # future.result() with little context if the worker's stderr is
+            # broken. The persisted trace gives the user the original site.
+            trace_path = _dump_well_failure_trace(output_dir, well_label, exc)
+            if trace_path is not None:
+                log.error(
+                    "Well %s failed (%s: %s); worker trace written to %s",
+                    well_label, type(exc).__name__, exc, trace_path,
+                    exc_info=True,
                 )
-
-        if compress_input_well_folders:
-            in_zip = well_folder.parent / f"{well_label}.zip"
-            n_in = compress_folder_images_to_zip_and_remove(well_folder, in_zip)
-            if n_in > 0:
-                log.info(
-                    "Well %s: compressed input folder -> %s (%d image(s))",
-                    well_label,
-                    in_zip.name,
-                    n_in,
+            else:
+                log.error(
+                    "Well %s failed (%s: %s); could not write worker trace file",
+                    well_label, type(exc).__name__, exc,
+                    exc_info=True,
                 )
-        _committed = True
-
-        return records, failed
+            raise
 
     finally:
         if not _committed and tmp_images.exists():
@@ -1538,7 +1658,7 @@ def run_pipeline_on_wells(
                 all_records.extend(records)
                 all_failed.extend(failed)
             except Exception as exc:           # noqa: BLE001
-                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                _report_worker_failure(well_label, shared_kwargs.get("output_dir"), exc)
                 all_failed.append(well_label)
 
     return all_records, all_failed
@@ -1779,7 +1899,7 @@ def process_well_zips(
                 all_records.extend(records)
                 all_failed.extend(failed)
             except Exception as exc:           # noqa: BLE001
-                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                _report_worker_failure(well_label, output_dir, exc)
                 all_failed.append(well_label)
 
     log.info("=" * 60)
@@ -1891,7 +2011,7 @@ def process_well_folders(
                 all_records.extend(records)
                 all_failed.extend(failed)
             except Exception as exc:           # noqa: BLE001
-                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                _report_worker_failure(well_label, output_dir, exc)
                 all_failed.append(well_label)
 
     log.info("=" * 60)
