@@ -188,10 +188,13 @@ def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], se
 
 # ── Aggregation ──────────────────────────────────────────────────────────────
 
-# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
-# n_above : cells above threshold at this timepoint  → denominator for plot 1
-# n_total : all cells at this timepoint              → denominator for plot 2
-AggPoint = Tuple[float, float, float, float, int, int]
+# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total, frac_spread)
+# n_above     : cells above threshold at this timepoint  → denominator for plot 1
+# n_total     : all cells at this timepoint              → denominator for plot 2
+# frac_spread : SD/SEM of the fraction across per-FOV fractions when
+#               per_fov_spread is enabled, else 0.0. Trailing position so
+#               existing destructuring with `*_` (and `*extra`) keeps working.
+AggPoint = Tuple[float, float, float, float, int, int, float]
 
 
 def _ordinal_timepoints(rows: List[dict], tp_col: str = "timepoint_hours") -> Dict[str, float]:
@@ -228,12 +231,14 @@ def aggregate_with_threshold(
 
     When ``per_fov_spread`` is True, the spread on the mean (third tuple field)
     is the SD/SEM **across per-FOV mean intensities** at each timepoint instead
-    of the SD/SEM across individual cells. The reported mean, fraction, and
-    counts are unaffected. Use this in single-well mode to treat FOVs as
-    technical replicates within the well.
+    of the SD/SEM across individual cells. The trailing ``frac_spread`` field
+    is also populated as the SD/SEM across per-FOV ``n_above/n_total`` ratios
+    so the bar plot can draw an error bar on the fraction. Mean, fraction, and
+    counts themselves are unaffected. Use this in single-well mode to treat
+    FOVs as technical replicates within the well.
 
     Returns:
-        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total)
+        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total, frac_spread)
     """
     if fluor_gates is None:
         fluor_gates = {}
@@ -241,6 +246,7 @@ def aggregate_with_threshold(
     all_v:   Dict[float, List[float]] = defaultdict(list)
     above_v: Dict[float, List[float]] = defaultdict(list)
     fov_above: Dict[float, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+    fov_total: Dict[float, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     ordinals = _ordinal_timepoints(rows, tp_col)
 
@@ -288,10 +294,12 @@ def aggregate_with_threshold(
             continue
 
         all_v[t].append(val)
+        if per_fov_spread:
+            fov = str(row.get("fov", "1") or "1").strip() or "1"
+            fov_total[t][fov] += 1
         if val > threshold:
             above_v[t].append(val)
             if per_fov_spread:
-                fov = str(row.get("fov", "1") or "1").strip() or "1"
                 fov_above[t][fov].append(val)
 
     result: List[AggPoint] = []
@@ -301,19 +309,33 @@ def aggregate_with_threshold(
         n_above = len(above)
         mean    = sum(above) / n_above if n_above else float("nan")
         spread  = 0.0
+        frac_spread = 0.0
         if per_fov_spread:
-            fov_means = [sum(vs) / len(vs) for vs in fov_above.get(t, {}).values() if vs]
-            n_fov = len(fov_means)
-            if n_fov > 1:
+            fov_above_t = fov_above.get(t, {})
+            fov_total_t = fov_total.get(t, {})
+            fov_means = [sum(vs) / len(vs) for vs in fov_above_t.values() if vs]
+            n_fov_means = len(fov_means)
+            if n_fov_means > 1:
                 sd = statistics.pstdev(fov_means)
-                spread = sd / math.sqrt(n_fov) if use_sem else sd
+                spread = sd / math.sqrt(n_fov_means) if use_sem else sd
+            # Fraction-above SD/SEM across FOVs that contributed any cell to
+            # the gated population at this timepoint (an FOV with zero gated
+            # cells has no defined fraction and is excluded).
+            fov_fracs = [
+                len(fov_above_t.get(fov, ())) / total
+                for fov, total in fov_total_t.items() if total > 0
+            ]
+            n_fov_fracs = len(fov_fracs)
+            if n_fov_fracs > 1:
+                fsd = statistics.pstdev(fov_fracs)
+                frac_spread = fsd / math.sqrt(n_fov_fracs) if use_sem else fsd
         else:
             if n_above > 1:
                 sd     = statistics.pstdev(above)
                 spread = sd / math.sqrt(n_above) if use_sem else sd
         result.append((t, mean, spread,
                        n_above / n_total if n_total else float("nan"),
-                       n_above, n_total))
+                       n_above, n_total, frac_spread))
     return result
 
 

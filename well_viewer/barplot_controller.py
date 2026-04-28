@@ -107,12 +107,19 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
     for label in bar_selected:
         rows = app._get_rows(label)
         pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
-        matched = [(m, s, f) for t, m, s, f, *_ in pts if abs(t - target_t) < 1e-6]
+        # Each AggPoint is (t, mean, mean_spread, frac, n_above, n_total, frac_spread).
+        # Pull both spreads so the per-well bar can render an error bar on
+        # the fraction panel when the FOV-replicates toggle is active.
+        matched = [
+            (m, s, f, fs)
+            for t, m, s, f, _na, _nt, fs in pts
+            if abs(t - target_t) < 1e-6
+        ]
         if matched:
-            m, s, f = matched[0]
-            items.append((label, m, s, f, True))
+            m, s, f, fs = matched[0]
+            items.append((label, m, s, f, fs, True))
         else:
-            items.append((label, float("nan"), 0.0, float("nan"), False))
+            items.append((label, float("nan"), 0.0, float("nan"), 0.0, False))
     return False, items, band_lbl
 
 
@@ -185,7 +192,16 @@ def render_bar_items(
                     ax.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
     else:
         bar_w = min(0.6, 5.0 / max(n, 1))
-        for i, (_label, mean, spread, frac, has_data) in enumerate(items):
+        for i, item in enumerate(items):
+            # Per-well items are (label, mean, spread, frac, frac_spread, has_data).
+            # frac_spread is only non-zero when the FOV-replicates toggle is
+            # on (it is the SD/SEM of the per-FOV fractions); fall back to 0.0
+            # for any legacy callers that still emit the older 5-tuple shape.
+            if len(item) == 6:
+                _label, mean, spread, frac, frac_spread, has_data = item
+            else:
+                _label, mean, spread, frac, has_data = item
+                frac_spread = 0.0
             color = well_colors[i % len(well_colors)]
             if has_data and not math.isnan(mean):
                 ax_mean.bar(i, mean, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
@@ -195,6 +211,8 @@ def render_bar_items(
                 ax_mean.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             if has_data and not math.isnan(frac):
                 ax_frac.bar(i, frac, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                if frac_spread > 0:
+                    ax_frac.errorbar(i, frac, yerr=frac_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
             else:
                 ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 

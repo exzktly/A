@@ -5661,7 +5661,10 @@ class WellViewerApp(QWidget):
             xlabels = [display for _, display, *_ in ordered]
             draw_items = ordered
         else:
-            key_to_item = {lbl: (lbl, m, s, f, has) for lbl, m, s, f, has in items}
+            # Per-well items are (label, mean, spread, frac, frac_spread, has);
+            # preserve the full tuple so the renderer can draw the fraction
+            # error bar when per-FOV spread is enabled.
+            key_to_item = {item[0]: item for item in items}
             ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
             draw_items = [key_to_item[k] for k in ordered_keys]
             xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in draw_items]

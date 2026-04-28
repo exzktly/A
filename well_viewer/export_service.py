@@ -102,13 +102,21 @@ def export_bar_plot_data(app) -> None:
                 "metric": metric,
             })
     else:
-        for label, mean, spread, frac, has in items:
+        for item in items:
+            # Per-well items are (label, mean, spread, frac, frac_spread, has);
+            # tolerate the legacy 5-tuple shape without frac_spread.
+            if len(item) == 6:
+                label, mean, spread, frac, frac_spread, has = item
+            else:
+                label, mean, spread, frac, has = item
+                frac_spread = 0.0
             rows_out.append({
                 "well": label,
                 "timepoint_h": tp_str,
                 f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not math.isnan(mean) else "",
                 f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
                 "fraction_above": f"{frac:.6f}" if has and not math.isnan(frac) else "",
+                f"err_frac_{band_lbl}": f"{frac_spread:.6f}" if has and not math.isnan(frac) else "",
                 "threshold": f"{threshold:.4f}",
                 "metric": metric,
             })

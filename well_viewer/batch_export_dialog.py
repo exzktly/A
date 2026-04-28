@@ -1430,8 +1430,13 @@ class BarBatchExportPanel(BatchExportPanel):
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             xlabels.append(name)
             if matched:
-                _t, m, s, f, *extra = matched[0]
-                frac_spread = float(extra[0]) if extra else 0.0
+                pt = matched[0]
+                _t, m, s, f = pt[0], pt[1], pt[2], pt[3]
+                # AggPoint shape is (t, mean, spread, frac, n_above, n_total, frac_spread).
+                # frac_spread (index 6) is non-zero only when per_fov_spread is on.
+                # Indexing past the trailing field also tolerates older 6-tuple
+                # shapes that would have predated the field.
+                frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
                 has_data = not math.isnan(m)
                 draw_items.append((name, name, m, s, f, frac_spread, has_data, color))
             else:
