@@ -78,6 +78,158 @@ import imageio.v3 as iio
 _STARDIST_MODEL: "StarDist2D | None" = None
 
 
+# ---------------------------------------------------------------------------
+# Robust file I/O helpers
+#
+# Every image that the pipeline writes is later read back by the same worker
+# (zip-up, atomic-rename of the staging dir, or downstream tools). Two
+# observed failure modes when many tifs are written in quick succession on
+# slower / network-backed filesystems:
+#
+#   1. ``tifffile.imwrite(path)`` returns before the OS has flushed the
+#      page cache, so a follow-up ``zipfile.write(path)`` can read a stale
+#      / zero-length file or a half-written file and produce a corrupt
+#      archive — sometimes manifesting later as ``OSError: Bad file
+#      descriptor`` deep in libtiff/libpng C code.
+#
+#   2. A crash mid-write leaves a partial file on disk; the next run picks
+#      it up and fails with cryptic decode errors.
+#
+# ``_safe_imwrite`` writes to ``<path>.pid<N>.tmp``, fsyncs the bytes, and
+# then renames atomically. Any caller that subsequently sees ``path`` reads
+# either a complete file or no file at all. Likewise ``_safe_atomic_write``
+# wraps the per-well CSV write with the same guarantee.
+# ---------------------------------------------------------------------------
+
+
+def _fsync_path(path: Path) -> None:
+    """Open *path* read-only and fsync; ignore filesystems that don't support it."""
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def _safe_imwrite(out_path: "Path | str", data: "np.ndarray") -> None:
+    """Atomic image write: tmp file → fsync → rename.
+
+    Routes ``.tif/.tiff`` through tifffile and ``.png`` through imageio v3.
+    Other extensions fall back to tifffile. Cleans up the temp file on
+    failure so the well's output directory never carries partial bytes
+    that a later zip-up step would pack into a corrupt archive.
+
+    The tmp file is named ``.<stem>.pid<N>.tmp<ext>`` (leading dot, so it
+    sorts away from the real outputs and so directory listers used by the
+    zip-up step skip it; trailing original extension preserved so the
+    codec auto-detects the format from the path).
+    """
+    out_path = Path(out_path)
+    tmp = out_path.with_name(
+        f".{out_path.stem}.pid{os.getpid()}.tmp{out_path.suffix}"
+    )
+    suffix = out_path.suffix.lower()
+    try:
+        if suffix == ".png":
+            iio.imwrite(str(tmp), data)
+        else:
+            imwrite(str(tmp), data)
+        _fsync_path(tmp)
+        os.replace(str(tmp), str(out_path))
+    except BaseException:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _safe_atomic_text_write(out_path: "Path | str") -> "_AtomicTextHandle":
+    """Return a context manager that yields a file handle for atomic text writing.
+
+    On clean exit the buffered bytes are fsynced and the temp file is renamed
+    over ``out_path``. On exception the temp file is removed and the
+    exception propagates so callers see the original error.
+    """
+    return _AtomicTextHandle(Path(out_path))
+
+
+class _AtomicTextHandle:
+    def __init__(self, out_path: Path) -> None:
+        self._out_path = out_path
+        self._tmp = out_path.with_name(out_path.name + f".pid{os.getpid()}.tmp")
+        self._fh: "io.TextIOBase | None" = None
+
+    def __enter__(self):
+        # newline="" matches csv.writer's expectation; the sole text-write
+        # call site (_write_single_csv) needs that, and it does no harm to
+        # other text content.
+        import io as _io
+        self._fh = open(self._tmp, "w", newline="")
+        return self._fh
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if self._fh is not None:
+                self._fh.flush()
+                try:
+                    os.fsync(self._fh.fileno())
+                except OSError:
+                    pass
+                self._fh.close()
+        finally:
+            self._fh = None
+        if exc_type is not None:
+            try:
+                if self._tmp.exists():
+                    self._tmp.unlink()
+            except OSError:
+                pass
+            return False
+        os.replace(str(self._tmp), str(self._out_path))
+        return False
+
+
+def _verify_files_complete(paths: "list[Path]", min_size: int = 1) -> "list[Path]":
+    """Return only paths that exist and have ``stat.st_size >= min_size``.
+
+    Skipped paths are warned to the worker log so a partial/zero-length file
+    doesn't get silently packed into an output archive that downstream tools
+    will then refuse to open. The minimum size is intentionally tiny — we
+    only want to catch the empty / zero-byte case where a write was started
+    but never delivered any bytes; legitimate single-pixel TIFs are still
+    far above this threshold.
+    """
+    ok: list[Path] = []
+    for p in paths:
+        try:
+            st = p.stat()
+        except OSError as exc:
+            log.warning("Skipping unreadable file: %s (%s)", p, exc)
+            continue
+        if not p.is_file():
+            log.warning("Skipping non-file path: %s", p)
+            continue
+        if st.st_size < min_size:
+            log.warning(
+                "Skipping zero/short file (size=%d): %s",
+                st.st_size, p,
+            )
+            continue
+        ok.append(p)
+    return ok
+
+
 def _report_worker_failure(well_label: str, output_dir: "Path | None", exc: BaseException) -> None:
     """Log a worker failure with classification + a pointer to the trace file.
 
@@ -390,24 +542,45 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
     Compress all image files (TIF/TIFF/PNG) found in *image_dir* into
     *out_zip*.  Returns the number of files added.
     CSV files and any other non-image files are explicitly excluded.
+
+    Stray ``.tmp`` files left by a crashed atomic-write are skipped, and any
+    zero-byte file is logged + dropped so a partial / never-flushed write
+    can't be packaged into a corrupt archive.
     """
     include_exts = {".tif", ".tiff", ".png"}
     exclude_exts = {".csv"}
-    image_files = sorted(
+    candidate_files = sorted(
         p for p in image_dir.iterdir()
         if p.is_file()
         and p.suffix.lower() in include_exts
         and p.suffix.lower() not in exclude_exts
+        and not p.name.endswith(".tmp")
+        and ".pid" not in p.name  # stale _safe_imwrite scratch files
     )
+    image_files = _verify_files_complete(candidate_files)
 
     if not image_files:
         log.warning("No image files found in %s to compress.", image_dir)
         return 0
 
     out_zip.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for img_path in image_files:
-            zf.write(img_path, arcname=img_path.name)
+    # Build the zip via the same atomic-rename pattern the imwrite helper
+    # uses: stage at <out_zip>.tmp, fsync, replace. Any caller that sees
+    # *out_zip* gets either the complete archive or the previous one.
+    tmp_zip = out_zip.with_name(out_zip.name + f".pid{os.getpid()}.tmp")
+    try:
+        with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for img_path in image_files:
+                zf.write(img_path, arcname=img_path.name)
+        _fsync_path(tmp_zip)
+        os.replace(str(tmp_zip), str(out_zip))
+    except BaseException:
+        try:
+            if tmp_zip.exists():
+                tmp_zip.unlink()
+        except OSError:
+            pass
+        raise
 
     log.info(
         "Compressed %d image(s)  ->  %s", len(image_files), out_zip.name
@@ -663,7 +836,7 @@ def save_overlay(nir_raw: np.ndarray, labels: np.ndarray, out_path: Path) -> Non
     rgb[boundaries, 0] = 255
     rgb[boundaries, 1] = 0
     rgb[boundaries, 2] = 0
-    iio.imwrite(str(out_path), rgb)
+    _safe_imwrite(out_path, rgb)
 
 
 def _segment_stardist_nuclei(nir_corr: np.ndarray) -> np.ndarray:
@@ -865,7 +1038,7 @@ def process_image_group(
                 output_dir=output_dir,
                 suffix="_tophat",
             )
-        imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
+        _safe_imwrite(th_nir_path, np.clip(nir_corr, 0, None).astype(np.float32))
         for fc, tok, fp in zip(fluor_tophat, fluor_tokens, fluor_paths):
             if legacy_channel_suffix_naming:
                 th_path = output_dir / f"{nuclear_path.stem}_tophat_{tok.lower()}.tif"
@@ -875,7 +1048,7 @@ def process_image_group(
                     output_dir=output_dir,
                     suffix="_tophat",
                 )
-            imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
+            _safe_imwrite(th_path, np.clip(fc, 0, None).astype(np.float32))
         for i, (tok, fp) in enumerate(zip(fluor_tokens, fluor_paths)):
             if tok in smfish_set:
                 if legacy_channel_suffix_naming:
@@ -886,42 +1059,42 @@ def process_image_group(
                         output_dir=output_dir,
                         suffix="_smfish",
                     )
-                imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
+                _safe_imwrite(smfish_path, np.clip(fluor_corr[i], 0, None).astype(np.float32))
         if segmentation_method == "stardist_seeded_watershed_cell":
             assert nuclear_points is not None
             assert cytoplasm_tophat is not None
             assert cytoplasm_binary_mask is not None
-            imwrite(
-                str(build_processed_output_path(
+            _safe_imwrite(
+                build_processed_output_path(
                     nuclear_path,
                     output_dir=output_dir,
                     suffix="_nuclear_points",
-                )),
+                ),
                 nuclear_points.astype(np.int32),
             )
-            imwrite(
-                str(build_processed_output_path(
+            _safe_imwrite(
+                build_processed_output_path(
                     nuclear_path,
                     output_dir=output_dir,
                     suffix="_cytoplasm_tophat",
-                )),
+                ),
                 np.clip(cytoplasm_tophat, 0, None).astype(np.float32),
             )
-            imwrite(
-                str(build_processed_output_path(
+            _safe_imwrite(
+                build_processed_output_path(
                     nuclear_path,
                     output_dir=output_dir,
                     suffix="_cytoplasm_otsu_mask",
-                )),
+                ),
                 cytoplasm_binary_mask.astype(np.uint8),
             )
         log.info("  tophat tifs written")
-    imwrite(
-        str(build_processed_output_path(
+    _safe_imwrite(
+        build_processed_output_path(
             nuclear_path,
             output_dir=output_dir,
             suffix="_labels",
-        )),
+        ),
         labels,
     )
     save_overlay(
@@ -1184,7 +1357,12 @@ def _safe_well(label: str) -> str:
 def _write_single_csv(records: list[dict], out_path: Path) -> None:
     import csv
     fieldnames = list(records[0].keys())
-    with out_path.open("w", newline="") as fh:
+    # Atomic write: tmp → fsync → rename. Without this a downstream consumer
+    # (the GUI's CSV-loader, the Bar / Line plot tabs, or the next pipeline
+    # run with --force) can pick up a half-written file when the worker is
+    # interrupted or when the OS hasn't flushed the page cache before the
+    # follow-up rename / read.
+    with _safe_atomic_text_write(out_path) as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(records)
@@ -1254,6 +1432,22 @@ def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
         os.environ["NUMEXPR_NUM_THREADS"]    = t
         os.environ["TF_NUM_INTRAOP_THREADS"] = t
         os.environ["TF_NUM_INTEROP_THREADS"] = t
+
+    # Raise the per-worker open-file ceiling. macOS's default soft limit
+    # (256) is easily exceeded by TF + StarDist + tifffile in a well with
+    # many FOVs; the resulting EMFILE typically surfaces as a confusing
+    # OSError downstream. We push the soft limit up to whatever the kernel
+    # already permits (hard limit, capped at 4096) without requiring root.
+    try:
+        import resource as _resource
+        _soft, _hard = _resource.getrlimit(_resource.RLIMIT_NOFILE)
+        _target = max(_soft, min(_hard, 4096))
+        if _target > _soft:
+            _resource.setrlimit(_resource.RLIMIT_NOFILE, (_target, _hard))
+    except (ImportError, ValueError, OSError):
+        # resource is POSIX-only; ignore on platforms / environments where
+        # the bump isn't permitted.
+        pass
 
     logging.basicConfig(
         level=logging.INFO,
