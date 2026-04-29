@@ -1399,7 +1399,7 @@ class BarBatchExportPanel(BatchExportPanel):
                        f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
-        apply_ax_style(ax_n, "Cells per group (N)", "N")
+        apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
         members: List[tuple] = []
@@ -1436,12 +1436,12 @@ class BarBatchExportPanel(BatchExportPanel):
                 _t, m, s, f = pt[0], pt[1], pt[2], pt[3]
                 # AggPoint shape is (t, mean, spread, frac, n_above, n_total, frac_spread).
                 # frac_spread (index 6) is non-zero only when per_fov_spread is on.
-                # Indexing past the trailing field also tolerates older 6-tuple
-                # shapes that would have predated the field.
-                n_total = int(pt[5]) if len(pt) >= 6 else 0
+                # n_above (index 4) drives the third panel — events above
+                # threshold, matching the on-screen bar plot.
+                n_above = int(pt[4]) if len(pt) >= 5 else 0
                 frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
                 has_data = not math.isnan(m)
-                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_total))
+                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_above))
             else:
                 draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color, 0))
 

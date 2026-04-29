@@ -5555,9 +5555,14 @@ class WellViewerApp(QWidget):
         ax_mean: "Axes",
         ax_frac: "Axes",
         log_scale: bool = False,
+        ax_n=None,
     ) -> None:
-        """Apply user-specified y-axis limits and optional log scale."""
-        _bar_apply_ylims(self, ax_mean, ax_frac, log_scale=log_scale)
+        """Apply user-specified y-axis limits and optional log scale.
+
+        Passing ``ax_n`` extends the log-scale toggle to the events-above
+        panel as well so all three bar rows share the same scale.
+        """
+        _bar_apply_ylims(self, ax_mean, ax_frac, log_scale=log_scale, ax_n=ax_n)
 
     def _toggle_swarm(self) -> None:
         """Toggle beeswarm / bar mode and update the button appearance."""
@@ -5820,7 +5825,7 @@ class WellViewerApp(QWidget):
                        "Fraction of Cells Above Threshold",
                        "Fraction")
         if ax_n is not None:
-            apply_ax_style(ax_n, "Cells per well/group (N)", "N")
+            apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
         if not bar_selected and not active_rsets:
@@ -5947,13 +5952,17 @@ class WellViewerApp(QWidget):
                     threshold,
                     log_scale=self._bar_log_scale.get(),
                 )
+            # Log Y now applies to every bar row (mean / frac / events) in
+            # every mode. _apply_bar_ylims handles the log-safe ylims for
+            # the fraction (in [0, 1]) and the events-above panel.
             self._apply_bar_ylims(
                 ax_mean,
                 ax_frac,
-                log_scale=self._bar_log_scale.get() and self._bar_swarm.get(),
+                log_scale=self._bar_log_scale.get(),
+                ax_n=ax_n,
             )
-            # Even in violin/beeswarm mode the user wants to see N per well
-            # so the population size is visible alongside the distribution.
+            # Even in violin/beeswarm mode the user wants to see the events
+            # above threshold count alongside the distribution.
             if ax_n is not None:
                 self._draw_per_well_n_bars(ax_n, plot_wells, plot_colors, plot_labels, target_t, threshold)
         self._bar_canvas.draw_idle()
@@ -5968,7 +5977,7 @@ class WellViewerApp(QWidget):
         target_t: float,
         threshold: float,
     ) -> None:
-        """Render the N (cell-count) panel for the per-cell view modes."""
+        """Render the events-above-threshold panel for per-cell view modes."""
         from matplotlib.ticker import MaxNLocator
         cell_area_threshold = self._get_cell_area_threshold()
         fluor_gates = self._get_all_fluor_gates()
@@ -5983,18 +5992,23 @@ class WellViewerApp(QWidget):
                 fluor_gates=fluor_gates,
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            n_total = int(matched[0][5]) if matched else 0
+            # AggPoint index 4 = n_above (events above threshold).
+            n_above = int(matched[0][4]) if matched else 0
             color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
-            if n_total > 0:
-                ax_n.bar(i, n_total, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+            if n_above > 0:
+                ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
             else:
                 ax_n.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER, linewidth=1, edgecolor=CLR_DISABLED_WELL, linestyle="--", zorder=3)
         xs = list(range(n))
         ax_n.set_xticks(xs)
         ax_n.set_xticklabels(xlabels, rotation=45 if n > 8 else 0, ha="right" if n > 8 else "center", fontsize=7)
         ax_n.set_xlim(-0.6, n - 0.4)
-        cur_lo, cur_hi = ax_n.get_ylim()
-        ax_n.set_ylim(0, max(cur_hi, 1))
+        # apply_bar_ylims (called by the caller) overrides the lower bound
+        # to a log-safe value when Log Y is on. Here we just establish a
+        # reasonable linear default.
+        if not bool(self._bar_log_scale.get()):
+            cur_lo, cur_hi = ax_n.get_ylim()
+            ax_n.set_ylim(0, max(cur_hi, 1))
         ax_n.yaxis.set_major_locator(MaxNLocator(integer=True))
         setattr(ax_n, "_categorical_xaxis", True)
 
@@ -6025,7 +6039,7 @@ class WellViewerApp(QWidget):
                 if not rset:
                     continue
                 gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
-                n_cells = self._compute_rep_n(rset, target_t)
+                n_above = self._compute_rep_n_above(rset, target_t)
                 base_lbl = self._replicate_display_label(rset)
                 display = base_lbl
                 ordered.append(
@@ -6038,15 +6052,15 @@ class WellViewerApp(QWidget):
                         g_err_f,
                         not math.isnan(gm),
                         color_by_key.get(rset.name, WELL_COLORS[0]),
-                        int(n_cells),
+                        int(n_above),
                     )
                 )
             xlabels = [display for _, display, *_ in ordered]
             draw_items = ordered
         else:
-            # Per-well items are (label, mean, spread, frac, frac_spread, has, n_cells);
+            # Per-well items are (label, mean, spread, frac, frac_spread, has, n_above);
             # preserve the full tuple so the renderer can draw the fraction
-            # error bar when per-FOV spread is enabled and the N panel.
+            # error bar when per-FOV spread is enabled and the events panel.
             key_to_item = {item[0]: item for item in items}
             ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
             draw_items = [key_to_item[k] for k in ordered_keys]
@@ -6085,14 +6099,20 @@ class WellViewerApp(QWidget):
         )
         if ax_n is not None:
             ax_n.set_title(
-                f"Cells per well/group (N)  —  t = {tp_str} h",
+                f"Events above threshold (N)  —  t = {tp_str} h",
                 color=TXT_PRI,
                 fontsize=9,
                 fontweight="bold",
                 pad=6,
             )
-            ax_n.set_ylabel("N", fontsize=8, labelpad=5)
-        self._apply_bar_ylims(ax_mean, ax_frac, log_scale=False)
+            ax_n.set_ylabel("N(above)", fontsize=8, labelpad=5)
+        # Honour the Log Y toggle in grouped/per-well bar mode too — the
+        # toggle now affects every bar row, not just the beeswarm view.
+        self._apply_bar_ylims(
+            ax_mean, ax_frac,
+            log_scale=self._bar_log_scale.get(),
+            ax_n=ax_n,
+        )
         self._bar_canvas.draw_idle()
 
     # ── Bar plot export ───────────────────────────────────────────────────────
@@ -6222,19 +6242,20 @@ class WellViewerApp(QWidget):
         self._stats_cache[cache_key] = result
         return result
 
-    def _compute_rep_n(self, rset: "ReplicateSet", target_t: float) -> int:
-        """Total cell count contributing to *rset* at *target_t*.
+    def _compute_rep_n_above(self, rset: "ReplicateSet", target_t: float) -> int:
+        """Total events-above-threshold contributing to *rset* at *target_t*.
 
-        Sums n_total across loaded wells of the set after gating, so the
-        bar plot's N panel reports the same denominator that drives the
-        mean and fraction values.
+        Sums ``n_above`` (AggPoint index 4) across loaded wells of the set
+        after gating, so the bar plot's third panel reports the count of
+        cells that actually exceeded the active threshold — the same
+        numerator that drives the fraction-above-threshold value.
         """
         if not hasattr(self, "_stats_cache"):
             self._stats_cache = {}
         threshold = self._get_thresh_frac_on(self._active_channel)
         cell_area_threshold = self._get_cell_area_threshold()
         fluor_gates = self._get_all_fluor_gates()
-        cache_key = ("rep_n", rset.name, tuple(rset.wells), target_t, threshold,
+        cache_key = ("rep_n_above", rset.name, tuple(rset.wells), target_t, threshold,
                      self._active_val_col, cell_area_threshold,
                      tuple(sorted(fluor_gates.items())))
         if cache_key in self._stats_cache:
@@ -6253,7 +6274,8 @@ class WellViewerApp(QWidget):
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             if matched:
-                total += int(matched[0][5])
+                # AggPoint index 4 = n_above; index 5 = n_total.
+                total += int(matched[0][4])
         self._stats_cache[cache_key] = total
         return total
 
@@ -6375,7 +6397,7 @@ class WellViewerApp(QWidget):
         apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, f"Fraction above threshold  —  t = {tp_str} h", "Fraction")
-        apply_ax_style(ax_n, f"Cells per well/group (N)  —  t = {tp_str} h", "N")
+        apply_ax_style(ax_n, f"Events above threshold (N)  —  t = {tp_str} h", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
         use_groups, items, _ = self._collect_bar_items(target_t)
@@ -6385,11 +6407,11 @@ class WellViewerApp(QWidget):
             draw_items = []
             for item, xlbl in zip(items, xlabels):
                 # collect_bar_items rep-set items are 8-tuples
-                # (name, gm, g_err_m, gf, g_err_f, has, color, n_cells).
-                # Older callers may still emit a 7-tuple without n_cells.
+                # (name, gm, g_err_m, gf, g_err_f, has, color, n_above).
+                # Older callers may still emit a 7-tuple without n_above.
                 name, gm, g_err_m, gf, g_err_f, has, color = item[:7]
-                n_cells = int(item[7]) if len(item) >= 8 else 0
-                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_cells))
+                n_above = int(item[7]) if len(item) >= 8 else 0
+                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_above))
         else:
             draw_items = items
             xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
@@ -6408,6 +6430,12 @@ class WellViewerApp(QWidget):
             placeholder_color=CLR_PLACEHOLDER,
             disabled_well_color=CLR_DISABLED_WELL,
             err_bar_color=CLR_ERR_BAR,
+        )
+        # Also honour Log Y in the off-screen export figure.
+        self._apply_bar_ylims(
+            ax_mean, ax_frac,
+            log_scale=self._bar_log_scale.get(),
+            ax_n=ax_n,
         )
         return fig
 

@@ -92,11 +92,12 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
         for idx, rset in enumerate(active_rsets):
             color = well_colors[idx % len(well_colors)]
             gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-            n_cells = app._compute_rep_n(rset, target_t)
+            n_above = app._compute_rep_n_above(rset, target_t)
             label = app._replicate_display_label(rset)
-            # Trailing n_cells lets the renderer populate the N panel and
-            # keeps existing 7-tuple destructuring working via *_ /  indexing.
-            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_cells)))
+            # Trailing n_above lets the renderer populate the "events above
+            # threshold" panel and keeps existing 7-tuple destructuring
+            # working via *_ / indexing.
+            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_above)))
         return True, items, band_lbl
 
     bar_selected = sorted(
@@ -111,16 +112,17 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
         rows = app._get_rows(label)
         pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
         # Each AggPoint is (t, mean, mean_spread, frac, n_above, n_total, frac_spread).
-        # Pull both spreads and the N count so the per-well bar can render an
-        # error bar on the fraction panel and a count bar on the N panel.
+        # Pull n_above (index 4) so the third panel reports the number of
+        # events that actually exceeded the threshold, not the total cell
+        # count. mean / frac / n_total stay implicit but unused here.
         matched = [
-            (m, s, f, fs, int(n_total))
-            for t, m, s, f, _na, n_total, fs in pts
+            (m, s, f, fs, int(n_above))
+            for t, m, s, f, n_above, _nt, fs in pts
             if abs(t - target_t) < 1e-6
         ]
         if matched:
-            m, s, f, fs, n_total = matched[0]
-            items.append((label, m, s, f, fs, True, n_total))
+            m, s, f, fs, n_above = matched[0]
+            items.append((label, m, s, f, fs, True, n_above))
         else:
             items.append((label, float("nan"), 0.0, float("nan"), 0.0, False, 0))
     return False, items, band_lbl
@@ -160,11 +162,12 @@ def render_bar_items(
     err_bar_color: str,
     ax_n=None,
 ) -> None:
-    """Draw mean/fraction (and optionally N) bar panels from precomputed items.
+    """Draw mean / fraction / events-above-threshold bar panels.
 
-    When ``ax_n`` is provided, a third panel is populated with the per-bar
-    cell count (n_total), pulled from the trailing ``n_cells`` field appended
-    by ``collect_bar_items``. Items missing the field render as zero bars.
+    When ``ax_n`` is provided, a third panel is populated with the number of
+    events above threshold (``n_above``), pulled from the trailing field
+    appended by ``collect_bar_items``. Items missing the field render as
+    zero bars.
     """
     n = len(items)
     if len(xlabels) != n:
@@ -186,11 +189,11 @@ def render_bar_items(
     if use_groups:
         bar_w = min(0.65, 5.0 / max(n, 1))
         for i, item in enumerate(items):
-            # Use-groups items: (key, display, gm, g_err_m, gf, g_err_f, has, color[, n_cells]).
-            # The trailing n_cells is optional so any caller still emitting
+            # Use-groups items: (key, display, gm, g_err_m, gf, g_err_f, has, color[, n_above]).
+            # The trailing n_above is optional so any caller still emitting
             # the older 8-tuple shape keeps working.
             _key, _display, gm, g_err_m, gf, g_err_f, has, color = item[:8]
-            n_cells = int(item[8]) if len(item) >= 9 else 0
+            n_above = int(item[8]) if len(item) >= 9 else 0
             if has:
                 ax_mean.bar(i, gm, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                 if g_err_m > 0:
@@ -202,8 +205,8 @@ def render_bar_items(
                 else:
                     ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
                 if ax_n is not None:
-                    if n_cells > 0:
-                        ax_n.bar(i, n_cells, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                    if n_above > 0:
+                        ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                     else:
                         ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             else:
@@ -215,19 +218,21 @@ def render_bar_items(
         bar_w = min(0.6, 5.0 / max(n, 1))
         for i, item in enumerate(items):
             # Per-well items are
-            #   (label, mean, spread, frac, frac_spread, has_data[, n_cells]).
-            # n_cells trailing field is optional so any caller still emitting
-            # an older 5- or 6-tuple shape keeps working.
+            #   (label, mean, spread, frac, frac_spread, has_data[, n_above]).
+            # n_above is the number of cells above the threshold for that
+            # well at the active timepoint; the trailing field is optional
+            # so any caller still emitting an older 5- or 6-tuple shape
+            # keeps working.
             if len(item) >= 7:
-                _label, mean, spread, frac, frac_spread, has_data, n_cells = item[:7]
-                n_cells = int(n_cells)
+                _label, mean, spread, frac, frac_spread, has_data, n_above = item[:7]
+                n_above = int(n_above)
             elif len(item) == 6:
                 _label, mean, spread, frac, frac_spread, has_data = item
-                n_cells = 0
+                n_above = 0
             else:
                 _label, mean, spread, frac, has_data = item
                 frac_spread = 0.0
-                n_cells = 0
+                n_above = 0
             color = well_colors[i % len(well_colors)]
             if has_data and not math.isnan(mean):
                 ax_mean.bar(i, mean, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
@@ -242,8 +247,8 @@ def render_bar_items(
             else:
                 ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             if ax_n is not None:
-                if has_data and n_cells > 0:
-                    ax_n.bar(i, n_cells, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                if has_data and n_above > 0:
+                    ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                 else:
                     ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 
@@ -279,8 +284,16 @@ def render_bar_items(
             pass
 
 
-def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
-    """Apply user-entered y-limits and optional log scale to bar axes."""
+def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False, ax_n=None) -> None:
+    """Apply user-entered y-limits and optional log scale to bar axes.
+
+    When ``log_scale`` is True the scale is applied to every supplied panel
+    (mean, fraction, and — if provided — events-above-threshold). Each
+    panel's lower bound is clamped to a positive value compatible with log:
+    the fraction panel snaps to ``[1e-3, 1.05]`` and the events panel snaps
+    to a lower bound of 1, so bars at zero stay drawn but don't crash the
+    log transform.
+    """
     def _parse(edit) -> Optional[float]:
         txt = edit.text().strip() if hasattr(edit, "text") else str(edit).strip()
         if not txt:
@@ -291,6 +304,10 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
             return None
 
     ax_mean.set_yscale("log" if log_scale else "linear")
+    ax_frac.set_yscale("log" if log_scale else "linear")
+    if ax_n is not None:
+        ax_n.set_yscale("log" if log_scale else "linear")
+
     mean_lo = _parse(app._bar_ylim_mean_lo_edit)
     mean_hi = _parse(app._bar_ylim_mean_hi_edit)
     if mean_lo is not None or mean_hi is not None:
@@ -309,5 +326,17 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
         cur_lo, cur_hi = ax_frac.get_ylim()
         lo = frac_lo if frac_lo is not None else cur_lo
         hi = frac_hi if frac_hi is not None else cur_hi
+        if log_scale:
+            lo = max(lo, 1e-3)
+            hi = max(hi, lo * 10)
         if hi > lo:
             ax_frac.set_ylim(lo, hi)
+    elif log_scale:
+        # Fraction is bounded in [0, 1]; in log mode pin a small positive
+        # floor so bars still render. The default linear ylim of -0.05..1.05
+        # set elsewhere would be invalid for the log transform.
+        ax_frac.set_ylim(1e-3, 1.05)
+
+    if ax_n is not None and log_scale:
+        cur_lo, cur_hi = ax_n.get_ylim()
+        ax_n.set_ylim(max(1.0, 1.0), max(cur_hi, 10.0))
