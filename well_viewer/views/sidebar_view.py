@@ -168,6 +168,14 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._line_group_hint.setWordWrap(True)
     layout.addWidget(app._line_group_hint)
 
+    # Heat-map layout configurator (sidebar variant). Hidden by default;
+    # ``_on_tab_change`` reveals it when the Heat Map tab is active.
+    from well_viewer.views.heatmap_layout_sidebar_view import (
+        build_heatmap_layout_sidebar,
+    )
+    heatmap_frame = build_heatmap_layout_sidebar(app, parent)
+    heatmap_frame.setVisible(False)
+
     # Absorb leftover vertical space so the well picker stays pinned to the
     # top of the sidebar even when the sidebar is taller than its contents.
     layout.addStretch(1)

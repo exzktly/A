@@ -87,6 +87,14 @@ def load_directory(app, d: Path, label=None) -> None:
         app._ratios_load_from_data_dir()
     if hasattr(app, "_heatmap_layouts_load_from_data_dir"):
         app._heatmap_layouts_load_from_data_dir()
+    if hasattr(app, "_heatmap_sidebar_table"):
+        try:
+            from well_viewer.views.heatmap_layout_sidebar_view import (
+                refresh_heatmap_layout_sidebar,
+            )
+            refresh_heatmap_layout_sidebar(app)
+        except Exception:
+            pass
     display = label or str(d)
     app._dir_label.setText(display)
     app._set_status(f"Loaded {n} well(s) — {display}")

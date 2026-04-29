@@ -10,7 +10,7 @@ from typing import List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QSlider,
     QVBoxLayout, QWidget,
 )
 
@@ -35,23 +35,14 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     plot_area, layout, app._heatmap_export_dock = make_plot_with_right_dock(parent)
     parent = plot_area
 
-    # ── Control row 1: layout / channel / metric ────────────────────────────
+    # ── Control row 1: channel / metric ─────────────────────────────────────
+    # The layout itself is edited from the sidebar configurator on the left
+    # (see ``views/heatmap_layout_sidebar_view.py``); this row is for the
+    # plotting parameters only.
     ctrl1 = QWidget(parent)
     ctrl1.setObjectName("Sidebar")
     cl1 = QHBoxLayout(ctrl1)
     cl1.setContentsMargins(10, 6, 10, 6)
-
-    cl1.addWidget(QLabel("Layout:", ctrl1))
-    app._heatmap_layout_combo = QComboBox(ctrl1)
-    app._heatmap_layout_combo.currentIndexChanged.connect(
-        lambda _i: _on_layout_picked(app)
-    )
-    cl1.addWidget(app._heatmap_layout_combo, 1)
-
-    layout_btn = QPushButton("Layout…", ctrl1)
-    layout_btn.setProperty("variant", "secondary")
-    layout_btn.clicked.connect(lambda _=False: _open_layout_editor(app))
-    cl1.addWidget(layout_btn)
 
     cl1.addWidget(QLabel("Channel:", ctrl1))
     app._chan_cb_heatmap = QComboBox(ctrl1)
@@ -145,38 +136,10 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     app._heatmap_canvas.mpl_connect("motion_notify_event",
                                      lambda evt: _on_canvas_motion(app, evt))
 
-    # Hook installer methods on the app (so other modules can refresh us).
-    if not hasattr(app, "_refresh_heatmap_layout_combo"):
-        app._refresh_heatmap_layout_combo = lambda: _refresh_layout_combo(app)
-
-    _refresh_layout_combo(app)
     refresh_heatmap_timepoints(app)
 
 
 # ── helpers attached or referenced from runtime_app ─────────────────────────
-
-def _refresh_layout_combo(app) -> None:
-    cb = getattr(app, "_heatmap_layout_combo", None)
-    if cb is None:
-        return
-    layouts = list(getattr(app, "_heatmap_layouts", []) or [])
-    blocked = cb.blockSignals(True)
-    try:
-        cb.clear()
-        if layouts:
-            for lay in layouts:
-                cb.addItem(lay.name)
-        else:
-            cb.addItem("Plate (default)")
-        # Restore active selection.
-        target = getattr(app, "_active_heatmap_layout_name", None)
-        if target:
-            idx = cb.findText(target)
-            if idx >= 0:
-                cb.setCurrentIndex(idx)
-    finally:
-        cb.blockSignals(blocked)
-
 
 def refresh_heatmap_timepoints(app) -> None:
     slider = getattr(app, "_heatmap_tp_slider", None)
@@ -201,15 +164,6 @@ def refresh_heatmap_timepoints(app) -> None:
             label.setText(f"t = {tps[0]:g} h")
         else:
             label.setText("—")
-    _redraw(app)
-
-
-def _on_layout_picked(app) -> None:
-    cb = getattr(app, "_heatmap_layout_combo", None)
-    if cb is None:
-        return
-    name = cb.currentText() or ""
-    app._active_heatmap_layout_name = name
     _redraw(app)
 
 
@@ -257,8 +211,3 @@ def _on_canvas_motion(app, evt) -> None:
 def _redraw(app) -> None:
     from well_viewer.heatmap_controller import redraw_heatmap
     redraw_heatmap(app)
-
-
-def _open_layout_editor(app) -> None:
-    from well_viewer.views.heatmap_layout_panel_view import open_heatmap_layout_panel
-    open_heatmap_layout_panel(app, parent=app)

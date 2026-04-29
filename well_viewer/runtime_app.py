@@ -2864,8 +2864,14 @@ class WellViewerApp(QWidget):
             return
         from well_viewer.heatmap_models import layouts_from_dict  # local import to avoid cycles
         self._heatmap_layouts = layouts_from_dict(data)
-        if hasattr(self, "_heatmap_layout_combo"):
-            self._refresh_heatmap_layout_combo()
+        if hasattr(self, "_heatmap_sidebar_table"):
+            try:
+                from well_viewer.views.heatmap_layout_sidebar_view import (
+                    refresh_heatmap_layout_sidebar,
+                )
+                refresh_heatmap_layout_sidebar(self)
+            except Exception:
+                pass
 
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
@@ -5213,6 +5219,11 @@ class WellViewerApp(QWidget):
         self._sidebar_sample_frame.setVisible(False)
         self._sidebar_groups_frame.setVisible(False)
         self._sidebar_stats_frame.setVisible(False)
+        # Heat-map layout configurator lives inside the standard sidebar
+        # but is only relevant on the Heat Map tab. Hide by default so the
+        # other tabs keep their familiar sidebar layout.
+        if hasattr(self, "_heatmap_sidebar_frame"):
+            self._heatmap_sidebar_frame.setVisible(tab == "Heat Map")
 
         if tab == "Movie Montage":
             self._sync_preview_well_for_image_tabs()
@@ -5307,6 +5318,14 @@ class WellViewerApp(QWidget):
                 self._update_scatter_menus()
                 self._redraw_scatter_agg()
             else:
+                if tab == "Heat Map" and hasattr(self, "_heatmap_sidebar_frame"):
+                    try:
+                        from well_viewer.views.heatmap_layout_sidebar_view import (
+                            refresh_heatmap_layout_sidebar,
+                        )
+                        refresh_heatmap_layout_sidebar(self)
+                    except Exception:
+                        _logger.exception("Heatmap sidebar refresh failed")
                 self._redraw()
 
         self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
