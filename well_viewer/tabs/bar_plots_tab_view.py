@@ -95,13 +95,6 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._violin_slider.setEnabled(False)
     cl.addWidget(app._violin_slider)
 
-    app._bar_log_btn = QPushButton("Log Y", bar_ctrl)
-    app._bar_log_btn.setProperty("variant", "toggle")
-    app._bar_log_btn.setCheckable(True)
-    app._bar_log_btn.clicked.connect(lambda _=False: app._toggle_log_scale())
-    cl.addWidget(app._bar_log_btn)
-    app._bar_log_scale = BoolVar(False)
-
     app._bar_reset_order_btn = QPushButton("Reset Order", bar_ctrl)
     app._bar_reset_order_btn.setProperty("variant", "toggle_muted")
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())

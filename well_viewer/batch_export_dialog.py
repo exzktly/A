@@ -1399,7 +1399,10 @@ class BarBatchExportPanel(BatchExportPanel):
                        f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
-        apply_ax_style(ax_n, "Cells per group (N)", "N")
+        if self._app._use_fov_spread_active():
+            apply_ax_style(ax_n, f"Mean events above threshold per FOV ± {band_lbl}", "N(above)/FOV")
+        else:
+            apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
         members: List[tuple] = []
@@ -1434,16 +1437,25 @@ class BarBatchExportPanel(BatchExportPanel):
             if matched:
                 pt = matched[0]
                 _t, m, s, f = pt[0], pt[1], pt[2], pt[3]
-                # AggPoint shape is (t, mean, spread, frac, n_above, n_total, frac_spread).
-                # frac_spread (index 6) is non-zero only when per_fov_spread is on.
-                # Indexing past the trailing field also tolerates older 6-tuple
-                # shapes that would have predated the field.
-                n_total = int(pt[5]) if len(pt) >= 6 else 0
+                # AggPoint shape is (t, mean, spread, frac, n_above, n_total,
+                # frac_spread, n_above_per_fov_mean, n_above_per_fov_spread).
+                # The events panel mirrors the on-screen bar plot: total
+                # n_above by default, mean ± SD/SEM per FOV when batch export
+                # is run with the Aggregate-FOVs toggle on.
+                n_above_total = int(pt[4]) if len(pt) >= 5 else 0
                 frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
+                n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
+                n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
+                if self._app._use_fov_spread_active():
+                    n_above = n_above_pf_mean
+                    n_above_spread = n_above_pf_spread
+                else:
+                    n_above = float(n_above_total)
+                    n_above_spread = 0.0
                 has_data = not math.isnan(m)
-                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_total))
+                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_above, n_above_spread))
             else:
-                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color, 0))
+                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color, 0.0, 0.0))
 
         _bar_render_items(
             ax_mean=ax_mean,
