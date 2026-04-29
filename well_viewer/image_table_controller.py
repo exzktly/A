@@ -291,7 +291,14 @@ def image_table_apply_row_channel(app, row_idx: int) -> None:
 
 
 def image_table_distribute_wells(app) -> None:
-    """Walk active wells row-wise and assign one to each selector cell."""
+    """Walk active wells row-wise and assign one to each selector cell.
+
+    Special case: when the table has exactly twice as many cells as there
+    are active wells, the assignment is duplicated — each well appears in
+    two cells (typically the top half then the bottom half, when the
+    table is wider than tall). This is convenient for laying out two
+    rows of complementary channels for the same set of wells.
+    """
     cells = getattr(app, "_image_table_cells", None) or []
     if not cells:
         app._set_status("Image Table: build a grid first (set rows/cols and click Apply).")
@@ -300,23 +307,36 @@ def image_table_distribute_wells(app) -> None:
     if not active:
         app._set_status("Image Table: no active wells in the sidebar picker.")
         return
-    idx = 0
-    for row in cells:
-        for cell in row:
-            if idx >= len(active):
-                break
-            tok = active[idx]
-            cb = cell["well_cb"]
-            cb.blockSignals(True)
-            if cb.findText(tok) >= 0:
-                cb.setCurrentText(tok)
-            cb.blockSignals(False)
-            idx += 1
-        if idx >= len(active):
+
+    flat_cells = [(r, c, cell) for r, row in enumerate(cells) for c, cell in enumerate(row)]
+    total_cells = len(flat_cells)
+    n_active = len(active)
+    duplicated = total_cells == 2 * n_active
+
+    assignments = 0
+    for flat_idx, (_r, _c, cell) in enumerate(flat_cells):
+        if duplicated:
+            tok = active[flat_idx % n_active]
+        elif flat_idx < n_active:
+            tok = active[flat_idx]
+        else:
             break
-    app._set_status(
-        f"Image Table: distributed {min(idx, len(active))} well(s) into the selector grid."
-    )
+        cb = cell["well_cb"]
+        cb.blockSignals(True)
+        if cb.findText(tok) >= 0:
+            cb.setCurrentText(tok)
+        cb.blockSignals(False)
+        assignments += 1
+
+    if duplicated:
+        app._set_status(
+            f"Image Table: distributed {n_active} well(s) twice "
+            f"({assignments} cells filled) for complementary-channel layout."
+        )
+    else:
+        app._set_status(
+            f"Image Table: distributed {assignments} well(s) into the selector grid."
+        )
 
 
 # ── LUT row ──────────────────────────────────────────────────────────────────
