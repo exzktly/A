@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import logging
 import os
 import re
@@ -2222,6 +2223,200 @@ def process_well_folders(
             log.warning("  %s", name)
 
 # ---------------------------------------------------------------------------
+# pipeline_info.json sidecar
+#
+# This file is the contract between the analysis pipeline and the
+# well-viewer / image-resolver consumers. It is written exclusively by
+# this script — see ``main()`` — so that a successful run always pairs
+# its outputs with the metadata describing how they were produced.
+# ---------------------------------------------------------------------------
+
+PIPELINE_INFO_FILENAME = "pipeline_info.json"
+
+
+def _pipeline_info_jsonable(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _pipeline_info_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_pipeline_info_jsonable(v) for v in value]
+    return value
+
+
+def _effective_fluor_tokens_for_sidecar(
+    fluor_tokens: "list[str]",
+    *,
+    nuclear_token: str,
+    segmentation_method: str,
+    cytoplasm_token: str,
+) -> "list[str]":
+    """Channels that end up with quantified intensity columns in the CSVs."""
+    ordered = [str(nuclear_token or "").strip(), *[str(tok or "").strip() for tok in fluor_tokens]]
+    if segmentation_method == "stardist_seeded_watershed_cell":
+        ordered.append(str(cytoplasm_token or "").strip())
+    out: "list[str]" = []
+    seen: "set[str]" = set()
+    for tok in ordered:
+        if not tok:
+            continue
+        key = tok.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tok)
+    return out
+
+
+def _parse_numeric_token(value: str) -> "float | None":
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _collect_image_stems(input_dir: Path) -> "set[str]":
+    stems: "set[str]" = set()
+    for pat in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
+        for p in input_dir.glob(pat):
+            stems.add(p.stem)
+    try:
+        well_dirs = [p for p in input_dir.iterdir() if p.is_dir()]
+    except OSError:
+        well_dirs = []
+    for well_dir in well_dirs:
+        for pat in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
+            for p in well_dir.glob(pat):
+                stems.add(p.stem)
+    for z in input_dir.glob("*.zip"):
+        try:
+            with zipfile.ZipFile(z, "r") as zf:
+                for member in zf.namelist():
+                    name = Path(member).name
+                    lower = name.lower()
+                    if not lower.endswith((".tif", ".tiff")):
+                        continue
+                    stems.add(Path(name).stem)
+        except Exception:
+            continue
+    return stems
+
+
+def _collect_available_schema_values(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+    field_name: str,
+    sort_key,
+) -> "list[str]":
+    fields = [f.strip().lower() for f in filename_schema.split(":")]
+    try:
+        field_idx = fields.index(field_name)
+    except ValueError:
+        return []
+    values: "set[str]" = set()
+    for stem in _collect_image_stems(input_dir):
+        parts = stem.split(filename_sep)
+        if 0 <= field_idx < len(parts):
+            tok = str(parts[field_idx]).strip()
+            if tok:
+                values.add(tok)
+    return sorted(values, key=sort_key)
+
+
+def _collect_available_timepoints(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+) -> "list[str]":
+    def _sort_key(tp: str):
+        h = _parse_timepoint_hours(tp)
+        return (
+            (isinstance(h, float) and h != h),  # NaN sentinel sorts last
+            (h if (isinstance(h, float) and h == h) else 0.0),
+            tp,
+        )
+    return _collect_available_schema_values(
+        input_dir,
+        filename_schema=filename_schema,
+        filename_sep=filename_sep,
+        field_name="timepoint",
+        sort_key=_sort_key,
+    )
+
+
+def _collect_available_fovs(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+) -> "list[str]":
+    def _sort_key(fov: str):
+        n = _parse_numeric_token(fov)
+        return (n is None, n or 0.0, fov)
+    return _collect_available_schema_values(
+        input_dir,
+        filename_schema=filename_schema,
+        filename_sep=filename_sep,
+        field_name="fov",
+        sort_key=_sort_key,
+    )
+
+
+def write_pipeline_info(
+    output_dir: Path,
+    *,
+    input_dir: Path,
+    filename_schema: str,
+    filename_sep: str,
+    nuclear_token: str,
+    fluor_tokens: "list[str]",
+    smfish_tokens: "list[str]",
+    segmentation_method: str,
+    cytoplasm_token: str,
+    min_nucleus_area_px: int,
+    execution_options: "dict | None" = None,
+) -> Path:
+    """Serialize the run metadata sidecar to ``<output_dir>/pipeline_info.json``."""
+    if segmentation_method != "stardist_seeded_watershed_cell":
+        cytoplasm_token = ""
+    fields = [f.strip() for f in filename_schema.split(":")]
+    info = {
+        "schema": filename_schema,
+        "separator": filename_sep,
+        "schema_fields": fields,
+        "nuclear_token": str(nuclear_token or ""),
+        "well_index": fields.index("well") if "well" in fields else -1,
+        "channel_index": fields.index("channel") if "channel" in fields else -1,
+        "fov_index": fields.index("fov") if "fov" in fields else -1,
+        "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
+        "fluor_tokens": _effective_fluor_tokens_for_sidecar(
+            fluor_tokens,
+            nuclear_token=nuclear_token,
+            segmentation_method=segmentation_method,
+            cytoplasm_token=cytoplasm_token,
+        ),
+        "smfish_tokens": list(smfish_tokens or []),
+        "segmentation_method": segmentation_method,
+        "cytoplasm_token": cytoplasm_token,
+        "min_nucleus_area_px": int(min_nucleus_area_px),
+        "available_timepoints": _collect_available_timepoints(
+            input_dir, filename_schema=filename_schema, filename_sep=filename_sep,
+        ),
+        "available_fovs": _collect_available_fovs(
+            input_dir, filename_schema=filename_schema, filename_sep=filename_sep,
+        ),
+        "execution_options": _pipeline_info_jsonable(dict(execution_options or {})),
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    p = output_dir / PIPELINE_INFO_FILENAME
+    p.write_text(json.dumps(info, indent=2))
+    return p
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -2413,6 +2608,27 @@ def main() -> None:
     log.info("Schema   : %s  (sep=%r)", args.filename_schema, sep)
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write the pipeline_info.json sidecar before any image work so the
+    # well-viewer / image-resolver have schema metadata available even if
+    # processing crashes partway through.
+    try:
+        info_path = write_pipeline_info(
+            output_dir,
+            input_dir=input_dir,
+            filename_schema=args.filename_schema,
+            filename_sep=args.filename_sep,
+            nuclear_token=args.nuclear_token,
+            fluor_tokens=list(args.fluor_tokens or []),
+            smfish_tokens=list(args.smfish_tokens or []),
+            segmentation_method=args.segmentation_method,
+            cytoplasm_token=args.cytoplasm_token or "",
+            min_nucleus_area_px=args.min_nucleus_area_px,
+            execution_options=vars(args),
+        )
+        log.info("Wrote sidecar : %s", info_path)
+    except Exception as exc:  # log but don't abort the run
+        log.warning("Could not write %s: %s", PIPELINE_INFO_FILENAME, exc)
 
     # ── Parallelism auto-configuration ────────────────────────────────────────
     # On GPU: TF manages its own scheduling — don't pin threads.
