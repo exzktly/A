@@ -1199,7 +1199,6 @@ class WellViewerApp(QWidget):
         self._bar_swarm_cb = None
         self._bar_violin_cb = None
         self._violin_bw_edit = None
-        self._bar_log_scale_cb = None
         self._bar_ylim_mean_lo_edit = None
         self._bar_ylim_mean_hi_edit = None
         self._bar_ylim_frac_lo_edit = None
@@ -5540,29 +5539,14 @@ class WellViewerApp(QWidget):
         self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
         self._redraw_bars()
 
-    def _toggle_log_scale(self) -> None:
-        """Toggle log y-axis for beeswarm fluor panel."""
-        self._bar_log_scale.set(not self._bar_log_scale.get())
-        on = self._bar_log_scale.get()
-        self._bar_log_btn.setChecked(on)
-        self._bar_log_btn.setProperty("variant", "toggle_warn" if on else "toggle")
-        self._bar_log_btn.style().unpolish(self._bar_log_btn)
-        self._bar_log_btn.style().polish(self._bar_log_btn)
-        self._redraw_bars()
-
     def _apply_bar_ylims(
         self,
         ax_mean: "Axes",
         ax_frac: "Axes",
-        log_scale: bool = False,
         ax_n=None,
     ) -> None:
-        """Apply user-specified y-axis limits and optional log scale.
-
-        Passing ``ax_n`` extends the log-scale toggle to the events-above
-        panel as well so all three bar rows share the same scale.
-        """
-        _bar_apply_ylims(self, ax_mean, ax_frac, log_scale=log_scale, ax_n=ax_n)
+        """Apply user-specified y-axis limits to the bar panels."""
+        _bar_apply_ylims(self, ax_mean, ax_frac, ax_n=ax_n)
 
     def _toggle_swarm(self) -> None:
         """Toggle beeswarm / bar mode and update the button appearance."""
@@ -5717,7 +5701,6 @@ class WellViewerApp(QWidget):
         target_t: float,
         tp_str: str,
         threshold: float,
-        log_scale: bool = False,
     ) -> None:
         """
         Beeswarm rendering: one column per well, each cell a point.
@@ -5725,7 +5708,6 @@ class WellViewerApp(QWidget):
         Mean fluor panel: raw per-cell values above threshold, jittered.
         Fraction panel: per-well fraction (scalar dot, no jitter needed).
         Replicate groupings are ignored — every well is plotted independently.
-        When log_scale=True, zero-valued placeholders are omitted.
         """
         n = len(wells)
         xs_ticks = list(range(n))
@@ -5768,10 +5750,9 @@ class WellViewerApp(QWidget):
                 ax_mean.plot([i - bar_w * 0.6, i + bar_w * 0.6],
                              [m, m], color=color, lw=1.5, zorder=4)
             else:
-                # No data placeholder: tiny cross (omitted in log mode since log(0) undef)
-                if not log_scale:
-                    ax_mean.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                    marker="x", zorder=3, linewidths=1)
+                # No data placeholder: tiny cross.
+                ax_mean.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
+                                marker="x", zorder=3, linewidths=1)
 
             if frac_val is not None:
                 ax_frac.scatter([i], [frac_val], c=color, s=30,
@@ -5958,15 +5939,10 @@ class WellViewerApp(QWidget):
                     target_t,
                     tp_str,
                     threshold,
-                    log_scale=self._bar_log_scale.get(),
                 )
-            # Log Y now applies to every bar row (mean / frac / events) in
-            # every mode. _apply_bar_ylims handles the log-safe ylims for
-            # the fraction (in [0, 1]) and the events-above panel.
             self._apply_bar_ylims(
                 ax_mean,
                 ax_frac,
-                log_scale=self._bar_log_scale.get(),
                 ax_n=ax_n,
             )
             # Even in violin/beeswarm mode the user wants to see the events
@@ -6034,13 +6010,10 @@ class WellViewerApp(QWidget):
         ax_n.set_xticks(xs)
         ax_n.set_xticklabels(xlabels, rotation=45 if n > 8 else 0, ha="right" if n > 8 else "center", fontsize=7)
         ax_n.set_xlim(-0.6, n - 0.4)
-        # apply_bar_ylims (called by the caller) overrides the lower bound
-        # to a log-safe value when Log Y is on. Here we just establish a
-        # reasonable linear default. Use float ticks because per-FOV mean
-        # is fractional.
-        if not bool(self._bar_log_scale.get()):
-            cur_lo, cur_hi = ax_n.get_ylim()
-            ax_n.set_ylim(0, max(cur_hi, 1))
+        # Use float ticks when the bar shows a per-FOV mean (Aggregate FOVs
+        # toggle on); otherwise the events-above value is an integer count.
+        cur_lo, cur_hi = ax_n.get_ylim()
+        ax_n.set_ylim(0, max(cur_hi, 1))
         ax_n.yaxis.set_major_locator(MaxNLocator(integer=not per_fov_spread))
         setattr(ax_n, "_categorical_xaxis", True)
 
@@ -6150,13 +6123,7 @@ class WellViewerApp(QWidget):
                 pad=6,
             )
             ax_n.set_ylabel(n_ylabel, fontsize=8, labelpad=5)
-        # Honour the Log Y toggle in grouped/per-well bar mode too — the
-        # toggle now affects every bar row, not just the beeswarm view.
-        self._apply_bar_ylims(
-            ax_mean, ax_frac,
-            log_scale=self._bar_log_scale.get(),
-            ax_n=ax_n,
-        )
+        self._apply_bar_ylims(ax_mean, ax_frac, ax_n=ax_n)
         self._bar_canvas.draw_idle()
 
     # ── Bar plot export ───────────────────────────────────────────────────────
@@ -6484,12 +6451,7 @@ class WellViewerApp(QWidget):
             disabled_well_color=CLR_DISABLED_WELL,
             err_bar_color=CLR_ERR_BAR,
         )
-        # Also honour Log Y in the off-screen export figure.
-        self._apply_bar_ylims(
-            ax_mean, ax_frac,
-            log_scale=self._bar_log_scale.get(),
-            ax_n=ax_n,
-        )
+        self._apply_bar_ylims(ax_mean, ax_frac, ax_n=ax_n)
         return fig
 
     def _export_bar_plot_data(self) -> None:

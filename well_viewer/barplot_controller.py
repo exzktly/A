@@ -308,16 +308,8 @@ def render_bar_items(
             pass
 
 
-def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False, ax_n=None) -> None:
-    """Apply user-entered y-limits and optional log scale to bar axes.
-
-    When ``log_scale`` is True the scale is applied to every supplied panel
-    (mean, fraction, and — if provided — events-above-threshold). Each
-    panel's lower bound is clamped to a positive value compatible with log:
-    the fraction panel snaps to ``[1e-3, 1.05]`` and the events panel snaps
-    to a lower bound of 1, so bars at zero stay drawn but don't crash the
-    log transform.
-    """
+def apply_bar_ylims(app, ax_mean, ax_frac, *, ax_n=None) -> None:
+    """Apply user-entered y-limits to the bar panels (linear scale only)."""
     def _parse(edit) -> Optional[float]:
         txt = edit.text().strip() if hasattr(edit, "text") else str(edit).strip()
         if not txt:
@@ -327,20 +319,12 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False, ax_n=None
         except ValueError:
             return None
 
-    ax_mean.set_yscale("log" if log_scale else "linear")
-    ax_frac.set_yscale("log" if log_scale else "linear")
-    if ax_n is not None:
-        ax_n.set_yscale("log" if log_scale else "linear")
-
     mean_lo = _parse(app._bar_ylim_mean_lo_edit)
     mean_hi = _parse(app._bar_ylim_mean_hi_edit)
     if mean_lo is not None or mean_hi is not None:
         cur_lo, cur_hi = ax_mean.get_ylim()
         lo = mean_lo if mean_lo is not None else cur_lo
         hi = mean_hi if mean_hi is not None else cur_hi
-        if log_scale:
-            lo = max(lo, 1e-9)
-            hi = max(hi, lo * 10)
         if hi > lo:
             ax_mean.set_ylim(lo, hi)
 
@@ -350,17 +334,5 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False, ax_n=None
         cur_lo, cur_hi = ax_frac.get_ylim()
         lo = frac_lo if frac_lo is not None else cur_lo
         hi = frac_hi if frac_hi is not None else cur_hi
-        if log_scale:
-            lo = max(lo, 1e-3)
-            hi = max(hi, lo * 10)
         if hi > lo:
             ax_frac.set_ylim(lo, hi)
-    elif log_scale:
-        # Fraction is bounded in [0, 1]; in log mode pin a small positive
-        # floor so bars still render. The default linear ylim of -0.05..1.05
-        # set elsewhere would be invalid for the log transform.
-        ax_frac.set_ylim(1e-3, 1.05)
-
-    if ax_n is not None and log_scale:
-        cur_lo, cur_hi = ax_n.get_ylim()
-        ax_n.set_ylim(max(1.0, 1.0), max(cur_hi, 10.0))
