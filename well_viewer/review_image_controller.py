@@ -83,8 +83,18 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
             app._refresh_sidebar_map()
     if hasattr(app, "_notebook"):
         _select_tab_by_text(app._notebook, "Review CSV")
-    app._review_fov_cb.setCurrentText(fov_n)
-    app._review_tp_cb.setCurrentText(tp_n)
+    # Block the per-combo currentIndexChanged signals so we rebuild the table
+    # exactly once instead of three times (once per setCurrentText, then again
+    # explicitly). Previously this rebuilt 10k+ QTableWidgetItems three times
+    # in a row on every Review Image click.
+    app._review_fov_cb.blockSignals(True)
+    app._review_tp_cb.blockSignals(True)
+    try:
+        app._review_fov_cb.setCurrentText(fov_n)
+        app._review_tp_cb.setCurrentText(tp_n)
+    finally:
+        app._review_fov_cb.blockSignals(False)
+        app._review_tp_cb.blockSignals(False)
     app._refresh_review_csv_rows()
 
     table = app._review_csv_table

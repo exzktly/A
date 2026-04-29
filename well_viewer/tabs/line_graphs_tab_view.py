@@ -85,7 +85,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     install_canvas_wheel_scroll(app._line_canvas, app._line_scroll_canvas)
     layout.addWidget(app._line_scroll_canvas, 1)
 
-    attach_plot_toolbar(layout, app._line_canvas, parent, app)
+    attach_plot_toolbar(layout, app._line_canvas, parent, app, with_fov=True)
 
     sep = QFrame(parent)
     sep.setFrameShape(QFrame.HLine)

@@ -31,11 +31,8 @@ from PySide6.QtWidgets import (
 from services.input_resolution_service import resolve_input_output, tif_files_in
 from services.pipeline_service import (
     build_pipeline_args,
-    collect_available_fovs,
-    collect_available_timepoints,
     find_pipeline_script,
     spawn_pipeline,
-    write_pipeline_info,
 )
 from ui.theme import (
     CLR_DANGER, CLR_SUCCESS, TXT_MUT, TXT_PRI, WARN,
@@ -859,34 +856,6 @@ class AnalyzeTab(QWidget):
             self._log_q.put(("error", f"Input error: {exc}\n"))
             return None
 
-    def _write_pipeline_sidecar(self, input_dir: Path, output_dir: Path, opts: dict) -> None:
-        try:
-            info_path = write_pipeline_info(
-                output_dir,
-                filename_schema=opts["filename_schema"],
-                filename_sep=opts["filename_sep"],
-                nuclear_token=opts.get("nuclear_token", ""),
-                fluor_tokens=opts.get("fluor_tokens", []),
-                smfish_tokens=opts.get("smfish_tokens", []),
-                segmentation_method=opts.get("segmentation_method", "stardist_nuclei"),
-                cytoplasm_token=opts.get("cytoplasm_token", ""),
-                min_nucleus_area_px=opts.get("min_nucleus_area_px", 50),
-                available_timepoints=collect_available_timepoints(
-                    input_dir,
-                    filename_schema=opts["filename_schema"],
-                    filename_sep=opts["filename_sep"],
-                ),
-                available_fovs=collect_available_fovs(
-                    input_dir,
-                    filename_schema=opts["filename_schema"],
-                    filename_sep=opts["filename_sep"],
-                ),
-                execution_options=opts,
-            )
-            self._log_q.put(("line", f"[info] Wrote {info_path}\n"))
-        except Exception as exc:
-            self._log_q.put(("line", f"[warn] Could not write pipeline_info.json: {exc}\n"))
-
     def _run_pipeline_subprocess(self, args: list[str]) -> None:
         try:
             self._proc = spawn_pipeline(args)
@@ -916,7 +885,8 @@ class AnalyzeTab(QWidget):
                 self._log_q.put(("error", f"Cannot create output dir: {exc}\n"))
                 return
             self._last_output_dir = output_dir
-            self._write_pipeline_sidecar(input_dir, output_dir, opts)
+            # The pipeline subprocess writes ``pipeline_info.json`` itself —
+            # see ``process_microscopy_v2.write_pipeline_info``.
             args = build_pipeline_args(pipeline, input_dir, output_dir, opts)
             self._log_q.put(("line", f"$ {' '.join(args)}\n"))
             self._log_q.put(("line", f"Input  : {input_dir}\nOutput : {output_dir}\n"

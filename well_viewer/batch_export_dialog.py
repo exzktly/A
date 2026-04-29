@@ -1386,10 +1386,11 @@ class BarBatchExportPanel(BatchExportPanel):
     ):
         from matplotlib.figure import Figure as _Figure
 
-        fig = _Figure(figsize=(8, 7), dpi=300, facecolor=PLOT_BG)
-        ax_mean = fig.add_subplot(2, 1, 1)
-        ax_frac = fig.add_subplot(2, 1, 2)
-        fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.12,
+        fig = _Figure(figsize=(8, 10), dpi=300, facecolor=PLOT_BG)
+        ax_mean = fig.add_subplot(3, 1, 1)
+        ax_frac = fig.add_subplot(3, 1, 2)
+        ax_n = fig.add_subplot(3, 1, 3)
+        fig.subplots_adjust(hspace=0.55, top=0.94, bottom=0.10,
                             left=0.13, right=0.97)
         fig.suptitle(f"{grp.name}  \u2014  t = {tp_str} h",
                      fontsize=10, fontweight="bold", color=get_color("PLOT_TXT"), y=0.97)
@@ -1398,6 +1399,7 @@ class BarBatchExportPanel(BatchExportPanel):
                        f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
+        apply_ax_style(ax_n, "Cells per group (N)", "N")
         ax_frac.set_ylim(-0.05, 1.05)
 
         members: List[tuple] = []
@@ -1430,16 +1432,23 @@ class BarBatchExportPanel(BatchExportPanel):
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             xlabels.append(name)
             if matched:
-                _t, m, s, f, *extra = matched[0]
-                frac_spread = float(extra[0]) if extra else 0.0
+                pt = matched[0]
+                _t, m, s, f = pt[0], pt[1], pt[2], pt[3]
+                # AggPoint shape is (t, mean, spread, frac, n_above, n_total, frac_spread).
+                # frac_spread (index 6) is non-zero only when per_fov_spread is on.
+                # Indexing past the trailing field also tolerates older 6-tuple
+                # shapes that would have predated the field.
+                n_total = int(pt[5]) if len(pt) >= 6 else 0
+                frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
                 has_data = not math.isnan(m)
-                draw_items.append((name, name, m, s, f, frac_spread, has_data, color))
+                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_total))
             else:
-                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color))
+                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color, 0))
 
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             use_groups=True,
             items=draw_items,
             xlabels=xlabels,

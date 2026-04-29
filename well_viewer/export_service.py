@@ -90,7 +90,10 @@ def export_bar_plot_data(app) -> None:
     threshold = app._get_thresh_frac_on(ch)
     rows_out = []
     if use_groups:
-        for name, gm, g_err_m, gf, g_err_f, has, _ in items:
+        for item in items:
+            # Rep-set items are (name, gm, g_err_m, gf, g_err_f, has, color[, n_cells]).
+            name, gm, g_err_m, gf, g_err_f, has, _color = item[:7]
+            n_cells = int(item[7]) if len(item) >= 8 else 0
             rows_out.append({
                 "name": name,
                 "timepoint_h": tp_str,
@@ -98,17 +101,32 @@ def export_bar_plot_data(app) -> None:
                 f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
                 "fraction_above": f"{gf:.6f}" if not math.isnan(gf) else "",
                 f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not math.isnan(gf) else "",
+                "n_cells": str(n_cells),
                 "threshold": f"{threshold:.4f}",
                 "metric": metric,
             })
     else:
-        for label, mean, spread, frac, has in items:
+        for item in items:
+            # Per-well items are (label, mean, spread, frac, frac_spread, has[, n_cells]);
+            # tolerate older 5-/6-tuple shapes that predated frac_spread / n_cells.
+            if len(item) >= 7:
+                label, mean, spread, frac, frac_spread, has, n_cells = item[:7]
+                n_cells = int(n_cells)
+            elif len(item) == 6:
+                label, mean, spread, frac, frac_spread, has = item
+                n_cells = 0
+            else:
+                label, mean, spread, frac, has = item
+                frac_spread = 0.0
+                n_cells = 0
             rows_out.append({
                 "well": label,
                 "timepoint_h": tp_str,
                 f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not math.isnan(mean) else "",
                 f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
                 "fraction_above": f"{frac:.6f}" if has and not math.isnan(frac) else "",
+                f"err_frac_{band_lbl}": f"{frac_spread:.6f}" if has and not math.isnan(frac) else "",
+                "n_cells": str(n_cells),
                 "threshold": f"{threshold:.4f}",
                 "metric": metric,
             })
@@ -215,12 +233,29 @@ def save_montage_figure(app) -> None:
     use_display = tophat_on and hasattr(app, "_montage_fluor_display_arrays") and len(app._montage_fluor_display_arrays) == len(app._montage_fluor_arrays)
     fluor_source = app._montage_fluor_display_arrays if use_display else app._montage_fluor_arrays
     tp_list = [(tp, ref) for (f, tp), ref in sorted(app._preview_fluor.items()) if f == fov]
+    crop = getattr(app, "_montage_crop", None)
+
+    def _apply_crop(a):
+        """Slice ``a`` to the active montage crop, preserving channel axes."""
+        if crop is None or a is None:
+            return a
+        a = rt._np.asarray(a)
+        ih, iw = a.shape[:2]
+        y0, x0, y1, x1 = crop
+        y0 = max(0, min(int(y0), ih))
+        y1 = max(y0, min(int(y1), ih))
+        x0 = max(0, min(int(x0), iw))
+        x1 = max(x0, min(int(x1), iw))
+        if y1 <= y0 or x1 <= x0:
+            return a
+        return a[y0:y1, x0:x1]
+
     fig = _Figure(figsize=(max(4, n * 2.5), 5), dpi=300, facecolor=rt.PLOT_BG)
     for ci, ((tp, _), display_arr, ov_arr) in enumerate(zip(tp_list, fluor_source, app._montage_overlay_arrays)):
         ax_g = fig.add_subplot(2, n, ci + 1)
         ax_o = fig.add_subplot(2, n, n + ci + 1)
         if display_arr is not None and rt._NP_AVAILABLE:
-            arr = rt._np.asarray(display_arr, dtype=rt._np.float32)
+            arr = rt._np.asarray(_apply_crop(display_arr), dtype=rt._np.float32)
             alo = lo if lo is not None else float(arr.min())
             ahi = hi if hi is not None else float(arr.max())
             if ahi <= alo:
@@ -233,7 +268,7 @@ def save_montage_figure(app) -> None:
         if ci == 0:
             ax_g.set_ylabel(app._active_channel.upper(), fontsize=7, color=rt.TXT_PRI)
         if ov_arr is not None and rt._NP_AVAILABLE:
-            arr = rt._np.asarray(ov_arr)
+            arr = rt._np.asarray(_apply_crop(ov_arr))
             if arr.ndim == 2:
                 arr_f = arr.astype(rt._np.float32)
                 lo_o = ov_lo if ov_lo is not None else float(arr_f.min())

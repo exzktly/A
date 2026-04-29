@@ -30,7 +30,16 @@ def montage_tophat_done(app, filtered_arrays: list, partial: bool = False) -> No
         )
 
 
-def montage_auto_lut(app, redraw: bool = True) -> None:
+def montage_auto_lut(app, redraw: bool = True, force: bool = True) -> None:
+    """Recompute the fluor + overlay LUT line edits from loaded arrays.
+
+    When ``force`` is True (the default — used by the "Auto LUT" button),
+    each line edit is overwritten with the pooled min/max across the active
+    image source. When False (used by _refresh_preview_montage on well/FOV
+    change), the existing user-set values are preserved if they parse as
+    floats so the LUT survives navigation; only fields the user hasn't
+    populated get auto-filled.
+    """
     tophat_on = getattr(app, "_mon_tophat_cb", None) is not None and app._mon_tophat_cb.isChecked()
     display_arrays_exist = (
         tophat_on
@@ -41,12 +50,26 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
     source = [a for a in (app._montage_fluor_display_arrays if display_arrays_exist else app._montage_fluor_arrays) if a is not None]
     if not source:
         return
-    lo = min(float(app._np.asarray(a).min()) for a in source)
-    hi = max(float(app._np.asarray(a).max()) for a in source)
-    if hi <= lo:
-        hi = lo + 1.0
-    app._mon_lmin_edit.setText(f"{lo:.0f}")
-    app._mon_lmax_edit.setText(f"{hi:.0f}")
+
+    def _is_float_text(edit) -> bool:
+        try:
+            float(edit.text())
+            return True
+        except (ValueError, AttributeError):
+            return False
+
+    fluor_set = (
+        not force
+        and _is_float_text(app._mon_lmin_edit)
+        and _is_float_text(app._mon_lmax_edit)
+    )
+    if not fluor_set:
+        lo = min(float(app._np.asarray(a).min()) for a in source)
+        hi = max(float(app._np.asarray(a).max()) for a in source)
+        if hi <= lo:
+            hi = lo + 1.0
+        app._mon_lmin_edit.setText(f"{lo:.0f}")
+        app._mon_lmax_edit.setText(f"{hi:.0f}")
 
     # Overlay LUT: pool per-image min/max so the window is consistent across
     # timepoints, matching the fluor channel behaviour above.
@@ -55,12 +78,18 @@ def montage_auto_lut(app, redraw: bool = True) -> None:
     if ov_lmin_edit is not None and ov_lmax_edit is not None:
         ov_source = [a for a in getattr(app, "_montage_overlay_arrays", []) if a is not None]
         if ov_source:
-            ov_lo = min(float(app._np.asarray(a).min()) for a in ov_source)
-            ov_hi = max(float(app._np.asarray(a).max()) for a in ov_source)
-            if ov_hi <= ov_lo:
-                ov_hi = ov_lo + 1.0
-            ov_lmin_edit.setText(f"{ov_lo:.0f}")
-            ov_lmax_edit.setText(f"{ov_hi:.0f}")
+            overlay_set = (
+                not force
+                and _is_float_text(ov_lmin_edit)
+                and _is_float_text(ov_lmax_edit)
+            )
+            if not overlay_set:
+                ov_lo = min(float(app._np.asarray(a).min()) for a in ov_source)
+                ov_hi = max(float(app._np.asarray(a).max()) for a in ov_source)
+                if ov_hi <= ov_lo:
+                    ov_hi = ov_lo + 1.0
+                ov_lmin_edit.setText(f"{ov_lo:.0f}")
+                ov_lmax_edit.setText(f"{ov_hi:.0f}")
 
     if redraw:
         fov = app._preview_fov_cb.currentText()
@@ -111,18 +140,32 @@ def _show_image_pixel_tooltip(app, event, channel_label: str, label=None) -> Non
     sz_w = getattr(lbl, "_sz_w", lbl.width() if lbl else 1)
     sz_h = getattr(lbl, "_sz_h", lbl.height() if lbl else 1)
     arr = app._np.asarray(arr, dtype=app._np.float32)
-    ih, iw = arr.shape[:2]
-    scale = min(sz_w / max(iw, 1), sz_h / max(ih, 1))
-    nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+    full_h, full_w = arr.shape[:2]
+    crop = getattr(lbl, "_crop", None)
+    if crop is not None:
+        # Pixmap displays only the cropped region; scale and offset must be
+        # computed against the cropped dimensions, then offset back into
+        # full-image coords for the reported (x, y).
+        cy0, cx0, cy1, cx1 = crop
+        view_w = max(1, int(cx1) - int(cx0))
+        view_h = max(1, int(cy1) - int(cy0))
+        offset_y, offset_x = int(cy0), int(cx0)
+    else:
+        view_w, view_h = full_w, full_h
+        offset_y = offset_x = 0
+    scale = min(sz_w / max(view_w, 1), sz_h / max(view_h, 1))
+    nw, nh = max(1, int(view_w * scale)), max(1, int(view_h * scale))
     lw = lbl.width() if lbl else sz_w
     lh = lbl.height() if lbl else sz_h
     ex = int(event.position().x())
     ey = int(event.position().y())
-    img_x = (ex - (lw - nw) // 2) / max(scale, 1e-9)
-    img_y = (ey - (lh - nh) // 2) / max(scale, 1e-9)
-    if not (0 <= img_x < iw and 0 <= img_y < ih):
+    rel_x = (ex - (lw - nw) // 2) / max(scale, 1e-9)
+    rel_y = (ey - (lh - nh) // 2) / max(scale, 1e-9)
+    if not (0 <= rel_x < view_w and 0 <= rel_y < view_h):
         QToolTip.hideText()
         return
+    img_x = offset_x + rel_x
+    img_y = offset_y + rel_y
     val = float(arr[int(img_y), int(img_x)])
     extra = ""
     mask_arr = getattr(lbl, "_mask_arr", None)

@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QImage, QPixmap
+from PySide6.QtGui import QAction, QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -116,6 +116,21 @@ from well_viewer.image_resolver import (
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
 from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
 from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
+from well_viewer.image_table_controller import (
+    image_table_apply_dimensions as _it_apply_dimensions,
+    image_table_apply_global as _it_apply_global,
+    image_table_apply_row_channel as _it_apply_row_channel,
+    image_table_auto_lut as _it_auto_lut,
+    image_table_clear_active as _it_clear_active,
+    image_table_distribute_wells as _it_distribute_wells,
+    image_table_export as _it_export,
+    image_table_generate as _it_generate,
+    image_table_pick_well as _it_pick_well,
+    image_table_rebuild_grid as _it_rebuild_grid,
+    image_table_refresh_picker as _it_refresh_picker,
+    image_table_repopulate_dropdowns as _it_repopulate_dropdowns,
+    image_table_select_all as _it_select_all,
+)
 from well_viewer.lineplot_controller import redraw_line_plots as _lineplot_redraw
 from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
 from well_viewer.scatter_controller import redraw_scatter as _scatter_redraw
@@ -325,17 +340,47 @@ from well_viewer.views.well_button import WellButton as WellLabel, build_plate_g
 
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
-                   lo: Optional[float], hi: Optional[float]):
-    """Render a greyscale float32 array as a QPixmap with LUT [lo, hi]."""
+                   lo: Optional[float], hi: Optional[float],
+                   crop=None,
+                   tint: Optional[Tuple[float, float, float]] = None):
+    """Render a greyscale float32 array as a QPixmap with LUT [lo, hi].
+
+    When ``crop`` is a (y0, x0, y1, x1) tuple, the array is sliced to that
+    sub-region before LUT application and scaling so the resulting thumbnail
+    shows only the selected square area at the requested display size.
+
+    When ``tint`` is an ``(r, g, b)`` triple (each in 0..1), the LUT-clipped
+    intensity is multiplied by the tint to colour the thumbnail (black at 0,
+    full tint at the LUT max). When ``None`` (default), the result is
+    grayscale.
+    """
     if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr, dtype=_np.float32)
+    if crop is not None:
+        y0, x0, y1, x1 = crop
+        ih, iw = arr.shape[:2]
+        y0 = max(0, min(int(y0), ih))
+        y1 = max(y0, min(int(y1), ih))
+        x0 = max(0, min(int(x0), iw))
+        x1 = max(x0, min(int(x1), iw))
+        if y1 > y0 and x1 > x0:
+            arr = arr[y0:y1, x0:x1]
     alo = lo if lo is not None else float(arr.min())
     ahi = hi if hi is not None else float(arr.max())
     if ahi <= alo:
         ahi = alo + 1.0
     disp = ((_np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
-    rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    if tint is None:
+        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    else:
+        r, g, b = (max(0.0, min(1.0, float(c))) for c in tint)
+        df = disp.astype(_np.float32)
+        rgb = _np.stack([
+            (df * r).astype(_np.uint8),
+            (df * g).astype(_np.uint8),
+            (df * b).astype(_np.uint8),
+        ], axis=-1).copy()
     h, w, _ = rgb.shape
     qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
     pm = QPixmap.fromImage(qimg)
@@ -343,16 +388,28 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
 
 
 def make_overlay_thumb(arr, sz_w: int, sz_h: int,
-                       lo: Optional[float] = None, hi: Optional[float] = None):
+                       lo: Optional[float] = None, hi: Optional[float] = None,
+                       crop=None):
     """Render a 2-D or 3-D array as a QPixmap scaled to (sz_w, sz_h).
 
     If ``lo``/``hi`` are given they override the per-image auto range so the
     Movie Montage overlay LUT controls can tune brightness/contrast. For 3-D
     RGB overlays the [lo, hi] window is applied uniformly across channels.
+    When ``crop`` is supplied, the same (y0, x0, y1, x1) sub-region is used
+    so overlay thumbnails align with the cropped fluorescence thumbnails.
     """
     if arr is None or not _NP_AVAILABLE:
         return None
     arr = _np.asarray(arr)
+    if crop is not None:
+        y0, x0, y1, x1 = crop
+        ih, iw = arr.shape[:2]
+        y0 = max(0, min(int(y0), ih))
+        y1 = max(y0, min(int(y1), ih))
+        x0 = max(0, min(int(x0), iw))
+        x1 = max(x0, min(int(x1), iw))
+        if y1 > y0 and x1 > x0:
+            arr = arr[y0:y1, x0:x1]
     if arr.ndim == 2:
         arr_f = arr.astype(_np.float32)
         alo = lo if lo is not None else float(arr_f.min())
@@ -476,7 +533,17 @@ from well_viewer.data_loading import (
     merge_fluor_channels,
     normalize_channel_tokens,
     parse_timepoint_hours,
+    parse_well_token,
+    resolve_value,
     row_is_included,
+)
+from well_viewer.ratio_models import (
+    RatioMetric,
+    build_ratio_index,
+    is_ratio_key,
+    ratio_name_from_key,
+    ratios_from_dict,
+    ratios_to_dict,
 )
 
 
@@ -1141,6 +1208,18 @@ class WellViewerApp(QWidget):
         self._active_metric: str        = "mean_intensity"
         self._active_val_col: str       = "gfp_mean_intensity"
 
+        # Ratio metrics: user-defined virtual channels computed at read time.
+        # ``_ratio_index`` is the resolver-friendly dict keyed by ``ratio:<name>``
+        # and is rebuilt whenever the list changes.
+        self._ratio_metrics: List[RatioMetric] = []
+        self._ratio_index: Dict[str, RatioMetric] = {}
+
+        # Heatmap layouts: arbitrary R×C grids decoupled from the physical
+        # 8×12 plate. When empty, the heatmap controller synthesizes a plate
+        # layout on the fly.
+        self._heatmap_layouts: List = []
+        self._active_heatmap_layout_name: Optional[str] = None
+
         # Plot controls — widgets are assigned in _build_ui; keep placeholders
         # until then so callers can inspect default state.
         self._threshold_min = 0.0
@@ -1154,6 +1233,13 @@ class WellViewerApp(QWidget):
         self._use_sem = BoolVar(True)
         self._sem_btns: List = []
         self._sem_btn = None
+        # Per-FOV replicate toggle. When True (and no replicate sets are
+        # active), the bar/line plots compute the error band across per-FOV
+        # means within each well rather than across individual cells. The
+        # toggle is silently ignored whenever replicate sets are defined.
+        self._use_fov_replicates = BoolVar(False)
+        self._fov_btns: List = []
+        self._fov_btn = None
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
@@ -1216,6 +1302,20 @@ class WellViewerApp(QWidget):
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
         self._review_image_last_fluor_arr = None
         self._review_image_preserve_view_on_refresh: bool = False
+        # When True, the Review Image tab loads the unprocessed fluorescence
+        # frame; when False (default) it prefers the top-hat-filtered output.
+        self._review_image_show_raw: bool = False
+        self._review_image_raw_btn = None
+        # Movie Montage square-region crop. State lives in a CropTool
+        # instance; legacy attribute names are preserved as read-only
+        # delegates further down so existing readers (export_service,
+        # the montage redraw, etc.) keep working.
+        from well_viewer.crop_tool import CropTool as _CropTool
+        self._montage_crop_tool = _CropTool(
+            on_change=lambda: self._montage_redraw_at_zoom(),
+        )
+        self._montage_crop_btn = None
+        self._montage_crop_status_lbl = None
 
         self._build_ui()
         self._apply_theme()
@@ -1295,10 +1395,14 @@ class WellViewerApp(QWidget):
 
                 row["Included"] = include
 
+        # CRITICAL: Do NOT call _refresh_review_csv_rows() here. It rebuilds
+        # the Review CSV table by deep-copying every cached row across every
+        # well (``[dict(row) for row in self._get_rows(label)]``), which
+        # produces tens of thousands of new dicts per well and balloons RAM
+        # usage into the hundreds of GB on modestly-sized inputs. The Review
+        # CSV table refreshes on its own user-driven events; gating only
+        # needs to invalidate the stats cache.
         self._invalidate_stats_cache()
-        # Keep Review CSV table in sync whenever Included is recomputed.
-        if hasattr(self, "_refresh_review_csv_rows"):
-            self._refresh_review_csv_rows()
 
     def _get_thresh_frac_on(self, channel: Optional[str] = None) -> float:
         """Get ThreshFracOn threshold. Uses active channel if not specified."""
@@ -1325,6 +1429,13 @@ class WellViewerApp(QWidget):
         self._dir_label.setObjectName("Muted")
         top_layout.addWidget(self._dir_label)
         top_layout.addStretch(1)
+        ratios_btn = QPushButton("Ratios\u2026")
+        ratios_btn.setProperty("variant", "secondary")
+        ratios_btn.setToolTip(
+            "Define ratio metrics (e.g. GFP/mCherry) usable as virtual channels."
+        )
+        ratios_btn.clicked.connect(self._open_ratio_panel)
+        top_layout.addWidget(ratios_btn)
         open_btn = QPushButton("Open\u2026")
         open_btn.setProperty("variant", "primary")
         open_btn.clicked.connect(self._browse)
@@ -1356,10 +1467,12 @@ class WellViewerApp(QWidget):
         self._sidebar_groups_frame = QWidget()
         self._sidebar_bar_frame = QWidget()
         self._sidebar_preview_frame = QWidget()
+        self._sidebar_image_table_frame = QWidget()
         self._sidebar_sample_frame = QWidget()
         self._sidebar_stats_frame = QWidget()
         for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
-                  self._sidebar_preview_frame, self._sidebar_sample_frame,
+                  self._sidebar_preview_frame, self._sidebar_image_table_frame,
+                  self._sidebar_sample_frame,
                   self._sidebar_stats_frame):
             QVBoxLayout(w).setContentsMargins(0, 0, 0, 0)
             sidebar_layout.addWidget(w, 1)
@@ -1677,6 +1790,47 @@ class WellViewerApp(QWidget):
             clr_accent_dark=get_color("ACCENT_DARK"),
             extract_well_token_fn=_extract_well_token,
         )
+
+    # ── Image Table tab ───────────────────────────────────────────────────────
+
+    def _image_table_pick_well(self, tok: str) -> None:
+        _it_pick_well(self, tok)
+
+    def _image_table_refresh_picker(self) -> None:
+        _it_refresh_picker(self)
+
+    def _image_table_select_all(self) -> None:
+        _it_select_all(self)
+
+    def _image_table_clear_active(self) -> None:
+        _it_clear_active(self)
+
+    def _image_table_repopulate_dropdowns(self) -> None:
+        _it_repopulate_dropdowns(self)
+
+    def _image_table_apply_dimensions(self) -> None:
+        _it_apply_dimensions(self)
+
+    def _image_table_rebuild_grid(self) -> None:
+        _it_rebuild_grid(self)
+
+    def _image_table_apply_global(self, field: str) -> None:
+        _it_apply_global(self, field)
+
+    def _image_table_apply_row_channel(self, row_idx: int) -> None:
+        _it_apply_row_channel(self, row_idx)
+
+    def _image_table_distribute_wells(self) -> None:
+        _it_distribute_wells(self)
+
+    def _image_table_generate(self) -> None:
+        _it_generate(self)
+
+    def _image_table_auto_lut(self, channel: str) -> None:
+        _it_auto_lut(self, channel)
+
+    def _image_table_export(self) -> None:
+        _it_export(self)
 
     # ── Bar-plot grouping panel ───────────────────────────────────────────────
 
@@ -2665,6 +2819,144 @@ class WellViewerApp(QWidget):
         _logger.info("Bar groups loaded from %s (%d group(s))",
                      path_str, len(self._bar_groups))
 
+    def _open_ratio_panel(self) -> None:
+        """Open the ratio metric definition dialog."""
+        from well_viewer.views.ratio_panel_view import open_ratio_panel
+        open_ratio_panel(self, parent=self)
+
+    # ── Ratio metric persistence ─────────────────────────────────────────────
+
+    def _ratios_path(self) -> Optional[Path]:
+        if self._data_dir:
+            return self._data_dir / "ratios.json"
+        return None
+
+    def _ratios_save_to_data_dir(self) -> None:
+        path = self._ratios_path()
+        if path is None:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(ratios_to_dict(self._ratio_metrics), fh, indent=2)
+        except OSError as exc:
+            _logger.warning("Failed to save ratios to %s: %s", path, exc)
+
+    def _ratios_load_from_data_dir(self) -> None:
+        path = self._ratios_path()
+        if path is None or not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed to load ratios from %s: %s", path, exc)
+            return
+        self._set_ratio_metrics(ratios_from_dict(data))
+
+    # ── Heatmap layout persistence ───────────────────────────────────────────
+
+    def _heatmap_layouts_path(self) -> Optional[Path]:
+        if self._data_dir:
+            return self._data_dir / "heatmap_layouts.json"
+        return None
+
+    def _heatmap_layouts_save_to_data_dir(self) -> None:
+        path = self._heatmap_layouts_path()
+        if path is None:
+            return
+        layouts = list(getattr(self, "_heatmap_layouts", []) or [])
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump([lay.to_dict() for lay in layouts], fh, indent=2)
+        except OSError as exc:
+            _logger.warning("Failed to save heatmap layouts to %s: %s", path, exc)
+
+    def _heatmap_layouts_load_from_data_dir(self) -> None:
+        path = self._heatmap_layouts_path()
+        if path is None or not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed to load heatmap layouts from %s: %s", path, exc)
+            return
+        from well_viewer.heatmap_models import layouts_from_dict  # local import to avoid cycles
+        self._heatmap_layouts = layouts_from_dict(data)
+        if hasattr(self, "_heatmap_sidebar_table"):
+            try:
+                from well_viewer.views.heatmap_layout_sidebar_view import (
+                    refresh_heatmap_layout_sidebar,
+                )
+                refresh_heatmap_layout_sidebar(self)
+            except Exception:
+                pass
+
+    # ── Sample Definitions persistence (in pipeline_info.json) ────────────────
+
+    def _save_sample_definitions_to_pipeline_info(self) -> None:
+        """Merge well labels + groups into the pipeline_info.json sidecar."""
+        from well_viewer.sample_definitions import (
+            build_sample_definitions,
+            save_to_pipeline_info,
+        )
+        if not self._data_dir:
+            QMessageBox.warning(
+                self, "No data loaded",
+                "Open a data folder before saving sample definitions.",
+            )
+            return
+        block = build_sample_definitions(
+            self._well_labels,
+            self._rep_sets,
+            self._bar_groups,
+            extract_well_token=_extract_well_token,
+        )
+        try:
+            info_path = save_to_pipeline_info(self._data_dir, block)
+        except FileNotFoundError as exc:
+            QMessageBox.warning(self, "pipeline_info.json missing", str(exc))
+            return
+        except OSError as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))
+            return
+        self._set_status(
+            f"Sample definitions saved to {info_path.name}: "
+            f"{len(block['well_labels'])} label(s), "
+            f"{len(block['rep_sets'])} replicate set(s), "
+            f"{len(block['groups'])} group(s)."
+        )
+
+    def _load_sample_definitions_from_pipeline_info(self) -> bool:
+        """Apply any saved sample_definitions block in pipeline_info.json.
+
+        Returns True when a block was found and applied.
+        """
+        from well_viewer.sample_definitions import (
+            parse_groups_block,
+            parse_well_labels,
+            read_sample_definitions,
+        )
+        if not self._data_dir:
+            return False
+        block = read_sample_definitions(self._data_dir)
+        if not block:
+            return False
+        labels = parse_well_labels(block, valid_tokens=self._well_paths.keys())
+        if labels:
+            self._well_labels.update(labels)
+        rep_sets, bar_groups = parse_groups_block(
+            block, tok_to_label=self._tok_to_label,
+        )
+        if rep_sets or bar_groups:
+            self._rep_sets = rep_sets
+            self._bar_groups = bar_groups
+            self._active_rep_idx = -1
+            self._bar_active_grp = 0 if bar_groups else -1
+        if labels or rep_sets or bar_groups:
+            self._invalidate_stats_cache()
+        return True
+
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
         # Prune global replicate sets
@@ -2795,6 +3087,15 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_montage_zoom_lbl"):
             self._montage_zoom_lbl.setText("100%")
 
+        # Preserve _montage_crop and the user-set LUT across well/FOV changes
+        # so a region of interest stays selected as the user sweeps the data.
+        # The crop is in pixel coords; make_fluor_thumb already clamps it
+        # against each image's bounds, so a slightly off-image crop simply
+        # shrinks instead of erroring on differently-sized FOVs. Refresh the
+        # indicator so the status label still reflects the current crop.
+        if hasattr(self, "_refresh_montage_crop_indicator"):
+            self._refresh_montage_crop_indicator()
+
         # Clear previous content
         _clear_layout(self._montage_inner.layout())
         self._montage_photos.clear()
@@ -2905,7 +3206,9 @@ class WellViewerApp(QWidget):
         )
 
         self._montage_status.setText("")
-        self._montage_auto_lut(redraw=False)  # set initial LUT from data
+        # Preserve user-set LUT values across well/FOV changes; only auto-fill
+        # fluor/overlay LUTs when the line edits don't already hold a number.
+        self._montage_auto_lut(redraw=False, force=False)
         self._update_tophat_controls()        # sync UI to actual preload result
         self._draw_montage_thumbs([(tp, _) for tp, _ in fluor_refs])
 
@@ -3003,7 +3306,27 @@ class WellViewerApp(QWidget):
             w.wheelEvent = _wheel
             if is_fluor:
                 def _move(ev):
+                    # When mid-drag in crop mode, pump the rubber band update
+                    # instead of the pixel-tooltip helper so the box tracks
+                    # the cursor without flickering tooltips on top of it.
+                    if (
+                        getattr(self, "_montage_crop_mode", False)
+                        and self._montage_crop_drag is not None
+                    ):
+                        self._on_montage_crop_drag(ev)
+                        return
                     self._on_montage_fluor_motion(ev)
+                def _press(ev):
+                    if getattr(self, "_montage_crop_mode", False):
+                        self._on_montage_crop_press(w, ev)
+                        return
+                def _release(ev):
+                    if (
+                        getattr(self, "_montage_crop_mode", False)
+                        and self._montage_crop_drag is not None
+                    ):
+                        self._on_montage_crop_release(ev)
+                        return
                 def _leave(ev):
                     try:
                         self._montage_tooltip.hide()
@@ -3011,6 +3334,8 @@ class WellViewerApp(QWidget):
                         pass
                 w.setMouseTracking(True)
                 w.mouseMoveEvent = _move
+                w.mousePressEvent = _press
+                w.mouseReleaseEvent = _release
                 w.leaveEvent = _leave
 
         for col_idx, ((tp, _), fluor_arr, ov_arr) in enumerate(
@@ -3028,7 +3353,34 @@ class WellViewerApp(QWidget):
             fluor_cell_layout.setContentsMargins(1, 1, 1, 1)
             grid.addWidget(fluor_cell, 1, col_idx + 1)
             display_arr = fluor_arr
-            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi)
+            crop = getattr(self, "_montage_crop", None)
+            crop_mode = bool(getattr(self, "_montage_crop_mode", False))
+            # In crop-selection mode, render the FULL FOV with a box overlay
+            # showing where the active crop sits, so the user can always see
+            # where the selection will appear and adjust it. Outside crop
+            # mode, the thumbnail itself is the cropped/zoomed view.
+            apply_crop = crop if not crop_mode else None
+            pix_fluor = make_fluor_thumb(display_arr, sz_w, sz_h, lo, hi, crop=apply_crop)
+            if pix_fluor and crop_mode and crop is not None and display_arr is not None:
+                # Draw the active crop box on top of the full-FOV pixmap.
+                pm = QPixmap(pix_fluor)
+                painter = QPainter(pm)
+                pen = QPen(QColor(255, 80, 80))
+                pen.setWidth(2)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                ih, iw = _np.asarray(display_arr).shape[:2]
+                pw, ph = pm.width(), pm.height()
+                scale_x = pw / max(iw, 1)
+                scale_y = ph / max(ih, 1)
+                y0, x0, y1, x1 = crop
+                rx = int(round(x0 * scale_x))
+                ry = int(round(y0 * scale_y))
+                rw = max(1, int(round((x1 - x0) * scale_x)))
+                rh = max(1, int(round((y1 - y0) * scale_y)))
+                painter.drawRect(rx, ry, rw, rh)
+                painter.end()
+                pix_fluor = pm
             if pix_fluor:
                 self._montage_photos.append(pix_fluor)
                 lbl_fluor = QLabel()
@@ -3039,6 +3391,10 @@ class WellViewerApp(QWidget):
                 lbl_fluor._sz_h    = sz_h        # type: ignore[attr-defined]
                 lbl_fluor._lo      = lo          # type: ignore[attr-defined]
                 lbl_fluor._hi      = hi          # type: ignore[attr-defined]
+                # When painting the full FOV with an overlay, leave _crop
+                # unset so the pixel-tooltip / rubber-band coord conversions
+                # operate against the full image.
+                lbl_fluor._crop    = apply_crop  # type: ignore[attr-defined]
                 fluor_cell_layout.addWidget(lbl_fluor)
                 _install_montage_events(lbl_fluor, is_fluor=True)
             else:
@@ -3071,7 +3427,29 @@ class WellViewerApp(QWidget):
             ov_cell_layout = QVBoxLayout(ov_cell)
             ov_cell_layout.setContentsMargins(1, 1, 1, 1)
             grid.addWidget(ov_cell, 2, col_idx + 1)
-            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi)
+            pix_ov = make_overlay_thumb(ov_arr, sz_w, sz_h, ov_lo, ov_hi, crop=apply_crop)
+            if pix_ov and crop_mode and crop is not None and ov_arr is not None:
+                # Mirror the box overlay on the overlay row so the user can
+                # see the same selection on both fluor and segmentation.
+                pm = QPixmap(pix_ov)
+                painter = QPainter(pm)
+                pen = QPen(QColor(255, 80, 80))
+                pen.setWidth(2)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                _ov_arr_np = _np.asarray(ov_arr)
+                ih, iw = _ov_arr_np.shape[:2]
+                pw, ph = pm.width(), pm.height()
+                scale_x = pw / max(iw, 1)
+                scale_y = ph / max(ih, 1)
+                y0, x0, y1, x1 = crop
+                rx = int(round(x0 * scale_x))
+                ry = int(round(y0 * scale_y))
+                rw = max(1, int(round((x1 - x0) * scale_x)))
+                rh = max(1, int(round((y1 - y0) * scale_y)))
+                painter.drawRect(rx, ry, rw, rh)
+                painter.end()
+                pix_ov = pm
             if pix_ov:
                 self._montage_photos.append(pix_ov)
                 lbl_ov = QLabel()
@@ -3096,6 +3474,42 @@ class WellViewerApp(QWidget):
     # _montage_make_thumb and _montage_make_overlay_thumb replaced by
     # module-level make_fluor_thumb() / make_overlay_thumb()
 
+    # ── Movie Montage square-region crop (delegates to CropTool) ─────────────
+
+    @property
+    def _montage_crop(self):
+        return self._montage_crop_tool.crop
+
+    @property
+    def _montage_crop_mode(self) -> bool:
+        return self._montage_crop_tool.mode
+
+    @property
+    def _montage_crop_drag(self):
+        # Legacy read-only flag: existing dispatchers only test for None-ness.
+        return True if self._montage_crop_tool.is_dragging else None
+
+    def _montage_label_to_image_xy(self, label, lx: int, ly: int):
+        return self._montage_crop_tool.label_to_image_xy(label, lx, ly)
+
+    def _on_montage_crop_press(self, label, event) -> None:
+        self._montage_crop_tool.begin_drag(label, event)
+
+    def _on_montage_crop_drag(self, event) -> None:
+        self._montage_crop_tool.update_drag(event)
+
+    def _on_montage_crop_release(self, event) -> None:
+        self._montage_crop_tool.end_drag(event)
+
+    def _toggle_montage_crop_mode(self) -> None:
+        self._montage_crop_tool.toggle_mode()
+
+    def _clear_montage_crop(self) -> None:
+        self._montage_crop_tool.clear()
+
+    def _refresh_montage_crop_indicator(self) -> None:
+        self._montage_crop_tool._refresh_indicator()
+
     def _montage_tophat_toggled(self) -> None:
         from well_viewer.preview_callbacks import montage_tophat_toggled as _montage_tophat_toggled
 
@@ -3104,8 +3518,8 @@ class WellViewerApp(QWidget):
     def _montage_tophat_done(self, filtered_arrays: list, partial: bool = False) -> None:
         _montage_tophat_done_controller(self, filtered_arrays, partial=partial)
 
-    def _montage_auto_lut(self, redraw: bool = True) -> None:
-        _montage_auto_lut_controller(self, redraw=redraw)
+    def _montage_auto_lut(self, redraw: bool = True, force: bool = True) -> None:
+        _montage_auto_lut_controller(self, redraw=redraw, force=force)
 
     def _on_montage_canvas_resize(self, _e=None) -> None:
         _on_montage_canvas_resize_controller(self, _e)
@@ -3617,14 +4031,20 @@ class WellViewerApp(QWidget):
         if self._active_metric == "smfish_count" and self._active_channel not in self._smfish_channels:
             self._active_metric = "mean_intensity"
 
-        # Derive _active_val_col from active channel and metric
-        self._active_val_col = f"{self._active_channel}_{self._active_metric}"
+        # Derive _active_val_col from active channel and metric (skip when
+        # a ratio is active — the ratio key already lives in _active_val_col).
+        if not is_ratio_key(self._active_val_col):
+            self._active_val_col = f"{self._active_channel}_{self._active_metric}"
 
-        # Update metric selector visibility (both line and bar tabs)
+        # Update metric selector visibility (both line and bar tabs).
+        # Hidden when a ratio is active or when the channel has no smFISH metric.
+        ratio_active = is_ratio_key(self._active_val_col)
         for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
             if hasattr(self, frame_attr):
                 frame = getattr(self, frame_attr)
-                frame.setVisible(self._active_channel in self._smfish_channels)
+                frame.setVisible(
+                    (not ratio_active) and (self._active_channel in self._smfish_channels)
+                )
 
         # Always refresh timepoint menus regardless of whether intensity
         # values exist — single-timepoint experiments still need the bar menu.
@@ -3632,6 +4052,18 @@ class WellViewerApp(QWidget):
             self._update_bar_tp_menu()
         if hasattr(self, "_stats_tp_cb"):
             self._stats_update_tp_menu()
+        if hasattr(self, "_distribution_tp_cb"):
+            try:
+                from well_viewer.tabs.distribution_tab_view import refresh_distribution_timepoints
+                refresh_distribution_timepoints(self)
+            except Exception:
+                _logger.exception("Distribution timepoint refresh failed")
+        if hasattr(self, "_heatmap_tp_slider"):
+            try:
+                from well_viewer.tabs.heatmap_tab_view import refresh_heatmap_timepoints
+                refresh_heatmap_timepoints(self)
+            except Exception:
+                _logger.exception("Heatmap timepoint refresh failed")
 
         all_vals = [v for lbl in self._well_paths
                     for v in _all_fluor_values(self._get_rows(lbl),
@@ -3649,28 +4081,113 @@ class WellViewerApp(QWidget):
             # Load saved ThreshFracOn values
             self._cell_gating_tab._load_threshold_frac_on()
 
+    # ── Ratio metric helpers ─────────────────────────────────────────────────
+
+    def _ratio_label_for(self, ratio: RatioMetric) -> str:
+        """Return the dropdown label for a ratio (e.g. ``"GFP/MCHERRY"``).
+
+        Disambiguates by appending ``[name]`` if two ratios share a label.
+        """
+        base = ratio.display_label()
+        same_base = [r for r in self._ratio_metrics if r.display_label() == base]
+        if len(same_base) > 1:
+            return f"{base} [{ratio.name}]"
+        return base
+
+    def _ratio_dropdown_labels(self) -> List[str]:
+        return [self._ratio_label_for(r) for r in self._ratio_metrics]
+
+    def _channel_key_for_label(self, label: str) -> str:
+        """Map a dropdown label back to the ``_set_active_channel`` argument.
+
+        Real channels return their lowercase token; ratios return their
+        ``ratio:<name>`` key.
+        """
+        mapping = getattr(self, "_label_to_channel_key", None) or {}
+        if label in mapping:
+            return mapping[label]
+        # Fallback: assume real channel (legacy callers).
+        return str(label or "").lower()
+
+    def _active_channel_label(self) -> str:
+        """Return the dropdown label corresponding to the active channel."""
+        if is_ratio_key(self._active_val_col):
+            ratio_name = ratio_name_from_key(self._active_val_col)
+            for r in self._ratio_metrics:
+                if r.name == ratio_name:
+                    return self._ratio_label_for(r)
+            return ratio_name.upper()
+        return self._active_channel.upper()
+
+    def _rebuild_ratio_index(self) -> None:
+        """Refresh the resolver-friendly ratio index and any dependent UI."""
+        self._ratio_index = build_ratio_index(self._ratio_metrics)
+        # If the active val_col references a deleted ratio, fall back to the
+        # first real fluorescence channel so plots stay valid.
+        if is_ratio_key(self._active_val_col) and self._active_val_col not in self._ratio_index:
+            fallback = (self._fluor_channels or ["gfp"])[0]
+            self._active_channel = fallback
+            self._active_val_col = f"{fallback}_{self._active_metric}"
+        if hasattr(self, "_update_channel_selector"):
+            self._update_channel_selector()
+        self._invalidate_stats_cache()
+        if hasattr(self, "_redraw"):
+            try:
+                self._redraw()
+            except Exception:
+                pass
+
+    def _set_ratio_metrics(self, ratios: Iterable[RatioMetric]) -> None:
+        """Replace the ratio list and rebuild the index + UI."""
+        self._ratio_metrics = list(ratios)
+        self._rebuild_ratio_index()
+
+    # ── Active channel ───────────────────────────────────────────────────────
+
     def _set_active_channel(self, channel: str) -> None:
-        """Switch the active fluorescent channel and redraw all plots."""
+        """Switch the active fluorescent channel and redraw all plots.
+
+        ``channel`` may be a real channel token (e.g. ``"gfp"``) or a ratio
+        key (``"ratio:<name>"``). Ratios bypass the per-channel metric
+        selector and route reads through ``resolve_value``.
+        """
         if not channel or channel == "—":
             return
-        if channel == self._active_channel:
-            return
-        self._active_channel = channel
-        # Reset metric to mean_intensity if new channel doesn't have smfish_count
-        if channel not in self._smfish_channels:
-            self._active_metric = "mean_intensity"
-        # Derive val_col from channel and metric
-        self._active_val_col = f"{channel}_{self._active_metric}"
-        # Keep both plot-tab channel selectors in sync so switching channel
-        # on one tab is reflected on the other.
-        ch_upper = channel.upper()
-        for attr in ("_chan_cb_line", "_chan_cb_bar"):
+        ratio_active = is_ratio_key(channel)
+        if ratio_active:
+            ratio_name = ratio_name_from_key(channel)
+            ratio = next((r for r in self._ratio_metrics if r.name == ratio_name), None)
+            if ratio is None:
+                return
+            new_val_col = ratio.key()
+            if new_val_col == self._active_val_col:
+                return
+            self._active_channel = ratio_name
+            self._active_val_col = new_val_col
+            # Hide the per-cell metric selector — ratios encode their own metrics.
+            for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
+                frame = getattr(self, frame_attr, None)
+                if frame is not None:
+                    frame.setVisible(False)
+        else:
+            if channel == self._active_channel and not is_ratio_key(self._active_val_col):
+                return
+            self._active_channel = channel
+            # Reset metric to mean_intensity if new channel doesn't have smfish_count
+            if channel not in self._smfish_channels:
+                self._active_metric = "mean_intensity"
+            # Derive val_col from channel and metric
+            self._active_val_col = f"{channel}_{self._active_metric}"
+        # Keep all plot-tab channel selectors in sync so switching channel
+        # on one tab is reflected on the others.
+        target_label = self._active_channel_label()
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution", "_chan_cb_heatmap"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
-            if str(cb.currentText() or "") == ch_upper:
+            if str(cb.currentText() or "") == target_label:
                 continue
-            idx = cb.findText(ch_upper)
+            idx = cb.findText(target_label)
             if idx >= 0:
                 blocked = cb.blockSignals(True)
                 try:
@@ -3684,9 +4201,9 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
         if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.setText(f"({ch_upper} x range)")
+            self._cdf_chan_lbl.setText(f"({target_label} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.setText(f"{ch_upper} y:")
+            self._bar_ylim_chan_lbl.setText(f"{target_label} y:")
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
@@ -3778,7 +4295,9 @@ class WellViewerApp(QWidget):
                 label = ""
         if not label:
             label = self._plot_chan_var.get()
-        self._set_active_channel(label.lower())
+        # Route real channels and ratios via the label→key map so ratio
+        # selections (e.g. "GFP/MCHERRY") resolve to a ``ratio:<name>`` key.
+        self._set_active_channel(self._channel_key_for_label(label))
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
@@ -3819,7 +4338,15 @@ class WellViewerApp(QWidget):
 
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
-        labels = [ch.upper() for ch in self._fluor_channels] or ["—"]
+        real_labels = [ch.upper() for ch in self._fluor_channels]
+        ratio_labels = self._ratio_dropdown_labels()
+        labels = (real_labels + ratio_labels) or ["—"]
+        # Map the uppercase dropdown label back to the underlying channel key
+        # used by ``_set_active_channel`` (real channels stay lowercase; ratio
+        # entries use the ``ratio:<name>`` key so the resolver can route them).
+        self._label_to_channel_key = {ch.upper(): ch for ch in self._fluor_channels}
+        for r in self._ratio_metrics:
+            self._label_to_channel_key[self._ratio_label_for(r)] = r.key()
         # Montage/preview includes the segmentation channel token.
         seg_tok = getattr(self, "_seg_channel_token", "")
         montage_chans = list(self._fluor_channels)
@@ -3831,11 +4358,15 @@ class WellViewerApp(QWidget):
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
                 _set_combo_values(getattr(self, attr), labels)
+        if hasattr(self, "_chan_cb_distribution"):
+            _set_combo_values(self._chan_cb_distribution, labels)
+        if hasattr(self, "_chan_cb_heatmap"):
+            _set_combo_values(self._chan_cb_heatmap, labels)
         if hasattr(self, "_chan_cb_preview"):
             _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
             _set_combo_values(self._review_image_chan_cb, review_labels)
-        active_label = self._active_channel.upper()
+        active_label = self._active_channel_label()
 
         def _pick_valid(current: str, candidates: List[str], fallback_label: str) -> str:
             if current in candidates and current != "—":
@@ -3866,7 +4397,7 @@ class WellViewerApp(QWidget):
         # Keep active channel anchored to a valid plot channel.
         if active_label not in labels:
             if plot_label != "—":
-                self._set_active_channel(plot_label.lower())
+                self._set_active_channel(self._channel_key_for_label(plot_label))
             else:
                 self._active_channel = ""
 
@@ -3900,6 +4431,50 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_notebook"):
             if self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
                 self._redraw_bars()
+
+    # ── Per-FOV-replicates toggle ────────────────────────────────────────────
+
+    def _fov_replicates_available(self) -> bool:
+        """Per-FOV spread is only meaningful when no replicate sets are active."""
+        return not self._rep_sets_active()
+
+    def _use_fov_spread_active(self) -> bool:
+        """Effective state of the per-FOV-replicates toggle for plotting."""
+        return bool(self._use_fov_replicates.get()) and self._fov_replicates_available()
+
+    def _toggle_fov_replicates(self) -> None:
+        if not self._fov_replicates_available():
+            # Pressing the button when replicate sets exist is a no-op; just
+            # re-sync the visual state in case it got out of sync.
+            self._refresh_fov_btn_state()
+            return
+        self._use_fov_replicates.set(not self._use_fov_replicates.get())
+        self._invalidate_stats_cache()
+        self._refresh_fov_btn_state()
+        self._redraw()
+        if hasattr(self, "_notebook") and self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
+            self._redraw_bars()
+
+    def _refresh_fov_btn_state(self) -> None:
+        """Sync every per-FOV toggle button's enabled/text/variant state."""
+        available = self._fov_replicates_available()
+        is_on = bool(self._use_fov_replicates.get()) and available
+        text = "FOV ✓" if is_on else "FOV"
+        variant = "toggle_active" if is_on else ("toggle" if available else "toggle_muted")
+        tooltip = (
+            "Compute error bands across per-FOV means within each well.\n"
+            "Disabled while replicate sets are active."
+            if not available else
+            "Compute error bands across per-FOV means within each well\n"
+            "instead of across individual cells. Pairs with the SEM/SD toggle."
+        )
+        for btn in list(getattr(self, "_fov_btns", []) or []):
+            btn.setEnabled(available)
+            btn.setText(text)
+            btn.setToolTip(tooltip)
+            btn.setProperty("variant", variant)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     # ── Well selection (plate-map backed) ─────────────────────────────────────
 
@@ -4139,15 +4714,29 @@ class WellViewerApp(QWidget):
         return tp_values
 
     def _review_resolve_image_refs(self, *, fov_raw: str, tp_raw: str):
-        """Resolve (fluor_ref, mask_ref), preferring top-hat if available."""
+        """Resolve (fluor_ref, mask_ref).
+
+        Honors ``_review_image_show_raw``: when True, prefer the unprocessed
+        fluorescence channel and fall back to the top-hat-filtered output if
+        the raw frame is unavailable; when False (default), prefer top-hat
+        and fall back to raw — the original behaviour. Falling back rather
+        than failing keeps Review Image usable on datasets that only ship
+        one of the two image kinds for a given FOV/timepoint.
+        """
+        raw_first = bool(getattr(self, "_review_image_show_raw", False))
+        tophat_map = getattr(self, "_preview_tophat_fluor", {})
+        raw_map = self._preview_fluor
+        if raw_first:
+            primary, fallback = raw_map, tophat_map
+        else:
+            primary, fallback = tophat_map, raw_map
         fluor_ref = _resolve_ref_by_fov_tp(
-            getattr(self, "_preview_tophat_fluor", {}),
-            fov_raw=fov_raw, tp_raw=tp_raw,
+            primary, fov_raw=fov_raw, tp_raw=tp_raw,
             norm_timepoint=self._norm_timepoint,
         )
         if fluor_ref is None:
             fluor_ref = _resolve_ref_by_fov_tp(
-                self._preview_fluor, fov_raw=fov_raw, tp_raw=tp_raw,
+                fallback, fov_raw=fov_raw, tp_raw=tp_raw,
                 norm_timepoint=self._norm_timepoint,
             )
         mask_ref = _resolve_ref_by_fov_tp(
@@ -4155,6 +4744,38 @@ class WellViewerApp(QWidget):
             norm_timepoint=self._norm_timepoint,
         )
         return fluor_ref, mask_ref
+
+    def _toggle_review_image_source(self) -> None:
+        """Flip raw vs top-hat preference for the Review Image fluorescence channel."""
+        self._review_image_show_raw = not bool(getattr(self, "_review_image_show_raw", False))
+        # The LUT range for raw vs top-hat differs significantly, so drop the
+        # cached LUT for the active channel so the new image gets a fresh
+        # auto-fit instead of a stale clip.
+        chan = str(getattr(self, "_active_image_channel", "") or "").lower()
+        if chan in self._review_image_lut_by_channel:
+            del self._review_image_lut_by_channel[chan]
+        self._refresh_review_image_source_btn()
+        self._review_image_preserve_view_on_refresh = True
+        self._refresh_review_image()
+
+    def _refresh_review_image_source_btn(self) -> None:
+        """Sync the raw/top-hat toggle button's caption + variant with state."""
+        btn = getattr(self, "_review_image_raw_btn", None)
+        if btn is None:
+            return
+        on = bool(getattr(self, "_review_image_show_raw", False))
+        btn.setChecked(on)
+        btn.setText("Raw" if on else "Top-hat")
+        btn.setProperty("variant", "toggle")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+        btn.setToolTip(
+            "Showing the unprocessed fluorescence frame.\n"
+            "Click to switch back to the top-hat-filtered image."
+            if on else
+            "Showing the top-hat-filtered fluorescence frame (default).\n"
+            "Click to switch to the unprocessed raw image."
+        )
 
     def _review_build_include_map(
         self, mask_arr, well: str, fov: str, tp: str,
@@ -4164,8 +4785,10 @@ class WellViewerApp(QWidget):
         include_by_nid: Dict[int, bool] = {
             int(nid): True for nid in _np.unique(center) if int(nid) > 0
         }
-        rows = self._review_load_rows(well)
-        for row in rows:
+        # Iterate the canonical cached rows in place — never deep-copy them.
+        # On a 6-well x ~10k-cell dataset this used to allocate ~60k transient
+        # dicts per refresh, which dominated Review Image RAM growth.
+        for row in self._review_load_rows(well):
             row_fov, row_tp, row_nid = self._review_row_keys(row)
             if row_fov != fov or row_tp != tp or not row_nid:
                 continue
@@ -4173,7 +4796,7 @@ class WellViewerApp(QWidget):
                 nid = int(float(row_nid))
             except Exception:
                 continue
-            incl = str(row.get("Included", "1")).strip()
+            incl = self._review_effective_included(well, row).strip()
             include_by_nid[nid] = (incl != "0")
         return include_by_nid
 
@@ -4352,10 +4975,19 @@ class WellViewerApp(QWidget):
             (center != padded[1:-1, :-2]) |
             (center != padded[1:-1, 2:])
         )
-        include_mask = _np.zeros(center.shape, dtype=bool)
-        for nid, included in include_by_nid.items():
-            if included:
-                include_mask |= (center == nid)
+        # Build the inclusion mask via a single np.isin pass over the label
+        # image. The previous per-nucleus loop allocated a fresh image-sized
+        # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
+        # with ~1000 cells per FOV churned ~4 GB of transient bool arrays
+        # per refresh. Most got GC'd, but Linux's allocator does not return
+        # those pages to the OS, so RSS grew on every click. np.isin runs
+        # the comparison in C with O(image_pixels) extra memory.
+        included_ids = [int(nid) for nid, inc in include_by_nid.items() if inc]
+        if included_ids:
+            included_arr = _np.fromiter(included_ids, dtype=center.dtype, count=len(included_ids))
+            include_mask = _np.isin(center, included_arr)
+        else:
+            include_mask = _np.zeros(center.shape, dtype=bool)
         draw_boundary = boundary & include_mask
         rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
         sel_nid = self._review_image_selected_nucleus
@@ -4549,7 +5181,11 @@ class WellViewerApp(QWidget):
         prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
         prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
         prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
-        self._refresh_review_csv_rows()
+        # Skip a full Review CSV table rebuild here — the user is on the
+        # Review Image tab and rebuilding tens of thousands of QTableWidgetItems
+        # per click was the dominant memory leak. The table reads the effective
+        # Included via override on the next refresh (combobox change / Refresh
+        # button / well-selection change), so the value is never lost.
         self._refresh_review_image()
         self._review_image_zoom = prev_zoom
         self._review_image_pan_x = prev_pan_x
@@ -4634,6 +5270,22 @@ class WellViewerApp(QWidget):
 
         apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
 
+        # Redraw the Distribution and Heat Map tabs if they have been built —
+        # both follow the active channel/metric/threshold so they need to track
+        # the same state changes that drive the line plot.
+        if hasattr(self, "_distribution_canvas"):
+            try:
+                from well_viewer.distribution_controller import redraw_distribution
+                redraw_distribution(self)
+            except Exception:
+                _logger.exception("Distribution redraw failed")
+        if hasattr(self, "_heatmap_canvas"):
+            try:
+                from well_viewer.heatmap_controller import redraw_heatmap
+                redraw_heatmap(self)
+            except Exception:
+                _logger.exception("Heat map redraw failed")
+
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
     def _on_tab_change(self, _e=None) -> None:
@@ -4646,9 +5298,16 @@ class WellViewerApp(QWidget):
 
         self._sidebar_main_frame.setVisible(False)
         self._sidebar_preview_frame.setVisible(False)
+        if hasattr(self, "_sidebar_image_table_frame"):
+            self._sidebar_image_table_frame.setVisible(False)
         self._sidebar_sample_frame.setVisible(False)
         self._sidebar_groups_frame.setVisible(False)
         self._sidebar_stats_frame.setVisible(False)
+        # Heat-map layout configurator lives inside the standard sidebar
+        # but is only relevant on the Heat Map tab. Hide by default so the
+        # other tabs keep their familiar sidebar layout.
+        if hasattr(self, "_heatmap_sidebar_frame"):
+            self._heatmap_sidebar_frame.setVisible(tab == "Heat Map")
 
         if tab == "Movie Montage":
             self._sync_preview_well_for_image_tabs()
@@ -4662,6 +5321,12 @@ class WellViewerApp(QWidget):
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
             self._refresh_review_image()
+
+        elif tab == "Image Table":
+            if hasattr(self, "_sidebar_image_table_frame"):
+                self._sidebar_image_table_frame.setVisible(True)
+            self._image_table_repopulate_dropdowns()
+            self._image_table_refresh_picker()
 
         elif tab == "Sample Definitions":
             self._sidebar_sample_frame.setVisible(True)
@@ -4737,6 +5402,14 @@ class WellViewerApp(QWidget):
                 self._update_scatter_menus()
                 self._redraw_scatter_agg()
             else:
+                if tab == "Heat Map" and hasattr(self, "_heatmap_sidebar_frame"):
+                    try:
+                        from well_viewer.views.heatmap_layout_sidebar_view import (
+                            refresh_heatmap_layout_sidebar,
+                        )
+                        refresh_heatmap_layout_sidebar(self)
+                    except Exception:
+                        _logger.exception("Heatmap sidebar refresh failed")
                 self._redraw()
 
         self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
@@ -4925,33 +5598,76 @@ class WellViewerApp(QWidget):
         table.setHorizontalHeaderLabels(cols)
         for ci in range(len(cols)):
             table.setColumnWidth(ci, 120)
+        # Rows are now references into the per-well row caches (no deep copy),
+        # so row['Included'] reflects the gating-computed value, not any user
+        # override applied via the Review Image tab. Compute the effective
+        # value at display time so the table mirrors what the image overlay
+        # shows.
+        try:
+            included_col = cols.index("Included")
+        except ValueError:
+            included_col = -1
         for row in filtered:
             r = table.rowCount()
             table.insertRow(r)
+            well_label = str(row.get("well", "") or "")
             for ci, c in enumerate(cols):
-                table.setItem(r, ci, QTableWidgetItem(str(row.get(c, ""))))
+                if ci == included_col and well_label:
+                    value = self._review_effective_included(well_label, row)
+                else:
+                    value = row.get(c, "")
+                table.setItem(r, ci, QTableWidgetItem(str(value)))
         self._review_csv_msg_lbl.setText(f"Showing {len(filtered):,} row(s).")
 
-    def _review_load_rows(self, label: str) -> List[dict]:
-        try:
-            # Use cached/parsed rows so Review CSV reflects runtime-added columns
-            # (e.g. Included) and latest gating-driven inclusion updates.
-            rows = [dict(row) for row in self._get_rows(label)]
+    def _review_normalize_row(self, label: str, row: dict) -> None:
+        """Idempotently upgrade a cached row to canonical review form, in place.
+
+        Adds a 'well' field, promotes legacy 'included' to canonical 'Included',
+        and removes the legacy key. Safe to call repeatedly.
+        """
+        if "well" not in row:
             tok = self._extract_well_token(label) or label
+            row["well"] = tok
+        if "Included" not in row:
+            legacy = str(row.get("included", "")).strip()
+            row["Included"] = legacy or "1"
+        if "included" in row:
+            row.pop("included", None)
+
+    def _review_effective_included(self, label: str, row: dict) -> str:
+        """Effective Included value for a cached row.
+
+        User overrides set via the Review Image tab take precedence over the
+        gating-computed ``Included`` field stored on the cached row. Overrides
+        are kept in a separate dict so they survive subsequent gating recomputes
+        (which rewrite the canonical row['Included']).
+        """
+        fov, tp, nid = self._review_row_keys(row)
+        if fov and tp and nid:
+            ovr = self._review_included_overrides.get((label, fov, tp, nid))
+            if ovr is not None:
+                return ovr
+        return str(row.get("Included", "1"))
+
+    def _review_load_rows(self, label: str) -> List[dict]:
+        """Return the canonical cached rows for ``label`` (no copies).
+
+        Each row is lazily normalized on first access. The returned list is the
+        live cache list — callers must NOT mutate row contents beyond the
+        canonical 'well'/'Included' fields, and must use
+        ``_review_effective_included`` instead of reading row['Included']
+        directly when they want overrides applied.
+
+        Avoiding the per-call ``[dict(row) for row ...]`` deep copy is
+        critical: with thousands of cells per well across multiple wells, the
+        previous behavior allocated tens of thousands of new dicts on every
+        Review Image / Review CSV refresh and pinned hundreds of MB of RAM
+        until the next major GC.
+        """
+        try:
+            rows = self._get_rows(label)
             for row in rows:
-                row.setdefault("well", tok)
-                if "Included" not in row:
-                    # Canonical review flag column; defaults to included.
-                    # Promote legacy lowercase field if present.
-                    row["Included"] = str(row.get("included", "")).strip() or "1"
-                if "included" in row:
-                    row.pop("included", None)
-                fov, tp, nid = self._review_row_keys(row)
-                if fov and tp and nid:
-                    key = (label, fov, tp, nid)
-                    override = self._review_included_overrides.get(key)
-                    if override is not None:
-                        row["Included"] = override
+                self._review_normalize_row(label, row)
             return rows
         except Exception:
             return []
@@ -4992,12 +5708,13 @@ class WellViewerApp(QWidget):
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
 
     def _bar_event_xdata(self, event) -> "Optional[float]":
-        """Return data-x for a matplotlib MouseEvent over either bar axis.
+        """Return data-x for a matplotlib MouseEvent over any bar axis.
 
-        Returns None if the cursor is outside the bar plot axes.
+        Accepts events on the mean, fraction, or N panels. Returns None if
+        the cursor is outside the bar plot axes.
         """
         ax = getattr(event, "inaxes", None)
-        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac:
+        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac and ax is not getattr(self, "_ax_bar_n", None):
             return None
         xdata = getattr(event, "xdata", None)
         if xdata is None:
@@ -5056,7 +5773,9 @@ class WellViewerApp(QWidget):
         ds["cur_idx"] = tgt
 
         # Draw a vertical guide line in both axes at the drop position
-        for ax in (self._ax_bar_mean, self._ax_bar_frac):
+        for ax in (self._ax_bar_mean, self._ax_bar_frac, getattr(self, "_ax_bar_n", None)):
+            if ax is None:
+                continue
             for ln in list(ax.lines):
                 if getattr(ln, "_bar_drag_guide", False):
                     ln.remove()
@@ -5077,7 +5796,9 @@ class WellViewerApp(QWidget):
         ds["active"] = False
 
         # Remove guide lines
-        for ax in (self._ax_bar_mean, self._ax_bar_frac):
+        for ax in (self._ax_bar_mean, self._ax_bar_frac, getattr(self, "_ax_bar_n", None)):
+            if ax is None:
+                continue
             for ln in list(ax.lines):
                 if getattr(ln, "_bar_drag_guide", False):
                     ln.remove()
@@ -5360,8 +6081,11 @@ class WellViewerApp(QWidget):
         """Draw bar/violin/beeswarm views for the selected timepoint."""
         ax_mean = self._ax_bar_mean
         ax_frac = self._ax_bar_frac
+        ax_n = getattr(self, "_ax_bar_n", None)
         ax_mean.cla()
         ax_frac.cla()
+        if ax_n is not None:
+            ax_n.cla()
 
         use_sem = self._use_sem.get()
         band_lbl = "SEM" if use_sem else "SD"
@@ -5377,21 +6101,24 @@ class WellViewerApp(QWidget):
         apply_ax_style(ax_frac,
                        "Fraction of Cells Above Threshold",
                        "Fraction")
+        if ax_n is not None:
+            apply_ax_style(ax_n, "Cells per well/group (N)", "N")
         ax_frac.set_ylim(-0.05, 1.05)
 
         if not bar_selected and not active_rsets:
-            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG)
+            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG, ax_n=ax_n)
             return
 
         tp_data = self._resolve_bar_timepoint()
         if tp_data is None:
-            self._draw_bar_empty_state(ax_mean, ax_frac, "Select a timepoint above")
+            self._draw_bar_empty_state(ax_mean, ax_frac, "Select a timepoint above", ax_n=ax_n)
             return
         target_t, tp_str = tp_data
 
         if self._draw_per_cell_bar_mode(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             active_rsets=active_rsets,
             target_t=target_t,
             tp_str=tp_str,
@@ -5401,6 +6128,7 @@ class WellViewerApp(QWidget):
         self._draw_grouped_bar_mode(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             active_rsets=active_rsets,
             target_t=target_t,
             tp_str=tp_str,
@@ -5420,8 +6148,11 @@ class WellViewerApp(QWidget):
             key=lambda lbl: self._parse_rc(lbl),
         )
 
-    def _draw_bar_empty_state(self, ax_mean, ax_frac, message: str) -> None:
-        for ax in (ax_mean, ax_frac):
+    def _draw_bar_empty_state(self, ax_mean, ax_frac, message: str, *, ax_n=None) -> None:
+        axes = [ax_mean, ax_frac]
+        if ax_n is not None:
+            axes.append(ax_n)
+        for ax in axes:
             ax.text(
                 0.5,
                 0.5,
@@ -5449,6 +6180,7 @@ class WellViewerApp(QWidget):
         *,
         ax_mean,
         ax_frac,
+        ax_n=None,
         active_rsets: "List[ReplicateSet]",
         target_t: float,
         tp_str: str,
@@ -5502,14 +6234,59 @@ class WellViewerApp(QWidget):
                 ax_frac,
                 log_scale=self._bar_log_scale.get() and self._bar_swarm.get(),
             )
+            # Even in violin/beeswarm mode the user wants to see N per well
+            # so the population size is visible alongside the distribution.
+            if ax_n is not None:
+                self._draw_per_well_n_bars(ax_n, plot_wells, plot_colors, plot_labels, target_t, threshold)
         self._bar_canvas.draw_idle()
         return True
+
+    def _draw_per_well_n_bars(
+        self,
+        ax_n,
+        wells: List[str],
+        colors: List[str],
+        xlabels: List[str],
+        target_t: float,
+        threshold: float,
+    ) -> None:
+        """Render the N (cell-count) panel for the per-cell view modes."""
+        from matplotlib.ticker import MaxNLocator
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        n = len(wells)
+        bar_w = min(0.6, 5.0 / max(n, 1))
+        for i, lbl in enumerate(wells):
+            rows = self._get_rows(lbl)
+            pts = aggregate_with_threshold(
+                rows, threshold, use_sem=False,
+                val_col=self._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+                ratios=getattr(self, "_ratio_index", None),
+            )
+            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+            n_total = int(matched[0][5]) if matched else 0
+            color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
+            if n_total > 0:
+                ax_n.bar(i, n_total, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+            else:
+                ax_n.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER, linewidth=1, edgecolor=CLR_DISABLED_WELL, linestyle="--", zorder=3)
+        xs = list(range(n))
+        ax_n.set_xticks(xs)
+        ax_n.set_xticklabels(xlabels, rotation=45 if n > 8 else 0, ha="right" if n > 8 else "center", fontsize=7)
+        ax_n.set_xlim(-0.6, n - 0.4)
+        cur_lo, cur_hi = ax_n.get_ylim()
+        ax_n.set_ylim(0, max(cur_hi, 1))
+        ax_n.yaxis.set_major_locator(MaxNLocator(integer=True))
+        setattr(ax_n, "_categorical_xaxis", True)
 
     def _draw_grouped_bar_mode(
         self,
         *,
         ax_mean,
         ax_frac,
+        ax_n=None,
         active_rsets: "List[ReplicateSet]",
         target_t: float,
         tp_str: str,
@@ -5531,6 +6308,7 @@ class WellViewerApp(QWidget):
                 if not rset:
                     continue
                 gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
+                n_cells = self._compute_rep_n(rset, target_t)
                 base_lbl = self._replicate_display_label(rset)
                 display = base_lbl
                 ordered.append(
@@ -5543,12 +6321,16 @@ class WellViewerApp(QWidget):
                         g_err_f,
                         not math.isnan(gm),
                         color_by_key.get(rset.name, WELL_COLORS[0]),
+                        int(n_cells),
                     )
                 )
             xlabels = [display for _, display, *_ in ordered]
             draw_items = ordered
         else:
-            key_to_item = {lbl: (lbl, m, s, f, has) for lbl, m, s, f, has in items}
+            # Per-well items are (label, mean, spread, frac, frac_spread, has, n_cells);
+            # preserve the full tuple so the renderer can draw the fraction
+            # error bar when per-FOV spread is enabled and the N panel.
+            key_to_item = {item[0]: item for item in items}
             ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
             draw_items = [key_to_item[k] for k in ordered_keys]
             xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in draw_items]
@@ -5556,6 +6338,7 @@ class WellViewerApp(QWidget):
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             use_groups=use_groups,
             items=draw_items,
             xlabels=xlabels,
@@ -5583,6 +6366,15 @@ class WellViewerApp(QWidget):
             fontweight="bold",
             pad=6,
         )
+        if ax_n is not None:
+            ax_n.set_title(
+                f"Cells per well/group (N)  —  t = {tp_str} h",
+                color=TXT_PRI,
+                fontsize=9,
+                fontweight="bold",
+                pad=6,
+            )
+            ax_n.set_ylabel("N", fontsize=8, labelpad=5)
         self._apply_bar_ylims(ax_mean, ax_frac, log_scale=False)
         self._bar_canvas.draw_idle()
 
@@ -5686,7 +6478,8 @@ class WellViewerApp(QWidget):
             pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
                                             val_col=self._active_val_col,
                                             cell_area_threshold=cell_area_threshold,
-                                            fluor_gates=fluor_gates)
+                                            fluor_gates=fluor_gates,
+                                            ratios=getattr(self, "_ratio_index", None))
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             if matched:
                 _, m, _sd, f, *_ = matched[0]
@@ -5713,9 +6506,49 @@ class WellViewerApp(QWidget):
         self._stats_cache[cache_key] = result
         return result
 
+    def _compute_rep_n(self, rset: "ReplicateSet", target_t: float) -> int:
+        """Total cell count contributing to *rset* at *target_t*.
+
+        Sums n_total across loaded wells of the set after gating, so the
+        bar plot's N panel reports the same denominator that drives the
+        mean and fraction values.
+        """
+        if not hasattr(self, "_stats_cache"):
+            self._stats_cache = {}
+        threshold = self._get_thresh_frac_on(self._active_channel)
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        cache_key = ("rep_n", rset.name, tuple(rset.wells), target_t, threshold,
+                     self._active_val_col, cell_area_threshold,
+                     tuple(sorted(fluor_gates.items())))
+        if cache_key in self._stats_cache:
+            return self._stats_cache[cache_key]
+
+        total = 0
+        for lbl in rset.wells:
+            if lbl not in self._well_paths:
+                continue
+            rows = self._get_rows(lbl)
+            pts = aggregate_with_threshold(
+                rows, threshold, use_sem=False,
+                val_col=self._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+                ratios=getattr(self, "_ratio_index", None),
+            )
+            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+            if matched:
+                total += int(matched[0][5])
+        self._stats_cache[cache_key] = total
+        return total
+
     def _invalidate_stats_cache(self) -> None:
         """Discard cached group statistics. Call whenever group definitions change."""
         self._stats_cache: dict = {}
+        # Replicate-set visibility may have shifted, so re-check whether the
+        # per-FOV toggle is still applicable. Cheap; only walks _fov_btns.
+        if hasattr(self, "_refresh_fov_btn_state"):
+            self._refresh_fov_btn_state()
 
     def _compute_group_stats(
         self,
@@ -5753,7 +6586,8 @@ class WellViewerApp(QWidget):
                 pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
                                                 val_col=self._active_val_col,
                                                 cell_area_threshold=cell_area_threshold,
-                                                fluor_gates=fluor_gates)
+                                                fluor_gates=fluor_gates,
+                                                ratios=getattr(self, "_ratio_index", None))
                 matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
                 if matched:
                     _, m, _sd, f, *_ = matched[0]
@@ -5817,25 +6651,31 @@ class WellViewerApp(QWidget):
         band_lbl  = "SEM" if use_sem else "SD"
         threshold = self._get_thresh_frac_on(self._active_channel)
 
-        fig = _Figure(figsize=(8, 7), dpi=300, facecolor=PLOT_BG)
-        ax_mean = fig.add_subplot(2, 1, 1)
-        ax_frac = fig.add_subplot(2, 1, 2)
-        fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.12, left=0.13, right=0.97)
+        fig = _Figure(figsize=(8, 10), dpi=300, facecolor=PLOT_BG)
+        ax_mean = fig.add_subplot(3, 1, 1)
+        ax_frac = fig.add_subplot(3, 1, 2)
+        ax_n = fig.add_subplot(3, 1, 3)
+        fig.subplots_adjust(hspace=0.55, top=0.94, bottom=0.10, left=0.13, right=0.97)
 
         _ch = self._active_channel.upper()
         apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, f"Fraction above threshold  —  t = {tp_str} h", "Fraction")
+        apply_ax_style(ax_n, f"Cells per well/group (N)  —  t = {tp_str} h", "N")
         ax_frac.set_ylim(-0.05, 1.05)
 
         use_groups, items, _ = self._collect_bar_items(target_t)
         if use_groups:
             rep_by_name = {r.name: r for r in self._rep_sets_active()}
             xlabels = [self._replicate_display_label(rep_by_name[name]) if name in rep_by_name else name for name, *_ in items]
-            draw_items = [
-                (name, xlbl, gm, g_err_m, gf, g_err_f, has, color)
-                for (name, gm, g_err_m, gf, g_err_f, has, color), xlbl in zip(items, xlabels)
-            ]
+            draw_items = []
+            for item, xlbl in zip(items, xlabels):
+                # collect_bar_items rep-set items are 8-tuples
+                # (name, gm, g_err_m, gf, g_err_f, has, color, n_cells).
+                # Older callers may still emit a 7-tuple without n_cells.
+                name, gm, g_err_m, gf, g_err_f, has, color = item[:7]
+                n_cells = int(item[7]) if len(item) >= 8 else 0
+                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_cells))
         else:
             draw_items = items
             xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
@@ -5843,6 +6683,7 @@ class WellViewerApp(QWidget):
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
+            ax_n=ax_n,
             use_groups=use_groups,
             items=draw_items,
             xlabels=xlabels,

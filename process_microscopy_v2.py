@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import logging
 import os
 import re
@@ -76,6 +77,222 @@ import imageio.v3 as iio
 # ---------------------------------------------------------------------------
 
 _STARDIST_MODEL: "StarDist2D | None" = None
+
+
+# ---------------------------------------------------------------------------
+# Robust file I/O helpers
+#
+# Every image that the pipeline writes is later read back by the same worker
+# (zip-up, atomic-rename of the staging dir, or downstream tools). Two
+# observed failure modes when many tifs are written in quick succession on
+# slower / network-backed filesystems:
+#
+#   1. ``tifffile.imwrite(path)`` returns before the OS has flushed the
+#      page cache, so a follow-up ``zipfile.write(path)`` can read a stale
+#      / zero-length file or a half-written file and produce a corrupt
+#      archive — sometimes manifesting later as ``OSError: Bad file
+#      descriptor`` deep in libtiff/libpng C code.
+#
+#   2. A crash mid-write leaves a partial file on disk; the next run picks
+#      it up and fails with cryptic decode errors.
+#
+# ``_safe_imwrite`` writes to ``<path>.pid<N>.tmp``, fsyncs the bytes, and
+# then renames atomically. Any caller that subsequently sees ``path`` reads
+# either a complete file or no file at all. Likewise ``_safe_atomic_write``
+# wraps the per-well CSV write with the same guarantee.
+# ---------------------------------------------------------------------------
+
+
+def _fsync_path(path: Path) -> None:
+    """Open *path* read-only and fsync; ignore filesystems that don't support it."""
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def _safe_imwrite(out_path: "Path | str", data: "np.ndarray") -> None:
+    """Atomic image write: tmp file → fsync → rename.
+
+    Routes ``.tif/.tiff`` through tifffile and ``.png`` through imageio v3.
+    Other extensions fall back to tifffile. Cleans up the temp file on
+    failure so the well's output directory never carries partial bytes
+    that a later zip-up step would pack into a corrupt archive.
+
+    The tmp file is named ``.<stem>.pid<N>.tmp<ext>`` (leading dot, so it
+    sorts away from the real outputs and so directory listers used by the
+    zip-up step skip it; trailing original extension preserved so the
+    codec auto-detects the format from the path).
+    """
+    out_path = Path(out_path)
+    tmp = out_path.with_name(
+        f".{out_path.stem}.pid{os.getpid()}.tmp{out_path.suffix}"
+    )
+    suffix = out_path.suffix.lower()
+    try:
+        if suffix == ".png":
+            iio.imwrite(str(tmp), data)
+        else:
+            imwrite(str(tmp), data)
+        _fsync_path(tmp)
+        os.replace(str(tmp), str(out_path))
+    except BaseException:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _safe_atomic_text_write(out_path: "Path | str") -> "_AtomicTextHandle":
+    """Return a context manager that yields a file handle for atomic text writing.
+
+    On clean exit the buffered bytes are fsynced and the temp file is renamed
+    over ``out_path``. On exception the temp file is removed and the
+    exception propagates so callers see the original error.
+    """
+    return _AtomicTextHandle(Path(out_path))
+
+
+class _AtomicTextHandle:
+    def __init__(self, out_path: Path) -> None:
+        self._out_path = out_path
+        self._tmp = out_path.with_name(out_path.name + f".pid{os.getpid()}.tmp")
+        self._fh: "io.TextIOBase | None" = None
+
+    def __enter__(self):
+        # newline="" matches csv.writer's expectation; the sole text-write
+        # call site (_write_single_csv) needs that, and it does no harm to
+        # other text content.
+        import io as _io
+        self._fh = open(self._tmp, "w", newline="")
+        return self._fh
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if self._fh is not None:
+                self._fh.flush()
+                try:
+                    os.fsync(self._fh.fileno())
+                except OSError:
+                    pass
+                self._fh.close()
+        finally:
+            self._fh = None
+        if exc_type is not None:
+            try:
+                if self._tmp.exists():
+                    self._tmp.unlink()
+            except OSError:
+                pass
+            return False
+        os.replace(str(self._tmp), str(self._out_path))
+        return False
+
+
+def _verify_files_complete(paths: "list[Path]", min_size: int = 1) -> "list[Path]":
+    """Return only paths that exist and have ``stat.st_size >= min_size``.
+
+    Skipped paths are warned to the worker log so a partial/zero-length file
+    doesn't get silently packed into an output archive that downstream tools
+    will then refuse to open. The minimum size is intentionally tiny — we
+    only want to catch the empty / zero-byte case where a write was started
+    but never delivered any bytes; legitimate single-pixel TIFs are still
+    far above this threshold.
+    """
+    ok: list[Path] = []
+    for p in paths:
+        try:
+            st = p.stat()
+        except OSError as exc:
+            log.warning("Skipping unreadable file: %s (%s)", p, exc)
+            continue
+        if not p.is_file():
+            log.warning("Skipping non-file path: %s", p)
+            continue
+        if st.st_size < min_size:
+            log.warning(
+                "Skipping zero/short file (size=%d): %s",
+                st.st_size, p,
+            )
+            continue
+        ok.append(p)
+    return ok
+
+
+def _report_worker_failure(well_label: str, output_dir: "Path | None", exc: BaseException) -> None:
+    """Log a worker failure with classification + a pointer to the trace file.
+
+    Generic ``OSError: [Errno 9] Bad file descriptor`` and ``BrokenProcessPool``
+    re-raised at the parent's ``future.result()`` call site otherwise look
+    identical, even though they mean very different things (an internal error
+    vs. the worker process dying outside Python). Spell out the difference and
+    point the user at the per-well trace file written by the worker.
+    """
+    err_dir = (output_dir / "errors") if output_dir is not None else None
+    err_hint = f"  (see worker traces in {err_dir})" if err_dir is not None else ""
+    cls = type(exc).__name__
+    if cls == "BrokenProcessPool":
+        log.error(
+            "FAILED well %s: worker process died unexpectedly (%s: %s).%s "
+            "This typically means the worker was killed by the OS — most "
+            "commonly out-of-memory, signal, or a native crash inside a "
+            "C extension (StarDist / TF / tifffile). Reduce --workers or "
+            "the per-well memory footprint and try again.",
+            well_label, cls, exc, err_hint,
+        )
+        return
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) == 9:
+        log.error(
+            "FAILED well %s: %s — Bad file descriptor (errno 9).%s "
+            "If the trace file is empty the worker's stderr was likely "
+            "broken before the error site; the per-well trace file is the "
+            "authoritative source.",
+            well_label, cls, err_hint, exc_info=True,
+        )
+        return
+    log.error("FAILED well %s: %s.%s", well_label, exc, err_hint, exc_info=True)
+
+
+def _dump_well_failure_trace(output_dir: Path, well_label: str, exc: BaseException) -> "Path | None":
+    """Persist a worker-side exception trace for *well_label*.
+
+    ProcessPoolExecutor pickles the exception back to the parent, but if the
+    worker's stderr is muted (e.g. broken pipe to the GUI log queue) the
+    underlying traceback never reaches the user — they only see a generic
+    ``OSError: [Errno 9] Bad file descriptor`` re-raised at the parent's
+    ``future.result()`` call site. Writing the full ``traceback.format_exc()``
+    to ``<output_dir>/errors/<well>_pid<N>.txt`` guarantees a readable trace
+    even when the live log path is broken.
+
+    Returns the trace-file path on success, or None if the trace could not be
+    written (e.g. read-only output dir).
+    """
+    import traceback as _tb
+    try:
+        err_dir = output_dir / "errors"
+        err_dir.mkdir(parents=True, exist_ok=True)
+        err_path = err_dir / f"{well_label}_pid{os.getpid()}.txt"
+        with err_path.open("w") as fh:
+            fh.write(f"Well: {well_label}\n")
+            fh.write(f"PID:  {os.getpid()}\n")
+            fh.write(f"Exception type: {type(exc).__name__}\n")
+            fh.write("\n")
+            fh.write(_tb.format_exc())
+        return err_path
+    except Exception:                # noqa: BLE001
+        return None
 
 
 def _ensure_stardist_runtime_deps() -> None:
@@ -326,24 +543,45 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
     Compress all image files (TIF/TIFF/PNG) found in *image_dir* into
     *out_zip*.  Returns the number of files added.
     CSV files and any other non-image files are explicitly excluded.
+
+    Stray ``.tmp`` files left by a crashed atomic-write are skipped, and any
+    zero-byte file is logged + dropped so a partial / never-flushed write
+    can't be packaged into a corrupt archive.
     """
     include_exts = {".tif", ".tiff", ".png"}
     exclude_exts = {".csv"}
-    image_files = sorted(
+    candidate_files = sorted(
         p for p in image_dir.iterdir()
         if p.is_file()
         and p.suffix.lower() in include_exts
         and p.suffix.lower() not in exclude_exts
+        and not p.name.endswith(".tmp")
+        and ".pid" not in p.name  # stale _safe_imwrite scratch files
     )
+    image_files = _verify_files_complete(candidate_files)
 
     if not image_files:
         log.warning("No image files found in %s to compress.", image_dir)
         return 0
 
     out_zip.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for img_path in image_files:
-            zf.write(img_path, arcname=img_path.name)
+    # Build the zip via the same atomic-rename pattern the imwrite helper
+    # uses: stage at <out_zip>.tmp, fsync, replace. Any caller that sees
+    # *out_zip* gets either the complete archive or the previous one.
+    tmp_zip = out_zip.with_name(out_zip.name + f".pid{os.getpid()}.tmp")
+    try:
+        with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for img_path in image_files:
+                zf.write(img_path, arcname=img_path.name)
+        _fsync_path(tmp_zip)
+        os.replace(str(tmp_zip), str(out_zip))
+    except BaseException:
+        try:
+            if tmp_zip.exists():
+                tmp_zip.unlink()
+        except OSError:
+            pass
+        raise
 
     log.info(
         "Compressed %d image(s)  ->  %s", len(image_files), out_zip.name
@@ -599,7 +837,7 @@ def save_overlay(nir_raw: np.ndarray, labels: np.ndarray, out_path: Path) -> Non
     rgb[boundaries, 0] = 255
     rgb[boundaries, 1] = 0
     rgb[boundaries, 2] = 0
-    iio.imwrite(str(out_path), rgb)
+    _safe_imwrite(out_path, rgb)
 
 
 def _segment_stardist_nuclei(nir_corr: np.ndarray) -> np.ndarray:
@@ -801,7 +1039,7 @@ def process_image_group(
                 output_dir=output_dir,
                 suffix="_tophat",
             )
-        imwrite(str(th_nir_path), np.clip(nir_corr, 0, None).astype(np.float32))
+        _safe_imwrite(th_nir_path, np.clip(nir_corr, 0, None).astype(np.float32))
         for fc, tok, fp in zip(fluor_tophat, fluor_tokens, fluor_paths):
             if legacy_channel_suffix_naming:
                 th_path = output_dir / f"{nuclear_path.stem}_tophat_{tok.lower()}.tif"
@@ -811,7 +1049,7 @@ def process_image_group(
                     output_dir=output_dir,
                     suffix="_tophat",
                 )
-            imwrite(str(th_path), np.clip(fc, 0, None).astype(np.float32))
+            _safe_imwrite(th_path, np.clip(fc, 0, None).astype(np.float32))
         for i, (tok, fp) in enumerate(zip(fluor_tokens, fluor_paths)):
             if tok in smfish_set:
                 if legacy_channel_suffix_naming:
@@ -822,42 +1060,42 @@ def process_image_group(
                         output_dir=output_dir,
                         suffix="_smfish",
                     )
-                imwrite(str(smfish_path), np.clip(fluor_corr[i], 0, None).astype(np.float32))
+                _safe_imwrite(smfish_path, np.clip(fluor_corr[i], 0, None).astype(np.float32))
         if segmentation_method == "stardist_seeded_watershed_cell":
             assert nuclear_points is not None
             assert cytoplasm_tophat is not None
             assert cytoplasm_binary_mask is not None
-            imwrite(
-                str(build_processed_output_path(
+            _safe_imwrite(
+                build_processed_output_path(
                     nuclear_path,
                     output_dir=output_dir,
                     suffix="_nuclear_points",
-                )),
+                ),
                 nuclear_points.astype(np.int32),
             )
-            imwrite(
-                str(build_processed_output_path(
+            _safe_imwrite(
+                build_processed_output_path(
                     nuclear_path,
                     output_dir=output_dir,
                     suffix="_cytoplasm_tophat",
-                )),
+                ),
                 np.clip(cytoplasm_tophat, 0, None).astype(np.float32),
             )
-            imwrite(
-                str(build_processed_output_path(
+            _safe_imwrite(
+                build_processed_output_path(
                     nuclear_path,
                     output_dir=output_dir,
                     suffix="_cytoplasm_otsu_mask",
-                )),
+                ),
                 cytoplasm_binary_mask.astype(np.uint8),
             )
         log.info("  tophat tifs written")
-    imwrite(
-        str(build_processed_output_path(
+    _safe_imwrite(
+        build_processed_output_path(
             nuclear_path,
             output_dir=output_dir,
             suffix="_labels",
-        )),
+        ),
         labels,
     )
     save_overlay(
@@ -1120,7 +1358,12 @@ def _safe_well(label: str) -> str:
 def _write_single_csv(records: list[dict], out_path: Path) -> None:
     import csv
     fieldnames = list(records[0].keys())
-    with out_path.open("w", newline="") as fh:
+    # Atomic write: tmp → fsync → rename. Without this a downstream consumer
+    # (the GUI's CSV-loader, the Bar / Line plot tabs, or the next pipeline
+    # run with --force) can pick up a half-written file when the worker is
+    # interrupted or when the OS hasn't flushed the page cache before the
+    # follow-up rename / read.
+    with _safe_atomic_text_write(out_path) as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(records)
@@ -1191,11 +1434,46 @@ def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
         os.environ["TF_NUM_INTRAOP_THREADS"] = t
         os.environ["TF_NUM_INTEROP_THREADS"] = t
 
+    # Raise the per-worker open-file ceiling. macOS's default soft limit
+    # (256) is easily exceeded by TF + StarDist + tifffile in a well with
+    # many FOVs; the resulting EMFILE typically surfaces as a confusing
+    # OSError downstream. We push the soft limit up to whatever the kernel
+    # already permits (hard limit, capped at 4096) without requiring root.
+    try:
+        import resource as _resource
+        _soft, _hard = _resource.getrlimit(_resource.RLIMIT_NOFILE)
+        _target = max(_soft, min(_hard, 4096))
+        if _target > _soft:
+            _resource.setrlimit(_resource.RLIMIT_NOFILE, (_target, _hard))
+    except (ImportError, ValueError, OSError):
+        # resource is POSIX-only; ignore on platforms / environments where
+        # the bump isn't permitted.
+        pass
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  [worker %(process)d]  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # Defensive: if the worker's stderr was broken before this point (rare,
+    # but observed when the parent's pipe to a GUI log queue gets closed),
+    # try fd 1 instead. Both ends of the GUI's pipe receive the same merged
+    # stream, so this just dodges a stale stderr handle. Wrap in a try so any
+    # platform-specific oddity doesn't sink the worker before it does work.
+    try:
+        import sys as _sys2
+        _sys2.stderr.write("")
+        _sys2.stderr.flush()
+    except OSError:
+        try:
+            import os as _os2
+            _os2.dup2(1, 2)
+            _sys2.stderr = _sys2.stdout                     # noqa: F841
+            for _h in list(logging.getLogger().handlers):
+                if isinstance(_h, logging.StreamHandler) and getattr(_h, "stream", None) is not None:
+                    _h.stream = _sys2.stdout
+        except Exception:
+            pass
 
     # ── Device note for logging ────────────────────────────────────────────────
     if force_cpu:
@@ -1337,45 +1615,61 @@ def process_well_zip_task(
             remove_directory(_stale)
 
     try:
-        tmp_extract.mkdir(parents=True, exist_ok=True)
-        tmp_images.mkdir(parents=True,  exist_ok=True)
+        try:
+            tmp_extract.mkdir(parents=True, exist_ok=True)
+            tmp_images.mkdir(parents=True,  exist_ok=True)
 
-        groups, needed_members = find_image_groups_in_zip(
-            zip_path,
-            nuclear_token,
-            fluor_tokens,
-            tmp_extract,
-            schema=schema,
-            sep=sep,
-        )
-        if not groups:
-            log.warning("Well %s: no image groups found in %s.", well_label, zip_path.name)
-            return [], []
+            groups, needed_members = find_image_groups_in_zip(
+                zip_path,
+                nuclear_token,
+                fluor_tokens,
+                tmp_extract,
+                schema=schema,
+                sep=sep,
+            )
+            if not groups:
+                log.warning("Well %s: no image groups found in %s.", well_label, zip_path.name)
+                return [], []
 
-        n_extracted = extract_zip(zip_path, tmp_extract, members_to_extract=needed_members)
-        log.info(
-            "Well %s: extracted %d/%d required image file(s).",
-            well_label,
-            n_extracted,
-            len(needed_members),
-        )
+            n_extracted = extract_zip(zip_path, tmp_extract, members_to_extract=needed_members)
+            log.info(
+                "Well %s: extracted %d/%d required image file(s).",
+                well_label,
+                n_extracted,
+                len(needed_members),
+            )
 
-        kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
-        records, failed = _process_groups_in_worker(groups, kwargs, well_label)
+            kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
+            records, failed = _process_groups_in_worker(groups, kwargs, well_label)
 
-        if records:
-            safe_well = _safe_well(well_label)
-            csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
-            _write_single_csv(records, csv_path)
-            log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
-        else:
-            log.warning("Well %s: no records produced; CSV not written.", well_label)
+            if records:
+                safe_well = _safe_well(well_label)
+                csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
+                _write_single_csv(records, csv_path)
+                log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
+            else:
+                log.warning("Well %s: no records produced; CSV not written.", well_label)
 
-        out_zip = output_dir / f"{well_label}_out.zip"
-        n_compressed = compress_images_to_zip(tmp_images, out_zip)
-        log.info("Well %s: %d image(s) -> %s", well_label, n_compressed, out_zip.name)
+            out_zip = output_dir / f"{well_label}_out.zip"
+            n_compressed = compress_images_to_zip(tmp_images, out_zip)
+            log.info("Well %s: %d image(s) -> %s", well_label, n_compressed, out_zip.name)
 
-        return records, failed
+            return records, failed
+        except BaseException as exc:
+            trace_path = _dump_well_failure_trace(output_dir, well_label, exc)
+            if trace_path is not None:
+                log.error(
+                    "Well %s failed (%s: %s); worker trace written to %s",
+                    well_label, type(exc).__name__, exc, trace_path,
+                    exc_info=True,
+                )
+            else:
+                log.error(
+                    "Well %s failed (%s: %s); could not write worker trace file",
+                    well_label, type(exc).__name__, exc,
+                    exc_info=True,
+                )
+            raise
 
     finally:
         remove_directory(tmp_extract)
@@ -1419,57 +1713,78 @@ def process_well_folder_task(
 
     _committed = False
     try:
-        tmp_images.mkdir(parents=True, exist_ok=True)
+        try:
+            tmp_images.mkdir(parents=True, exist_ok=True)
 
-        groups = find_image_groups(
-            well_folder, nuclear_token, fluor_tokens, schema=schema, sep=sep
-        )
-        if not groups:
-            log.warning("Well %s: no image groups found in %s.", well_label, well_folder)
-            return [], []
+            groups = find_image_groups(
+                well_folder, nuclear_token, fluor_tokens, schema=schema, sep=sep
+            )
+            if not groups:
+                log.warning("Well %s: no image groups found in %s.", well_label, well_folder)
+                return [], []
 
-        kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
-        records, failed = _process_groups_in_worker(groups, kwargs, well_label)
+            kwargs = {**shared_kwargs_template, "output_dir": tmp_images}
+            records, failed = _process_groups_in_worker(groups, kwargs, well_label)
 
-        if records:
-            safe_well = _safe_well(well_label)
-            csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
-            _write_single_csv(records, csv_path)
-            log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
-        else:
-            log.warning("Well %s: no records produced; CSV not written.", well_label)
+            if records:
+                safe_well = _safe_well(well_label)
+                csv_path  = output_dir / f"{csv_prefix}_{safe_well}.csv"
+                _write_single_csv(records, csv_path)
+                log.info("Well %-12s -> %s  (%d rows)", well_label, csv_path.name, len(records))
+            else:
+                log.warning("Well %s: no records produced; CSV not written.", well_label)
 
-        # Atomically rename staging dir to final output folder.
-        final_out = output_dir / well_label
-        if final_out.exists():
-            remove_directory(final_out)
-        tmp_images.rename(final_out)
-        log.info("Well %s: output folder -> %s", well_label, final_out.name)
+            # Atomically rename staging dir to final output folder.
+            final_out = output_dir / well_label
+            if final_out.exists():
+                remove_directory(final_out)
+            tmp_images.rename(final_out)
+            log.info("Well %s: output folder -> %s", well_label, final_out.name)
 
-        if compress_output_well_folders:
-            out_zip = output_dir / f"{well_label}_out.zip"
-            n_out = compress_folder_images_to_zip_and_remove(final_out, out_zip)
-            if n_out > 0:
-                log.info(
-                    "Well %s: compressed output folder -> %s (%d image(s))",
-                    well_label,
-                    out_zip.name,
-                    n_out,
+            if compress_output_well_folders:
+                out_zip = output_dir / f"{well_label}_out.zip"
+                n_out = compress_folder_images_to_zip_and_remove(final_out, out_zip)
+                if n_out > 0:
+                    log.info(
+                        "Well %s: compressed output folder -> %s (%d image(s))",
+                        well_label,
+                        out_zip.name,
+                        n_out,
+                    )
+
+            if compress_input_well_folders:
+                in_zip = well_folder.parent / f"{well_label}.zip"
+                n_in = compress_folder_images_to_zip_and_remove(well_folder, in_zip)
+                if n_in > 0:
+                    log.info(
+                        "Well %s: compressed input folder -> %s (%d image(s))",
+                        well_label,
+                        in_zip.name,
+                        n_in,
+                    )
+            _committed = True
+
+            return records, failed
+        except BaseException as exc:
+            # Capture the worker-side traceback to disk before propagating.
+            # ProcessPoolExecutor pickles the exception back to the parent,
+            # but generic OSError("Bad file descriptor") re-raises at
+            # future.result() with little context if the worker's stderr is
+            # broken. The persisted trace gives the user the original site.
+            trace_path = _dump_well_failure_trace(output_dir, well_label, exc)
+            if trace_path is not None:
+                log.error(
+                    "Well %s failed (%s: %s); worker trace written to %s",
+                    well_label, type(exc).__name__, exc, trace_path,
+                    exc_info=True,
                 )
-
-        if compress_input_well_folders:
-            in_zip = well_folder.parent / f"{well_label}.zip"
-            n_in = compress_folder_images_to_zip_and_remove(well_folder, in_zip)
-            if n_in > 0:
-                log.info(
-                    "Well %s: compressed input folder -> %s (%d image(s))",
-                    well_label,
-                    in_zip.name,
-                    n_in,
+            else:
+                log.error(
+                    "Well %s failed (%s: %s); could not write worker trace file",
+                    well_label, type(exc).__name__, exc,
+                    exc_info=True,
                 )
-        _committed = True
-
-        return records, failed
+            raise
 
     finally:
         if not _committed and tmp_images.exists():
@@ -1538,7 +1853,7 @@ def run_pipeline_on_wells(
                 all_records.extend(records)
                 all_failed.extend(failed)
             except Exception as exc:           # noqa: BLE001
-                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                _report_worker_failure(well_label, shared_kwargs.get("output_dir"), exc)
                 all_failed.append(well_label)
 
     return all_records, all_failed
@@ -1779,7 +2094,7 @@ def process_well_zips(
                 all_records.extend(records)
                 all_failed.extend(failed)
             except Exception as exc:           # noqa: BLE001
-                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                _report_worker_failure(well_label, output_dir, exc)
                 all_failed.append(well_label)
 
     log.info("=" * 60)
@@ -1891,7 +2206,7 @@ def process_well_folders(
                 all_records.extend(records)
                 all_failed.extend(failed)
             except Exception as exc:           # noqa: BLE001
-                log.error("FAILED well %s: %s", well_label, exc, exc_info=True)
+                _report_worker_failure(well_label, output_dir, exc)
                 all_failed.append(well_label)
 
     log.info("=" * 60)
@@ -1906,6 +2221,200 @@ def process_well_folders(
         log.warning("Failed wells/pairs:")
         for name in all_failed:
             log.warning("  %s", name)
+
+# ---------------------------------------------------------------------------
+# pipeline_info.json sidecar
+#
+# This file is the contract between the analysis pipeline and the
+# well-viewer / image-resolver consumers. It is written exclusively by
+# this script — see ``main()`` — so that a successful run always pairs
+# its outputs with the metadata describing how they were produced.
+# ---------------------------------------------------------------------------
+
+PIPELINE_INFO_FILENAME = "pipeline_info.json"
+
+
+def _pipeline_info_jsonable(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _pipeline_info_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_pipeline_info_jsonable(v) for v in value]
+    return value
+
+
+def _effective_fluor_tokens_for_sidecar(
+    fluor_tokens: "list[str]",
+    *,
+    nuclear_token: str,
+    segmentation_method: str,
+    cytoplasm_token: str,
+) -> "list[str]":
+    """Channels that end up with quantified intensity columns in the CSVs."""
+    ordered = [str(nuclear_token or "").strip(), *[str(tok or "").strip() for tok in fluor_tokens]]
+    if segmentation_method == "stardist_seeded_watershed_cell":
+        ordered.append(str(cytoplasm_token or "").strip())
+    out: "list[str]" = []
+    seen: "set[str]" = set()
+    for tok in ordered:
+        if not tok:
+            continue
+        key = tok.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tok)
+    return out
+
+
+def _parse_numeric_token(value: str) -> "float | None":
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _collect_image_stems(input_dir: Path) -> "set[str]":
+    stems: "set[str]" = set()
+    for pat in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
+        for p in input_dir.glob(pat):
+            stems.add(p.stem)
+    try:
+        well_dirs = [p for p in input_dir.iterdir() if p.is_dir()]
+    except OSError:
+        well_dirs = []
+    for well_dir in well_dirs:
+        for pat in ("*.tif", "*.tiff", "*.TIF", "*.TIFF"):
+            for p in well_dir.glob(pat):
+                stems.add(p.stem)
+    for z in input_dir.glob("*.zip"):
+        try:
+            with zipfile.ZipFile(z, "r") as zf:
+                for member in zf.namelist():
+                    name = Path(member).name
+                    lower = name.lower()
+                    if not lower.endswith((".tif", ".tiff")):
+                        continue
+                    stems.add(Path(name).stem)
+        except Exception:
+            continue
+    return stems
+
+
+def _collect_available_schema_values(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+    field_name: str,
+    sort_key,
+) -> "list[str]":
+    fields = [f.strip().lower() for f in filename_schema.split(":")]
+    try:
+        field_idx = fields.index(field_name)
+    except ValueError:
+        return []
+    values: "set[str]" = set()
+    for stem in _collect_image_stems(input_dir):
+        parts = stem.split(filename_sep)
+        if 0 <= field_idx < len(parts):
+            tok = str(parts[field_idx]).strip()
+            if tok:
+                values.add(tok)
+    return sorted(values, key=sort_key)
+
+
+def _collect_available_timepoints(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+) -> "list[str]":
+    def _sort_key(tp: str):
+        h = _parse_timepoint_hours(tp)
+        return (
+            (isinstance(h, float) and h != h),  # NaN sentinel sorts last
+            (h if (isinstance(h, float) and h == h) else 0.0),
+            tp,
+        )
+    return _collect_available_schema_values(
+        input_dir,
+        filename_schema=filename_schema,
+        filename_sep=filename_sep,
+        field_name="timepoint",
+        sort_key=_sort_key,
+    )
+
+
+def _collect_available_fovs(
+    input_dir: Path,
+    *,
+    filename_schema: str,
+    filename_sep: str,
+) -> "list[str]":
+    def _sort_key(fov: str):
+        n = _parse_numeric_token(fov)
+        return (n is None, n or 0.0, fov)
+    return _collect_available_schema_values(
+        input_dir,
+        filename_schema=filename_schema,
+        filename_sep=filename_sep,
+        field_name="fov",
+        sort_key=_sort_key,
+    )
+
+
+def write_pipeline_info(
+    output_dir: Path,
+    *,
+    input_dir: Path,
+    filename_schema: str,
+    filename_sep: str,
+    nuclear_token: str,
+    fluor_tokens: "list[str]",
+    smfish_tokens: "list[str]",
+    segmentation_method: str,
+    cytoplasm_token: str,
+    min_nucleus_area_px: int,
+    execution_options: "dict | None" = None,
+) -> Path:
+    """Serialize the run metadata sidecar to ``<output_dir>/pipeline_info.json``."""
+    if segmentation_method != "stardist_seeded_watershed_cell":
+        cytoplasm_token = ""
+    fields = [f.strip() for f in filename_schema.split(":")]
+    info = {
+        "schema": filename_schema,
+        "separator": filename_sep,
+        "schema_fields": fields,
+        "nuclear_token": str(nuclear_token or ""),
+        "well_index": fields.index("well") if "well" in fields else -1,
+        "channel_index": fields.index("channel") if "channel" in fields else -1,
+        "fov_index": fields.index("fov") if "fov" in fields else -1,
+        "tp_index": fields.index("timepoint") if "timepoint" in fields else -1,
+        "fluor_tokens": _effective_fluor_tokens_for_sidecar(
+            fluor_tokens,
+            nuclear_token=nuclear_token,
+            segmentation_method=segmentation_method,
+            cytoplasm_token=cytoplasm_token,
+        ),
+        "smfish_tokens": list(smfish_tokens or []),
+        "segmentation_method": segmentation_method,
+        "cytoplasm_token": cytoplasm_token,
+        "min_nucleus_area_px": int(min_nucleus_area_px),
+        "available_timepoints": _collect_available_timepoints(
+            input_dir, filename_schema=filename_schema, filename_sep=filename_sep,
+        ),
+        "available_fovs": _collect_available_fovs(
+            input_dir, filename_schema=filename_schema, filename_sep=filename_sep,
+        ),
+        "execution_options": _pipeline_info_jsonable(dict(execution_options or {})),
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    p = output_dir / PIPELINE_INFO_FILENAME
+    p.write_text(json.dumps(info, indent=2))
+    return p
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -2099,6 +2608,27 @@ def main() -> None:
     log.info("Schema   : %s  (sep=%r)", args.filename_schema, sep)
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write the pipeline_info.json sidecar before any image work so the
+    # well-viewer / image-resolver have schema metadata available even if
+    # processing crashes partway through.
+    try:
+        info_path = write_pipeline_info(
+            output_dir,
+            input_dir=input_dir,
+            filename_schema=args.filename_schema,
+            filename_sep=args.filename_sep,
+            nuclear_token=args.nuclear_token,
+            fluor_tokens=list(args.fluor_tokens or []),
+            smfish_tokens=list(args.smfish_tokens or []),
+            segmentation_method=args.segmentation_method,
+            cytoplasm_token=args.cytoplasm_token or "",
+            min_nucleus_area_px=args.min_nucleus_area_px,
+            execution_options=vars(args),
+        )
+        log.info("Wrote sidecar : %s", info_path)
+    except Exception as exc:  # log but don't abort the run
+        log.warning("Could not write %s: %s", PIPELINE_INFO_FILENAME, exc)
 
     # ── Parallelism auto-configuration ────────────────────────────────────────
     # On GPU: TF manages its own scheduling — don't pin threads.

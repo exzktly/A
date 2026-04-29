@@ -11,6 +11,7 @@ import matplotlib.cm as cm
 import numpy as np
 
 from . import debug_flags
+from .data_loading import resolve_value
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
@@ -48,6 +49,7 @@ def collect_scatter_data(
     cell_area_threshold: float = 0.0,
     fluor_gate_x: float = 0.0,
     fluor_gate_y: float = 0.0,
+    ratios: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Collect scatter plot data for the given column names and timepoint.
 
@@ -74,6 +76,9 @@ def collect_scatter_data(
     """
 
     scatter_data: Dict[str, Dict[str, Any]] = {}
+
+    if ratios is None:
+        ratios = getattr(app, "_ratio_index", None) or {}
 
     # Use active replicate sets if defined, otherwise fall back to selected wells
     active_rsets = app._rep_sets_active()
@@ -114,12 +119,10 @@ def collect_scatter_data(
                     if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
                         continue
 
-                    # Filter by fluorescence gate threshold on both channels
-                    try:
-                        x = float(row.get(col_x, float('nan')))
-                        y = float(row.get(col_y, float('nan')))
-                    except (ValueError, TypeError):
-                        continue
+                    # Filter by fluorescence gate threshold on both channels.
+                    # ``resolve_value`` transparently handles ratio: keys.
+                    x = resolve_value(row, col_x, ratios)
+                    y = resolve_value(row, col_y, ratios)
 
                     if (x != x) or (y != y):  # Skip NaN
                         continue

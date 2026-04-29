@@ -13,7 +13,9 @@ import re
 import statistics
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+
+from .ratio_models import RatioMetric, is_ratio_key
 
 
 # ── Timepoint parser ─────────────────────────────────────────────────────────
@@ -186,12 +188,57 @@ def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], se
     return chans
 
 
+# ── Value resolution (real columns + virtual ratio columns) ──────────────────
+
+def resolve_value(
+    row: dict,
+    key: str,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
+) -> float:
+    """Return the float value at *key* from *row*.
+
+    *key* may be either a real CSV column name (e.g. ``"gfp_mean_intensity"``)
+    or a ratio key in the form ``"ratio:<name>"``. Ratios are resolved by
+    looking up the ``RatioMetric`` in *ratios* and computing
+    ``numerator / (denominator + epsilon)``.
+
+    Returns ``float('nan')`` for any missing column, non-numeric value, or
+    division-by-zero with epsilon=0. Callers are expected to drop NaNs.
+    """
+    if is_ratio_key(key):
+        if not ratios:
+            return float("nan")
+        ratio = ratios.get(key)
+        if ratio is None:
+            return float("nan")
+        try:
+            num = float(row[ratio.numerator_col()])
+            den = float(row[ratio.denominator_col()])
+        except (KeyError, TypeError, ValueError):
+            return float("nan")
+        if not (math.isfinite(num) and math.isfinite(den)):
+            return float("nan")
+        denom = den + ratio.epsilon
+        if denom == 0.0:
+            return float("nan")
+        return num / denom
+
+    try:
+        val = float(row[key])
+    except (KeyError, TypeError, ValueError):
+        return float("nan")
+    return val if math.isfinite(val) else float("nan")
+
+
 # ── Aggregation ──────────────────────────────────────────────────────────────
 
-# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total)
-# n_above : cells above threshold at this timepoint  → denominator for plot 1
-# n_total : all cells at this timepoint              → denominator for plot 2
-AggPoint = Tuple[float, float, float, float, int, int]
+# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total, frac_spread)
+# n_above     : cells above threshold at this timepoint  → denominator for plot 1
+# n_total     : all cells at this timepoint              → denominator for plot 2
+# frac_spread : SD/SEM of the fraction across per-FOV fractions when
+#               per_fov_spread is enabled, else 0.0. Trailing position so
+#               existing destructuring with `*_` (and `*extra`) keeps working.
+AggPoint = Tuple[float, float, float, float, int, int, float]
 
 
 def _ordinal_timepoints(rows: List[dict], tp_col: str = "timepoint_hours") -> Dict[str, float]:
@@ -217,6 +264,8 @@ def aggregate_with_threshold(
     val_col: str = "gfp_mean_intensity",
     cell_area_threshold: float = 0.0,
     fluor_gates: Optional[Dict[str, float]] = None,
+    per_fov_spread: bool = False,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
 ) -> List[AggPoint]:
     """Group rows by timepoint; compute stats for cells above threshold.
 
@@ -225,14 +274,24 @@ def aggregate_with_threshold(
     and other metrics are computed on the same set of cells regardless of which
     channel or metric is being plotted.
 
+    When ``per_fov_spread`` is True, the spread on the mean (third tuple field)
+    is the SD/SEM **across per-FOV mean intensities** at each timepoint instead
+    of the SD/SEM across individual cells. The trailing ``frac_spread`` field
+    is also populated as the SD/SEM across per-FOV ``n_above/n_total`` ratios
+    so the bar plot can draw an error bar on the fraction. Mean, fraction, and
+    counts themselves are unaffected. Use this in single-well mode to treat
+    FOVs as technical replicates within the well.
+
     Returns:
-        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total)
+        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total, frac_spread)
     """
     if fluor_gates is None:
         fluor_gates = {}
 
     all_v:   Dict[float, List[float]] = defaultdict(list)
     above_v: Dict[float, List[float]] = defaultdict(list)
+    fov_above: Dict[float, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+    fov_total: Dict[float, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     ordinals = _ordinal_timepoints(rows, tp_col)
 
@@ -274,14 +333,18 @@ def aggregate_with_threshold(
         if t is None:
             continue
 
-        try:
-            val = float(row[val_col])
-        except (KeyError, ValueError, TypeError):
+        val = resolve_value(row, val_col, ratios)
+        if not math.isfinite(val):
             continue
 
         all_v[t].append(val)
+        if per_fov_spread:
+            fov = str(row.get("fov", "1") or "1").strip() or "1"
+            fov_total[t][fov] += 1
         if val > threshold:
             above_v[t].append(val)
+            if per_fov_spread:
+                fov_above[t][fov].append(val)
 
     result: List[AggPoint] = []
     for t in sorted(all_v):
@@ -290,12 +353,33 @@ def aggregate_with_threshold(
         n_above = len(above)
         mean    = sum(above) / n_above if n_above else float("nan")
         spread  = 0.0
-        if n_above > 1:
-            sd     = statistics.pstdev(above)
-            spread = sd / math.sqrt(n_above) if use_sem else sd
+        frac_spread = 0.0
+        if per_fov_spread:
+            fov_above_t = fov_above.get(t, {})
+            fov_total_t = fov_total.get(t, {})
+            fov_means = [sum(vs) / len(vs) for vs in fov_above_t.values() if vs]
+            n_fov_means = len(fov_means)
+            if n_fov_means > 1:
+                sd = statistics.pstdev(fov_means)
+                spread = sd / math.sqrt(n_fov_means) if use_sem else sd
+            # Fraction-above SD/SEM across FOVs that contributed any cell to
+            # the gated population at this timepoint (an FOV with zero gated
+            # cells has no defined fraction and is excluded).
+            fov_fracs = [
+                len(fov_above_t.get(fov, ())) / total
+                for fov, total in fov_total_t.items() if total > 0
+            ]
+            n_fov_fracs = len(fov_fracs)
+            if n_fov_fracs > 1:
+                fsd = statistics.pstdev(fov_fracs)
+                frac_spread = fsd / math.sqrt(n_fov_fracs) if use_sem else fsd
+        else:
+            if n_above > 1:
+                sd     = statistics.pstdev(above)
+                spread = sd / math.sqrt(n_above) if use_sem else sd
         result.append((t, mean, spread,
                        n_above / n_total if n_total else float("nan"),
-                       n_above, n_total))
+                       n_above, n_total, frac_spread))
     return result
 
 
@@ -311,8 +395,15 @@ def _all_fluor_values_filtered(
     val_col: str = "gfp_mean_intensity",
     cell_area_threshold: float = 0.0,
     fluor_gates: Optional[Dict[str, float]] = None,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
+    tp_filter: Optional[float] = None,
+    tp_col: str = "timepoint_hours",
 ) -> List[float]:
-    """Extract fluorescence values from rows, filtering by cell area and all fluorescence gates."""
+    """Extract fluorescence values from rows, filtering by cell area and all fluorescence gates.
+
+    When ``tp_filter`` is supplied, only rows whose timepoint matches (within
+    a 1e-6 tolerance) are included.
+    """
     if fluor_gates is None:
         fluor_gates = {}
 
@@ -342,15 +433,18 @@ def _all_fluor_values_filtered(
         if not gates_passed:
             continue
 
-        try:
-            val = float(row[val_col])
-            if not math.isfinite(val):
+        if tp_filter is not None:
+            try:
+                tp = float(row.get(tp_col, float("nan")))
+            except (ValueError, TypeError):
                 continue
-            if not isinstance(val, (int, float)) or isinstance(val, bool):
+            if not math.isfinite(tp) or abs(tp - tp_filter) > 1e-6:
                 continue
-            result.append(val)
-        except (KeyError, ValueError, TypeError):
+
+        val = resolve_value(row, val_col, ratios)
+        if not math.isfinite(val):
             continue
+        result.append(val)
 
     return result
 
@@ -402,3 +496,82 @@ def extract_well_token(label: str) -> Optional[str]:
     """'gfp_measurements_B10' → 'B10'."""
     m = re.search(r"([A-Ha-h])(\d{1,2})$", label)
     return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else None
+
+
+def parse_well_token(token: str) -> Optional[Tuple[int, int]]:
+    """Convert a well token like ``"A01"`` into ``(row, col)`` zero-based.
+
+    Row is derived from the letter (A→0, …, H→7); col from the number minus 1.
+    Returns None when the token cannot be parsed.
+    """
+    if not token:
+        return None
+    m = re.fullmatch(r"\s*([A-Za-z])(\d{1,2})\s*", str(token))
+    if not m:
+        return None
+    row = ord(m.group(1).upper()) - ord("A")
+    col = int(m.group(2)) - 1
+    if row < 0 or col < 0:
+        return None
+    return row, col
+
+
+# ── Plot-group iteration ─────────────────────────────────────────────────────
+
+def iter_plot_groups(app) -> Iterator[Tuple[str, str, List[dict]]]:
+    """Yield ``(name, color, rows)`` for each replicate set or selected well.
+
+    Mirrors the loop used by the line and bar plot controllers:
+      - if replicate sets are defined, iterate one per replicate set, pooling
+        rows from all wells in the set;
+      - otherwise iterate one per selected well.
+
+    The colour follows the existing well-colour palette from the theme via
+    ``app._color_for_label`` / ``app._color_for_well`` when available, falling
+    back to a neutral palette otherwise.
+    """
+    rep_sets = list(getattr(app, "_rep_sets", []) or [])
+    well_paths = getattr(app, "_well_paths", {}) or {}
+    selected = set(getattr(app, "_selected_wells", set()) or set())
+    color_for_label = getattr(app, "_color_for_label", None)
+    color_for_well = getattr(app, "_color_for_well", None)
+    fallback_palette = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+        "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+        "#bcbd22",
+    ]
+
+    def _color(name: str, idx: int) -> str:
+        if callable(color_for_label):
+            try:
+                c = color_for_label(name)
+                if c:
+                    return c
+            except Exception:
+                pass
+        if callable(color_for_well):
+            try:
+                c = color_for_well(name)
+                if c:
+                    return c
+            except Exception:
+                pass
+        return fallback_palette[idx % len(fallback_palette)]
+
+    if rep_sets:
+        for idx, rset in enumerate(rep_sets):
+            wells = [w for w in rset.wells if w in well_paths]
+            if not wells:
+                continue
+            pooled: List[dict] = []
+            for w in wells:
+                pooled.extend(app._get_rows(w))
+            yield rset.name, _color(rset.name, idx), pooled
+        return
+
+    if not selected:
+        selected = set(well_paths.keys())
+    for idx, w in enumerate(sorted(selected)):
+        if w not in well_paths:
+            continue
+        yield w, _color(w, idx), app._get_rows(w)

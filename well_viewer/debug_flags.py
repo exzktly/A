@@ -24,6 +24,9 @@ REVIEW_IMAGE_CHANNEL_SWITCH_DEBUG: bool = True
 MOVIE_MONTAGE_DEBUG: bool = False
 MOVIE_MONTAGE_LOAD_DEBUG: bool = False
 
+# Cell Gating tab debug switch (covers GatingWorker progress/start/finish logs).
+CELL_GATING_DEBUG: bool = True
+
 # Backward-compatible alias used by older call sites.
 # Keep this until all imports are migrated.
 BAR_DEBUG: bool = REVIEW_BAR_DEBUG
@@ -62,6 +65,11 @@ def movie_montage_debug_enabled() -> bool:
 def movie_montage_load_debug_enabled() -> bool:
     """Return whether Movie Montage image-loading debug output is enabled."""
     return REVIEW_TAB_DEBUG or MOVIE_MONTAGE_LOAD_DEBUG
+
+
+def cell_gating_debug_enabled() -> bool:
+    """Return whether Cell Gating tab debug output is enabled."""
+    return CELL_GATING_DEBUG
 
 
 def debug_with_source(logger: Any, message: str, *args: Any) -> None:

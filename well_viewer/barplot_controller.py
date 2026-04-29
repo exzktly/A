@@ -92,8 +92,11 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
         for idx, rset in enumerate(active_rsets):
             color = well_colors[idx % len(well_colors)]
             gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
+            n_cells = app._compute_rep_n(rset, target_t)
             label = app._replicate_display_label(rset)
-            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color))
+            # Trailing n_cells lets the renderer populate the N panel and
+            # keeps existing 7-tuple destructuring working via *_ /  indexing.
+            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_cells)))
         return True, items, band_lbl
 
     bar_selected = sorted(
@@ -103,15 +106,23 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
     items = []
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
+    per_fov_spread = app._use_fov_spread_active()
     for label in bar_selected:
         rows = app._get_rows(label)
-        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates)
-        matched = [(m, s, f) for t, m, s, f, *_ in pts if abs(t - target_t) < 1e-6]
+        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread, ratios=getattr(app, "_ratio_index", None))
+        # Each AggPoint is (t, mean, mean_spread, frac, n_above, n_total, frac_spread).
+        # Pull both spreads and the N count so the per-well bar can render an
+        # error bar on the fraction panel and a count bar on the N panel.
+        matched = [
+            (m, s, f, fs, int(n_total))
+            for t, m, s, f, _na, n_total, fs in pts
+            if abs(t - target_t) < 1e-6
+        ]
         if matched:
-            m, s, f = matched[0]
-            items.append((label, m, s, f, True))
+            m, s, f, fs, n_total = matched[0]
+            items.append((label, m, s, f, fs, True, n_total))
         else:
-            items.append((label, float("nan"), 0.0, float("nan"), False))
+            items.append((label, float("nan"), 0.0, float("nan"), 0.0, False, 0))
     return False, items, band_lbl
 
 
@@ -147,8 +158,14 @@ def render_bar_items(
     placeholder_color: str,
     disabled_well_color: str,
     err_bar_color: str,
+    ax_n=None,
 ) -> None:
-    """Draw mean/fraction bar panels from precomputed items."""
+    """Draw mean/fraction (and optionally N) bar panels from precomputed items.
+
+    When ``ax_n`` is provided, a third panel is populated with the per-bar
+    cell count (n_total), pulled from the trailing ``n_cells`` field appended
+    by ``collect_bar_items``. Items missing the field render as zero bars.
+    """
     n = len(items)
     if len(xlabels) != n:
         if use_groups:
@@ -168,7 +185,12 @@ def render_bar_items(
 
     if use_groups:
         bar_w = min(0.65, 5.0 / max(n, 1))
-        for i, (_key, _display, gm, g_err_m, gf, g_err_f, has, color) in enumerate(items):
+        for i, item in enumerate(items):
+            # Use-groups items: (key, display, gm, g_err_m, gf, g_err_f, has, color[, n_cells]).
+            # The trailing n_cells is optional so any caller still emitting
+            # the older 8-tuple shape keeps working.
+            _key, _display, gm, g_err_m, gf, g_err_f, has, color = item[:8]
+            n_cells = int(item[8]) if len(item) >= 9 else 0
             if has:
                 ax_mean.bar(i, gm, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                 if g_err_m > 0:
@@ -179,12 +201,33 @@ def render_bar_items(
                         ax_frac.errorbar(i, gf, yerr=g_err_f, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
                 else:
                     ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
+                if ax_n is not None:
+                    if n_cells > 0:
+                        ax_n.bar(i, n_cells, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                    else:
+                        ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             else:
                 for ax in (ax_mean, ax_frac):
                     ax.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
+                if ax_n is not None:
+                    ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
     else:
         bar_w = min(0.6, 5.0 / max(n, 1))
-        for i, (_label, mean, spread, frac, has_data) in enumerate(items):
+        for i, item in enumerate(items):
+            # Per-well items are
+            #   (label, mean, spread, frac, frac_spread, has_data[, n_cells]).
+            # n_cells trailing field is optional so any caller still emitting
+            # an older 5- or 6-tuple shape keeps working.
+            if len(item) >= 7:
+                _label, mean, spread, frac, frac_spread, has_data, n_cells = item[:7]
+                n_cells = int(n_cells)
+            elif len(item) == 6:
+                _label, mean, spread, frac, frac_spread, has_data = item
+                n_cells = 0
+            else:
+                _label, mean, spread, frac, has_data = item
+                frac_spread = 0.0
+                n_cells = 0
             color = well_colors[i % len(well_colors)]
             if has_data and not math.isnan(mean):
                 ax_mean.bar(i, mean, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
@@ -194,8 +237,15 @@ def render_bar_items(
                 ax_mean.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             if has_data and not math.isnan(frac):
                 ax_frac.bar(i, frac, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                if frac_spread > 0:
+                    ax_frac.errorbar(i, frac, yerr=frac_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
             else:
                 ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
+            if ax_n is not None:
+                if has_data and n_cells > 0:
+                    ax_n.bar(i, n_cells, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                else:
+                    ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 
     ax_mean.axhline(threshold, color=warn_color, lw=1.0, ls="--", alpha=0.7, zorder=1, label=f"threshold={threshold:.2f}")
     ax_frac.axhline(0.5, color=border_color, lw=0.8, ls="--", alpha=0.5, zorder=1)
@@ -204,7 +254,10 @@ def render_bar_items(
                  fontsize=8, va="top", ha="left", color=warn_color, alpha=0.7)
 
     xs = list(range(n))
-    for ax in (ax_mean, ax_frac):
+    axes_to_label = [ax_mean, ax_frac]
+    if ax_n is not None:
+        axes_to_label.append(ax_n)
+    for ax in axes_to_label:
         ax.set_xticks(xs)
         ax.set_xticklabels(
             xlabels,
@@ -215,6 +268,15 @@ def render_bar_items(
         ax.set_xlim(-0.6, n - 0.4)
         # Mark categorical x-axis so downstream styling does not reset tick formatters.
         setattr(ax, "_categorical_xaxis", True)
+    if ax_n is not None:
+        # N is a count → integer-only ticks, lower-bound at 0.
+        cur_lo, cur_hi = ax_n.get_ylim()
+        ax_n.set_ylim(0, max(cur_hi, 1))
+        try:
+            from matplotlib.ticker import MaxNLocator
+            ax_n.yaxis.set_major_locator(MaxNLocator(integer=True))
+        except ImportError:
+            pass
 
 
 def apply_bar_ylims(app, ax_mean, ax_frac, *, log_scale: bool = False) -> None:
