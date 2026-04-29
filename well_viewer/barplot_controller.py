@@ -109,7 +109,7 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
     per_fov_spread = app._use_fov_spread_active()
     for label in bar_selected:
         rows = app._get_rows(label)
-        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
+        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread, ratios=getattr(app, "_ratio_index", None))
         # Each AggPoint is (t, mean, mean_spread, frac, n_above, n_total, frac_spread).
         # Pull both spreads and the N count so the per-well bar can render an
         # error bar on the fraction panel and a count bar on the N panel.

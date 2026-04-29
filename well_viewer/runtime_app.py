@@ -517,7 +517,17 @@ from well_viewer.data_loading import (
     merge_fluor_channels,
     normalize_channel_tokens,
     parse_timepoint_hours,
+    parse_well_token,
+    resolve_value,
     row_is_included,
+)
+from well_viewer.ratio_models import (
+    RatioMetric,
+    build_ratio_index,
+    is_ratio_key,
+    ratio_name_from_key,
+    ratios_from_dict,
+    ratios_to_dict,
 )
 
 
@@ -1182,6 +1192,18 @@ class WellViewerApp(QWidget):
         self._active_metric: str        = "mean_intensity"
         self._active_val_col: str       = "gfp_mean_intensity"
 
+        # Ratio metrics: user-defined virtual channels computed at read time.
+        # ``_ratio_index`` is the resolver-friendly dict keyed by ``ratio:<name>``
+        # and is rebuilt whenever the list changes.
+        self._ratio_metrics: List[RatioMetric] = []
+        self._ratio_index: Dict[str, RatioMetric] = {}
+
+        # Heatmap layouts: arbitrary R×C grids decoupled from the physical
+        # 8×12 plate. When empty, the heatmap controller synthesizes a plate
+        # layout on the fly.
+        self._heatmap_layouts: List = []
+        self._active_heatmap_layout_name: Optional[str] = None
+
         # Plot controls — widgets are assigned in _build_ui; keep placeholders
         # until then so callers can inspect default state.
         self._threshold_min = 0.0
@@ -1391,6 +1413,13 @@ class WellViewerApp(QWidget):
         self._dir_label.setObjectName("Muted")
         top_layout.addWidget(self._dir_label)
         top_layout.addStretch(1)
+        ratios_btn = QPushButton("Ratios\u2026")
+        ratios_btn.setProperty("variant", "secondary")
+        ratios_btn.setToolTip(
+            "Define ratio metrics (e.g. GFP/mCherry) usable as virtual channels."
+        )
+        ratios_btn.clicked.connect(self._open_ratio_panel)
+        top_layout.addWidget(ratios_btn)
         open_btn = QPushButton("Open\u2026")
         open_btn.setProperty("variant", "primary")
         open_btn.clicked.connect(self._browse)
@@ -2771,6 +2800,73 @@ class WellViewerApp(QWidget):
         _logger.info("Bar groups loaded from %s (%d group(s))",
                      path_str, len(self._bar_groups))
 
+    def _open_ratio_panel(self) -> None:
+        """Open the ratio metric definition dialog."""
+        from well_viewer.views.ratio_panel_view import open_ratio_panel
+        open_ratio_panel(self, parent=self)
+
+    # ── Ratio metric persistence ─────────────────────────────────────────────
+
+    def _ratios_path(self) -> Optional[Path]:
+        if self._data_dir:
+            return self._data_dir / "ratios.json"
+        return None
+
+    def _ratios_save_to_data_dir(self) -> None:
+        path = self._ratios_path()
+        if path is None:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(ratios_to_dict(self._ratio_metrics), fh, indent=2)
+        except OSError as exc:
+            _logger.warning("Failed to save ratios to %s: %s", path, exc)
+
+    def _ratios_load_from_data_dir(self) -> None:
+        path = self._ratios_path()
+        if path is None or not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed to load ratios from %s: %s", path, exc)
+            return
+        self._set_ratio_metrics(ratios_from_dict(data))
+
+    # ── Heatmap layout persistence ───────────────────────────────────────────
+
+    def _heatmap_layouts_path(self) -> Optional[Path]:
+        if self._data_dir:
+            return self._data_dir / "heatmap_layouts.json"
+        return None
+
+    def _heatmap_layouts_save_to_data_dir(self) -> None:
+        path = self._heatmap_layouts_path()
+        if path is None:
+            return
+        layouts = list(getattr(self, "_heatmap_layouts", []) or [])
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump([lay.to_dict() for lay in layouts], fh, indent=2)
+        except OSError as exc:
+            _logger.warning("Failed to save heatmap layouts to %s: %s", path, exc)
+
+    def _heatmap_layouts_load_from_data_dir(self) -> None:
+        path = self._heatmap_layouts_path()
+        if path is None or not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed to load heatmap layouts from %s: %s", path, exc)
+            return
+        from well_viewer.heatmap_models import layouts_from_dict  # local import to avoid cycles
+        self._heatmap_layouts = layouts_from_dict(data)
+        if hasattr(self, "_heatmap_layout_combo"):
+            self._refresh_heatmap_layout_combo()
+
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
         # Prune global replicate sets
@@ -3845,14 +3941,20 @@ class WellViewerApp(QWidget):
         if self._active_metric == "smfish_count" and self._active_channel not in self._smfish_channels:
             self._active_metric = "mean_intensity"
 
-        # Derive _active_val_col from active channel and metric
-        self._active_val_col = f"{self._active_channel}_{self._active_metric}"
+        # Derive _active_val_col from active channel and metric (skip when
+        # a ratio is active — the ratio key already lives in _active_val_col).
+        if not is_ratio_key(self._active_val_col):
+            self._active_val_col = f"{self._active_channel}_{self._active_metric}"
 
-        # Update metric selector visibility (both line and bar tabs)
+        # Update metric selector visibility (both line and bar tabs).
+        # Hidden when a ratio is active or when the channel has no smFISH metric.
+        ratio_active = is_ratio_key(self._active_val_col)
         for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
             if hasattr(self, frame_attr):
                 frame = getattr(self, frame_attr)
-                frame.setVisible(self._active_channel in self._smfish_channels)
+                frame.setVisible(
+                    (not ratio_active) and (self._active_channel in self._smfish_channels)
+                )
 
         # Always refresh timepoint menus regardless of whether intensity
         # values exist — single-timepoint experiments still need the bar menu.
@@ -3860,6 +3962,18 @@ class WellViewerApp(QWidget):
             self._update_bar_tp_menu()
         if hasattr(self, "_stats_tp_cb"):
             self._stats_update_tp_menu()
+        if hasattr(self, "_distribution_tp_cb"):
+            try:
+                from well_viewer.tabs.distribution_tab_view import refresh_distribution_timepoints
+                refresh_distribution_timepoints(self)
+            except Exception:
+                _logger.exception("Distribution timepoint refresh failed")
+        if hasattr(self, "_heatmap_tp_slider"):
+            try:
+                from well_viewer.tabs.heatmap_tab_view import refresh_heatmap_timepoints
+                refresh_heatmap_timepoints(self)
+            except Exception:
+                _logger.exception("Heatmap timepoint refresh failed")
 
         all_vals = [v for lbl in self._well_paths
                     for v in _all_fluor_values(self._get_rows(lbl),
@@ -3877,28 +3991,113 @@ class WellViewerApp(QWidget):
             # Load saved ThreshFracOn values
             self._cell_gating_tab._load_threshold_frac_on()
 
+    # ── Ratio metric helpers ─────────────────────────────────────────────────
+
+    def _ratio_label_for(self, ratio: RatioMetric) -> str:
+        """Return the dropdown label for a ratio (e.g. ``"GFP/MCHERRY"``).
+
+        Disambiguates by appending ``[name]`` if two ratios share a label.
+        """
+        base = ratio.display_label()
+        same_base = [r for r in self._ratio_metrics if r.display_label() == base]
+        if len(same_base) > 1:
+            return f"{base} [{ratio.name}]"
+        return base
+
+    def _ratio_dropdown_labels(self) -> List[str]:
+        return [self._ratio_label_for(r) for r in self._ratio_metrics]
+
+    def _channel_key_for_label(self, label: str) -> str:
+        """Map a dropdown label back to the ``_set_active_channel`` argument.
+
+        Real channels return their lowercase token; ratios return their
+        ``ratio:<name>`` key.
+        """
+        mapping = getattr(self, "_label_to_channel_key", None) or {}
+        if label in mapping:
+            return mapping[label]
+        # Fallback: assume real channel (legacy callers).
+        return str(label or "").lower()
+
+    def _active_channel_label(self) -> str:
+        """Return the dropdown label corresponding to the active channel."""
+        if is_ratio_key(self._active_val_col):
+            ratio_name = ratio_name_from_key(self._active_val_col)
+            for r in self._ratio_metrics:
+                if r.name == ratio_name:
+                    return self._ratio_label_for(r)
+            return ratio_name.upper()
+        return self._active_channel.upper()
+
+    def _rebuild_ratio_index(self) -> None:
+        """Refresh the resolver-friendly ratio index and any dependent UI."""
+        self._ratio_index = build_ratio_index(self._ratio_metrics)
+        # If the active val_col references a deleted ratio, fall back to the
+        # first real fluorescence channel so plots stay valid.
+        if is_ratio_key(self._active_val_col) and self._active_val_col not in self._ratio_index:
+            fallback = (self._fluor_channels or ["gfp"])[0]
+            self._active_channel = fallback
+            self._active_val_col = f"{fallback}_{self._active_metric}"
+        if hasattr(self, "_update_channel_selector"):
+            self._update_channel_selector()
+        self._invalidate_stats_cache()
+        if hasattr(self, "_redraw"):
+            try:
+                self._redraw()
+            except Exception:
+                pass
+
+    def _set_ratio_metrics(self, ratios: Iterable[RatioMetric]) -> None:
+        """Replace the ratio list and rebuild the index + UI."""
+        self._ratio_metrics = list(ratios)
+        self._rebuild_ratio_index()
+
+    # ── Active channel ───────────────────────────────────────────────────────
+
     def _set_active_channel(self, channel: str) -> None:
-        """Switch the active fluorescent channel and redraw all plots."""
+        """Switch the active fluorescent channel and redraw all plots.
+
+        ``channel`` may be a real channel token (e.g. ``"gfp"``) or a ratio
+        key (``"ratio:<name>"``). Ratios bypass the per-channel metric
+        selector and route reads through ``resolve_value``.
+        """
         if not channel or channel == "—":
             return
-        if channel == self._active_channel:
-            return
-        self._active_channel = channel
-        # Reset metric to mean_intensity if new channel doesn't have smfish_count
-        if channel not in self._smfish_channels:
-            self._active_metric = "mean_intensity"
-        # Derive val_col from channel and metric
-        self._active_val_col = f"{channel}_{self._active_metric}"
-        # Keep both plot-tab channel selectors in sync so switching channel
-        # on one tab is reflected on the other.
-        ch_upper = channel.upper()
-        for attr in ("_chan_cb_line", "_chan_cb_bar"):
+        ratio_active = is_ratio_key(channel)
+        if ratio_active:
+            ratio_name = ratio_name_from_key(channel)
+            ratio = next((r for r in self._ratio_metrics if r.name == ratio_name), None)
+            if ratio is None:
+                return
+            new_val_col = ratio.key()
+            if new_val_col == self._active_val_col:
+                return
+            self._active_channel = ratio_name
+            self._active_val_col = new_val_col
+            # Hide the per-cell metric selector — ratios encode their own metrics.
+            for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
+                frame = getattr(self, frame_attr, None)
+                if frame is not None:
+                    frame.setVisible(False)
+        else:
+            if channel == self._active_channel and not is_ratio_key(self._active_val_col):
+                return
+            self._active_channel = channel
+            # Reset metric to mean_intensity if new channel doesn't have smfish_count
+            if channel not in self._smfish_channels:
+                self._active_metric = "mean_intensity"
+            # Derive val_col from channel and metric
+            self._active_val_col = f"{channel}_{self._active_metric}"
+        # Keep all plot-tab channel selectors in sync so switching channel
+        # on one tab is reflected on the others.
+        target_label = self._active_channel_label()
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution", "_chan_cb_heatmap"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
-            if str(cb.currentText() or "") == ch_upper:
+            if str(cb.currentText() or "") == target_label:
                 continue
-            idx = cb.findText(ch_upper)
+            idx = cb.findText(target_label)
             if idx >= 0:
                 blocked = cb.blockSignals(True)
                 try:
@@ -3912,9 +4111,9 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
         if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.setText(f"({ch_upper} x range)")
+            self._cdf_chan_lbl.setText(f"({target_label} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.setText(f"{ch_upper} y:")
+            self._bar_ylim_chan_lbl.setText(f"{target_label} y:")
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
@@ -4006,7 +4205,9 @@ class WellViewerApp(QWidget):
                 label = ""
         if not label:
             label = self._plot_chan_var.get()
-        self._set_active_channel(label.lower())
+        # Route real channels and ratios via the label→key map so ratio
+        # selections (e.g. "GFP/MCHERRY") resolve to a ``ratio:<name>`` key.
+        self._set_active_channel(self._channel_key_for_label(label))
 
     def _on_preview_channel_selected(self, _e=None) -> None:
         """Channel-switch handler for the Movie Montage tab."""
@@ -4047,7 +4248,15 @@ class WellViewerApp(QWidget):
 
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
-        labels = [ch.upper() for ch in self._fluor_channels] or ["—"]
+        real_labels = [ch.upper() for ch in self._fluor_channels]
+        ratio_labels = self._ratio_dropdown_labels()
+        labels = (real_labels + ratio_labels) or ["—"]
+        # Map the uppercase dropdown label back to the underlying channel key
+        # used by ``_set_active_channel`` (real channels stay lowercase; ratio
+        # entries use the ``ratio:<name>`` key so the resolver can route them).
+        self._label_to_channel_key = {ch.upper(): ch for ch in self._fluor_channels}
+        for r in self._ratio_metrics:
+            self._label_to_channel_key[self._ratio_label_for(r)] = r.key()
         # Montage/preview includes the segmentation channel token.
         seg_tok = getattr(self, "_seg_channel_token", "")
         montage_chans = list(self._fluor_channels)
@@ -4059,11 +4268,15 @@ class WellViewerApp(QWidget):
         for attr in ("_chan_cb_line", "_chan_cb_bar"):
             if hasattr(self, attr):
                 _set_combo_values(getattr(self, attr), labels)
+        if hasattr(self, "_chan_cb_distribution"):
+            _set_combo_values(self._chan_cb_distribution, labels)
+        if hasattr(self, "_chan_cb_heatmap"):
+            _set_combo_values(self._chan_cb_heatmap, labels)
         if hasattr(self, "_chan_cb_preview"):
             _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
             _set_combo_values(self._review_image_chan_cb, review_labels)
-        active_label = self._active_channel.upper()
+        active_label = self._active_channel_label()
 
         def _pick_valid(current: str, candidates: List[str], fallback_label: str) -> str:
             if current in candidates and current != "—":
@@ -4094,7 +4307,7 @@ class WellViewerApp(QWidget):
         # Keep active channel anchored to a valid plot channel.
         if active_label not in labels:
             if plot_label != "—":
-                self._set_active_channel(plot_label.lower())
+                self._set_active_channel(self._channel_key_for_label(plot_label))
             else:
                 self._active_channel = ""
 
@@ -4966,6 +5179,22 @@ class WellViewerApp(QWidget):
         from well_viewer.figure_export_editor import apply_export_style_to_current
 
         apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
+
+        # Redraw the Distribution and Heat Map tabs if they have been built —
+        # both follow the active channel/metric/threshold so they need to track
+        # the same state changes that drive the line plot.
+        if hasattr(self, "_distribution_canvas"):
+            try:
+                from well_viewer.distribution_controller import redraw_distribution
+                redraw_distribution(self)
+            except Exception:
+                _logger.exception("Distribution redraw failed")
+        if hasattr(self, "_heatmap_canvas"):
+            try:
+                from well_viewer.heatmap_controller import redraw_heatmap
+                redraw_heatmap(self)
+            except Exception:
+                _logger.exception("Heat map redraw failed")
 
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
@@ -5931,6 +6160,7 @@ class WellViewerApp(QWidget):
                 val_col=self._active_val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
+                ratios=getattr(self, "_ratio_index", None),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             n_total = int(matched[0][5]) if matched else 0
@@ -6145,7 +6375,8 @@ class WellViewerApp(QWidget):
             pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
                                             val_col=self._active_val_col,
                                             cell_area_threshold=cell_area_threshold,
-                                            fluor_gates=fluor_gates)
+                                            fluor_gates=fluor_gates,
+                                            ratios=getattr(self, "_ratio_index", None))
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             if matched:
                 _, m, _sd, f, *_ = matched[0]
@@ -6200,6 +6431,7 @@ class WellViewerApp(QWidget):
                 val_col=self._active_val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
+                ratios=getattr(self, "_ratio_index", None),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             if matched:
@@ -6251,7 +6483,8 @@ class WellViewerApp(QWidget):
                 pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
                                                 val_col=self._active_val_col,
                                                 cell_area_threshold=cell_area_threshold,
-                                                fluor_gates=fluor_gates)
+                                                fluor_gates=fluor_gates,
+                                                ratios=getattr(self, "_ratio_index", None))
                 matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
                 if matched:
                     _, m, _sd, f, *_ = matched[0]

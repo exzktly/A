@@ -15,6 +15,8 @@ def build_centre(app, parent: QWidget) -> None:
     from well_viewer.smfish_tab import SmfishTab
     from well_viewer.tabs.bar_plots_tab_view import build_bar_plots_tab
     from well_viewer.tabs.batch_export_tab_view import build_batch_export_tab
+    from well_viewer.tabs.distribution_tab_view import build_distribution_tab
+    from well_viewer.tabs.heatmap_tab_view import build_heatmap_tab
     from well_viewer.tabs.image_table_tab_view import build_image_table_tab
     from well_viewer.tabs.line_graphs_tab_view import build_line_graphs_tab
     from well_viewer.tabs.scatter_agg_tab_view import build_scatter_agg_tab
@@ -73,6 +75,14 @@ def build_centre(app, parent: QWidget) -> None:
     # Scatter: Aggregate
     tab_scatter_agg = _new_tab("Scatter Plot: Aggregate")
     build_scatter_agg_tab(app, tab_scatter_agg)
+
+    # Distribution
+    tab_distribution = _new_tab("Distribution")
+    build_distribution_tab(app, tab_distribution)
+
+    # Heat Map
+    tab_heatmap = _new_tab("Heat Map")
+    build_heatmap_tab(app, tab_heatmap)
 
     # Movie Montage
     tab_preview = _new_tab("Movie Montage")

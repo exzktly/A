@@ -80,6 +80,13 @@ def load_directory(app, d: Path, label=None) -> None:
     if hasattr(app, "_sidebar_preview_btns"):
         app._refresh_preview_picker()
     app._label_panel_refresh()
+    # Auto-load any persisted ratio definitions and heatmap layouts that live
+    # in the same data directory. Both calls are safe no-ops when no file
+    # exists; errors are logged and swallowed.
+    if hasattr(app, "_ratios_load_from_data_dir"):
+        app._ratios_load_from_data_dir()
+    if hasattr(app, "_heatmap_layouts_load_from_data_dir"):
+        app._heatmap_layouts_load_from_data_dir()
     display = label or str(d)
     app._dir_label.setText(display)
     app._set_status(f"Loaded {n} well(s) — {display}")

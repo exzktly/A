@@ -71,9 +71,9 @@ def redraw_line_plots(
             fluor_gates = app._get_all_fluor_gates()
             for lbl in valid_wells:
                 rows = app._get_rows(lbl)
-                for t, *_ in aggregate_with_threshold(rows, threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates):
+                for t, *_ in aggregate_with_threshold(rows, threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)):
                     all_tps.add(t)
-                all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates))
+                all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
             agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
             for t in sorted(all_tps):
                 gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
@@ -106,7 +106,7 @@ def redraw_line_plots(
             color = well_colors[i % len(well_colors)]
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
-            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
+            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread, ratios=getattr(app, "_ratio_index", None))
             if pts:
                 times, means, spreads, fracs, *_ = zip(*pts)
                 vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
@@ -120,7 +120,7 @@ def redraw_line_plots(
                     app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=disp, zorder=3)
                     app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                 any_ts = True
-            vals = sorted(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates))
+            vals = sorted(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
             if vals:
                 n = len(vals)
                 app._line_ax_cdf.plot(vals, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{disp} (n={n:,})", zorder=3)
