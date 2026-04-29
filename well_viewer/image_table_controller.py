@@ -6,7 +6,8 @@ and drive the Image Table tab:
 - multi-select sidebar picker (ignores groupings / replicate sets)
 - selector grid build / rebuild (rows × cols of dropdowns per cell)
 - "Distribute Wells" — assigns active wells row-wise into cells
-- Global Options propagation (channel / timepoint / FOV → every cell)
+- Per-row channel + LUT-color selectors (column 0 of the selector grid)
+- Global Options propagation (timepoint / FOV → every cell)
 - Generate — loads images and lays them out below the selector
 - Per-channel auto-LUT
 - Export — matplotlib figure with labels above each image, transparent BG
@@ -22,6 +23,22 @@ from PySide6.QtWidgets import (
     QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QVBoxLayout, QWidget,
 )
+
+
+# ── LUT colour palette ──────────────────────────────────────────────────────
+#
+# Per-row tints applied to the grayscale fluorescence image. ``Gray`` keeps
+# the legacy white intensity ramp. Each tint is an (r, g, b) triple in
+# [0, 1]; ``Gray`` uses ``None`` so make_fluor_thumb takes its untinted
+# fast path.
+LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
+    "Gray":   None,
+    "Red":    (1.0, 0.0, 0.0),
+    "Green":  (0.0, 1.0, 0.0),
+    "Blue":   (0.0, 0.0, 1.0),
+    "Violet": (0.56, 0.0, 1.0),
+}
+LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
 
 
 # ── Sidebar picker ───────────────────────────────────────────────────────────
@@ -152,7 +169,7 @@ def image_table_apply_dimensions(app) -> None:
 
 def image_table_rebuild_grid(app) -> None:
     """Rebuild the selector grid (rows × cols of cell groupboxes) plus the
-    per-row channel column at column 0."""
+    per-row channel + LUT-colour column at column 0."""
     from PySide6.QtWidgets import QComboBox
     from well_viewer.ui_helpers import clear_layout
 
@@ -167,21 +184,49 @@ def image_table_rebuild_grid(app) -> None:
     fov_opts = _fov_options(app)
     well_opts = _well_options(app)
 
+    # Preserve existing per-row LUT-colour selections across rebuilds when
+    # row count is unchanged or shrinks; defaults are picked otherwise.
+    prev_lut_cbs: List[QComboBox] = list(getattr(app, "_image_table_row_lut_color_cbs", []) or [])
+
     cells: List[List[Dict[str, Any]]] = []
     row_chan_cbs: List[QComboBox] = []
+    row_lut_color_cbs: List[QComboBox] = []
     for r in range(rows):
-        row_chan_box = QGroupBox(f"Row {r + 1} channel")
-        rcl = QVBoxLayout(row_chan_box)
-        rcl.setContentsMargins(6, 8, 6, 6)
-        rcl.setSpacing(2)
-        row_chan_cb = QComboBox(row_chan_box)
+        row_box = QGroupBox(f"Row {r + 1}")
+        rbl = QVBoxLayout(row_box)
+        rbl.setContentsMargins(6, 8, 6, 6)
+        rbl.setSpacing(4)
+
+        # Channel
+        chan_lbl = QLabel("Channel:", row_box)
+        chan_lbl.setStyleSheet("font-size: 10px;")
+        rbl.addWidget(chan_lbl)
+        row_chan_cb = QComboBox(row_box)
         row_chan_cb.addItems(chan_opts)
-        rcl.addWidget(row_chan_cb)
+        rbl.addWidget(row_chan_cb)
         row_chan_cb.currentIndexChanged.connect(
             lambda _i, ridx=r: image_table_apply_row_channel(app, ridx)
         )
-        layout.addWidget(row_chan_box, r, 0)
+
+        # LUT colour
+        col_lbl = QLabel("LUT colour:", row_box)
+        col_lbl.setStyleSheet("font-size: 10px;")
+        rbl.addWidget(col_lbl)
+        row_color_cb = QComboBox(row_box)
+        row_color_cb.addItems(LUT_COLOR_NAMES)
+        if r < len(prev_lut_cbs):
+            prev_text = prev_lut_cbs[r].currentText()
+            if prev_text in LUT_COLOR_NAMES:
+                row_color_cb.setCurrentText(prev_text)
+        rbl.addWidget(row_color_cb)
+        # Re-render whenever the user picks a new colour.
+        row_color_cb.currentIndexChanged.connect(
+            lambda _i: image_table_generate(app)
+        )
+
+        layout.addWidget(row_box, r, 0)
         row_chan_cbs.append(row_chan_cb)
+        row_lut_color_cbs.append(row_color_cb)
 
         row: List[Dict[str, Any]] = []
         for c in range(cols):
@@ -193,8 +238,37 @@ def image_table_rebuild_grid(app) -> None:
         cells.append(row)
     app._image_table_cells = cells
     app._image_table_row_chan_cbs = row_chan_cbs
+    app._image_table_row_lut_color_cbs = row_lut_color_cbs
 
     image_table_rebuild_lut_row(app)
+
+
+def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
+    """Return the (r, g, b) tint for row *r*, or None for grayscale."""
+    cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
+    if not (0 <= r < len(cbs)):
+        return None
+    name = cbs[r].currentText().strip()
+    return LUT_COLORS.get(name)
+
+
+def _row_export_cmap(app, r: int):
+    """Return a matplotlib colormap matching the row's LUT colour.
+
+    For ``Gray`` (None tint) returns the built-in ``"gray"`` cmap. For a
+    coloured tint, builds a black→tint LinearSegmentedColormap so the
+    exported figure visually matches the live thumbnail.
+    """
+    tint = _row_tint(app, r)
+    if tint is None:
+        return "gray"
+    try:
+        from matplotlib.colors import LinearSegmentedColormap
+    except Exception:
+        return "gray"
+    return LinearSegmentedColormap.from_list(
+        f"row{r}_tint", [(0.0, 0.0, 0.0), tuple(tint)],
+    )
 
 
 def _build_selector_cell(
@@ -491,7 +565,7 @@ def image_table_generate(app) -> None:
             if arr is not None:
                 # Apply the shared crop (no-op when not set) and render.
                 cropped = crop_tool.apply_to_array(arr) if crop_tool else arr
-                pix = make_fluor_thumb(cropped, 240, 240, lo, hi)
+                pix = make_fluor_thumb(cropped, 240, 240, lo, hi, tint=_row_tint(app, r))
                 # CropTool needs the FULL source array + the active crop on
                 # the label so label-pixel → image-pixel coord conversion
                 # works correctly even when the label already shows a crop.
@@ -626,7 +700,7 @@ def image_table_export(app) -> None:
                 vmax = hi if hi is not None else float(a.max())
                 if vmax <= vmin:
                     vmax = vmin + 1.0
-                ax.imshow(a, cmap="gray", vmin=vmin, vmax=vmax, aspect="equal")
+                ax.imshow(a, cmap=_row_export_cmap(app, r), vmin=vmin, vmax=vmax, aspect="equal")
             else:
                 ax.text(
                     0.5, 0.5, "(no image)",

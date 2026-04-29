@@ -341,12 +341,18 @@ from well_viewer.views.well_button import WellButton as WellLabel, build_plate_g
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
                    lo: Optional[float], hi: Optional[float],
-                   crop=None):
+                   crop=None,
+                   tint: Optional[Tuple[float, float, float]] = None):
     """Render a greyscale float32 array as a QPixmap with LUT [lo, hi].
 
     When ``crop`` is a (y0, x0, y1, x1) tuple, the array is sliced to that
     sub-region before LUT application and scaling so the resulting thumbnail
     shows only the selected square area at the requested display size.
+
+    When ``tint`` is an ``(r, g, b)`` triple (each in 0..1), the LUT-clipped
+    intensity is multiplied by the tint to colour the thumbnail (black at 0,
+    full tint at the LUT max). When ``None`` (default), the result is
+    grayscale.
     """
     if arr is None or not _NP_AVAILABLE:
         return None
@@ -365,7 +371,16 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
     if ahi <= alo:
         ahi = alo + 1.0
     disp = ((_np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
-    rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    if tint is None:
+        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    else:
+        r, g, b = (max(0.0, min(1.0, float(c))) for c in tint)
+        df = disp.astype(_np.float32)
+        rgb = _np.stack([
+            (df * r).astype(_np.uint8),
+            (df * g).astype(_np.uint8),
+            (df * b).astype(_np.uint8),
+        ], axis=-1).copy()
     h, w, _ = rgb.shape
     qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
     pm = QPixmap.fromImage(qimg)
