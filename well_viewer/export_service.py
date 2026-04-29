@@ -91,9 +91,10 @@ def export_bar_plot_data(app) -> None:
     rows_out = []
     if use_groups:
         for item in items:
-            # Rep-set items are (name, gm, g_err_m, gf, g_err_f, has, color[, n_above]).
+            # Rep-set items are (name, gm, g_err_m, gf, g_err_f, has, color[, n_above[, n_above_spread]]).
             name, gm, g_err_m, gf, g_err_f, has, _color = item[:7]
-            n_above = int(item[7]) if len(item) >= 8 else 0
+            n_above = float(item[7]) if len(item) >= 8 else 0.0
+            n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
             rows_out.append({
                 "name": name,
                 "timepoint_h": tp_str,
@@ -101,24 +102,33 @@ def export_bar_plot_data(app) -> None:
                 f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
                 "fraction_above": f"{gf:.6f}" if not math.isnan(gf) else "",
                 f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not math.isnan(gf) else "",
-                "n_above_threshold": str(n_above),
+                "n_above_threshold": f"{n_above:.6f}" if n_above_spread > 0 else f"{int(n_above)}",
+                f"err_n_above_{band_lbl}": f"{n_above_spread:.6f}" if n_above_spread > 0 else "",
                 "threshold": f"{threshold:.4f}",
                 "metric": metric,
             })
     else:
         for item in items:
-            # Per-well items are (label, mean, spread, frac, frac_spread, has[, n_above]);
-            # tolerate older 5-/6-tuple shapes that predated frac_spread / n_above.
-            if len(item) >= 7:
+            # Per-well items are (label, mean, spread, frac, frac_spread, has[, n_above[, n_above_spread]]);
+            # tolerate older 5-/6-/7-tuple shapes that predated the trailing
+            # event-count fields.
+            if len(item) >= 8:
+                label, mean, spread, frac, frac_spread, has, n_above, n_above_spread = item[:8]
+                n_above = float(n_above)
+                n_above_spread = float(n_above_spread)
+            elif len(item) == 7:
                 label, mean, spread, frac, frac_spread, has, n_above = item[:7]
-                n_above = int(n_above)
+                n_above = float(n_above)
+                n_above_spread = 0.0
             elif len(item) == 6:
                 label, mean, spread, frac, frac_spread, has = item
-                n_above = 0
+                n_above = 0.0
+                n_above_spread = 0.0
             else:
                 label, mean, spread, frac, has = item
                 frac_spread = 0.0
-                n_above = 0
+                n_above = 0.0
+                n_above_spread = 0.0
             rows_out.append({
                 "well": label,
                 "timepoint_h": tp_str,
@@ -126,7 +136,11 @@ def export_bar_plot_data(app) -> None:
                 f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
                 "fraction_above": f"{frac:.6f}" if has and not math.isnan(frac) else "",
                 f"err_frac_{band_lbl}": f"{frac_spread:.6f}" if has and not math.isnan(frac) else "",
-                "n_above_threshold": str(n_above),
+                "n_above_threshold": (
+                    f"{n_above:.6f}" if n_above_spread > 0
+                    else f"{int(n_above)}" if has else ""
+                ),
+                f"err_n_above_{band_lbl}": f"{n_above_spread:.6f}" if n_above_spread > 0 else "",
                 "threshold": f"{threshold:.4f}",
                 "metric": metric,
             })

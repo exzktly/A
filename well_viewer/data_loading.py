@@ -188,13 +188,21 @@ def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], se
 
 # ── Aggregation ──────────────────────────────────────────────────────────────
 
-# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total, frac_spread)
-# n_above     : cells above threshold at this timepoint  → denominator for plot 1
-# n_total     : all cells at this timepoint              → denominator for plot 2
-# frac_spread : SD/SEM of the fraction across per-FOV fractions when
-#               per_fov_spread is enabled, else 0.0. Trailing position so
-#               existing destructuring with `*_` (and `*extra`) keeps working.
-AggPoint = Tuple[float, float, float, float, int, int, float]
+# (time_h, mean_above_threshold, sd_above, fraction_above, n_above, n_total,
+#  frac_spread, n_above_per_fov_mean, n_above_per_fov_spread)
+# n_above                 : cells above threshold at this timepoint  → plot 1 denominator
+# n_total                 : all cells at this timepoint              → plot 2 denominator
+# frac_spread             : SD/SEM of the fraction across per-FOV fractions when
+#                           per_fov_spread is enabled, else 0.0.
+# n_above_per_fov_mean    : when per_fov_spread is enabled, mean of per-FOV
+#                           above-threshold counts; else 0.0.
+# n_above_per_fov_spread  : when per_fov_spread is enabled, SD/SEM of those
+#                           per-FOV counts (the "Aggregate FOVs" toggle uses
+#                           these to make the events panel show per-FOV mean ±
+#                           error instead of a single total bar); else 0.0.
+# Trailing positions so existing destructuring with `*_` (and `*extra`) keeps
+# working.
+AggPoint = Tuple[float, float, float, float, int, int, float, float, float]
 
 
 def _ordinal_timepoints(rows: List[dict], tp_col: str = "timepoint_hours") -> Dict[str, float]:
@@ -310,6 +318,8 @@ def aggregate_with_threshold(
         mean    = sum(above) / n_above if n_above else float("nan")
         spread  = 0.0
         frac_spread = 0.0
+        n_above_per_fov_mean = 0.0
+        n_above_per_fov_spread = 0.0
         if per_fov_spread:
             fov_above_t = fov_above.get(t, {})
             fov_total_t = fov_total.get(t, {})
@@ -329,13 +339,29 @@ def aggregate_with_threshold(
             if n_fov_fracs > 1:
                 fsd = statistics.pstdev(fov_fracs)
                 frac_spread = fsd / math.sqrt(n_fov_fracs) if use_sem else fsd
+            # Per-FOV count of events above threshold. Include every FOV that
+            # contributed any gated cell, so an FOV with zero above-threshold
+            # cells correctly counts as a 0 (not as missing data) when
+            # averaging — that's the difference between "no FOVs imaged" and
+            # "FOVs imaged but no events".
+            fov_n_above = [
+                len(fov_above_t.get(fov, ()))
+                for fov, total in fov_total_t.items() if total > 0
+            ]
+            n_fov_above = len(fov_n_above)
+            if n_fov_above >= 1:
+                n_above_per_fov_mean = sum(fov_n_above) / n_fov_above
+            if n_fov_above > 1:
+                nsd = statistics.pstdev(fov_n_above)
+                n_above_per_fov_spread = nsd / math.sqrt(n_fov_above) if use_sem else nsd
         else:
             if n_above > 1:
                 sd     = statistics.pstdev(above)
                 spread = sd / math.sqrt(n_above) if use_sem else sd
         result.append((t, mean, spread,
                        n_above / n_total if n_total else float("nan"),
-                       n_above, n_total, frac_spread))
+                       n_above, n_total, frac_spread,
+                       n_above_per_fov_mean, n_above_per_fov_spread))
     return result
 
 

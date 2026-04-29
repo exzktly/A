@@ -94,10 +94,12 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
             gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
             n_above = app._compute_rep_n_above(rset, target_t)
             label = app._replicate_display_label(rset)
-            # Trailing n_above lets the renderer populate the "events above
-            # threshold" panel and keeps existing 7-tuple destructuring
-            # working via *_ / indexing.
-            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_above)))
+            # Trailing (n_above, n_above_spread) drives the events panel.
+            # Replicate-set mode never combines with the per-FOV toggle (the
+            # toggle is auto-disabled when rep sets are active), so the
+            # spread is always 0 here. The trailing 0.0 keeps the rep-set
+            # tuple shape stable across FOV-on / FOV-off plot cycles.
+            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_above), 0.0))
         return True, items, band_lbl
 
     bar_selected = sorted(
@@ -111,20 +113,27 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
     for label in bar_selected:
         rows = app._get_rows(label)
         pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
-        # Each AggPoint is (t, mean, mean_spread, frac, n_above, n_total, frac_spread).
-        # Pull n_above (index 4) so the third panel reports the number of
-        # events that actually exceeded the threshold, not the total cell
-        # count. mean / frac / n_total stay implicit but unused here.
-        matched = [
-            (m, s, f, fs, int(n_above))
-            for t, m, s, f, n_above, _nt, fs in pts
-            if abs(t - target_t) < 1e-6
-        ]
+        # AggPoint: (t, mean, mean_spread, frac, n_above, n_total, frac_spread,
+        #            n_above_per_fov_mean, n_above_per_fov_spread).
+        # When the Aggregate FOVs toggle is on, the events panel reports
+        # mean ± SD/SEM across the per-FOV above-threshold counts so the
+        # column stays consistent with the per-FOV stats already shown in
+        # rows 1 and 2; otherwise it reports the well's total count with no
+        # error bar.
+        matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
         if matched:
-            m, s, f, fs, n_above = matched[0]
-            items.append((label, m, s, f, fs, True, n_above))
+            pt = matched[0]
+            m, s, f = pt[1], pt[2], pt[3]
+            n_above_total = int(pt[4])
+            fs = float(pt[6]) if len(pt) >= 7 else 0.0
+            n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
+            n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
+            if per_fov_spread:
+                items.append((label, m, s, f, fs, True, n_above_pf_mean, n_above_pf_spread))
+            else:
+                items.append((label, m, s, f, fs, True, float(n_above_total), 0.0))
         else:
-            items.append((label, float("nan"), 0.0, float("nan"), 0.0, False, 0))
+            items.append((label, float("nan"), 0.0, float("nan"), 0.0, False, 0.0, 0.0))
     return False, items, band_lbl
 
 
@@ -189,11 +198,13 @@ def render_bar_items(
     if use_groups:
         bar_w = min(0.65, 5.0 / max(n, 1))
         for i, item in enumerate(items):
-            # Use-groups items: (key, display, gm, g_err_m, gf, g_err_f, has, color[, n_above]).
-            # The trailing n_above is optional so any caller still emitting
-            # the older 8-tuple shape keeps working.
+            # Use-groups items: (key, display, gm, g_err_m, gf, g_err_f, has,
+            #                    color[, n_above[, n_above_spread]]).
+            # The two trailing fields are optional so any caller still
+            # emitting the older 8-tuple shape keeps working.
             _key, _display, gm, g_err_m, gf, g_err_f, has, color = item[:8]
-            n_above = int(item[8]) if len(item) >= 9 else 0
+            n_above = float(item[8]) if len(item) >= 9 else 0.0
+            n_above_spread = float(item[9]) if len(item) >= 10 else 0.0
             if has:
                 ax_mean.bar(i, gm, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
                 if g_err_m > 0:
@@ -207,6 +218,8 @@ def render_bar_items(
                 if ax_n is not None:
                     if n_above > 0:
                         ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                        if n_above_spread > 0:
+                            ax_n.errorbar(i, n_above, yerr=n_above_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
                     else:
                         ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
             else:
@@ -218,21 +231,28 @@ def render_bar_items(
         bar_w = min(0.6, 5.0 / max(n, 1))
         for i, item in enumerate(items):
             # Per-well items are
-            #   (label, mean, spread, frac, frac_spread, has_data[, n_above]).
-            # n_above is the number of cells above the threshold for that
-            # well at the active timepoint; the trailing field is optional
-            # so any caller still emitting an older 5- or 6-tuple shape
-            # keeps working.
-            if len(item) >= 7:
+            #   (label, mean, spread, frac, frac_spread, has_data[, n_above[, n_above_spread]]).
+            # n_above is the events-above-threshold value for the third panel;
+            # n_above_spread is non-zero only when the Aggregate FOVs toggle is
+            # on and the value reflects the per-FOV mean. Both trailing fields
+            # are optional so older 5- / 6- / 7-tuple shapes keep working.
+            if len(item) >= 8:
+                _label, mean, spread, frac, frac_spread, has_data, n_above, n_above_spread = item[:8]
+                n_above = float(n_above)
+                n_above_spread = float(n_above_spread)
+            elif len(item) == 7:
                 _label, mean, spread, frac, frac_spread, has_data, n_above = item[:7]
-                n_above = int(n_above)
+                n_above = float(n_above)
+                n_above_spread = 0.0
             elif len(item) == 6:
                 _label, mean, spread, frac, frac_spread, has_data = item
-                n_above = 0
+                n_above = 0.0
+                n_above_spread = 0.0
             else:
                 _label, mean, spread, frac, has_data = item
                 frac_spread = 0.0
-                n_above = 0
+                n_above = 0.0
+                n_above_spread = 0.0
             color = well_colors[i % len(well_colors)]
             if has_data and not math.isnan(mean):
                 ax_mean.bar(i, mean, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
@@ -249,6 +269,8 @@ def render_bar_items(
             if ax_n is not None:
                 if has_data and n_above > 0:
                     ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                    if n_above_spread > 0:
+                        ax_n.errorbar(i, n_above, yerr=n_above_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
                 else:
                     ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 
@@ -274,12 +296,14 @@ def render_bar_items(
         # Mark categorical x-axis so downstream styling does not reset tick formatters.
         setattr(ax, "_categorical_xaxis", True)
     if ax_n is not None:
-        # N is a count → integer-only ticks, lower-bound at 0.
         cur_lo, cur_hi = ax_n.get_ylim()
         ax_n.set_ylim(0, max(cur_hi, 1))
+        # Default to integer ticks because N is a count of events; in
+        # Aggregate-FOVs mode the bar shows a per-FOV mean which can be
+        # fractional, so let matplotlib pick auto ticks then.
         try:
             from matplotlib.ticker import MaxNLocator
-            ax_n.yaxis.set_major_locator(MaxNLocator(integer=True))
+            ax_n.yaxis.set_major_locator(MaxNLocator(integer=False))
         except ImportError:
             pass
 

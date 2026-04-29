@@ -5825,7 +5825,15 @@ class WellViewerApp(QWidget):
                        "Fraction of Cells Above Threshold",
                        "Fraction")
         if ax_n is not None:
-            apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
+            fov_active = self._use_fov_spread_active()
+            if fov_active:
+                apply_ax_style(
+                    ax_n,
+                    f"Mean events above threshold per FOV ± {band_lbl}",
+                    "N(above)/FOV",
+                )
+            else:
+                apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
         if not bar_selected and not active_rsets:
@@ -5977,26 +5985,49 @@ class WellViewerApp(QWidget):
         target_t: float,
         threshold: float,
     ) -> None:
-        """Render the events-above-threshold panel for per-cell view modes."""
+        """Render the events-above-threshold panel for per-cell view modes.
+
+        Honours the Aggregate-FOVs toggle: when active, each well's bar is
+        the mean of its per-FOV above-threshold counts and an error bar
+        spans ± the per-FOV SD/SEM (matching the convention used by the
+        mean and fraction panels). When the toggle is off, the bar is the
+        well's total above-threshold count with no error bar.
+        """
         from matplotlib.ticker import MaxNLocator
         cell_area_threshold = self._get_cell_area_threshold()
         fluor_gates = self._get_all_fluor_gates()
+        per_fov_spread = self._use_fov_spread_active()
+        use_sem = bool(self._use_sem.get())
         n = len(wells)
         bar_w = min(0.6, 5.0 / max(n, 1))
         for i, lbl in enumerate(wells):
             rows = self._get_rows(lbl)
             pts = aggregate_with_threshold(
-                rows, threshold, use_sem=False,
+                rows, threshold, use_sem=use_sem,
                 val_col=self._active_val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
+                per_fov_spread=per_fov_spread,
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            # AggPoint index 4 = n_above (events above threshold).
-            n_above = int(matched[0][4]) if matched else 0
             color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
-            if n_above > 0:
-                ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+            if matched:
+                pt = matched[0]
+                if per_fov_spread:
+                    # AggPoint index 7 = mean per-FOV n_above; index 8 = SD/SEM.
+                    bar_val = float(pt[7]) if len(pt) >= 8 else 0.0
+                    err_val = float(pt[8]) if len(pt) >= 9 else 0.0
+                else:
+                    # AggPoint index 4 = total n_above for the well.
+                    bar_val = float(pt[4])
+                    err_val = 0.0
+            else:
+                bar_val = 0.0
+                err_val = 0.0
+            if bar_val > 0:
+                ax_n.bar(i, bar_val, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
+                if err_val > 0:
+                    ax_n.errorbar(i, bar_val, yerr=err_val, fmt="none", ecolor=CLR_ERR_BAR, elinewidth=1.4, capsize=4, zorder=4)
             else:
                 ax_n.bar(i, 0, width=bar_w, color=CLR_PLACEHOLDER, linewidth=1, edgecolor=CLR_DISABLED_WELL, linestyle="--", zorder=3)
         xs = list(range(n))
@@ -6005,11 +6036,12 @@ class WellViewerApp(QWidget):
         ax_n.set_xlim(-0.6, n - 0.4)
         # apply_bar_ylims (called by the caller) overrides the lower bound
         # to a log-safe value when Log Y is on. Here we just establish a
-        # reasonable linear default.
+        # reasonable linear default. Use float ticks because per-FOV mean
+        # is fractional.
         if not bool(self._bar_log_scale.get()):
             cur_lo, cur_hi = ax_n.get_ylim()
             ax_n.set_ylim(0, max(cur_hi, 1))
-        ax_n.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax_n.yaxis.set_major_locator(MaxNLocator(integer=not per_fov_spread))
         setattr(ax_n, "_categorical_xaxis", True)
 
     def _draw_grouped_bar_mode(
@@ -6042,6 +6074,10 @@ class WellViewerApp(QWidget):
                 n_above = self._compute_rep_n_above(rset, target_t)
                 base_lbl = self._replicate_display_label(rset)
                 display = base_lbl
+                # Trailing 0.0 = n_above_spread; rep-set mode never combines
+                # with the Aggregate-FOVs toggle (the toggle is auto-disabled
+                # while rep sets are active), so there is no per-FOV error
+                # bar on the events panel here.
                 ordered.append(
                     (
                         rset.name,
@@ -6053,6 +6089,7 @@ class WellViewerApp(QWidget):
                         not math.isnan(gm),
                         color_by_key.get(rset.name, WELL_COLORS[0]),
                         int(n_above),
+                        0.0,
                     )
                 )
             xlabels = [display for _, display, *_ in ordered]
@@ -6098,14 +6135,21 @@ class WellViewerApp(QWidget):
             pad=6,
         )
         if ax_n is not None:
+            fov_active = self._use_fov_spread_active()
+            if fov_active:
+                n_title = f"Mean events above threshold per FOV ± {band_lbl}  —  t = {tp_str} h"
+                n_ylabel = "N(above)/FOV"
+            else:
+                n_title = f"Events above threshold (N)  —  t = {tp_str} h"
+                n_ylabel = "N(above)"
             ax_n.set_title(
-                f"Events above threshold (N)  —  t = {tp_str} h",
+                n_title,
                 color=TXT_PRI,
                 fontsize=9,
                 fontweight="bold",
                 pad=6,
             )
-            ax_n.set_ylabel("N(above)", fontsize=8, labelpad=5)
+            ax_n.set_ylabel(n_ylabel, fontsize=8, labelpad=5)
         # Honour the Log Y toggle in grouped/per-well bar mode too — the
         # toggle now affects every bar row, not just the beeswarm view.
         self._apply_bar_ylims(
@@ -6397,7 +6441,14 @@ class WellViewerApp(QWidget):
         apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
                        f"Mean {_ch}")
         apply_ax_style(ax_frac, f"Fraction above threshold  —  t = {tp_str} h", "Fraction")
-        apply_ax_style(ax_n, f"Events above threshold (N)  —  t = {tp_str} h", "N(above)")
+        if self._use_fov_spread_active():
+            apply_ax_style(
+                ax_n,
+                f"Mean events above threshold per FOV ± {band_lbl}  —  t = {tp_str} h",
+                "N(above)/FOV",
+            )
+        else:
+            apply_ax_style(ax_n, f"Events above threshold (N)  —  t = {tp_str} h", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
         use_groups, items, _ = self._collect_bar_items(target_t)
@@ -6406,12 +6457,14 @@ class WellViewerApp(QWidget):
             xlabels = [self._replicate_display_label(rep_by_name[name]) if name in rep_by_name else name for name, *_ in items]
             draw_items = []
             for item, xlbl in zip(items, xlabels):
-                # collect_bar_items rep-set items are 8-tuples
-                # (name, gm, g_err_m, gf, g_err_f, has, color, n_above).
-                # Older callers may still emit a 7-tuple without n_above.
+                # collect_bar_items rep-set items are 9-tuples
+                # (name, gm, g_err_m, gf, g_err_f, has, color, n_above, n_above_spread).
+                # Older callers may still emit 7-/8-tuples without trailing
+                # event-count fields.
                 name, gm, g_err_m, gf, g_err_f, has, color = item[:7]
-                n_above = int(item[7]) if len(item) >= 8 else 0
-                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_above))
+                n_above = float(item[7]) if len(item) >= 8 else 0.0
+                n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
+                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_above, n_above_spread))
         else:
             draw_items = items
             xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
