@@ -119,6 +119,7 @@ from well_viewer.views.preview_view import refresh_preview_picker as _refresh_pr
 from well_viewer.image_table_controller import (
     image_table_apply_dimensions as _it_apply_dimensions,
     image_table_apply_global as _it_apply_global,
+    image_table_apply_row_channel as _it_apply_row_channel,
     image_table_auto_lut as _it_auto_lut,
     image_table_clear_active as _it_clear_active,
     image_table_distribute_wells as _it_distribute_wells,
@@ -1800,6 +1801,9 @@ class WellViewerApp(QWidget):
 
     def _image_table_apply_global(self, field: str) -> None:
         _it_apply_global(self, field)
+
+    def _image_table_apply_row_channel(self, row_idx: int) -> None:
+        _it_apply_row_channel(self, row_idx)
 
     def _image_table_distribute_wells(self) -> None:
         _it_distribute_wells(self)

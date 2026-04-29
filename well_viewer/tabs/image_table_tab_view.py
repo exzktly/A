@@ -89,20 +89,12 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     hl.addStretch(1)
     il.addWidget(hdr)
 
-    # ── Global Options row ──────────────────────────────────────────────────
+    # ── Global Options row (channel is now per-row; see selector grid) ──────
     glob = QWidget(inner)
     gl = QHBoxLayout(glob)
     gl.setContentsMargins(0, 0, 0, 0)
     gl.setSpacing(6)
     gl.addWidget(QLabel("Global Options —", glob))
-
-    gl.addWidget(QLabel("Channel:", glob))
-    chan_cb = QComboBox(glob)
-    chan_cb.currentIndexChanged.connect(
-        lambda _i: app._image_table_apply_global("chan")
-    )
-    gl.addWidget(chan_cb)
-    app._image_table_global_chan_cb = chan_cb
 
     gl.addWidget(QLabel("Timepoint:", glob))
     tp_cb = QComboBox(glob)

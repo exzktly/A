@@ -103,7 +103,7 @@ def _well_options(app) -> List[str]:
 
 
 def image_table_repopulate_dropdowns(app) -> None:
-    """Refresh option lists for the global row and every cell.
+    """Refresh option lists for the global row, the per-row channel combos, and every cell.
 
     Called when pipeline info / wells become available after the tab is
     already built. Existing selections are preserved when still valid.
@@ -122,10 +122,12 @@ def image_table_repopulate_dropdowns(app) -> None:
             cb.setCurrentText(cur)
         cb.blockSignals(False)
 
-    if hasattr(app, "_image_table_global_chan_cb"):
-        _reset_combo(app._image_table_global_chan_cb, chan_opts)
+    if hasattr(app, "_image_table_global_tp_cb"):
         _reset_combo(app._image_table_global_tp_cb, tp_opts)
         _reset_combo(app._image_table_global_fov_cb, fov_opts)
+
+    for cb in getattr(app, "_image_table_row_chan_cbs", None) or []:
+        _reset_combo(cb, chan_opts)
 
     cells = getattr(app, "_image_table_cells", None) or []
     for row in cells:
@@ -149,7 +151,9 @@ def image_table_apply_dimensions(app) -> None:
 
 
 def image_table_rebuild_grid(app) -> None:
-    """Rebuild the selector grid (rows × cols of cell groupboxes)."""
+    """Rebuild the selector grid (rows × cols of cell groupboxes) plus the
+    per-row channel column at column 0."""
+    from PySide6.QtWidgets import QComboBox
     from well_viewer.ui_helpers import clear_layout
 
     layout = app._image_table_selector_grid
@@ -164,16 +168,31 @@ def image_table_rebuild_grid(app) -> None:
     well_opts = _well_options(app)
 
     cells: List[List[Dict[str, Any]]] = []
+    row_chan_cbs: List[QComboBox] = []
     for r in range(rows):
+        row_chan_box = QGroupBox(f"Row {r + 1} channel")
+        rcl = QVBoxLayout(row_chan_box)
+        rcl.setContentsMargins(6, 8, 6, 6)
+        rcl.setSpacing(2)
+        row_chan_cb = QComboBox(row_chan_box)
+        row_chan_cb.addItems(chan_opts)
+        rcl.addWidget(row_chan_cb)
+        row_chan_cb.currentIndexChanged.connect(
+            lambda _i, ridx=r: image_table_apply_row_channel(app, ridx)
+        )
+        layout.addWidget(row_chan_box, r, 0)
+        row_chan_cbs.append(row_chan_cb)
+
         row: List[Dict[str, Any]] = []
         for c in range(cols):
             cell = _build_selector_cell(
                 app, r, c, well_opts, chan_opts, tp_opts, fov_opts,
             )
-            layout.addWidget(cell["frame"], r, c)
+            layout.addWidget(cell["frame"], r, c + 1)
             row.append(cell)
         cells.append(row)
     app._image_table_cells = cells
+    app._image_table_row_chan_cbs = row_chan_cbs
 
     image_table_rebuild_lut_row(app)
 
@@ -220,12 +239,10 @@ def _build_selector_cell(
 def image_table_apply_global(app, field: str) -> None:
     """Copy a global dropdown's current value into every cell's matching combo.
 
-    ``field`` is one of "chan", "tp", "fov".
+    ``field`` is one of "tp", "fov". Channel assignment is per-row now —
+    see ``image_table_apply_row_channel``.
     """
-    if field == "chan":
-        src = getattr(app, "_image_table_global_chan_cb", None)
-        key = "chan_cb"
-    elif field == "tp":
+    if field == "tp":
         src = getattr(app, "_image_table_global_tp_cb", None)
         key = "tp_cb"
     elif field == "fov":
@@ -248,6 +265,29 @@ def image_table_apply_global(app, field: str) -> None:
             if cb.findText(value) >= 0:
                 cb.setCurrentText(value)
             cb.blockSignals(False)
+
+
+def image_table_apply_row_channel(app, row_idx: int) -> None:
+    """Copy the per-row channel selector's value into every cell in that row.
+
+    Cell-level channel dropdowns remain usable for one-off overrides; this
+    only fires when the per-row combo changes.
+    """
+    row_cbs = getattr(app, "_image_table_row_chan_cbs", None) or []
+    cells = getattr(app, "_image_table_cells", None) or []
+    if not (0 <= row_idx < len(row_cbs)) or not (0 <= row_idx < len(cells)):
+        return
+    value = row_cbs[row_idx].currentText()
+    if not value:
+        return
+    for cell in cells[row_idx]:
+        cb = cell.get("chan_cb")
+        if cb is None:
+            continue
+        cb.blockSignals(True)
+        if cb.findText(value) >= 0:
+            cb.setCurrentText(value)
+        cb.blockSignals(False)
 
 
 def image_table_distribute_wells(app) -> None:
