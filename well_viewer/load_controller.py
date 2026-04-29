@@ -71,6 +71,15 @@ def load_directory(app, d: Path, label=None) -> None:
     app._rebuild_all_timepoints_cache()
     app._rebuild_all_fovs_cache()
     app._build_tok_to_label()
+    # Apply any sample_definitions persisted inside pipeline_info.json before
+    # we prune groups against the loaded well set, so saved replicate-set and
+    # group state is hydrated and then validated by the same pruning pass that
+    # cleans stale wells.
+    if hasattr(app, "_load_sample_definitions_from_pipeline_info"):
+        try:
+            app._load_sample_definitions_from_pipeline_info()
+        except Exception:
+            pass
     app._refresh_sidebar_map()
     app._bar_groups_prune()
     if hasattr(app, "_bar_map_btns"):
@@ -80,6 +89,28 @@ def load_directory(app, d: Path, label=None) -> None:
     if hasattr(app, "_sidebar_preview_btns"):
         app._refresh_preview_picker()
     app._label_panel_refresh()
+    # Refresh the Sample Definitions tab so any newly loaded labels / groups
+    # appear without requiring a tab switch.
+    if hasattr(app, "_groups_centre_refresh"):
+        try:
+            app._groups_centre_refresh()
+        except Exception:
+            pass
+    # Auto-load any persisted ratio definitions and heatmap layouts that live
+    # in the same data directory. Both calls are safe no-ops when no file
+    # exists; errors are logged and swallowed.
+    if hasattr(app, "_ratios_load_from_data_dir"):
+        app._ratios_load_from_data_dir()
+    if hasattr(app, "_heatmap_layouts_load_from_data_dir"):
+        app._heatmap_layouts_load_from_data_dir()
+    if hasattr(app, "_heatmap_sidebar_table"):
+        try:
+            from well_viewer.views.heatmap_layout_sidebar_view import (
+                refresh_heatmap_layout_sidebar,
+            )
+            refresh_heatmap_layout_sidebar(app)
+        except Exception:
+            pass
     display = label or str(d)
     app._dir_label.setText(display)
     app._set_status(f"Loaded {n} well(s) — {display}")
