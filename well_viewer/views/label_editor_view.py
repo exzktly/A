@@ -33,6 +33,16 @@ def build_label_editor(app, parent: QWidget) -> None:
     title.setProperty("role", "section")
     hl.addWidget(title)
     hl.addStretch(1)
+    save_btn = btn_secondary(
+        hdr, "Save to pipeline_info.json",
+        app._save_sample_definitions_to_pipeline_info,
+    )
+    save_btn.setToolTip(
+        "Persist current well labels, replicate sets, and groups inside the "
+        "loaded folder's pipeline_info.json. They will be reapplied automatically "
+        "the next time this folder is loaded."
+    )
+    hl.addWidget(save_btn)
     hl.addWidget(btn_secondary(hdr, "Clear All", app._labels_clear_all))
     layout.addWidget(hdr)
 

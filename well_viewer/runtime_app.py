@@ -2877,6 +2877,71 @@ class WellViewerApp(QWidget):
             except Exception:
                 pass
 
+    # ── Sample Definitions persistence (in pipeline_info.json) ────────────────
+
+    def _save_sample_definitions_to_pipeline_info(self) -> None:
+        """Merge well labels + groups into the pipeline_info.json sidecar."""
+        from well_viewer.sample_definitions import (
+            build_sample_definitions,
+            save_to_pipeline_info,
+        )
+        if not self._data_dir:
+            QMessageBox.warning(
+                self, "No data loaded",
+                "Open a data folder before saving sample definitions.",
+            )
+            return
+        block = build_sample_definitions(
+            self._well_labels,
+            self._rep_sets,
+            self._bar_groups,
+            extract_well_token=_extract_well_token,
+        )
+        try:
+            info_path = save_to_pipeline_info(self._data_dir, block)
+        except FileNotFoundError as exc:
+            QMessageBox.warning(self, "pipeline_info.json missing", str(exc))
+            return
+        except OSError as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))
+            return
+        self._set_status(
+            f"Sample definitions saved to {info_path.name}: "
+            f"{len(block['well_labels'])} label(s), "
+            f"{len(block['rep_sets'])} replicate set(s), "
+            f"{len(block['groups'])} group(s)."
+        )
+
+    def _load_sample_definitions_from_pipeline_info(self) -> bool:
+        """Apply any saved sample_definitions block in pipeline_info.json.
+
+        Returns True when a block was found and applied.
+        """
+        from well_viewer.sample_definitions import (
+            parse_groups_block,
+            parse_well_labels,
+            read_sample_definitions,
+        )
+        if not self._data_dir:
+            return False
+        block = read_sample_definitions(self._data_dir)
+        if not block:
+            return False
+        labels = parse_well_labels(block, valid_tokens=self._well_paths.keys())
+        if labels:
+            self._well_labels.update(labels)
+        rep_sets, bar_groups = parse_groups_block(
+            block, tok_to_label=self._tok_to_label,
+        )
+        if rep_sets or bar_groups:
+            self._rep_sets = rep_sets
+            self._bar_groups = bar_groups
+            self._active_rep_idx = -1
+            self._bar_active_grp = 0 if bar_groups else -1
+        if labels or rep_sets or bar_groups:
+            self._invalidate_stats_cache()
+        return True
+
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
         # Prune global replicate sets
