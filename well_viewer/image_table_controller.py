@@ -121,6 +121,25 @@ def _norm_token(value: object) -> str:
         return raw
 
 
+def _numeric_token(value: object) -> Optional[int]:
+    """Extract the first run of digits from *value* and return it as int.
+
+    Lets us match dropdown values like ``"1"`` against cache keys like
+    ``"T01"`` (both → ``1``). Returns ``None`` when no digits are present.
+    """
+    import re as _re
+    s = str(value or "").strip()
+    if not s:
+        return None
+    m = _re.search(r"\d+", s)
+    if not m:
+        return None
+    try:
+        return int(m.group(0))
+    except ValueError:
+        return None
+
+
 def _timepoint_options(app) -> List[str]:
     info = getattr(app, "_pipeline_info", None) or {}
     seen: List[str] = []
@@ -556,6 +575,22 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
                 ref = val
                 break
     if ref is None:
+        # Final fallback: numeric-only match. Cache keys like ``"T01"`` and
+        # dropdown values like ``"1"`` both reduce to integer 1 here, which
+        # rescues runs where pipeline_info.json's available_timepoints were
+        # stored numerically while the on-disk filenames carry a ``T``
+        # prefix (or vice versa).
+        target_fov_n = _numeric_token(fov)
+        target_tp_n = _numeric_token(tp)
+        for (cache_fov, cache_tp), val in fluor.items():
+            tp_n = _numeric_token(cache_tp)
+            fov_n = _numeric_token(cache_fov)
+            tp_match = target_tp_n is None or tp_n == target_tp_n
+            fov_match = target_fov_n is None or fov_n == target_fov_n
+            if tp_match and fov_match:
+                ref = val
+                break
+    if ref is None:
         return None
     try:
         return ref.load()
@@ -639,18 +674,30 @@ def image_table_generate(app) -> None:
     n = sum(1 for v in rendered.values() if v is not None)
     app._set_status(f"Image Table: generated {n} of {len(rendered)} cell(s).")
     if n == 0 and rendered:
-        # Zero hits across the whole grid means key drift somewhere — log a
-        # sample of the available (fov, tp) keys for the first cached well
-        # so the user / a developer can see the format mismatch.
+        # Zero hits across the whole grid means key drift somewhere — log
+        # both the (tp, fov) values the user picked and a sample of the
+        # available cache keys for the first cached well so the format
+        # mismatch is visible.
         try:
             import logging as _logging
             _log = _logging.getLogger("well_viewer.image_table")
+            requested = []
+            for r, row in enumerate(cells):
+                for c, cell in enumerate(row):
+                    requested.append((
+                        r, c,
+                        cell["well_cb"].currentText().strip(),
+                        cell["chan_cb"].currentText().strip(),
+                        cell["tp_cb"].currentText().strip(),
+                        cell["fov_cb"].currentText().strip(),
+                    ))
             for key, fluor in cache.items():
                 sample_keys = list(fluor.keys())[:8]
                 _log.warning(
                     "Image Table generated 0/%d; well=%r channel=%r "
+                    "requested cells (r, c, well, chan, tp, fov)=%r "
                     "available keys (sample, up to 8): %r",
-                    len(rendered), key[0], key[1], sample_keys,
+                    len(rendered), key[0], key[1], requested[:4], sample_keys,
                 )
                 break
         except Exception:
