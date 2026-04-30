@@ -51,10 +51,10 @@ from well_viewer.runtime_app import (
 )
 from well_viewer.batch_models import BarGroup
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
-from well_viewer.scatter_controller import (
-    collect_scatter_data as _collect_scatter_data,
-    collect_scatter_agg_data as _collect_scatter_agg_data,
-)
+# scatter_controller pulls in matplotlib.pyplot + numpy at module load.
+# It's only needed by the scatter export branches below so we import it
+# lazily inside those code paths to keep ``BatchExportPanel`` cheap to
+# construct for line / bar exports.
 from well_viewer.ui_helpers import (
     ask_name_dialog,
     btn_card,
@@ -1676,6 +1676,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
     def _run_scatter_cells_job(
         self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
+        from well_viewer.scatter_controller import collect_scatter_data as _collect_scatter_data
         col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
         col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
         old_rep_sets = self._app._rep_sets
@@ -1733,6 +1734,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
     def _run_scatter_agg_job(
         self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
+        from well_viewer.scatter_controller import collect_scatter_agg_data as _collect_scatter_agg_data
         stat_x = self._sc_agg_x_cb.currentText()
         stat_y = self._sc_agg_y_cb.currentText()
         old_rep_sets = self._app._rep_sets
@@ -1793,6 +1795,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
         self, grp: BarGroup, timepoints: List[float],
         csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
+        from well_viewer.scatter_controller import collect_scatter_data as _collect_scatter_data
         combined_rows: List[dict] = []
         combined_series: List[tuple] = []
         for tp_h in sorted(timepoints):
@@ -1857,6 +1860,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
         self, grp: BarGroup, timepoints: List[float],
         csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
+        from well_viewer.scatter_controller import collect_scatter_agg_data as _collect_scatter_agg_data
         stat_x = self._sc_agg_x_cb.currentText()
         stat_y = self._sc_agg_y_cb.currentText()
         old_rep_sets = self._app._rep_sets

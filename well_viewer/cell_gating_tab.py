@@ -11,9 +11,6 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
 from ui.theme import get_color
 from well_viewer import debug_flags as _debug_flags
 from well_viewer.ui_helpers import attach_plot_toolbar, install_canvas_wheel_scroll
@@ -149,6 +146,8 @@ class CellGatingTab(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
 

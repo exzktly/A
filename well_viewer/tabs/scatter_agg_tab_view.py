@@ -9,9 +9,6 @@ from PySide6.QtWidgets import (
     QWidget, QWidgetAction,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
 from well_viewer.ui_helpers import (
     attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
 )
@@ -50,6 +47,11 @@ class BoolHolder:
 
 
 def build_scatter_agg_tab(app, parent: QWidget) -> None:
+    # ``BoolHolder`` is imported by other modules at startup; keep matplotlib
+    # imports inside the build function so unrelated importers don't pay
+    # the QtAgg backend load cost.
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)

@@ -7,9 +7,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
 from well_viewer.ui_helpers import (
     attach_plot_toolbar, btn_primary, btn_secondary, ComboVar,
     install_canvas_wheel_scroll, make_plot_with_right_dock,
@@ -17,6 +14,10 @@ from well_viewer.ui_helpers import (
 
 
 def build_line_graphs_tab(app, parent: QWidget) -> None:
+    # Defer matplotlib + QtAgg backend imports until the tab is actually
+    # built so unrelated importers of this module don't pay the cost.
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)

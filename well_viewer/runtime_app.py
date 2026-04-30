@@ -3031,18 +3031,30 @@ class WellViewerApp(QWidget):
     def _load_gating_from_pipeline_info(self) -> bool:
         """Apply any saved cell_gating block in pipeline_info.json.
 
-        Returns True when a block was found and applied. Must be called
-        after the Cell Gating tab has built per-channel controls so the
-        QLineEdits exist; ``_load_cell_areas`` handles that.
+        Returns True when a block was found and applied. The Cell Gating
+        tab is built lazily, so when the sidecar has persisted thresholds
+        we force-build the tab here so its QLineEdits exist before we try
+        to set them — otherwise the user would have to click Cell Gating
+        before saved thresholds applied to the plots.
         """
         if not self._data_dir:
-            return False
-        tab = getattr(self, "_cell_gating_tab", None)
-        if tab is None:
             return False
         from well_viewer.gating_state import read_gating_params
         block = read_gating_params(self._data_dir)
         if not block:
+            return False
+
+        # Cell Gating builds lazily by default. Force-build it now so the
+        # tab's QLineEdits exist and saved thresholds can be applied
+        # immediately, instead of silently waiting for the user to click
+        # the tab.
+        tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
+            build = getattr(self, "_centre_build_pending", None)
+            if callable(build):
+                build("Cell Gating")
+            tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
             return False
 
         applied = False
@@ -3733,13 +3745,22 @@ class WellViewerApp(QWidget):
         _load_directory_controller(self, d, label=label)
 
     def _drain_pending_centre_builders(self) -> None:
-        """Force-build any centre tab whose body was deferred at startup."""
+        """Force-build any centre tab whose body was deferred at startup.
+
+        Tabs marked lazy-only (Cell Gating, smFISH) are intentionally
+        skipped — they construct only when the user actually clicks the
+        tab. The tab-switch handler in ``centre_view`` builds them inline
+        on first access.
+        """
         pending = getattr(self, "_centre_pending_builders", None)
         build = getattr(self, "_centre_build_pending", None)
         if not pending or build is None:
             return
+        lazy_only = getattr(self, "_centre_lazy_only_titles", frozenset())
         # Snapshot keys — _centre_build_pending mutates the dict.
         for title in list(pending.keys()):
+            if title in lazy_only:
+                continue
             build(title)
 
     def _read_pipeline_info(self, path: Path):
@@ -4218,17 +4239,17 @@ class WellViewerApp(QWidget):
         self._threshold_min = lo
         self._threshold_max = hi
 
-        # Load cell areas in the Cell Gating tab
+        # Hydrate persisted gating params from pipeline_info.json. The Cell
+        # Gating tab is lazy by default, but ``_load_gating_from_pipeline_info``
+        # force-builds it whenever the sidecar carries non-default thresholds
+        # so they apply at data-load time without waiting on a user click.
+        # When no thresholds were saved, the call is a cheap no-op and Cell
+        # Gating stays unbuilt.
+        self._load_gating_from_pipeline_info()
         if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+            # Refresh the per-channel CDF + saved ThreshFracOn values now
+            # that the tab exists and channels are known.
             self._cell_gating_tab._load_cell_areas()
-            # Hydrate persisted gating params (cell area threshold, fluor gates,
-            # thresh_frac_on) from pipeline_info.json. Must run after
-            # _load_cell_areas so per-channel QLineEdits exist. The gating
-            # worker is kicked off separately by load_controller after the
-            # initial data load — running it on every channel switch would
-            # be wasteful since the QLineEdit values are already in sync.
-            self._load_gating_from_pipeline_info()
-            # Load saved ThreshFracOn values
             self._cell_gating_tab._load_threshold_frac_on()
 
     # ── Ratio metric helpers ─────────────────────────────────────────────────

@@ -10,9 +10,6 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
 from well_viewer.ui_helpers import (
     attach_plot_toolbar, ComboVar, make_plot_with_right_dock,
 )
@@ -22,6 +19,12 @@ _MODE_OPTIONS = ["Histogram", "Histogram + KDE", "KDE only", "Violin (per group)
 
 
 def build_distribution_tab(app, parent: QWidget) -> None:
+    # matplotlib (and the QtAgg backend) is one of the heaviest imports in
+    # the app. Loading it inside the builder rather than at module import
+    # time keeps utility imports from this module (eg.
+    # ``refresh_distribution_timepoints``) cheap.
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)

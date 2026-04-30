@@ -122,6 +122,13 @@ def build_centre(app, parent: QWidget) -> None:
     pending: Dict[str, Callable[[], None]] = {}
     app._centre_pending_builders = pending
 
+    # Tabs whose construction we never want to run from the background
+    # drain — they only build on first user access (tab click). The tabs
+    # listed here pull in the heaviest dependencies (matplotlib QtAgg,
+    # skimage, tifffile) that aren't worth amortising at startup.
+    lazy_only: Set[str] = {"Cell Gating", "smFISH"}
+    app._centre_lazy_only_titles = frozenset(lazy_only)
+
     # Pre-create stable widget handles so deferred builder closures can
     # capture them. Sample Definitions in particular needs the QWidget to
     # be allocated up-front so the deferred ``_build_groups_centre_body``
@@ -298,14 +305,21 @@ def build_centre(app, parent: QWidget) -> None:
 
     # Drain pending builders one-per-event-loop-tick so the UI stays
     # responsive while heavy tabs (matplotlib canvases, image grids) build
-    # in the background. By the time the user typically clicks anything
-    # other than the initial tab, the corresponding builder will have run.
+    # in the background. Tabs marked lazy_only stay in ``pending`` so the
+    # tab-switch handler can still build them on demand, but the drain
+    # never touches them — they only construct when the user clicks them.
+    def _next_drain_title():
+        for title in pending:
+            if title not in lazy_only:
+                return title
+        return None
+
     def _drain() -> None:
-        if not pending:
+        title = _next_drain_title()
+        if title is None:
             return
-        title = next(iter(pending))
         _build_pending(title)
-        if pending:
+        if _next_drain_title() is not None:
             QTimer.singleShot(0, _drain)
 
     QTimer.singleShot(0, _drain)
