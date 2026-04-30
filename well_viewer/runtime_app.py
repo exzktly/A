@@ -4463,22 +4463,34 @@ class WellViewerApp(QWidget):
             )
         self._set_active_image_channel(selected_ui_value.lower(), preserve_review_view=True)
 
-    def _on_plot_channel_selected(self, _e=None) -> None:
-        """Channel-switch handler for line/bar plot tabs."""
-        # _plot_chan_var is bound to _chan_cb_line, so reading it returns a
-        # stale value when the user changes _chan_cb_bar. Prefer the sender
-        # widget when the signal came from a QComboBox, otherwise fall back
-        # to the line-tab ComboVar.
+    def _on_plot_channel_selected(self, source=None) -> None:
+        """Channel-switch handler for line/bar/distribution/heatmap plot tabs.
+
+        Each plot tab connects its channel combobox via a lambda that
+        captures the source combobox and passes it as ``source`` here.
+        ``QObject.sender()`` is unreliable when the slot is a Python
+        lambda in PySide6, and ``self._plot_chan_var`` is bound to the
+        line-tab combobox only — so falling back to either of those
+        leaks the line-tab value when other tabs change channels and
+        ``_set_active_channel`` short-circuits because the "new" channel
+        equals the current one. Prefer the explicit ``source`` widget.
+        """
         label = ""
-        try:
-            sender = self.sender()
-        except Exception:
-            sender = None
-        if sender is not None and hasattr(sender, "currentText"):
+        if source is not None and hasattr(source, "currentText"):
             try:
-                label = str(sender.currentText() or "")
+                label = str(source.currentText() or "")
             except Exception:
                 label = ""
+        if not label:
+            try:
+                sender = self.sender()
+            except Exception:
+                sender = None
+            if sender is not None and hasattr(sender, "currentText"):
+                try:
+                    label = str(sender.currentText() or "")
+                except Exception:
+                    label = ""
         if not label:
             label = self._plot_chan_var.get()
         # Route real channels and ratios via the label→key map so ratio

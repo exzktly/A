@@ -51,7 +51,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     app._chan_cb_heatmap = QComboBox(ctrl1)
     app._chan_cb_heatmap.addItems(["GFP"])
     app._chan_cb_heatmap.currentIndexChanged.connect(
-        lambda _i: app._on_plot_channel_selected(None)
+        lambda _i, _src=app._chan_cb_heatmap: app._on_plot_channel_selected(_src)
     )
     cl1.addWidget(app._chan_cb_heatmap)
 

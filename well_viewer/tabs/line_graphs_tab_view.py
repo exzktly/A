@@ -36,7 +36,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     app._chan_cb_line = QComboBox(line_ctrl)
     app._chan_cb_line.addItems(["GFP"])
     app._chan_cb_line.currentIndexChanged.connect(
-        lambda _i: app._on_plot_channel_selected(None)
+        lambda _i, _src=app._chan_cb_line: app._on_plot_channel_selected(_src)
     )
     cl.addWidget(app._chan_cb_line)
     if not hasattr(app, "_plot_chan_var"):
