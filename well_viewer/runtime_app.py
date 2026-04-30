@@ -5271,7 +5271,14 @@ class WellViewerApp(QWidget):
                 _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
             return
 
-        fov_raw = str(self._preview_fov_var.get() or "").strip()
+        # Pull the FOV from whichever combo is wired up. The review tab
+        # has its own ``_review_image_fov_menu``; ``_preview_fov_var``
+        # only exists when the (now-retired) Movie Montage tab was built.
+        fov_raw = ""
+        if hasattr(self, "_review_image_fov_menu"):
+            fov_raw = str(self._review_image_fov_menu.currentText() or "").strip()
+        if not fov_raw and hasattr(self, "_preview_fov_var"):
+            fov_raw = str(self._preview_fov_var.get() or "").strip()
         fov = self._review_norm_fov(fov_raw)
         if not fov_raw or fov_raw == "—" or not fov:
             self._review_image_status.setText("No FOV selected.")
