@@ -529,31 +529,27 @@ def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_
 def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str):
     """Load the float32 array for one (well, channel, timepoint, fov).
 
-    Filename extractors and ``pipeline_info`` may disagree on whether to
-    represent integer FOVs/timepoints as ``"1"`` or ``"1.0"``. Try the raw
-    keys first, then fall back to a numerically-normalized form so the
-    lookup succeeds in either layout.
+    The dropdown emits tokens normalized via ``_norm_token`` (``"1.0"`` →
+    ``"1"``) but the cache built by ``find_well_images_and_masks`` is keyed
+    on RAW filename tokens via ``make_schema_extractor``. Try the direct
+    tuple first, then fall back to a normalized comparison against every
+    cache key so the lookup succeeds whichever side ends up holding the
+    integer-as-float form.
     """
     chan_lower = chan_upper.strip().lower()
     fluor = _load_well_channel(app, cache, well, chan_lower)
     if not fluor:
         return None
 
-    fov_raw = str(fov)
-    tp_raw = str(tp)
-    fov_norm = _norm_token(fov)
-    tp_norm = _norm_token(tp)
-    candidates = [
-        (fov_raw, tp_raw),
-        (fov_norm, tp_norm),
-        (fov_raw, tp_norm),
-        (fov_norm, tp_raw),
-    ]
-    ref = None
-    for key in candidates:
-        ref = fluor.get(key)
-        if ref is not None:
-            break
+    ref = fluor.get((str(fov), str(tp)))
+    if ref is None:
+        target_fov = _norm_token(fov)
+        target_tp = _norm_token(tp)
+        for (cache_fov, cache_tp), val in fluor.items():
+            if (_norm_token(cache_fov) == target_fov
+                    and _norm_token(cache_tp) == target_tp):
+                ref = val
+                break
     if ref is None:
         return None
     try:

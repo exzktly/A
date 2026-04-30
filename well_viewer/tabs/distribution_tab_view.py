@@ -44,7 +44,7 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     app._chan_cb_distribution = QComboBox(ctrl)
     app._chan_cb_distribution.addItems(["GFP"])
     app._chan_cb_distribution.currentIndexChanged.connect(
-        lambda _i: app._on_plot_channel_selected(None)
+        lambda _i, _src=app._chan_cb_distribution: app._on_plot_channel_selected(_src)
     )
     cl.addWidget(app._chan_cb_distribution)
 

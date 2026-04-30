@@ -354,7 +354,17 @@ def collect_scatter_agg_data(
 
     # Extract channel and metric type from statistic names
     def parse_statistic(stat_str: str) -> Tuple[str, str]:
-        """Parse statistic strings: 'Mean Fluorescence GFP', 'Fraction On GFP', or 'smFISH Count GFP'."""
+        """Parse statistic strings.
+
+        Returns ``(channel_or_label, metric)`` where ``metric`` is one of
+        ``"mean"`` | ``"frac"`` | ``"smfish"`` | ``"ratio"``. For ratios
+        the first element is the dropdown label (mixed case) so the caller
+        can look it up in ``app._label_to_channel_key``; for the others
+        it's the lowercased channel token.
+        """
+        if stat_str.startswith("Mean Ratio "):
+            label = stat_str[len("Mean Ratio "):]
+            return label, "ratio"
         if stat_str.startswith("Mean Fluorescence"):
             channel = stat_str.replace("Mean Fluorescence ", "").lower()
             return channel, "mean"
@@ -370,10 +380,14 @@ def collect_scatter_agg_data(
     ch_x, metric_x = parse_statistic(stat_x)
     ch_y, metric_y = parse_statistic(stat_y)
     use_sem = app._use_sem.get()
-    threshold_x = app._get_thresh_frac_on(ch_x)  # Threshold for X channel
-    threshold_y = app._get_thresh_frac_on(ch_y)  # Threshold for Y channel
+    # Per-channel cell-gating thresholds don't apply to ratios — use 0 so
+    # every cell with a defined ratio contributes to the well-level mean.
+    threshold_x = 0.0 if metric_x == "ratio" else app._get_thresh_frac_on(ch_x)
+    threshold_y = 0.0 if metric_y == "ratio" else app._get_thresh_frac_on(ch_y)
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()  # Apply all channel gates
+    ratios = getattr(app, "_ratio_index", None)
+    label_to_key = getattr(app, "_label_to_channel_key", None) or {}
 
     # Get active replicates or selected wells
     active_rsets = app._rep_sets_active()
@@ -404,17 +418,23 @@ def collect_scatter_agg_data(
     if metric_x == "smfish":
         val_col_x = f"{ch_x}_smfish_count"
         threshold_x = 0  # No threshold for smfish counts (all spots)
+    elif metric_x == "ratio":
+        val_col_x = label_to_key.get(ch_x, "")
     else:
         val_col_x = f"{ch_x}_mean_intensity"
 
     if metric_y == "smfish":
         val_col_y = f"{ch_y}_smfish_count"
         threshold_y = 0  # No threshold for smfish counts (all spots)
+    elif metric_y == "ratio":
+        val_col_y = label_to_key.get(ch_y, "")
     else:
         val_col_y = f"{ch_y}_mean_intensity"
 
     def _agg_wells(wells, tp, val_col, threshold, metric):
         """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""
+        if not val_col:
+            return float("nan"), 0.0
         well_means: List[float] = []
         well_fracs: List[float] = []
         for well_label in wells:
@@ -426,6 +446,7 @@ def collect_scatter_agg_data(
                 val_col=val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
+                ratios=ratios,
             )
             matched = [(m, f) for t, m, _s, f, *_ in pts if abs(t - tp) < 1e-6]
             if matched:

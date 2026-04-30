@@ -4463,22 +4463,34 @@ class WellViewerApp(QWidget):
             )
         self._set_active_image_channel(selected_ui_value.lower(), preserve_review_view=True)
 
-    def _on_plot_channel_selected(self, _e=None) -> None:
-        """Channel-switch handler for line/bar plot tabs."""
-        # _plot_chan_var is bound to _chan_cb_line, so reading it returns a
-        # stale value when the user changes _chan_cb_bar. Prefer the sender
-        # widget when the signal came from a QComboBox, otherwise fall back
-        # to the line-tab ComboVar.
+    def _on_plot_channel_selected(self, source=None) -> None:
+        """Channel-switch handler for line/bar/distribution/heatmap plot tabs.
+
+        Each plot tab connects its channel combobox via a lambda that
+        captures the source combobox and passes it as ``source`` here.
+        ``QObject.sender()`` is unreliable when the slot is a Python
+        lambda in PySide6, and ``self._plot_chan_var`` is bound to the
+        line-tab combobox only — so falling back to either of those
+        leaks the line-tab value when other tabs change channels and
+        ``_set_active_channel`` short-circuits because the "new" channel
+        equals the current one. Prefer the explicit ``source`` widget.
+        """
         label = ""
-        try:
-            sender = self.sender()
-        except Exception:
-            sender = None
-        if sender is not None and hasattr(sender, "currentText"):
+        if source is not None and hasattr(source, "currentText"):
             try:
-                label = str(sender.currentText() or "")
+                label = str(source.currentText() or "")
             except Exception:
                 label = ""
+        if not label:
+            try:
+                sender = self.sender()
+            except Exception:
+                sender = None
+            if sender is not None and hasattr(sender, "currentText"):
+                try:
+                    label = str(sender.currentText() or "")
+                except Exception:
+                    label = ""
         if not label:
             label = self._plot_chan_var.get()
         # Route real channels and ratios via the label→key map so ratio
@@ -6232,6 +6244,7 @@ class WellViewerApp(QWidget):
 
         xs_ticks = list(range(n))
         frac_vals: List[float] = []
+        ratios = getattr(self, "_ratio_index", None)
 
         for i, (lbl, color) in enumerate(zip(wells, colors)):
             rows = self._get_rows(lbl)
@@ -6247,9 +6260,8 @@ class WellViewerApp(QWidget):
                     continue
                 if abs(t - target_t) > 1e-6:
                     continue
-                try:
-                    v = float(row[self._active_val_col])
-                except (KeyError, ValueError, TypeError):
+                v = resolve_value(row, self._active_val_col, ratios)
+                if math.isnan(v):
                     continue
                 n_total += 1
                 if v > threshold:
@@ -6336,6 +6348,7 @@ class WellViewerApp(QWidget):
         n = len(wells)
         xs_ticks = list(range(n))
         bar_w    = min(0.35, 3.0 / max(n, 1))  # narrow spread per column
+        ratios = getattr(self, "_ratio_index", None)
 
         for i, (lbl, color) in enumerate(zip(wells, colors)):
             rows = self._get_rows(lbl)
@@ -6353,9 +6366,8 @@ class WellViewerApp(QWidget):
                                           str(row.get("timepoint", ""))))
                 if t is None or abs(t - target_t) > 1e-6:
                     continue
-                try:
-                    val = float(row[self._active_val_col])
-                except (KeyError, ValueError, TypeError):
+                val = resolve_value(row, self._active_val_col, ratios)
+                if math.isnan(val):
                     continue
                 n_total += 1
                 if val > threshold:
@@ -7184,11 +7196,15 @@ class WellViewerApp(QWidget):
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
     def _col_for_scatter_entry(self, entry: str) -> str:
-        """Map scatter dropdown entry to CSV column name.
+        """Map scatter dropdown entry to a CSV column name or ratio key.
 
         "gfp" -> "gfp_mean_intensity"
         "gfp (spots)" -> "gfp_smfish_count"
+        "GFP/MCHERRY" (a ratio dropdown label) -> "ratio:GFP/MCHERRY"
         """
+        ratio_key = (getattr(self, "_label_to_channel_key", None) or {}).get(entry)
+        if ratio_key and is_ratio_key(ratio_key):
+            return ratio_key
         if entry.endswith(" (spots)"):
             ch = entry[:-8]  # Remove " (spots)"
             return f"{ch}_smfish_count"
@@ -7197,13 +7213,17 @@ class WellViewerApp(QWidget):
 
     def _update_scatter_menus(self) -> None:
         """Populate scatter plot dropdowns with available channels and timepoints."""
-        # Update channel dropdowns for cells scatter (include smfish_count variants)
+        # Update channel dropdowns for cells scatter (include smfish_count variants
+        # and any user-defined ratio metrics — ratios resolve via resolve_value
+        # in collect_scatter_data through _ratio_index).
         channels = list(self._fluor_channels) if self._fluor_channels else ["gfp"]
         scatter_ch_options = []
         for ch in channels:
             scatter_ch_options.append(ch)
             if ch in self._smfish_channels:
                 scatter_ch_options.append(f"{ch} (spots)")
+        ratio_labels = self._ratio_dropdown_labels()
+        scatter_ch_options.extend(ratio_labels)
 
         _set_combo_values(self._scatter_ch_x_cb, scatter_ch_options)
         _set_combo_values(self._scatter_ch_y_cb, scatter_ch_options)
@@ -7223,13 +7243,16 @@ class WellViewerApp(QWidget):
             self._scatter_tp_var.set(tp_strs[0])
 
         # Update statistic dropdowns for aggregate scatter
-        # Build list of available statistics: Mean Fluorescence, Fraction On, and smFISH Count for each channel
+        # Build list of available statistics: Mean Fluorescence, Fraction On, and smFISH Count for each channel.
+        # Ratio metrics show up as "Mean Ratio <label>" so the agg path can compose val_col=ratio:<name>.
         statistics = []
         for ch in channels:
             statistics.append(f"Mean Fluorescence {ch.upper()}")
             statistics.append(f"Fraction On {ch.upper()}")
             if ch in self._smfish_channels:
                 statistics.append(f"smFISH Count {ch.upper()}")
+        for ratio_label in self._ratio_dropdown_labels():
+            statistics.append(f"Mean Ratio {ratio_label}")
 
         _set_combo_values(self._scatter_agg_stat_x_cb, statistics)
         _set_combo_values(self._scatter_agg_stat_y_cb, statistics)

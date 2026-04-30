@@ -42,7 +42,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._chan_cb_bar = QComboBox(bar_ctrl)
     app._chan_cb_bar.addItems(["GFP"])
     app._chan_cb_bar.currentIndexChanged.connect(
-        lambda _i: app._on_plot_channel_selected(None)
+        lambda _i, _src=app._chan_cb_bar: app._on_plot_channel_selected(_src)
     )
     cl.addWidget(app._chan_cb_bar)
 

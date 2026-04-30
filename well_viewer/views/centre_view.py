@@ -28,7 +28,10 @@ from typing import Callable, Dict, List, Set, Tuple
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPainter, QPen
-from PySide6.QtWidgets import QTabBar, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QStyle, QStyleOptionTab, QStylePainter,
+    QTabBar, QTabWidget, QVBoxLayout, QWidget,
+)
 
 
 _logger = logging.getLogger("well_viewer.centre_view")
@@ -40,10 +43,12 @@ class _GroupedTabBar(QTabBar):
 
     Tabs marked as group starts (via ``set_group_starts({index: label})``)
     get extra horizontal width via ``tabSizeHint`` so the bar shows a
-    visual gap, and ``paintEvent`` overlays a 2-px vertical separator
-    plus the uppercase group label centred in that gap. The first tab in
-    the bar is never treated as a group start even when it is, since
-    there is no preceding group to separate it from.
+    visual gap. ``paintEvent`` draws each tab manually so the styled tab
+    body for a group-start tab is shifted right past ``GAP_PX``, leaving a
+    clean gap region into which we then paint the 2-px separator and the
+    uppercase group label without overlapping the tab's button text. The
+    first tab in the bar is never treated as a group start since there is
+    no preceding group to separate it from.
     """
 
     GAP_PX = 64
@@ -72,16 +77,26 @@ class _GroupedTabBar(QTabBar):
         return size
 
     def paintEvent(self, event):  # noqa: N802 - Qt override
-        super().paintEvent(event)
+        style_painter = QStylePainter(self)
+        try:
+            for i in range(self.count()):
+                opt = QStyleOptionTab()
+                self.initStyleOption(opt, i)
+                if i in self._group_starts:
+                    opt.rect = opt.rect.adjusted(self.GAP_PX, 0, 0, 0)
+                style_painter.drawControl(QStyle.CE_TabBarTab, opt)
+        finally:
+            style_painter.end()
+
         if not self._group_starts:
             return
-        painter = QPainter(self)
+
+        overlay = QPainter(self)
         try:
             line_color = self.palette().text().color()
             line_color.setAlpha(140)
             pen = QPen(line_color)
             pen.setWidth(2)
-            painter.setPen(pen)
 
             label_color = self.palette().text().color()
             label_color.setAlpha(190)
@@ -95,21 +110,19 @@ class _GroupedTabBar(QTabBar):
                 if idx <= 0 or idx >= self.count():
                     continue
                 rect = self.tabRect(idx)
-                # Place the separator near the left edge of the gap and
-                # paint the group label to its right inside the same gap.
                 sep_x = rect.left() + 8
                 top = rect.top() + self.SEPARATOR_TOP_INSET
                 bottom = rect.bottom() - self.SEPARATOR_BOTTOM_INSET
-                painter.setPen(pen)
-                painter.drawLine(sep_x, top, sep_x, bottom)
+                overlay.setPen(pen)
+                overlay.drawLine(sep_x, top, sep_x, bottom)
 
                 if group_label:
                     text_rect = rect.adjusted(16, 0, -(rect.width() - self.GAP_PX), 0)
-                    painter.setPen(label_color)
-                    painter.setFont(label_font)
-                    painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, group_label)
+                    overlay.setPen(label_color)
+                    overlay.setFont(label_font)
+                    overlay.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, group_label)
         finally:
-            painter.end()
+            overlay.end()
 
 
 def build_centre(app, parent: QWidget) -> None:
