@@ -4226,15 +4226,15 @@ class WellViewerApp(QWidget):
         hover_bg = activebackground or bg
         hover_fg = activeforeground or fg
         disabled_fg = disabledforeground or fg
-        # Uniform 2px border width across every state so fixed-size circles
-        # never change dimensions. Wells with no data get a transparent
-        # border; wells with data get a smooth solid black border. The
-        # embossed/depressed 3D cue is painted by WellButton.paintEvent —
+        # 1px border matching the design-system tokens. Wells with no data
+        # get a transparent border; wells with data get a themed border.
+        # The embossed/depressed 3D cue is painted by WellButton.paintEvent —
         # QSS outset/inset collapses to solid once border-radius is set.
+        from ui.theme import get_color
         if not is_enabled:
-            border = "2px solid transparent"
+            border = "1px solid transparent"
         else:
-            border = "2px solid #000000"
+            border = f"1px solid {get_color('BORDER')}"
         # Drive the paint-event-based 3D cue.
         if hasattr(btn, "set_emboss"):
             if not is_enabled:
@@ -4246,17 +4246,17 @@ class WellViewerApp(QWidget):
 
         # Setting a per-widget stylesheet overrides the application QSS for
         # this widget's selector. Restate the plate-well layout properties
-        # (fixed size, padding, border-radius) here so wells render as
-        # identical circles regardless of which code path styles them. Must
-        # match QPushButton#WellButton in dark.qss / light.qss. No font-size
-        # is set (Qt rejects <=0pt); button text is always empty anyway.
+        # (fixed size, padding, border-radius) here so wells render identically
+        # to QSS-driven wells. Must match QPushButton#WellButton in dark.qss /
+        # light.qss. No font-size is set (Qt rejects <=0pt); button text is
+        # always empty anyway.
         base_layout = (
             "min-width: 18px;"
             "min-height: 18px;"
             "max-width: 18px;"
             "max-height: 18px;"
             "padding: 0;"
-            "border-radius: 9px;"
+            "border-radius: 3px;"
         )
 
         btn.setStyleSheet(
