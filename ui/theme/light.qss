@@ -163,7 +163,7 @@ QTabWidget::pane {
 }
 QTabBar { background: ${BG_SIDE}; }
 QTabBar::tab {
-    background: ${TAB_BG};
+    background: ${BG_APP};
     color: ${TAB_FG};
     padding: 5px 12px;
     border: 1px solid ${TAB_BORDER};
@@ -177,9 +177,9 @@ QTabBar::tab {
     font-weight: normal;
 }
 QTabBar::tab:selected {
-    background: ${BG_APP};
+    background: ${TAB_BG_ACTIVE};
     color: ${ACCENT};
-    border-bottom: 1px solid ${BG_APP};
+    border-bottom: 1px solid ${TAB_BG_ACTIVE};
     margin-bottom: -1px;
     font-weight: bold;
 }
