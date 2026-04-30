@@ -1879,10 +1879,17 @@ class WellViewerApp(QWidget):
         _v(self, parent)
 
     def _build_groups_centre(self, parent) -> None:
-        """Centre panel for the Sample Definitions tab: top toolbar + ratio metrics + well-label editor."""
+        """Centre panel for the Sample Definitions tab.
+
+        Layout:
+          - top toolbar: Save / Load / Clear All for everything on the tab
+          - sub-tabs: "Wells & Labels" (ratios + well-label editor) and
+            "Cell Gating" (the former Cell Gating tab, lazy-built on first open)
+        """
         from PySide6.QtWidgets import (
             QFrame as _QFrame,
             QHBoxLayout as _QHBoxLayout,
+            QTabWidget as _QTabWidget,
             QVBoxLayout as _QVBoxLayout,
             QWidget as _QWidget,
         )
@@ -1897,7 +1904,8 @@ class WellViewerApp(QWidget):
 
         # ── Top toolbar: Save / Load / Clear All ────────────────────────────
         # Single source of truth for the whole tab — well labels, replicate
-        # sets, bar groups, and ratios all flow through these three buttons.
+        # sets, bar groups, ratios, and cell gating all flow through these
+        # three buttons.
         toolbar = _QWidget(parent)
         toolbar.setObjectName("Sidebar")
         tl = _QHBoxLayout(toolbar)
@@ -1907,18 +1915,19 @@ class WellViewerApp(QWidget):
         save_btn = btn_primary(toolbar, "Save", self._save_sample_definitions_all)
         save_btn.setToolTip(
             "Save every definition on this tab (well labels, replicate sets, "
-            "bar groups, and ratio metrics) to the data folder."
+            "bar groups, ratio metrics, and cell-gating thresholds) to the "
+            "data folder."
         )
         tl.addWidget(save_btn)
 
         load_btn = btn_secondary(toolbar, "Load", self._load_sample_definitions_all)
-        load_btn.setToolTip("Reload definitions from the data folder, discarding unsaved edits.")
+        load_btn.setToolTip("Reload every definition from the data folder, discarding unsaved edits.")
         tl.addWidget(load_btn)
 
         clear_btn = btn_secondary(toolbar, "Clear All", self._clear_sample_definitions_all)
         clear_btn.setToolTip(
-            "Clear every definition on this tab — well labels, replicate sets, "
-            "bar groups, and ratio metrics."
+            "Clear every definition on this tab — well labels, replicate "
+            "sets, bar groups, ratio metrics, and cell-gating thresholds."
         )
         tl.addWidget(clear_btn)
 
@@ -1931,15 +1940,66 @@ class WellViewerApp(QWidget):
         sep_top.setFixedHeight(1)
         outer_layout.addWidget(sep_top)
 
-        outer_layout.addWidget(build_ratios_inline_panel(self, parent))
+        # ── Sub-tabs ────────────────────────────────────────────────────────
+        sub_tabs = _QTabWidget(parent)
+        sub_tabs.setObjectName("SampleDefinitionsSubTabs")
+        outer_layout.addWidget(sub_tabs, 1)
+        self._sample_definitions_subtabs = sub_tabs
 
-        sep = _QFrame(parent)
+        # Sub-tab 1: ratios + well-label editor
+        labels_tab = _QWidget(sub_tabs)
+        ll = _QVBoxLayout(labels_tab)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.addWidget(build_ratios_inline_panel(self, labels_tab))
+        sep = _QFrame(labels_tab)
         sep.setObjectName("Separator")
         sep.setFrameShape(_QFrame.HLine)
         sep.setFixedHeight(1)
-        outer_layout.addWidget(sep)
+        ll.addWidget(sep)
+        self._build_label_editor(labels_tab)
+        sub_tabs.addTab(labels_tab, "Wells & Labels")
 
-        self._build_label_editor(parent)
+        # Sub-tab 2: Cell Gating — lazy-built on first activation so a
+        # user who only edits labels never pays the matplotlib import.
+        cell_gating_tab = _QWidget(sub_tabs)
+        _QVBoxLayout(cell_gating_tab).setContentsMargins(0, 0, 0, 0)
+        sub_tabs.addTab(cell_gating_tab, "Cell Gating")
+        self._cell_gating_subtab_frame = cell_gating_tab
+        self._cell_gating_subtab_built = False
+
+        sub_tabs.currentChanged.connect(
+            lambda idx: self._build_cell_gating_subtab()
+            if sub_tabs.tabText(idx) == "Cell Gating" else None
+        )
+
+    def _build_cell_gating_subtab(self) -> None:
+        """Build the Cell Gating sub-tab content if it hasn't been built yet.
+
+        Called on first sub-tab activation and from
+        ``_load_gating_from_pipeline_info`` when persisted thresholds need
+        to be applied immediately. Idempotent.
+        """
+        if getattr(self, "_cell_gating_subtab_built", False):
+            return
+        frame = getattr(self, "_cell_gating_subtab_frame", None)
+        if frame is None:
+            return
+        try:
+            from well_viewer.cell_gating_tab import CellGatingTab
+            widget = CellGatingTab(frame, self)
+            frame.layout().addWidget(widget)
+            self._cell_gating_tab = widget
+            if self._well_paths:
+                try:
+                    widget._load_cell_areas()
+                    self._load_gating_from_pipeline_info()
+                    widget._load_threshold_frac_on()
+                except Exception:
+                    _logger.exception("Cell Gating post-build sync failed")
+        except Exception:
+            _logger.exception("Cell Gating sub-tab build failed")
+        finally:
+            self._cell_gating_subtab_built = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # Replicate panel
@@ -3076,9 +3136,16 @@ class WellViewerApp(QWidget):
                 _logger.exception("Ratio panel apply failed during Save")
         self._save_sample_definitions_to_pipeline_info()
         self._ratios_save_to_data_dir()
+        # Cell-gating values auto-save on each edit, but persist again here
+        # so a user who only clicks Save still gets the latest values flushed
+        # (and to keep this button as a single source of truth for the tab).
+        try:
+            self._save_gating_to_pipeline_info()
+        except Exception:
+            _logger.exception("Gating save during combined Save failed")
 
     def _load_sample_definitions_all(self) -> None:
-        """Reload labels + reps + groups + ratios from the data folder."""
+        """Reload labels + reps + groups + ratios + gating from the data folder."""
         if not self._data_dir:
             QMessageBox.warning(
                 self, "No data loaded",
@@ -3087,6 +3154,10 @@ class WellViewerApp(QWidget):
             return
         applied = self._load_sample_definitions_from_pipeline_info()
         self._ratios_load_from_data_dir()
+        try:
+            self._load_gating_from_pipeline_info()
+        except Exception:
+            _logger.exception("Gating load during combined Load failed")
         # Repaint the Sample Definitions UI so the user sees the reloaded state.
         if hasattr(self, "_groups_centre_refresh"):
             try:
@@ -3108,9 +3179,9 @@ class WellViewerApp(QWidget):
         """Clear every definition driven from the Sample Definitions tab."""
         confirm = QMessageBox.question(
             self, "Clear sample definitions",
-            "Discard all well labels, replicate sets, bar groups, and ratio "
-            "metrics defined on this tab?\n\nSaved JSON files are not touched "
-            "until you click Save.",
+            "Discard all well labels, replicate sets, bar groups, ratio "
+            "metrics, and cell-gating thresholds defined on this tab?\n\n"
+            "Saved JSON files are not touched until you click Save.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -3135,6 +3206,23 @@ class WellViewerApp(QWidget):
 
         # Ratio metrics
         self._set_ratio_metrics([])
+
+        # Cell gating — reset every editable input to its default in the
+        # already-built widget so the user sees the cleared state.
+        gating = getattr(self, "_cell_gating_tab", None)
+        if gating is not None:
+            try:
+                gating._cell_area_edit.setText("0.0")
+                for edit in gating._fluor_gate_edits.values():
+                    edit.setText("0.0")
+                for edit in gating._thresh_frac_edits.values():
+                    edit.setText("50.0")
+                if hasattr(gating, "_on_gating_change"):
+                    gating._on_gating_change()
+                if hasattr(gating, "_on_threshold_frac_on_change"):
+                    gating._on_threshold_frac_on_change()
+            except Exception:
+                _logger.exception("Cell Gating reset during Clear failed")
 
         if hasattr(self, "_groups_centre_refresh"):
             try:
@@ -3193,15 +3281,17 @@ class WellViewerApp(QWidget):
         if not block:
             return False
 
-        # Cell Gating builds lazily by default. Force-build it now so the
-        # tab's QLineEdits exist and saved thresholds can be applied
-        # immediately, instead of silently waiting for the user to click
-        # the tab.
+        # Cell Gating now lives as a sub-tab inside Sample Definitions and
+        # builds lazily. Force the host Sample Definitions tab to build,
+        # then build the sub-tab, so the QLineEdits exist and saved
+        # thresholds can be applied immediately.
         tab = getattr(self, "_cell_gating_tab", None)
         if tab is None:
             build = getattr(self, "_centre_build_pending", None)
             if callable(build):
-                build("Cell Gating")
+                build("Sample Definitions")
+            if hasattr(self, "_build_cell_gating_subtab"):
+                self._build_cell_gating_subtab()
             tab = getattr(self, "_cell_gating_tab", None)
         if tab is None:
             return False
@@ -4771,7 +4861,7 @@ class WellViewerApp(QWidget):
                     tab_label = ""
             if tab_label == "Movie Montage":
                 self._chan_var.set(montage_label)
-            elif tab_label == "Review Image":
+            elif tab_label == "Adjust Segmentation":
                 self._chan_var.set(review_label)
             else:
                 self._chan_var.set(plot_label)
@@ -4987,11 +5077,21 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_review_image_fov_menu"):
             _set_combo_values(self._review_image_fov_menu, all_fovs or ["—"])
 
-        cur = self._preview_fov_var.get()
-        if all_fovs and cur not in all_fovs:
-            self._preview_fov_var.set(all_fovs[0])
+        # Movie Montage was retired; ``_preview_fov_var`` only exists when
+        # that tab built. Guard so a Review-Image-only viewer doesn't crash
+        # the well picker.
+        if hasattr(self, "_preview_fov_var"):
+            cur = self._preview_fov_var.get()
+            if all_fovs and cur not in all_fovs:
+                self._preview_fov_var.set(all_fovs[0])
 
-        self._refresh_preview_montage()
+        if hasattr(self, "_refresh_preview_montage"):
+            try:
+                self._refresh_preview_montage()
+            except AttributeError:
+                # Movie Montage helpers may reference vars that no longer
+                # exist — swallow rather than fail the click.
+                pass
         if channel_switch_debug:
             _logger.debug("[RI-CHSW step 4->6] triggering refresh_review_image after preview reload")
         self._refresh_review_image()
@@ -5787,7 +5887,7 @@ class WellViewerApp(QWidget):
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
-        elif tab == "Review Image":
+        elif tab == "Adjust Segmentation":
             self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()

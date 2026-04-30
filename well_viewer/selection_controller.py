@@ -38,9 +38,14 @@ def _refresh_after_selection_change(app) -> None:
     elif tab == "smFISH":
         if hasattr(app, "_smfish_tab"):
             app._smfish_tab.sync_from_app()
-    elif tab == "Cell Gating":
-        if hasattr(app, "_cell_gating_tab") and app._cell_gating_tab is not None:
-            app._cell_gating_tab._load_cell_areas()
+    elif tab == "Sample Definitions":
+        # Cell Gating is a sub-tab here; refresh its CDF if the user has
+        # opened it at least once.
+        gating = getattr(app, "_cell_gating_tab", None)
+        if gating is not None:
+            gating._load_cell_areas()
+        # Don't fall through to _redraw — labels-and-groups edits don't
+        # require a plot redraw.
     else:
         app._redraw()
 

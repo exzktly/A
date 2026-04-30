@@ -201,7 +201,7 @@ def build_centre(app, parent: QWidget) -> None:
     # drain — they only build on first user access (tab click). The tabs
     # listed here pull in the heaviest dependencies (matplotlib QtAgg,
     # skimage, tifffile) that aren't worth amortising at startup.
-    lazy_only: Set[str] = {"Cell Gating", "smFISH"}
+    lazy_only: Set[str] = {"smFISH"}
     app._centre_lazy_only_titles = frozenset(lazy_only)
 
     # Pre-create stable widget handles so deferred builder closures can
@@ -256,20 +256,7 @@ def build_centre(app, parent: QWidget) -> None:
         build_image_table_picker(app, app._sidebar_image_table_frame)
 
     def _build_review_image() -> None:
-        app._build_review_image_panel(tab_frames["Review Image"])
-
-    def _build_cell_gating() -> None:
-        from well_viewer.cell_gating_tab import CellGatingTab
-        frame = tab_frames["Cell Gating"]
-        app._cell_gating_tab = CellGatingTab(frame, app)
-        frame.layout().addWidget(app._cell_gating_tab)
-        if app._well_paths:
-            try:
-                app._cell_gating_tab._load_cell_areas()
-                app._load_gating_from_pipeline_info()
-                app._cell_gating_tab._load_threshold_frac_on()
-            except Exception:
-                _logger.exception("Cell Gating post-build sync failed")
+        app._build_review_image_panel(tab_frames["Adjust Segmentation"])
 
     def _build_smfish() -> None:
         from well_viewer.smfish_tab import SmfishTab
@@ -305,10 +292,11 @@ def build_centre(app, parent: QWidget) -> None:
             # the channel to NUC+SEG (or any other), and click "Distribute
             # Timepoints" to get the same per-timepoint grid.
             ("Image Table", _build_image_table),
-            ("Review Image", _build_review_image),
+            ("Adjust Segmentation", _build_review_image),
         ]),
         ("Analysis", [
-            ("Cell Gating", _build_cell_gating),
+            # Cell Gating moved into the Sample Definitions tab (Cell Gating
+            # sub-tab) — that's the new home for global per-cell config.
             ("smFISH", _build_smfish),
             ("Statistics", _build_stats),
         ]),

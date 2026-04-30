@@ -261,6 +261,20 @@ def image_table_rebuild_grid(app) -> None:
     row_lut_color_cbs: List[QComboBox] = []
     for r in range(rows):
         row_box = QGroupBox(f"Row {r + 1}")
+        # Tinted background flags this groupbox as a row-scope control —
+        # changes here propagate to every cell in the row, in contrast to
+        # the per-cell selector groupboxes that use the default background.
+        row_box.setObjectName("ImageTableRowOptions")
+        row_box.setStyleSheet(
+            "QGroupBox#ImageTableRowOptions { "
+            "background-color: rgba(99, 102, 241, 0.10); "
+            "border: 1px solid rgba(99, 102, 241, 0.35); "
+            "border-radius: 4px; margin-top: 8px; "
+            "} "
+            "QGroupBox#ImageTableRowOptions::title { "
+            "subcontrol-origin: margin; left: 8px; padding: 0 4px; "
+            "}"
+        )
         rbl = QVBoxLayout(row_box)
         rbl.setContentsMargins(6, 8, 6, 6)
         rbl.setSpacing(4)
@@ -561,11 +575,15 @@ def image_table_rebuild_lut_row(app) -> None:
         cb_l.addWidget(QLabel("min:", chan_box))
         min_edit = QLineEdit("auto", chan_box)
         min_edit.setFixedWidth(70)
+        # editingFinished fires on both Enter and focus loss, so the user
+        # never has to click Generate to see a LUT change land.
+        min_edit.editingFinished.connect(lambda: image_table_generate(app))
         cb_l.addWidget(min_edit)
 
         cb_l.addWidget(QLabel("max:", chan_box))
         max_edit = QLineEdit("auto", chan_box)
         max_edit.setFixedWidth(70)
+        max_edit.editingFinished.connect(lambda: image_table_generate(app))
         cb_l.addWidget(max_edit)
 
         auto_btn = btn_secondary(

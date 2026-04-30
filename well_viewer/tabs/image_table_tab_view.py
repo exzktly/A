@@ -173,16 +173,32 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     il.addSpacing(6)
 
     # ── LUT row (rebuilt per channel by the controller) ─────────────────────
-    lut_lbl = QLabel("LUT (per channel):", inner)
-    lut_lbl.setProperty("role", "section")
-    il.addWidget(lut_lbl)
+    # Wrap the row in a tinted frame so it visually reads as a global
+    # control strip, not as another row of per-cell selectors.
+    lut_outer = QFrame(inner)
+    lut_outer.setObjectName("ImageTableLutRow")
+    lut_outer.setStyleSheet(
+        "QFrame#ImageTableLutRow { "
+        "background-color: rgba(245, 158, 11, 0.12); "
+        "border: 1px solid rgba(245, 158, 11, 0.40); "
+        "border-radius: 4px; "
+        "}"
+    )
+    lut_outer_layout = QVBoxLayout(lut_outer)
+    lut_outer_layout.setContentsMargins(8, 6, 8, 6)
+    lut_outer_layout.setSpacing(4)
 
-    lut_container = QWidget(inner)
+    lut_lbl = QLabel("LUT (per channel) — applies to every cell of that channel", lut_outer)
+    lut_lbl.setProperty("role", "section")
+    lut_outer_layout.addWidget(lut_lbl)
+
+    lut_container = QWidget(lut_outer)
     lut_layout = QHBoxLayout(lut_container)
     lut_layout.setContentsMargins(0, 0, 0, 0)
     lut_layout.setSpacing(6)
     app._image_table_lut_container = lut_container
-    il.addWidget(lut_container)
+    lut_outer_layout.addWidget(lut_container)
+    il.addWidget(lut_outer)
 
     sep2 = QFrame(inner)
     sep2.setObjectName("Separator")
