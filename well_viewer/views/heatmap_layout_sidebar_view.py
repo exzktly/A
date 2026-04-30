@@ -1,24 +1,26 @@
 """Heat-map layout configurator — sidebar variant.
 
 Renders directly under the standard well picker on the Heat Map tab. The
-user picks an R×C grid size, drags wells from the palette into table cells,
-moves wells between cells by dragging, and clears a cell by double-clicking
-it. The palette and the table are two views of a single shared
-``HeatmapLayout`` instance held by the app (see
-``heatmap_controller.active_layout``).
+user picks an R×C grid size, drags wells from the *sidebar plate-map*
+into table cells, moves wells between cells by dragging, and clears a
+cell by double-clicking it (or by dragging the well back onto the
+sidebar plate-map). The sidebar buttons are the canonical drag source
+when the Heat Map tab is active — see
+``runtime_app._sync_heatmap_well_drag_mode``.
 
 State of truth: ``app._heatmap_layouts``. The sidebar maintains exactly
-one layout named ``SIDEBAR_LAYOUT_NAME`` and synchronises both widgets to
-its ``cells`` dict on every change. Each cell holds at most one well token
-in this UI; the underlying model still permits multi-well cells, which
-remain accessible to programmatic / future editor uses.
+one layout named ``SIDEBAR_LAYOUT_NAME`` and synchronises the table
+widget to its ``cells`` dict on every change. Each cell holds at most
+one well token in this UI; the underlying model still permits
+multi-well cells, which remain accessible to programmatic / future
+editor uses.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-from PySide6.QtCore import QMimeData, QPoint, Qt
+from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -26,8 +28,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -43,65 +43,6 @@ WELL_MIME = "application/x-well-token"
 
 
 # ── Drag-aware widgets ───────────────────────────────────────────────────────
-
-class _WellPaletteList(QListWidget):
-    """List of unassigned wells. Drag source AND drop sink."""
-
-    def __init__(self, on_drop, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._on_drop = on_drop
-        self.setDragEnabled(True)
-        self.setAcceptDrops(True)
-        self.setDropIndicatorShown(True)
-        self.setDragDropMode(QAbstractItemView.DragDrop)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.setFlow(QListWidget.LeftToRight)
-        self.setWrapping(True)
-        self.setResizeMode(QListWidget.Adjust)
-        self.setSpacing(2)
-        self.setMaximumHeight(96)
-
-    def mimeTypes(self) -> List[str]:
-        return [WELL_MIME]
-
-    def startDrag(self, _supportedActions) -> None:
-        item = self.currentItem()
-        if item is None:
-            return
-        token = item.text().strip()
-        if not token:
-            return
-        mime = QMimeData()
-        mime.setData(WELL_MIME, token.encode("utf-8"))
-        drag = QDrag(self)
-        drag.setMimeData(mime)
-        drag.exec(Qt.MoveAction | Qt.CopyAction)
-
-    def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(WELL_MIME):
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dragMoveEvent(self, event) -> None:
-        if event.mimeData().hasFormat(WELL_MIME):
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event) -> None:
-        md = event.mimeData()
-        if not md.hasFormat(WELL_MIME):
-            event.ignore()
-            return
-        token = bytes(md.data(WELL_MIME)).decode("utf-8").strip()
-        if not token:
-            event.ignore()
-            return
-        # Returning a well to the palette → unassign from any cell.
-        self._on_drop("palette", None, token)
-        event.acceptProposedAction()
-
 
 class _LayoutTable(QTableWidget):
     """The R×C grid. Drag source AND drop sink for well tokens."""
@@ -221,8 +162,9 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
 
     # Hint label
     hint = QLabel(
-        "Drag wells from below into cells. Drag between cells to move. "
-        "Double-click a cell to remove its well.",
+        "Drag wells from the sidebar plate map above into cells. Drag "
+        "between cells to move. Double-click a cell — or drop it back on "
+        "the plate map — to remove its well.",
         outer,
     )
     hint.setObjectName("Muted")
@@ -238,20 +180,9 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
     table.setMinimumHeight(160)
     outer_layout.addWidget(table, 1)
 
-    # Palette of unassigned wells
-    palette_lbl = QLabel("Wells (drag to grid):", outer)
-    palette_lbl.setObjectName("Muted")
-    outer_layout.addWidget(palette_lbl)
-    palette = _WellPaletteList(
-        on_drop=lambda kind, rc, tok: _on_drop_event(app, kind, rc, tok),
-        parent=outer,
-    )
-    outer_layout.addWidget(palette)
-
     # Stash widget refs on the app so callbacks/refresh can find them.
     app._heatmap_sidebar_frame = outer
     app._heatmap_sidebar_table = table
-    app._heatmap_sidebar_palette = palette
     app._heatmap_sidebar_rows_spin = rows_spin
     app._heatmap_sidebar_cols_spin = cols_spin
 
@@ -282,19 +213,6 @@ def _ensure_sidebar_layout(app) -> HeatmapLayout:
     return lay
 
 
-def _all_well_tokens(app) -> List[str]:
-    return sorted((getattr(app, "_well_paths", {}) or {}).keys())
-
-
-def _layout_assigned_tokens(layout: HeatmapLayout) -> List[str]:
-    return list(layout.assigned_wells())
-
-
-def _palette_tokens(app, layout: HeatmapLayout) -> List[str]:
-    assigned = set(_layout_assigned_tokens(layout))
-    return [w for w in _all_well_tokens(app) if w not in assigned]
-
-
 def _find_cell_for_token(layout: HeatmapLayout, token: str) -> Optional[Tuple[int, int]]:
     for (r, c), wells in layout.cells.items():
         if token in wells:
@@ -305,12 +223,11 @@ def _find_cell_for_token(layout: HeatmapLayout, token: str) -> Optional[Tuple[in
 # ── Refresh + drop handlers ──────────────────────────────────────────────────
 
 def refresh_heatmap_layout_sidebar(app) -> None:
-    """Re-render the table and palette from ``app._heatmap_layouts``."""
+    """Re-render the table from ``app._heatmap_layouts``."""
     table: _LayoutTable = getattr(app, "_heatmap_sidebar_table", None)
-    palette: _WellPaletteList = getattr(app, "_heatmap_sidebar_palette", None)
     rows_spin: QSpinBox = getattr(app, "_heatmap_sidebar_rows_spin", None)
     cols_spin: QSpinBox = getattr(app, "_heatmap_sidebar_cols_spin", None)
-    if table is None or palette is None:
+    if table is None:
         return
 
     layout = _ensure_sidebar_layout(app)
@@ -351,16 +268,6 @@ def refresh_heatmap_layout_sidebar(app) -> None:
                 table.setItem(r, c, item)
     finally:
         table.blockSignals(False)
-
-    palette.blockSignals(True)
-    try:
-        palette.clear()
-        for tok in _palette_tokens(app, layout):
-            it = QListWidgetItem(tok)
-            it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)
-            palette.addItem(it)
-    finally:
-        palette.blockSignals(False)
 
 
 def _on_size_changed(app) -> None:

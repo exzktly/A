@@ -118,13 +118,28 @@ def build_sidebar(app, parent: QWidget) -> None:
         return None
 
     def _make_btn_handlers(tok, btn):
+        # Hold the WellButton's own mouse handlers so we can fall through
+        # to its built-in drag-source logic when the heat-map drag mode is
+        # active (set via ``btn.set_drag_mime(...)``). Without this fall-
+        # through, the selection handlers below would swallow the press
+        # before QDrag could start.
+        base_press = type(btn).mousePressEvent
+        base_move = type(btn).mouseMoveEvent
+        base_release = type(btn).mouseReleaseEvent
+
         def _press(event):
+            if getattr(btn, "_drag_mime", None):
+                base_press(btn, event)
+                return
             if event.button() != Qt.LeftButton:
                 return
             pos = event.position().toPoint()
             app._sb_press(_QEvent(tok, pos))
 
         def _move(event):
+            if getattr(btn, "_drag_mime", None):
+                base_move(btn, event)
+                return
             if not (event.buttons() & Qt.LeftButton):
                 return
             global_pos = event.globalPosition().toPoint()
@@ -134,6 +149,9 @@ def build_sidebar(app, parent: QWidget) -> None:
             app._sb_drag(_QEvent(other_tok, event.position().toPoint()))
 
         def _release(event):
+            if getattr(btn, "_drag_mime", None):
+                base_release(btn, event)
+                return
             app._sb_release(None)
 
         btn.setMouseTracking(True)

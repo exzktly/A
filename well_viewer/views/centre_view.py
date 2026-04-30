@@ -24,10 +24,10 @@ that tab is run inline on the tab-switch event.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, Iterable, List, Set, Tuple
+from typing import Callable, Dict, List, Set, Tuple
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QFont, QPainter, QPen
 from PySide6.QtWidgets import QTabBar, QTabWidget, QVBoxLayout, QWidget
 
 
@@ -35,25 +35,31 @@ _logger = logging.getLogger("well_viewer.centre_view")
 
 
 class _GroupedTabBar(QTabBar):
-    """Tab bar that adds left-padding + a thin separator before group starts.
+    """Tab bar that adds left-padding, a separator, and a tiny group label
+    before each group start.
 
-    Tabs marked as group starts (via ``set_group_starts(indices)``) get
-    extra horizontal width via ``tabSizeHint`` so the bar shows a visual
-    gap, and ``paintEvent`` overlays a 1-px vertical separator centred in
-    that gap. The first tab in the bar is never treated as a group start
-    even when it is, since there is no preceding group to separate it from.
+    Tabs marked as group starts (via ``set_group_starts({index: label})``)
+    get extra horizontal width via ``tabSizeHint`` so the bar shows a
+    visual gap, and ``paintEvent`` overlays a 2-px vertical separator
+    plus the uppercase group label centred in that gap. The first tab in
+    the bar is never treated as a group start even when it is, since
+    there is no preceding group to separate it from.
     """
 
-    GAP_PX = 18
-    SEPARATOR_TOP_INSET = 6
-    SEPARATOR_BOTTOM_INSET = 6
+    GAP_PX = 64
+    SEPARATOR_TOP_INSET = 4
+    SEPARATOR_BOTTOM_INSET = 4
+    LABEL_FONT_PX = 9
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._group_starts: Set[int] = set()
+        self._group_starts: Dict[int, str] = {}
 
-    def set_group_starts(self, indices: Iterable[int]) -> None:
-        new = {int(i) for i in indices if int(i) > 0}
+    def set_group_starts(self, indices) -> None:
+        if isinstance(indices, dict):
+            new = {int(i): str(label or "") for i, label in indices.items() if int(i) > 0}
+        else:
+            new = {int(i): "" for i in indices if int(i) > 0}
         if new != self._group_starts:
             self._group_starts = new
             self.updateGeometry()
@@ -71,21 +77,37 @@ class _GroupedTabBar(QTabBar):
             return
         painter = QPainter(self)
         try:
-            color = self.palette().mid().color()
-            color.setAlpha(180)
-            pen = QPen(color)
-            pen.setWidth(1)
+            line_color = self.palette().text().color()
+            line_color.setAlpha(140)
+            pen = QPen(line_color)
+            pen.setWidth(2)
             painter.setPen(pen)
-            for idx in self._group_starts:
+
+            label_color = self.palette().text().color()
+            label_color.setAlpha(190)
+            label_font = QFont(self.font())
+            label_font.setPixelSize(self.LABEL_FONT_PX)
+            label_font.setBold(True)
+            label_font.setCapitalization(QFont.AllUppercase)
+            label_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
+
+            for idx, group_label in self._group_starts.items():
                 if idx <= 0 or idx >= self.count():
                     continue
                 rect = self.tabRect(idx)
-                # Centre the separator in the GAP_PX padding that
-                # tabSizeHint added on the left of this tab.
-                x = rect.left() + self.GAP_PX // 2
+                # Place the separator near the left edge of the gap and
+                # paint the group label to its right inside the same gap.
+                sep_x = rect.left() + 8
                 top = rect.top() + self.SEPARATOR_TOP_INSET
                 bottom = rect.bottom() - self.SEPARATOR_BOTTOM_INSET
-                painter.drawLine(x, top, x, bottom)
+                painter.setPen(pen)
+                painter.drawLine(sep_x, top, sep_x, bottom)
+
+                if group_label:
+                    text_rect = rect.adjusted(16, 0, -(rect.width() - self.GAP_PX), 0)
+                    painter.setPen(label_color)
+                    painter.setFont(label_font)
+                    painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, group_label)
         finally:
             painter.end()
 
@@ -258,12 +280,13 @@ def build_centre(app, parent: QWidget) -> None:
         tab_frames[title] = frame
         return frame
 
-    # Add tabs in group order. Track which indices start a new group so the
-    # custom tab bar can paint a separator before them.
-    group_start_indices: List[int] = []
-    for group_idx, (_group_label, tabs) in enumerate(groups):
+    # Add tabs in group order. Track which indices start a new group, and
+    # the group's label, so the custom tab bar can paint a separator and a
+    # tiny header before them.
+    group_starts: Dict[int, str] = {}
+    for group_idx, (group_label, tabs) in enumerate(groups):
         if group_idx > 0:
-            group_start_indices.append(app._notebook.count())
+            group_starts[app._notebook.count()] = group_label
         for tab_idx_in_group, (title, builder) in enumerate(tabs):
             _new_tab(title)
             if group_idx == 0 and tab_idx_in_group == 0:
@@ -277,7 +300,7 @@ def build_centre(app, parent: QWidget) -> None:
     # eager attribute set so external references keep resolving).
     app._batch_export_tab_frame = tab_frames["Batch Export"]
 
-    custom_tabbar.set_group_starts(group_start_indices)
+    custom_tabbar.set_group_starts(group_starts)
 
     app._notebook.setCurrentIndex(0)
 

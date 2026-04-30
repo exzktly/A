@@ -268,17 +268,30 @@ def redraw_heatmap(app) -> None:
             )
             ax.add_patch(rect)
 
-    # Color bar — recreate each time because we cleared the axes.
-    if hasattr(app, "_heatmap_colorbar") and app._heatmap_colorbar is not None:
+    # Color bar — refill the persistent ``cax`` reserved at build time so
+    # the main axes geometry stays put across redraws. Calling
+    # ``fig.colorbar(im, ax=ax, ...)`` would silently shrink ``ax`` on
+    # each redraw, which is what made the plot creep left and shrink.
+    cax = getattr(app, "_heatmap_cax", None)
+    if cax is not None:
         try:
-            app._heatmap_colorbar.remove()
+            cax.cla()
+            app._heatmap_colorbar = fig.colorbar(im, cax=cax)
+            app._heatmap_colorbar.set_label(_metric_axis_label(metric, app), fontsize=8)
         except Exception:
-            pass
-    try:
-        app._heatmap_colorbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.03)
-        app._heatmap_colorbar.set_label(_metric_axis_label(metric, app), fontsize=8)
-    except Exception:
-        app._heatmap_colorbar = None
+            app._heatmap_colorbar = None
+    else:
+        # Fallback for any caller that bypasses the build-time axes setup.
+        if hasattr(app, "_heatmap_colorbar") and app._heatmap_colorbar is not None:
+            try:
+                app._heatmap_colorbar.remove()
+            except Exception:
+                pass
+        try:
+            app._heatmap_colorbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.03)
+            app._heatmap_colorbar.set_label(_metric_axis_label(metric, app), fontsize=8)
+        except Exception:
+            app._heatmap_colorbar = None
 
     title = (
         f"{app._active_channel_label() if hasattr(app, '_active_channel_label') else app._active_channel.upper()}"
