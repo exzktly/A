@@ -447,6 +447,7 @@ class CellGatingTab(QWidget):
 
         self._axes_stack = []
         self._plot_cdf()
+        self._persist_gating_params()
         self._start_gating_worker()
 
     def _start_gating_worker(self) -> None:
@@ -488,9 +489,20 @@ class CellGatingTab(QWidget):
             for edit in self._thresh_frac_edits.values():
                 float(edit.text())
             self._save_threshold_frac_on()
+            self._persist_gating_params()
             self._app._redraw()
         except ValueError:
             pass
+
+    def _persist_gating_params(self) -> None:
+        """Save current gating values into pipeline_info.json (no-op when at defaults)."""
+        save = getattr(self._app, "_save_gating_to_pipeline_info", None)
+        if save is None:
+            return
+        try:
+            save()
+        except Exception:
+            logger.exception("Failed to save gating params to pipeline_info.json")
 
     def _save_threshold_frac_on(self) -> None:
         if not hasattr(self._app, '_thresh_frac_on_saved'):

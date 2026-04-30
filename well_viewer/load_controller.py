@@ -115,7 +115,32 @@ def load_directory(app, d: Path, label=None) -> None:
     app._dir_label.setText(display)
     app._set_status(f"Loaded {n} well(s) — {display}")
     app._recalculate_threshold()
+    # Apply any non-default gating thresholds that were just hydrated from
+    # pipeline_info.json. Running the worker once here (rather than from
+    # _recalculate_threshold, which fires on every channel/metric switch)
+    # keeps Included flags consistent with the loaded thresholds.
+    _kick_off_gating_after_load(app)
     app._redraw()
+
+
+def _kick_off_gating_after_load(app) -> None:
+    tab = getattr(app, "_cell_gating_tab", None)
+    if tab is None:
+        return
+    try:
+        cell_area = float(tab._cell_area_edit.text())
+    except (ValueError, AttributeError):
+        cell_area = 0.0
+    has_non_default_gate = False
+    for edit in getattr(tab, "_fluor_gate_edits", {}).values():
+        try:
+            if float(edit.text()) > 0.0:
+                has_non_default_gate = True
+                break
+        except ValueError:
+            pass
+    if cell_area > 0.0 or has_non_default_gate:
+        tab._start_gating_worker()
 
 
 def _looks_like_well_measurement_csv(path: Path) -> bool:

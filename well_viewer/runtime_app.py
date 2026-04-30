@@ -2956,6 +2956,91 @@ class WellViewerApp(QWidget):
             self._invalidate_stats_cache()
         return True
 
+    # ── Cell Gating persistence (in pipeline_info.json) ───────────────────────
+
+    def _save_gating_to_pipeline_info(self) -> None:
+        """Persist non-default cell gating params to pipeline_info.json.
+
+        Called from the Cell Gating tab whenever the user edits a value.
+        Silently no-ops when no data directory is loaded or the sidecar
+        is missing — gating params live alongside the pipeline output.
+        """
+        if not self._data_dir:
+            return
+        tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
+            return
+        from well_viewer.gating_state import (
+            build_gating_block,
+            save_gating_to_pipeline_info,
+        )
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        thresh_frac_on = {
+            ch: tab.get_thresh_frac_on(ch) for ch in self._fluor_channels
+        }
+        block = build_gating_block(
+            cell_area_threshold, fluor_gates, thresh_frac_on,
+        )
+        save_gating_to_pipeline_info(self._data_dir, block)
+
+    def _load_gating_from_pipeline_info(self) -> bool:
+        """Apply any saved cell_gating block in pipeline_info.json.
+
+        Returns True when a block was found and applied. Must be called
+        after the Cell Gating tab has built per-channel controls so the
+        QLineEdits exist; ``_load_cell_areas`` handles that.
+        """
+        if not self._data_dir:
+            return False
+        tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
+            return False
+        from well_viewer.gating_state import read_gating_params
+        block = read_gating_params(self._data_dir)
+        if not block:
+            return False
+
+        applied = False
+        cell_area = block.get("cell_area_threshold")
+        if cell_area is not None:
+            try:
+                tab._cell_area_edit.setText(str(float(cell_area)))
+                applied = True
+            except (ValueError, TypeError, AttributeError):
+                pass
+
+        fluor_gates = block.get("fluor_gates") or {}
+        if isinstance(fluor_gates, dict):
+            for ch, val in fluor_gates.items():
+                edit = tab._fluor_gate_edits.get(str(ch))
+                if edit is None:
+                    continue
+                try:
+                    edit.setText(str(float(val)))
+                    applied = True
+                except (ValueError, TypeError):
+                    pass
+
+        thresh_frac_on = block.get("thresh_frac_on") or {}
+        if isinstance(thresh_frac_on, dict):
+            # Prime both the cached app-level dict (used by _load_threshold_frac_on)
+            # and the live QLineEdits, in case channel controls already exist.
+            if not hasattr(self, "_thresh_frac_on_saved"):
+                self._thresh_frac_on_saved = {}
+            for ch, val in thresh_frac_on.items():
+                try:
+                    fval = float(val)
+                except (ValueError, TypeError):
+                    continue
+                self._thresh_frac_on_saved[str(ch)] = fval
+                edit = tab._thresh_frac_edits.get(str(ch))
+                if edit is not None:
+                    edit.setText(str(fval))
+                    applied = True
+
+        return applied
+
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
         # Prune global replicate sets
@@ -4077,6 +4162,13 @@ class WellViewerApp(QWidget):
         # Load cell areas in the Cell Gating tab
         if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
             self._cell_gating_tab._load_cell_areas()
+            # Hydrate persisted gating params (cell area threshold, fluor gates,
+            # thresh_frac_on) from pipeline_info.json. Must run after
+            # _load_cell_areas so per-channel QLineEdits exist. The gating
+            # worker is kicked off separately by load_controller after the
+            # initial data load — running it on every channel switch would
+            # be wasteful since the QLineEdit values are already in sync.
+            self._load_gating_from_pipeline_info()
             # Load saved ThreshFracOn values
             self._cell_gating_tab._load_threshold_frac_on()
 
