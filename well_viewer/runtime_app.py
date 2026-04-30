@@ -1875,8 +1875,14 @@ class WellViewerApp(QWidget):
         _v(self, parent)
 
     def _build_groups_centre(self, parent) -> None:
-        """Centre panel for the Sample Definitions tab: ratio metrics + well-label editor."""
-        from PySide6.QtWidgets import QFrame as _QFrame, QVBoxLayout as _QVBoxLayout
+        """Centre panel for the Sample Definitions tab: top toolbar + ratio metrics + well-label editor."""
+        from PySide6.QtWidgets import (
+            QFrame as _QFrame,
+            QHBoxLayout as _QHBoxLayout,
+            QVBoxLayout as _QVBoxLayout,
+            QWidget as _QWidget,
+        )
+        from well_viewer.ui_helpers import btn_primary, btn_secondary
         from well_viewer.views.ratio_panel_view import build_ratios_inline_panel
 
         outer_layout = parent.layout()
@@ -1884,6 +1890,42 @@ class WellViewerApp(QWidget):
             outer_layout = _QVBoxLayout(parent)
             parent.setLayout(outer_layout)
         outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        # ── Top toolbar: Save / Load / Clear All ────────────────────────────
+        # Single source of truth for the whole tab — well labels, replicate
+        # sets, bar groups, and ratios all flow through these three buttons.
+        toolbar = _QWidget(parent)
+        toolbar.setObjectName("Sidebar")
+        tl = _QHBoxLayout(toolbar)
+        tl.setContentsMargins(8, 6, 8, 6)
+        tl.setSpacing(6)
+
+        save_btn = btn_primary(toolbar, "Save", self._save_sample_definitions_all)
+        save_btn.setToolTip(
+            "Save every definition on this tab (well labels, replicate sets, "
+            "bar groups, and ratio metrics) to the data folder."
+        )
+        tl.addWidget(save_btn)
+
+        load_btn = btn_secondary(toolbar, "Load", self._load_sample_definitions_all)
+        load_btn.setToolTip("Reload definitions from the data folder, discarding unsaved edits.")
+        tl.addWidget(load_btn)
+
+        clear_btn = btn_secondary(toolbar, "Clear All", self._clear_sample_definitions_all)
+        clear_btn.setToolTip(
+            "Clear every definition on this tab — well labels, replicate sets, "
+            "bar groups, and ratio metrics."
+        )
+        tl.addWidget(clear_btn)
+
+        tl.addStretch(1)
+        outer_layout.addWidget(toolbar)
+
+        sep_top = _QFrame(parent)
+        sep_top.setObjectName("Separator")
+        sep_top.setFrameShape(_QFrame.HLine)
+        sep_top.setFixedHeight(1)
+        outer_layout.addWidget(sep_top)
 
         outer_layout.addWidget(build_ratios_inline_panel(self, parent))
 
@@ -3006,6 +3048,102 @@ class WellViewerApp(QWidget):
         if labels or rep_sets or bar_groups:
             self._invalidate_stats_cache()
         return True
+
+    # ── Sample Definitions tab — combined Save / Load / Clear All ─────────────
+
+    def _save_sample_definitions_all(self) -> None:
+        """Persist labels + reps + groups + ratios from the Sample Definitions tab.
+
+        Wraps the per-block savers so the user gets a single Save button at
+        the top of the tab and a single status update.
+        """
+        if not self._data_dir:
+            QMessageBox.warning(
+                self, "No data loaded",
+                "Open a data folder before saving sample definitions.",
+            )
+            return
+        # Push any pending ratio table edits into app state before saving.
+        panel = getattr(self, "_ratio_panel", None)
+        if panel is not None:
+            try:
+                panel._on_apply()
+            except Exception:
+                _logger.exception("Ratio panel apply failed during Save")
+        self._save_sample_definitions_to_pipeline_info()
+        self._ratios_save_to_data_dir()
+
+    def _load_sample_definitions_all(self) -> None:
+        """Reload labels + reps + groups + ratios from the data folder."""
+        if not self._data_dir:
+            QMessageBox.warning(
+                self, "No data loaded",
+                "Open a data folder before loading sample definitions.",
+            )
+            return
+        applied = self._load_sample_definitions_from_pipeline_info()
+        self._ratios_load_from_data_dir()
+        # Repaint the Sample Definitions UI so the user sees the reloaded state.
+        if hasattr(self, "_groups_centre_refresh"):
+            try:
+                self._groups_centre_refresh()
+            except Exception:
+                _logger.exception("Sample Definitions refresh after Load failed")
+        panel = getattr(self, "_ratio_panel", None)
+        if panel is not None:
+            try:
+                panel.refresh_from_app()
+            except Exception:
+                _logger.exception("Ratio panel refresh after Load failed")
+        self._set_status(
+            "Sample definitions reloaded." if applied
+            else "No saved sample definitions found in this data folder."
+        )
+
+    def _clear_sample_definitions_all(self) -> None:
+        """Clear every definition driven from the Sample Definitions tab."""
+        confirm = QMessageBox.question(
+            self, "Clear sample definitions",
+            "Discard all well labels, replicate sets, bar groups, and ratio "
+            "metrics defined on this tab?\n\nSaved JSON files are not touched "
+            "until you click Save.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        # Well labels
+        self._well_labels.clear()
+        if hasattr(self, "_label_panel_refresh"):
+            try:
+                self._label_panel_refresh()
+            except Exception:
+                pass
+
+        # Replicate sets
+        self._rep_sets = []
+        self._active_rep_idx = -1
+
+        # Bar groups
+        self._bar_groups = []
+        self._bar_active_grp = -1
+
+        # Ratio metrics
+        self._set_ratio_metrics([])
+
+        if hasattr(self, "_groups_centre_refresh"):
+            try:
+                self._groups_centre_refresh()
+            except Exception:
+                _logger.exception("Sample Definitions refresh after Clear failed")
+        self._invalidate_stats_cache()
+        if hasattr(self, "_redraw"):
+            try:
+                self._redraw()
+            except Exception:
+                pass
+        self._set_status("Sample definitions cleared.")
 
     # ── Cell Gating persistence (in pipeline_info.json) ───────────────────────
 
