@@ -151,6 +151,7 @@ _it_apply_global = _lazy("well_viewer.image_table_controller", "image_table_appl
 _it_apply_row_channel = _lazy("well_viewer.image_table_controller", "image_table_apply_row_channel")
 _it_auto_lut = _lazy("well_viewer.image_table_controller", "image_table_auto_lut")
 _it_clear_active = _lazy("well_viewer.image_table_controller", "image_table_clear_active")
+_it_distribute_timepoints = _lazy("well_viewer.image_table_controller", "image_table_distribute_timepoints")
 _it_distribute_wells = _lazy("well_viewer.image_table_controller", "image_table_distribute_wells")
 _it_export = _lazy("well_viewer.image_table_controller", "image_table_export")
 _it_generate = _lazy("well_viewer.image_table_controller", "image_table_generate")
@@ -1858,6 +1859,9 @@ class WellViewerApp(QWidget):
 
     def _image_table_distribute_wells(self) -> None:
         _it_distribute_wells(self)
+
+    def _image_table_distribute_timepoints(self) -> None:
+        _it_distribute_timepoints(self)
 
     def _image_table_generate(self) -> None:
         _it_generate(self)

@@ -301,7 +301,9 @@ def build_centre(app, parent: QWidget) -> None:
             ("Heat Map", _build_heatmap),
         ]),
         ("Images", [
-            ("Movie Montage", _build_movie_montage),
+            # Movie Montage was folded into Image Table — pick a well, set
+            # the channel to NUC+SEG (or any other), and click "Distribute
+            # Timepoints" to get the same per-timepoint grid.
             ("Image Table", _build_image_table),
             ("Review Image", _build_review_image),
         ]),

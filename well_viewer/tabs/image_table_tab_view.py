@@ -124,6 +124,9 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     al.addWidget(btn_secondary(
         actions, "Distribute Wells", app._image_table_distribute_wells,
     ))
+    al.addWidget(btn_secondary(
+        actions, "Distribute Timepoints", app._image_table_distribute_timepoints,
+    ))
     al.addWidget(btn_primary(actions, "Generate", app._image_table_generate))
     al.addWidget(btn_secondary(actions, "Export", app._image_table_export))
 

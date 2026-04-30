@@ -41,6 +41,16 @@ LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
 LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
 
 
+# ── Virtual "Nuc+Seg" channel ───────────────────────────────────────────────
+#
+# The pipeline pre-renders a per-(FOV, timepoint) overlay PNG that paints
+# the segmentation mask outline on top of the nuclear channel. Exposing it
+# as a virtual channel here lets the Image Table double as the old Movie
+# Montage view: pick "NUC+SEG" in the channel column and Generate loads
+# those overlay images instead of a raw fluorescence channel.
+NUC_SEG_TOKEN = "NUC+SEG"
+
+
 # ── Sidebar picker ───────────────────────────────────────────────────────────
 
 
@@ -88,7 +98,13 @@ def image_table_clear_active(app) -> None:
 
 
 def _channel_options(app) -> List[str]:
-    """All channel tokens available for selection (uppercase for display)."""
+    """All channel tokens available for selection (uppercase for display).
+
+    Adds the virtual ``NUC+SEG`` token at the end when the pipeline produced
+    a nuclear channel — that's where the pre-rendered segmentation overlay
+    images live, and they're how the Image Table replaces the old Movie
+    Montage tab.
+    """
     info = getattr(app, "_pipeline_info", None) or {}
     chans: List[str] = []
     nuclear = (info.get("nuclear_token") or "").strip()
@@ -102,7 +118,14 @@ def _channel_options(app) -> List[str]:
         tok = str(tok).strip()
         if tok and tok not in chans:
             chans.append(tok)
-    return [c.upper() for c in chans]
+    options = [c.upper() for c in chans]
+    if nuclear:
+        options.append(NUC_SEG_TOKEN)
+    return options
+
+
+def _is_nuc_seg(chan: str) -> bool:
+    return str(chan or "").strip().upper() == NUC_SEG_TOKEN
 
 
 def _norm_token(value: object) -> str:
@@ -409,6 +432,62 @@ def image_table_apply_row_channel(app, row_idx: int) -> None:
         cb.blockSignals(False)
 
 
+def image_table_distribute_timepoints(app) -> None:
+    """Walk the available timepoints and assign one to each selector cell.
+
+    Mirrors ``distribute_wells`` but along the time axis: useful for the
+    Movie Montage workflow where every cell shares the same well, channel,
+    and FOV but the timepoint advances cell by cell. The first cell's
+    well / channel / FOV are propagated to every other cell so the table
+    is internally consistent without extra clicks.
+    """
+    cells = getattr(app, "_image_table_cells", None) or []
+    if not cells:
+        app._set_status("Image Table: build a grid first (set rows/cols).")
+        return
+
+    tps = _timepoint_options(app)
+    if not tps:
+        app._set_status("Image Table: no timepoints in pipeline_info.json.")
+        return
+
+    flat_cells = [(r, c, cell) for r, row in enumerate(cells) for c, cell in enumerate(row)]
+    if not flat_cells:
+        return
+
+    # Anchor on the first cell's well/channel/FOV so the user only has to
+    # set one cell before clicking distribute. Falls back to whatever
+    # the dropdowns currently display.
+    anchor = flat_cells[0][2]
+    anchor_well = anchor["well_cb"].currentText().strip()
+    anchor_chan = anchor["chan_cb"].currentText().strip()
+    anchor_fov = anchor["fov_cb"].currentText().strip()
+
+    def _set(cb, text):
+        if not text:
+            return
+        cb.blockSignals(True)
+        try:
+            if cb.findText(text) >= 0:
+                cb.setCurrentText(text)
+        finally:
+            cb.blockSignals(False)
+
+    assignments = 0
+    for flat_idx, (_r, _c, cell) in enumerate(flat_cells):
+        if flat_idx >= len(tps):
+            break
+        _set(cell["well_cb"], anchor_well)
+        _set(cell["chan_cb"], anchor_chan)
+        _set(cell["fov_cb"], anchor_fov)
+        _set(cell["tp_cb"], tps[flat_idx])
+        assignments += 1
+
+    app._set_status(
+        f"Image Table: distributed {assignments} timepoint(s) into the selector grid."
+    )
+
+
 def image_table_distribute_wells(app) -> None:
     """Walk active wells row-wise and assign one to each selector cell.
 
@@ -524,25 +603,40 @@ def _parse_lut(app, chan: str) -> Tuple[Optional[float], Optional[float]]:
 
 
 def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_lower: str) -> Dict:
-    """Return the (fov, tp) → ImgRef dict for (well, channel), with caching."""
+    """Return the (fov, tp) → ImgRef dict for (well, channel), with caching.
+
+    For the special ``"nuc+seg"`` virtual channel the returned dict is the
+    pre-rendered segmentation overlay refs keyed the same way; everything
+    else returns the fluorescence dict for the requested channel token.
+    """
     from well_viewer.runtime_app import find_well_images_and_masks
 
     key = (well, chan_lower)
     if key in cache:
         return cache[key]
+    is_overlay = chan_lower == NUC_SEG_TOKEN.lower()
+    info = getattr(app, "_pipeline_info", None) or {}
+    # Overlay images aren't keyed by a fluor channel; pass the nuclear token
+    # as a sensible default so any token-based filtering inside the loader
+    # has a real channel to match. The returned ``overlay`` dict comes from
+    # the pipeline's pre-rendered segmentation PNGs.
+    fluor_token = chan_lower
+    if is_overlay:
+        fluor_token = (info.get("nuclear_token") or chan_lower).strip().lower()
     try:
-        fluor, _overlay, _mask, _tophat = find_well_images_and_masks(
+        fluor, overlay, _mask, _tophat = find_well_images_and_masks(
             app._data_dir,
             well,
-            fluor_token=chan_lower,
+            fluor_token=fluor_token,
             in_dir=app._in_dir,
             _fov_tp_extractor=app._fov_tp_extractor,
             _pipeline_info=app._pipeline_info,
         )
     except Exception:
-        fluor = {}
-    cache[key] = fluor
-    return fluor
+        fluor, overlay = {}, {}
+    result = overlay if is_overlay else fluor
+    cache[key] = result
+    return result
 
 
 def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str):
@@ -594,7 +688,10 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
         return None
     try:
         from well_viewer.runtime_app import open_imgref_as_array
-        return open_imgref_as_array(ref, greyscale=True)
+        # Overlay PNGs are RGB — load them in colour so the segmentation
+        # outline survives. Fluor channels load greyscale as before.
+        greyscale = not _is_nuc_seg(chan_upper)
+        return open_imgref_as_array(ref, greyscale=greyscale)
     except Exception:
         return None
 
@@ -604,7 +701,7 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
 
 def image_table_generate(app) -> None:
     """Load images for every cell and lay out the rendered image table."""
-    from well_viewer.runtime_app import make_fluor_thumb
+    from well_viewer.runtime_app import make_fluor_thumb, make_overlay_thumb
     from well_viewer.ui_helpers import clear_layout
 
     cells = getattr(app, "_image_table_cells", None) or []
@@ -652,7 +749,15 @@ def image_table_generate(app) -> None:
             if arr is not None:
                 # Apply the shared crop (no-op when not set) and render.
                 cropped = crop_tool.apply_to_array(arr) if crop_tool else arr
-                pix = make_fluor_thumb(cropped, 240, 240, lo, hi, tint=_row_tint(app, r))
+                if _is_nuc_seg(chan) or getattr(arr, "ndim", 2) >= 3:
+                    # Pre-rendered RGB overlay: tint and per-channel LUT
+                    # don't apply, so feed it straight to the overlay
+                    # thumbnailer (which still respects lo/hi when set).
+                    pix = make_overlay_thumb(cropped, 240, 240, lo, hi)
+                else:
+                    pix = make_fluor_thumb(
+                        cropped, 240, 240, lo, hi, tint=_row_tint(app, r),
+                    )
                 # CropTool needs the FULL source array + the active crop on
                 # the label so label-pixel → image-pixel coord conversion
                 # works correctly even when the label already shows a crop.
@@ -810,13 +915,32 @@ def image_table_export(app) -> None:
                 arr = crop_tool.apply_to_array(arr)
 
             if arr is not None:
-                a = _np.asarray(arr, dtype=_np.float32)
+                a = _np.asarray(arr)
                 lo, hi = _parse_lut(app, chan)
-                vmin = lo if lo is not None else float(a.min())
-                vmax = hi if hi is not None else float(a.max())
-                if vmax <= vmin:
-                    vmax = vmin + 1.0
-                ax.imshow(a, cmap=_row_export_cmap(app, r), vmin=vmin, vmax=vmax, aspect="equal")
+                if _is_nuc_seg(chan) or a.ndim >= 3:
+                    # RGB overlay — let matplotlib pass it through directly
+                    # (clamping to uint8 so it does not auto-rescale).
+                    rgb = a[:, :, :3] if a.ndim == 3 else a
+                    if rgb.dtype != _np.uint8:
+                        # imshow rescales floats to [0, 1]; bring it into range.
+                        rgb_f = rgb.astype(_np.float32)
+                        rmin = float(rgb_f.min())
+                        rmax = float(rgb_f.max())
+                        if rmax <= rmin:
+                            rmax = rmin + 1.0
+                        rgb = ((_np.clip(rgb_f, rmin, rmax) - rmin)
+                               / (rmax - rmin) * 255.0).astype(_np.uint8)
+                    ax.imshow(rgb, aspect="equal")
+                else:
+                    af = a.astype(_np.float32)
+                    vmin = lo if lo is not None else float(af.min())
+                    vmax = hi if hi is not None else float(af.max())
+                    if vmax <= vmin:
+                        vmax = vmin + 1.0
+                    ax.imshow(
+                        af, cmap=_row_export_cmap(app, r),
+                        vmin=vmin, vmax=vmax, aspect="equal",
+                    )
             else:
                 ax.text(
                     0.5, 0.5, "(no image)",
