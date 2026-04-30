@@ -4324,6 +4324,7 @@ class WellViewerApp(QWidget):
         """
         if not channel or channel == "—":
             return
+        was_ratio = is_ratio_key(self._active_val_col)
         ratio_active = is_ratio_key(channel)
         if ratio_active:
             ratio_name = ratio_name_from_key(channel)
@@ -4344,9 +4345,23 @@ class WellViewerApp(QWidget):
             if channel == self._active_channel and not is_ratio_key(self._active_val_col):
                 return
             self._active_channel = channel
-            # Reset metric to mean_intensity if new channel doesn't have smfish_count
-            if channel not in self._smfish_channels:
+            # Coming back from a ratio leaves _active_metric pointing at
+            # whatever was last picked (often smfish_count) and the metric
+            # frames hidden. Reset both so the new channel composes a real
+            # column name (``<channel>_mean_intensity``) and the user sees
+            # the metric selector again.
+            if was_ratio or channel not in self._smfish_channels:
                 self._active_metric = "mean_intensity"
+            for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
+                frame = getattr(self, frame_attr, None)
+                if frame is not None:
+                    frame.setVisible(True)
+            if hasattr(self, "_metric_var"):
+                label = "smFISH Count" if self._active_metric == "smfish_count" else "Mean Intensity"
+                try:
+                    self._metric_var.set(label)
+                except Exception:
+                    pass
             # Derive val_col from channel and metric
             self._active_val_col = f"{channel}_{self._active_metric}"
         # Keep all plot-tab channel selectors in sync so switching channel
@@ -5585,6 +5600,12 @@ class WellViewerApp(QWidget):
         # other tabs keep their familiar sidebar layout.
         if hasattr(self, "_heatmap_sidebar_frame"):
             self._heatmap_sidebar_frame.setVisible(tab == "Heat Map")
+        # The sidebar plate-map doubles as the heat-map drag source on the
+        # Heat Map tab — flip each WellButton into drag-source mode (and
+        # accept WELL_MIME drops to "return" wells from the layout table)
+        # while that tab is active. Other tabs keep the legacy selection
+        # mouse handlers.
+        self._sync_heatmap_well_drag_mode(tab == "Heat Map")
 
         if tab == "Movie Montage":
             self._sync_preview_well_for_image_tabs()
@@ -5691,6 +5712,49 @@ class WellViewerApp(QWidget):
 
         self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
         self._last_tab_name = tab
+
+    def _sync_heatmap_well_drag_mode(self, enable: bool) -> None:
+        """Toggle WELL_MIME drag/drop on the sidebar plate-map well buttons.
+
+        When *enable* is True, each ``WellButton`` exports its token via the
+        WELL_MIME format on left-button drag and accepts dropped tokens as
+        a "return to palette" action that unassigns the well from the
+        active heat-map layout. When False, drag/drop is disabled and the
+        buttons revert to plain selection behavior.
+        """
+        btns = getattr(self, "_sidebar_btns", None) or {}
+        if not btns:
+            return
+        from well_viewer.views.heatmap_layout_sidebar_view import WELL_MIME
+
+        if enable:
+            def _make_drop(token_unused: str):
+                def _on_drop(token: str) -> None:
+                    try:
+                        from well_viewer.views.heatmap_layout_sidebar_view import (
+                            _on_drop_event,
+                        )
+                        _on_drop_event(self, "palette", None, token)
+                    except Exception:
+                        _logger.exception("Heat map well drop handling failed")
+                return _on_drop
+
+            for tok, btn in btns.items():
+                if hasattr(btn, "set_drag_mime"):
+                    btn.set_drag_mime(WELL_MIME)
+                    btn.setEnabled(True)
+                if hasattr(btn, "set_drop_handler"):
+                    btn.set_drop_handler(WELL_MIME, _make_drop(tok))
+        else:
+            for btn in btns.values():
+                if hasattr(btn, "set_drag_mime"):
+                    btn.set_drag_mime(None)
+                if hasattr(btn, "set_drop_handler"):
+                    btn.set_drop_handler(None, None)
+            # Don't force-disable here — the per-tab branch in
+            # ``_on_tab_change`` either hides the sidebar (preview / image
+            # table tabs) or calls ``_refresh_sidebar_map`` which restores
+            # the correct enabled state per well.
 
     def _sync_preview_well_for_image_tabs(self) -> None:
         """Keep current preview well unless an active group supplies one."""

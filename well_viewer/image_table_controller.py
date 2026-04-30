@@ -105,14 +105,40 @@ def _channel_options(app) -> List[str]:
     return [c.upper() for c in chans]
 
 
+def _norm_token(value: object) -> str:
+    """Normalize a numeric-or-string FOV/timepoint to a stable form.
+
+    ``"1"`` and ``"1.0"`` collapse to ``"1"``; non-numeric strings are
+    returned untouched. This matches the form emitted by the filename
+    extractors that key the image dicts in ``find_well_images_and_masks``.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return f"{float(raw):g}"
+    except (TypeError, ValueError):
+        return raw
+
+
 def _timepoint_options(app) -> List[str]:
     info = getattr(app, "_pipeline_info", None) or {}
-    return [str(tp) for tp in (info.get("available_timepoints") or [])]
+    seen: List[str] = []
+    for tp in (info.get("available_timepoints") or []):
+        tok = _norm_token(tp)
+        if tok and tok not in seen:
+            seen.append(tok)
+    return seen
 
 
 def _fov_options(app) -> List[str]:
     info = getattr(app, "_pipeline_info", None) or {}
-    return [str(fv) for fv in (info.get("available_fovs") or [])]
+    seen: List[str] = []
+    for fv in (info.get("available_fovs") or []):
+        tok = _norm_token(fv)
+        if tok and tok not in seen:
+            seen.append(tok)
+    return seen
 
 
 def _well_options(app) -> List[str]:
@@ -501,10 +527,33 @@ def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_
 
 
 def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str):
-    """Load the float32 array for one (well, channel, timepoint, fov)."""
+    """Load the float32 array for one (well, channel, timepoint, fov).
+
+    Filename extractors and ``pipeline_info`` may disagree on whether to
+    represent integer FOVs/timepoints as ``"1"`` or ``"1.0"``. Try the raw
+    keys first, then fall back to a numerically-normalized form so the
+    lookup succeeds in either layout.
+    """
     chan_lower = chan_upper.strip().lower()
     fluor = _load_well_channel(app, cache, well, chan_lower)
-    ref = fluor.get((str(fov), str(tp)))
+    if not fluor:
+        return None
+
+    fov_raw = str(fov)
+    tp_raw = str(tp)
+    fov_norm = _norm_token(fov)
+    tp_norm = _norm_token(tp)
+    candidates = [
+        (fov_raw, tp_raw),
+        (fov_norm, tp_norm),
+        (fov_raw, tp_norm),
+        (fov_norm, tp_raw),
+    ]
+    ref = None
+    for key in candidates:
+        ref = fluor.get(key)
+        if ref is not None:
+            break
     if ref is None:
         return None
     try:
@@ -587,6 +636,23 @@ def image_table_generate(app) -> None:
     app._image_table_image_cache = cache
     n = sum(1 for v in rendered.values() if v is not None)
     app._set_status(f"Image Table: generated {n} of {len(rendered)} cell(s).")
+    if n == 0 and rendered:
+        # Zero hits across the whole grid means key drift somewhere — log a
+        # sample of the available (fov, tp) keys for the first cached well
+        # so the user / a developer can see the format mismatch.
+        try:
+            import logging as _logging
+            _log = _logging.getLogger("well_viewer.image_table")
+            for key, fluor in cache.items():
+                sample_keys = list(fluor.keys())[:8]
+                _log.warning(
+                    "Image Table generated 0/%d; well=%r channel=%r "
+                    "available keys (sample, up to 8): %r",
+                    len(rendered), key[0], key[1], sample_keys,
+                )
+                break
+        except Exception:
+            pass
 
 
 def image_table_auto_lut(app, channel: str) -> None:

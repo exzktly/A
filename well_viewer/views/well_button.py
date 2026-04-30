@@ -18,9 +18,11 @@ from __future__ import annotations
 
 from typing import Callable, Dict, Optional
 
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QSizePolicy, QWidget
+from PySide6.QtCore import QMimeData, QPoint, Qt, QRectF
+from PySide6.QtGui import QColor, QDrag, QPainter, QPen
+from PySide6.QtWidgets import (
+    QApplication, QGridLayout, QLabel, QPushButton, QSizePolicy, QWidget,
+)
 
 
 # Well button dimensions (px). Square so border-radius = WELL_SIZE/2 renders a
@@ -46,6 +48,18 @@ class WellButton(QPushButton):
         # by _style_plate_button (inline-styled replicate wells). Values:
         # "none" | "raised" | "depressed".
         self._emboss = "none"
+        # Optional drag-source mode. When ``_drag_mime`` is set, left-button
+        # press+drag exports the well token via the given MIME type so the
+        # heat-map layout table can accept the well as a Qt drag-and-drop
+        # payload. When None, the button behaves as before — selection
+        # mouse handlers wired by sidebar_view stay in charge.
+        self._drag_mime: Optional[str] = None
+        self._drag_start_pos: Optional[QPoint] = None
+        # Optional drop sink callback (token: str) -> None. When set, the
+        # button accepts WELL_MIME drops and forwards the token to the
+        # callback — used to "return" a well to the sidebar plate map.
+        self._drop_mime: Optional[str] = None
+        self._drop_handler: Optional[Callable[[str], None]] = None
 
     @property
     def tok(self) -> str:
@@ -73,6 +87,84 @@ class WellButton(QPushButton):
 
     def state(self) -> str:  # type: ignore[override]
         return self._state
+
+    def set_drag_mime(self, mime: Optional[str]) -> None:
+        """Toggle drag-source mode for this button.
+
+        When *mime* is non-empty, left-button press is captured and a drag
+        starts on the first move beyond the platform's drag distance.
+        When *mime* is None, the button reverts to whatever press handler
+        was attached externally (sidebar selection logic).
+        """
+        self._drag_mime = mime or None
+        if not mime:
+            self._drag_start_pos = None
+
+    def set_drop_handler(self, mime: Optional[str], handler: Optional[Callable[[str], None]]) -> None:
+        """Accept drops carrying *mime* and forward the token to *handler*.
+
+        Pass ``mime=None`` to disable drop acceptance.
+        """
+        self._drop_mime = mime or None
+        self._drop_handler = handler if mime else None
+        self.setAcceptDrops(bool(self._drop_mime))
+
+    def mousePressEvent(self, event):  # type: ignore[override]
+        if self._drag_mime and event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.position().toPoint()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):  # type: ignore[override]
+        if (
+            self._drag_mime
+            and self._drag_start_pos is not None
+            and (event.buttons() & Qt.LeftButton)
+        ):
+            delta = event.position().toPoint() - self._drag_start_pos
+            if delta.manhattanLength() >= QApplication.startDragDistance():
+                mime = QMimeData()
+                mime.setData(self._drag_mime, self._tok.encode("utf-8"))
+                drag = QDrag(self)
+                drag.setMimeData(mime)
+                self._drag_start_pos = None
+                drag.exec(Qt.MoveAction | Qt.CopyAction)
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):  # type: ignore[override]
+        self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event):  # type: ignore[override]
+        if self._drop_mime and event.mimeData().hasFormat(self._drop_mime):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):  # type: ignore[override]
+        if self._drop_mime and event.mimeData().hasFormat(self._drop_mime):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):  # type: ignore[override]
+        if not (self._drop_mime and self._drop_handler):
+            super().dropEvent(event)
+            return
+        md = event.mimeData()
+        if not md.hasFormat(self._drop_mime):
+            event.ignore()
+            return
+        token = bytes(md.data(self._drop_mime)).decode("utf-8").strip()
+        if token:
+            try:
+                self._drop_handler(token)
+            except Exception:
+                pass
+        event.acceptProposedAction()
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         # Render the QSS-styled base first (fill + smooth black border).
