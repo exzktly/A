@@ -593,7 +593,8 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
     if ref is None:
         return None
     try:
-        return ref.load()
+        from well_viewer.runtime_app import open_imgref_as_array
+        return open_imgref_as_array(ref, greyscale=True)
     except Exception:
         return None
 
