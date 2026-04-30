@@ -27,12 +27,10 @@ def _refresh_after_selection_change(app) -> None:
     if tab == "Bar Plots":
         app._update_bar_tp_menu()
         app._redraw_bars()
-    elif tab == "Scatter Plot: Cells":
+    elif tab == "Scatter Plot":
         app._update_scatter_menus()
-        app._redraw_scatter()
-    elif tab == "Scatter Plot: Aggregate":
-        app._update_scatter_menus()
-        app._redraw_scatter_agg()
+        from well_viewer.tabs.scatter_tab_view import scatter_redraw_active
+        scatter_redraw_active(app)
     elif tab == "Review CSV":
         app._refresh_review_csv()
     elif tab == "smFISH":

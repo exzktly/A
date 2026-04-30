@@ -5994,12 +5994,10 @@ class WellViewerApp(QWidget):
             if tab == "Bar Plots":
                 self._update_bar_tp_menu()
                 self._redraw_bars()
-            elif tab == "Scatter Plot: Cells":
+            elif tab == "Scatter Plot":
                 self._update_scatter_menus()
-                self._redraw_scatter()
-            elif tab == "Scatter Plot: Aggregate":
-                self._update_scatter_menus()
-                self._redraw_scatter_agg()
+                from well_viewer.tabs.scatter_tab_view import scatter_redraw_active
+                scatter_redraw_active(self)
             else:
                 if tab == "Heat Map" and hasattr(self, "_heatmap_sidebar_frame"):
                     try:

@@ -6,8 +6,8 @@ hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
 Tabs are organised into four logical groups separated by a small visual
 gap drawn by ``_GroupedTabBar``:
 
-* **Plots** — Line Graphs, Bar Plots, Scatter Plot: Cells, Scatter Plot:
-  Aggregate, Distribution, Heat Map.
+* **Plots** — Line Graphs, Bar Plots, Scatter Plot (per-cell or per-well
+  aggregate via the segmented toggle), Distribution, Heat Map.
 * **Images** — Movie Montage, Image Table, Review Image.
 * **Analysis** — Cell Gating, smFISH, Statistics.
 * **Data** — Review CSV, Sample Definitions, Batch Export.
@@ -304,13 +304,9 @@ def build_centre(app, parent: QWidget) -> None:
         from well_viewer.tabs.bar_plots_tab_view import build_bar_plots_tab
         build_bar_plots_tab(app, tab_frames["Bar Plots"])
 
-    def _build_scatter_cells() -> None:
-        from well_viewer.tabs.scatter_cells_tab_view import build_scatter_cells_tab
-        build_scatter_cells_tab(app, tab_frames["Scatter Plot: Cells"])
-
-    def _build_scatter_agg() -> None:
-        from well_viewer.tabs.scatter_agg_tab_view import build_scatter_agg_tab
-        build_scatter_agg_tab(app, tab_frames["Scatter Plot: Aggregate"])
+    def _build_scatter() -> None:
+        from well_viewer.tabs.scatter_tab_view import build_scatter_tab
+        build_scatter_tab(app, tab_frames["Scatter Plot"])
 
     def _build_distribution() -> None:
         from well_viewer.tabs.distribution_tab_view import build_distribution_tab
@@ -356,8 +352,9 @@ def build_centre(app, parent: QWidget) -> None:
         ("Plots", [
             ("Line Graphs", _line_graphs_eager),
             ("Bar Plots", _build_bar),
-            ("Scatter Plot: Cells", _build_scatter_cells),
-            ("Scatter Plot: Aggregate", _build_scatter_agg),
+            # Cells + Aggregate scatter are folded into one tab with a
+            # segmented-button toggle (Per-cell points / Per-well aggregate).
+            ("Scatter Plot", _build_scatter),
             ("Distribution", _build_distribution),
             ("Heat Map", _build_heatmap),
         ]),
