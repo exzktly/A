@@ -4736,9 +4736,16 @@ class WellViewerApp(QWidget):
 
         # Image tabs: each validates against its own channel universe.
         active_image_label = self._active_image_channel.upper()
-        montage_label = _pick_valid(self._montage_chan_var.get(), montage_labels, active_image_label)
+        # ``_montage_chan_var`` only exists when the (now-retired) Movie
+        # Montage tab was built. Skip it gracefully if absent so a fresh
+        # data load doesn't blow up the channel-selector refresh.
+        montage_var = getattr(self, "_montage_chan_var", None)
+        if montage_var is not None:
+            montage_label = _pick_valid(montage_var.get(), montage_labels, active_image_label)
+            montage_var.set(montage_label)
+        else:
+            montage_label = "—"
         review_label = _pick_valid(self._review_image_chan_var.get(), review_labels, active_image_label)
-        self._montage_chan_var.set(montage_label)
         self._review_image_chan_var.set(review_label)
 
         # Keep active image channel anchored only when the current value is invalid.
