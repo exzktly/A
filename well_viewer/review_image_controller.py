@@ -135,7 +135,7 @@ def on_review_csv_row_double_click(app, item) -> None:
         return
 
     if hasattr(app, "_notebook"):
-        _select_tab_by_text(app._notebook, "Adjust Segmentation")
+        _select_tab_by_text(app._notebook, "Segmentation")
 
     # Set the target nucleus before any refresh so intermediate renders can
     # already draw the yellow highlight.

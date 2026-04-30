@@ -4881,7 +4881,7 @@ class WellViewerApp(QWidget):
                     tab_label = ""
             if tab_label == "Movie Montage":
                 self._chan_var.set(montage_label)
-            elif tab_label == "Adjust Segmentation":
+            elif tab_label == "Segmentation":
                 self._chan_var.set(review_label)
             else:
                 self._chan_var.set(plot_label)
@@ -5914,7 +5914,7 @@ class WellViewerApp(QWidget):
             self._refresh_preview_picker()
             self._update_preview(self._preview_selected_well)
 
-        elif tab == "Adjust Segmentation":
+        elif tab == "Segmentation":
             self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()
