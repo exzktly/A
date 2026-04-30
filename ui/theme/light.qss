@@ -159,6 +159,7 @@ QCheckBox:disabled, QRadioButton:disabled { color: ${CLR_MUTED_DISABLED}; }
 QTabWidget::pane {
     background: ${BG_APP};
     border: 1px solid ${TAB_BORDER};
+    top: -1px;
 }
 QTabBar { background: ${BG_SIDE}; }
 QTabBar::tab {
@@ -167,7 +168,10 @@ QTabBar::tab {
     padding: 5px 12px;
     border: 1px solid ${TAB_BORDER};
     border-bottom: none;
-    border-radius: 6px 6px 0 0;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
     margin-right: 2px;
     font-size: 9pt;
     font-weight: normal;
