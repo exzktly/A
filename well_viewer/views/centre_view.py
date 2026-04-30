@@ -2,27 +2,29 @@
 
 ``build_centre`` is the entry point. Replaces the tk-based ``CustomNotebook``
 hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
+
+Tabs are built lazily: only the initially active "Line Graphs" tab and the
+sidebar panels that other code touches at startup are constructed
+eagerly. The remaining tab bodies build on a per-event-loop-tick timer so
+the window paints quickly and stays responsive while heavy widget trees
+(matplotlib canvases, image grids, etc.) populate in the background. If
+the user clicks a tab whose body hasn't been built yet, the builder for
+that tab is run inline on the tab-switch event.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import logging
+from typing import Callable, Dict
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 
-def build_centre(app, parent: QWidget) -> None:
-    from well_viewer.cell_gating_tab import CellGatingTab
-    from well_viewer.smfish_tab import SmfishTab
-    from well_viewer.tabs.bar_plots_tab_view import build_bar_plots_tab
-    from well_viewer.tabs.batch_export_tab_view import build_batch_export_tab
-    from well_viewer.tabs.distribution_tab_view import build_distribution_tab
-    from well_viewer.tabs.heatmap_tab_view import build_heatmap_tab
-    from well_viewer.tabs.image_table_tab_view import build_image_table_tab
-    from well_viewer.tabs.line_graphs_tab_view import build_line_graphs_tab
-    from well_viewer.tabs.scatter_agg_tab_view import build_scatter_agg_tab
-    from well_viewer.tabs.scatter_cells_tab_view import build_scatter_cells_tab
-    from well_viewer.views.image_table_picker_view import build_image_table_picker
+_logger = logging.getLogger("well_viewer.centre_view")
 
+
+def build_centre(app, parent: QWidget) -> None:
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -53,81 +55,172 @@ def build_centre(app, parent: QWidget) -> None:
         app._notebook.addTab(frame, title)
         return frame
 
-    # Line Graphs
+    # Map tab title -> deferred builder. Populated below; drained after the
+    # window paints. The tab-change handler also calls into this map so a
+    # user who clicks an un-built tab forces its builder to run inline.
+    pending: Dict[str, Callable[[], None]] = {}
+    app._centre_pending_builders = pending
+
+    # ── Line Graphs (initial active tab — build eagerly) ───────────────────
+    from well_viewer.tabs.line_graphs_tab_view import build_line_graphs_tab
     tab_line = _new_tab("Line Graphs")
     build_line_graphs_tab(app, tab_line)
 
-    # Sample Definitions centre built now, tab added last
+    # Sample Definitions tab is added LAST (at the right end), but its
+    # sidebar panels are referenced by data-load and tab-switch logic, so
+    # construct the sidebars eagerly. The tab body itself is deferred.
     tab_groups = QWidget(app._notebook)
     QVBoxLayout(tab_groups).setContentsMargins(0, 0, 0, 0)
-    app._build_groups_centre(tab_groups)
     app._build_replicate_panel(app._sidebar_sample_frame)
     app._build_bar_group_panel(app._sidebar_groups_frame)
 
-    # Bar Plots
+    def _build_groups_centre_body() -> None:
+        app._build_groups_centre(tab_groups)
+    pending["Sample Definitions"] = _build_groups_centre_body
+
+    # ── Bar Plots ──────────────────────────────────────────────────────────
     tab_bar = _new_tab("Bar Plots")
-    build_bar_plots_tab(app, tab_bar)
+    def _build_bar() -> None:
+        from well_viewer.tabs.bar_plots_tab_view import build_bar_plots_tab
+        build_bar_plots_tab(app, tab_bar)
+    pending["Bar Plots"] = _build_bar
 
-    # Scatter: Cells
+    # ── Scatter Plot: Cells ────────────────────────────────────────────────
     tab_scatter = _new_tab("Scatter Plot: Cells")
-    build_scatter_cells_tab(app, tab_scatter)
+    def _build_scatter() -> None:
+        from well_viewer.tabs.scatter_cells_tab_view import build_scatter_cells_tab
+        build_scatter_cells_tab(app, tab_scatter)
+    pending["Scatter Plot: Cells"] = _build_scatter
 
-    # Scatter: Aggregate
+    # ── Scatter Plot: Aggregate ────────────────────────────────────────────
     tab_scatter_agg = _new_tab("Scatter Plot: Aggregate")
-    build_scatter_agg_tab(app, tab_scatter_agg)
+    def _build_scatter_agg() -> None:
+        from well_viewer.tabs.scatter_agg_tab_view import build_scatter_agg_tab
+        build_scatter_agg_tab(app, tab_scatter_agg)
+    pending["Scatter Plot: Aggregate"] = _build_scatter_agg
 
-    # Distribution
+    # ── Distribution ───────────────────────────────────────────────────────
     tab_distribution = _new_tab("Distribution")
-    build_distribution_tab(app, tab_distribution)
+    def _build_distribution() -> None:
+        from well_viewer.tabs.distribution_tab_view import build_distribution_tab
+        build_distribution_tab(app, tab_distribution)
+    pending["Distribution"] = _build_distribution
 
-    # Heat Map
+    # ── Heat Map ───────────────────────────────────────────────────────────
     tab_heatmap = _new_tab("Heat Map")
-    build_heatmap_tab(app, tab_heatmap)
+    def _build_heatmap() -> None:
+        from well_viewer.tabs.heatmap_tab_view import build_heatmap_tab
+        build_heatmap_tab(app, tab_heatmap)
+    pending["Heat Map"] = _build_heatmap
 
-    # Movie Montage
+    # ── Movie Montage ──────────────────────────────────────────────────────
     tab_preview = _new_tab("Movie Montage")
-    app._build_right_panel(tab_preview)
+    # The preview picker sidebar is referenced by tab-switch and data-load
+    # logic, so build it eagerly. Tab body defers.
     app._build_preview_picker(app._sidebar_preview_frame)
+    def _build_preview_body() -> None:
+        app._build_right_panel(tab_preview)
+    pending["Movie Montage"] = _build_preview_body
 
-    # Image Table
+    # ── Image Table ────────────────────────────────────────────────────────
     tab_image_table = _new_tab("Image Table")
-    build_image_table_tab(app, tab_image_table)
-    build_image_table_picker(app, app._sidebar_image_table_frame)
+    def _build_image_table() -> None:
+        from well_viewer.tabs.image_table_tab_view import build_image_table_tab
+        from well_viewer.views.image_table_picker_view import build_image_table_picker
+        build_image_table_tab(app, tab_image_table)
+        build_image_table_picker(app, app._sidebar_image_table_frame)
+    pending["Image Table"] = _build_image_table
 
-    # Review Image
+    # ── Review Image ───────────────────────────────────────────────────────
     tab_review_image = _new_tab("Review Image")
-    app._build_review_image_panel(tab_review_image)
+    def _build_review_image() -> None:
+        app._build_review_image_panel(tab_review_image)
+    pending["Review Image"] = _build_review_image
 
-    # Statistics
+    # ── Statistics ─────────────────────────────────────────────────────────
     tab_stats = _new_tab("Statistics")
-    app._build_stats_tab(tab_stats)
-    app._build_stats_group_editor(app._sidebar_stats_frame)
+    def _build_stats() -> None:
+        app._build_stats_tab(tab_stats)
+        app._build_stats_group_editor(app._sidebar_stats_frame)
+    pending["Statistics"] = _build_stats
 
-    # smFISH
+    # ── smFISH ─────────────────────────────────────────────────────────────
     tab_smfish = _new_tab("smFISH")
-    app._smfish_tab = SmfishTab(tab_smfish, app=app)
-    tab_smfish.layout().addWidget(app._smfish_tab)
+    def _build_smfish() -> None:
+        from well_viewer.smfish_tab import SmfishTab
+        app._smfish_tab = SmfishTab(tab_smfish, app=app)
+        tab_smfish.layout().addWidget(app._smfish_tab)
+    pending["smFISH"] = _build_smfish
 
-    # Review CSV
+    # ── Review CSV ─────────────────────────────────────────────────────────
     tab_review_csv = _new_tab("Review CSV")
-    app._build_review_csv_tab(tab_review_csv)
+    def _build_review_csv() -> None:
+        app._build_review_csv_tab(tab_review_csv)
+    pending["Review CSV"] = _build_review_csv
 
-    # Cell Gating
+    # ── Cell Gating ────────────────────────────────────────────────────────
     tab_cell_gating = _new_tab("Cell Gating")
-    app._cell_gating_tab = CellGatingTab(tab_cell_gating, app)
-    tab_cell_gating.layout().addWidget(app._cell_gating_tab)
+    def _build_cell_gating() -> None:
+        from well_viewer.cell_gating_tab import CellGatingTab
+        app._cell_gating_tab = CellGatingTab(tab_cell_gating, app)
+        tab_cell_gating.layout().addWidget(app._cell_gating_tab)
+        # If data is already loaded by the time Cell Gating finally builds
+        # (deferred or user-clicked), sync so the tab reflects current state.
+        if app._well_paths:
+            try:
+                app._cell_gating_tab._load_cell_areas()
+                app._load_gating_from_pipeline_info()
+                app._cell_gating_tab._load_threshold_frac_on()
+            except Exception:
+                _logger.exception("Cell Gating post-build sync failed")
+    pending["Cell Gating"] = _build_cell_gating
 
-    # Batch Export
+    # ── Batch Export ───────────────────────────────────────────────────────
     tab_batch = _new_tab("Batch Export")
     app._batch_export_tab_frame = tab_batch
-    build_batch_export_tab(app, tab_batch)
+    def _build_batch_export() -> None:
+        from well_viewer.tabs.batch_export_tab_view import build_batch_export_tab
+        build_batch_export_tab(app, tab_batch)
+    pending["Batch Export"] = _build_batch_export
 
-    # Sample Definitions (added last so it appears at the end)
+    # Sample Definitions tab body added last so it appears at the right end
+    # of the tab bar.
     app._notebook.addTab(tab_groups, "Sample Definitions")
 
     app._notebook.setCurrentIndex(0)
 
-    # Wire the tab-change handler last so it never fires during construction
-    # (the first addTab above would otherwise emit currentChanged(0) before
-    # the Line-Graphs axes exist).
-    app._notebook.currentChanged.connect(lambda _i: app._on_tab_change(None))
+    def _build_pending(title: str) -> None:
+        builder = pending.pop(title, None)
+        if builder is None:
+            return
+        try:
+            builder()
+        except Exception:
+            _logger.exception("Deferred build for %r failed", title)
+
+    app._centre_build_pending = _build_pending
+
+    def _on_tab_change(_i: int = 0) -> None:
+        # Force-build the tab the user just switched to if it hasn't been
+        # built yet, so click-before-build never shows a blank tab body.
+        idx = app._notebook.currentIndex()
+        title = app._notebook.tabText(idx) if idx >= 0 else ""
+        if title in pending:
+            _build_pending(title)
+        app._on_tab_change(None)
+
+    app._notebook.currentChanged.connect(_on_tab_change)
+
+    # Drain pending builders one-per-event-loop-tick so the UI stays
+    # responsive while heavy tabs (matplotlib canvases, image grids) build
+    # in the background. By the time the user typically clicks anything
+    # other than the initial tab, the corresponding builder will have run.
+    def _drain() -> None:
+        if not pending:
+            return
+        title = next(iter(pending))
+        _build_pending(title)
+        if pending:
+            QTimer.singleShot(0, _drain)
+
+    QTimer.singleShot(0, _drain)
