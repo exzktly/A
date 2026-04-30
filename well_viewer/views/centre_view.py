@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Dict, List, Set, Tuple
 
-from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QRect, Qt, QTimer
 from PySide6.QtGui import QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QStyle, QStyleOptionTab, QStylePainter,
@@ -35,6 +35,70 @@ from PySide6.QtWidgets import (
 
 
 _logger = logging.getLogger("well_viewer.centre_view")
+
+
+class _TabSwipeFilter(QObject):
+    """Convert horizontal trackpad swipes into tab navigation.
+
+    Listens for ``QWheelEvent`` on the host ``QTabWidget`` (and its
+    children) and steps the current tab when the accumulated horizontal
+    delta crosses ``_THRESHOLD`` pixels. Vertical-dominant scrolls pass
+    through untouched so plot-canvas zoom keeps working.
+    """
+
+    _THRESHOLD = 80  # px of horizontal delta per tab step
+
+    def __init__(self, tab_widget) -> None:
+        super().__init__(tab_widget)
+        self._tab = tab_widget
+        self._accum = 0.0
+
+    def eventFilter(self, obj, event):  # noqa: N802 - Qt override
+        if event.type() != QEvent.Wheel:
+            return False
+        # Only act when the wheel event is delivered to the centre tab
+        # widget or one of its descendants — otherwise sidebar / dialog
+        # scrolls would incorrectly flip tabs.
+        from PySide6.QtWidgets import QWidget
+        if not isinstance(obj, QWidget):
+            return False
+        if obj is not self._tab and not self._tab.isAncestorOf(obj):
+            return False
+        pixel = event.pixelDelta()
+        angle = event.angleDelta()
+        if pixel.x() != 0 or pixel.y() != 0:
+            dx, dy = float(pixel.x()), float(pixel.y())
+        else:
+            # angleDelta() is in eighths of a degree; ~120 per notch.
+            dx, dy = angle.x() / 8.0, angle.y() / 8.0
+        # Only act on horizontal-dominant gestures so vertical scroll
+        # (e.g. plot zoom, scroll areas) keeps working.
+        if abs(dx) <= max(4.0, abs(dy) * 1.5):
+            self._accum = 0.0
+            return False
+        self._accum += dx
+        stepped = False
+        while self._accum >= self._THRESHOLD:
+            self._step(1)
+            self._accum -= self._THRESHOLD
+            stepped = True
+        while self._accum <= -self._THRESHOLD:
+            self._step(-1)
+            self._accum += self._THRESHOLD
+            stepped = True
+        if stepped:
+            event.accept()
+            return True
+        return False
+
+    def _step(self, direction: int) -> None:
+        n = self._tab.count()
+        if n <= 1:
+            return
+        idx = self._tab.currentIndex()
+        new = max(0, min(n - 1, idx + direction))
+        if new != idx:
+            self._tab.setCurrentIndex(new)
 
 
 class _GroupedTabBar(QTabBar):
@@ -183,6 +247,16 @@ def build_centre(app, parent: QWidget) -> None:
     custom_tabbar.setElideMode(Qt.ElideNone)
     app._notebook.setTabBar(custom_tabbar)
     layout.addWidget(app._notebook, 1)
+
+    # Horizontal trackpad swipes anywhere over the tab area step through
+    # the tabs. Installed on the application so events from deeply nested
+    # child widgets (e.g. matplotlib canvases) still surface here before
+    # being consumed.
+    app._centre_tab_swipe_filter = _TabSwipeFilter(app._notebook)
+    from PySide6.QtWidgets import QApplication
+    qapp = QApplication.instance()
+    if qapp is not None:
+        qapp.installEventFilter(app._centre_tab_swipe_filter)
 
     def _select_by_text(title: str, _nb=app._notebook) -> None:
         for i in range(_nb.count()):

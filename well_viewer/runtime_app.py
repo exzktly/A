@@ -1943,6 +1943,26 @@ class WellViewerApp(QWidget):
         # ── Sub-tabs ────────────────────────────────────────────────────────
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
+        # Make the tabs themselves easy to read — these are the tab's
+        # primary navigation, not a tertiary control. Wider tabs + larger
+        # font defeats the default cramped styling.
+        sub_tabs.tabBar().setExpanding(True)
+        sub_tabs.setStyleSheet(
+            "QTabWidget#SampleDefinitionsSubTabs::pane { "
+            "border-top: 1px solid rgba(99, 102, 241, 0.40); "
+            "} "
+            "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab { "
+            "min-width: 220px; "
+            "padding: 10px 24px; "
+            "font-size: 13px; "
+            "font-weight: 600; "
+            "letter-spacing: 0.4px; "
+            "} "
+            "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:selected { "
+            "color: rgb(67, 56, 202); "
+            "border-bottom: 2px solid rgb(99, 102, 241); "
+            "}"
+        )
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 
