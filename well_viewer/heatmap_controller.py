@@ -32,9 +32,9 @@ from well_viewer.ratio_models import is_ratio_key
 METRIC_MEAN = "Mean above threshold"
 METRIC_FRACTION = "Fraction above threshold"
 METRIC_COUNT = "Cell count"
-METRIC_RATIO = "Ratio value"
+METRIC_RATIO = "Ratio value"  # legacy; not exposed in METRIC_OPTIONS — ratios are picked via the channel dropdown.
 
-METRIC_OPTIONS = [METRIC_MEAN, METRIC_FRACTION, METRIC_COUNT, METRIC_RATIO]
+METRIC_OPTIONS = [METRIC_MEAN, METRIC_FRACTION, METRIC_COUNT]
 
 
 def active_layout(app) -> HeatmapLayout:
@@ -115,8 +115,7 @@ def _cell_value(
         matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
         if not matched:
             return float("nan")
-        _, _, _, frac, _, _, _ = matched[0]
-        return float(frac)
+        return float(matched[0][3])
 
     if metric == METRIC_RATIO:
         # Pool ratio values across cells at the target timepoint.
@@ -144,8 +143,7 @@ def _cell_value(
     matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
     if not matched:
         return float("nan")
-    _, mean_val, _, _, _, _, _ = matched[0]
-    return float(mean_val)
+    return float(matched[0][1])
 
 
 def _resolve_color_scale(arr: np.ndarray, app) -> Tuple[Optional[float], Optional[float]]:

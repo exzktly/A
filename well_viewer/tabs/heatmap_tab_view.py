@@ -50,6 +50,9 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1.addWidget(QLabel("Channel:", ctrl1))
     app._chan_cb_heatmap = QComboBox(ctrl1)
     app._chan_cb_heatmap.addItems(["GFP"])
+    # Ratios appear here as virtual channels and their names can be long
+    # ("ratio:gfp_over_mcherry"), so reserve enough room to read them.
+    app._chan_cb_heatmap.setMinimumWidth(220)
     app._chan_cb_heatmap.currentIndexChanged.connect(
         lambda _i, _src=app._chan_cb_heatmap: app._on_plot_channel_selected(_src)
     )
