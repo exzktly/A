@@ -1472,13 +1472,6 @@ class WellViewerApp(QWidget):
         self._dir_label.setObjectName("Muted")
         top_layout.addWidget(self._dir_label)
         top_layout.addStretch(1)
-        ratios_btn = QPushButton("Ratios\u2026")
-        ratios_btn.setProperty("variant", "secondary")
-        ratios_btn.setToolTip(
-            "Define ratio metrics (e.g. GFP/mCherry) usable as virtual channels."
-        )
-        ratios_btn.clicked.connect(self._open_ratio_panel)
-        top_layout.addWidget(ratios_btn)
         open_btn = QPushButton("Open\u2026")
         open_btn.setProperty("variant", "primary")
         open_btn.clicked.connect(self._browse)
@@ -1882,14 +1875,23 @@ class WellViewerApp(QWidget):
         _v(self, parent)
 
     def _build_groups_centre(self, parent) -> None:
-        """Centre panel for the Sample Definitions tab: well-label editor only."""
-        from PySide6.QtWidgets import QVBoxLayout as _QVBoxLayout
+        """Centre panel for the Sample Definitions tab: ratio metrics + well-label editor."""
+        from PySide6.QtWidgets import QFrame as _QFrame, QVBoxLayout as _QVBoxLayout
+        from well_viewer.views.ratio_panel_view import build_ratios_inline_panel
 
         outer_layout = parent.layout()
         if outer_layout is None:
             outer_layout = _QVBoxLayout(parent)
             parent.setLayout(outer_layout)
         outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        outer_layout.addWidget(build_ratios_inline_panel(self, parent))
+
+        sep = _QFrame(parent)
+        sep.setObjectName("Separator")
+        sep.setFrameShape(_QFrame.HLine)
+        sep.setFixedHeight(1)
+        outer_layout.addWidget(sep)
 
         self._build_label_editor(parent)
 
@@ -2863,9 +2865,14 @@ class WellViewerApp(QWidget):
                      path_str, len(self._bar_groups))
 
     def _open_ratio_panel(self) -> None:
-        """Open the ratio metric definition dialog."""
-        from well_viewer.views.ratio_panel_view import open_ratio_panel
-        open_ratio_panel(self, parent=self)
+        """Bring the Sample Definitions tab forward — the ratio editor lives there now."""
+        nb = getattr(self, "_notebook", None)
+        if nb is None:
+            return
+        for i in range(nb.count()):
+            if nb.tabText(i) == "Sample Definitions":
+                nb.setCurrentIndex(i)
+                return
 
     # ── Ratio metric persistence ─────────────────────────────────────────────
 
@@ -4312,6 +4319,12 @@ class WellViewerApp(QWidget):
         """Replace the ratio list and rebuild the index + UI."""
         self._ratio_metrics = list(ratios)
         self._rebuild_ratio_index()
+        panel = getattr(self, "_ratio_panel", None)
+        if panel is not None:
+            try:
+                panel.refresh_from_app()
+            except Exception:
+                pass
 
     # ── Active channel ───────────────────────────────────────────────────────
 

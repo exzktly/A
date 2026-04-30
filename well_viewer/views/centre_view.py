@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Dict, List, Set, Tuple
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QRect, Qt, QTimer
 from PySide6.QtGui import QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QStyle, QStyleOptionTab, QStylePainter,
@@ -38,27 +38,26 @@ _logger = logging.getLogger("well_viewer.centre_view")
 
 
 class _GroupedTabBar(QTabBar):
-    """Tab bar that adds left-padding, a separator, and a tiny group label
-    before each group start.
+    """Tab bar that reserves a header strip above the tabs for group labels.
 
     Tabs marked as group starts (via ``set_group_starts({index: label})``)
-    get extra horizontal width via ``tabSizeHint`` so the bar shows a
-    visual gap. ``paintEvent`` draws each tab manually so the styled tab
-    body for a group-start tab is shifted right past ``GAP_PX``, leaving a
-    clean gap region into which we then paint the 2-px separator and the
-    uppercase group label without overlapping the tab's button text. The
-    first tab in the bar is never treated as a group start since there is
-    no preceding group to separate it from.
+    are preceded by a small horizontal gap (``GAP_PX``) holding a vertical
+    separator, and the group's uppercase label is painted in the
+    ``HEADER_PX`` strip above the tabs, horizontally aligned with the first
+    tab in that group.
     """
 
-    GAP_PX = 64
-    SEPARATOR_TOP_INSET = 4
-    SEPARATOR_BOTTOM_INSET = 4
+    GAP_PX = 16
+    HEADER_PX = 14
+    SEPARATOR_INSET = 3
     LABEL_FONT_PX = 9
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._group_starts: Dict[int, str] = {}
+        # Also track the first tab (index 0) so its group label paints above
+        # it even though it is not preceded by a separator-gap.
+        self._first_group_label: str = ""
 
     def set_group_starts(self, indices) -> None:
         if isinstance(indices, dict):
@@ -70,10 +69,24 @@ class _GroupedTabBar(QTabBar):
             self.updateGeometry()
             self.update()
 
+    def set_first_group_label(self, label: str) -> None:
+        label = str(label or "")
+        if label != self._first_group_label:
+            self._first_group_label = label
+            self.update()
+
     def tabSizeHint(self, index: int):  # noqa: N802 - Qt override
         size = super().tabSizeHint(index)
         if index in self._group_starts:
             size.setWidth(size.width() + self.GAP_PX)
+        size.setHeight(size.height() + self.HEADER_PX)
+        return size
+
+    def minimumTabSizeHint(self, index: int):  # noqa: N802 - Qt override
+        size = super().minimumTabSizeHint(index)
+        if index in self._group_starts:
+            size.setWidth(size.width() + self.GAP_PX)
+        size.setHeight(size.height() + self.HEADER_PX)
         return size
 
     def paintEvent(self, event):  # noqa: N802 - Qt override
@@ -82,14 +95,14 @@ class _GroupedTabBar(QTabBar):
             for i in range(self.count()):
                 opt = QStyleOptionTab()
                 self.initStyleOption(opt, i)
+                # Shift each tab body down past the header strip so the
+                # space above tabs stays clear for group labels.
+                opt.rect = opt.rect.adjusted(0, self.HEADER_PX, 0, 0)
                 if i in self._group_starts:
                     opt.rect = opt.rect.adjusted(self.GAP_PX, 0, 0, 0)
                 style_painter.drawControl(QStyle.CE_TabBarTab, opt)
         finally:
             style_painter.end()
-
-        if not self._group_starts:
-            return
 
         overlay = QPainter(self)
         try:
@@ -106,21 +119,48 @@ class _GroupedTabBar(QTabBar):
             label_font.setCapitalization(QFont.AllUppercase)
             label_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
 
-            for idx, group_label in self._group_starts.items():
+            # Draw vertical separators in the gap region of each group-start tab.
+            for idx in self._group_starts:
                 if idx <= 0 or idx >= self.count():
                     continue
                 rect = self.tabRect(idx)
-                sep_x = rect.left() + 8
-                top = rect.top() + self.SEPARATOR_TOP_INSET
-                bottom = rect.bottom() - self.SEPARATOR_BOTTOM_INSET
+                sep_x = rect.left() + self.GAP_PX // 2
+                top = rect.top() + self.HEADER_PX + self.SEPARATOR_INSET
+                bottom = rect.bottom() - self.SEPARATOR_INSET
                 overlay.setPen(pen)
                 overlay.drawLine(sep_x, top, sep_x, bottom)
 
-                if group_label:
-                    text_rect = rect.adjusted(16, 0, -(rect.width() - self.GAP_PX), 0)
-                    overlay.setPen(label_color)
-                    overlay.setFont(label_font)
-                    overlay.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, group_label)
+            # Draw group labels in the header strip above the first tab of
+            # each group. The label spans from the start of that group's
+            # first tab to the start of the next group's first tab.
+            overlay.setPen(label_color)
+            overlay.setFont(label_font)
+
+            sorted_starts: List[Tuple[int, str]] = []
+            if self.count() > 0 and self._first_group_label:
+                sorted_starts.append((0, self._first_group_label))
+            for idx in sorted(self._group_starts):
+                if 0 < idx < self.count():
+                    sorted_starts.append((idx, self._group_starts[idx]))
+
+            for k, (idx, group_label) in enumerate(sorted_starts):
+                if not group_label:
+                    continue
+                rect = self.tabRect(idx)
+                left = rect.left() + (self.GAP_PX if idx > 0 else 0) + 6
+                # Right edge: just before the next group's first tab, or the
+                # end of the bar if this is the last group.
+                if k + 1 < len(sorted_starts):
+                    next_idx = sorted_starts[k + 1][0]
+                    right = self.tabRect(next_idx).left()
+                else:
+                    right = self.width()
+                top = rect.top() + 1
+                bottom = rect.top() + self.HEADER_PX
+                text_rect = QRect(left, top, max(0, right - left - 4), bottom - top)
+                overlay.drawText(
+                    text_rect, Qt.AlignVCenter | Qt.AlignLeft, group_label,
+                )
         finally:
             overlay.end()
 
@@ -314,6 +354,8 @@ def build_centre(app, parent: QWidget) -> None:
     app._batch_export_tab_frame = tab_frames["Batch Export"]
 
     custom_tabbar.set_group_starts(group_starts)
+    if groups:
+        custom_tabbar.set_first_group_label(groups[0][0])
 
     app._notebook.setCurrentIndex(0)
 

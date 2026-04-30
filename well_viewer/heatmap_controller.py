@@ -151,20 +151,85 @@ def _cell_value(
 def _resolve_color_scale(arr: np.ndarray, app) -> Tuple[Optional[float], Optional[float]]:
     """Pick (vmin, vmax) for the heatmap.
 
-    Mode is read from ``app._heatmap_scale_mode`` (Auto/Fixed/Log). For Fixed
-    we read ``app._heatmap_vmin`` / ``app._heatmap_vmax``. For Log we let
-    matplotlib auto-scale and set ``set_norm`` later.
+    Mode is read from ``app._heatmap_scale_mode`` (Auto/Fixed). For Fixed we
+    read ``app._heatmap_vmin`` / ``app._heatmap_vmax``. For Auto we use the
+    global range pre-computed across every timepoint (kept on
+    ``app._heatmap_global_vmin`` / ``app._heatmap_global_vmax``) so the
+    colormap stays stable while scrubbing the timepoint slider.
     """
     mode = str(getattr(app, "_heatmap_scale_mode", "Auto") or "Auto")
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return None, None
     if mode == "Fixed":
         vmin = float(getattr(app, "_heatmap_vmin", float("nan")) or float("nan"))
         vmax = float(getattr(app, "_heatmap_vmax", float("nan")) or float("nan"))
         if math.isfinite(vmin) and math.isfinite(vmax) and vmax > vmin:
             return vmin, vmax
+    # Auto: prefer the global range across all timepoints.
+    g_vmin = getattr(app, "_heatmap_global_vmin", None)
+    g_vmax = getattr(app, "_heatmap_global_vmax", None)
+    if (
+        g_vmin is not None and g_vmax is not None
+        and math.isfinite(g_vmin) and math.isfinite(g_vmax) and g_vmax > g_vmin
+    ):
+        return float(g_vmin), float(g_vmax)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return None, None
     return float(finite.min()), float(finite.max())
+
+
+def _compute_global_range(
+    app,
+    layout,
+    metric: str,
+    val_col: str,
+    threshold: float,
+    cell_area_threshold: float,
+    fluor_gates: Dict[str, float],
+    ratios,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Pool ``_cell_value`` across every (timepoint, cell) and return (vmin, vmax).
+
+    Result is cached on ``app`` keyed on the inputs that influence it so
+    timepoint-slider scrubbing does not retrigger the full sweep.
+    """
+    tps = list(getattr(app, "_heatmap_tp_values", []) or [])
+    if not tps:
+        return None, None
+
+    cache_key = (
+        id(layout),
+        getattr(layout, "name", ""),
+        metric,
+        val_col,
+        float(threshold),
+        float(cell_area_threshold),
+        tuple(sorted((fluor_gates or {}).items())),
+        id(ratios),
+        tuple(tps),
+    )
+    cached = getattr(app, "_heatmap_global_range_cache", None)
+    if cached is not None and cached.get("key") == cache_key:
+        return cached["vmin"], cached["vmax"]
+
+    vmin: Optional[float] = None
+    vmax: Optional[float] = None
+    for tp in tps:
+        for (r, c), wells in layout.cells.items():
+            if not (0 <= r < layout.rows and 0 <= c < layout.cols):
+                continue
+            try:
+                v = _cell_value(
+                    app, wells, tp, metric, val_col,
+                    threshold, cell_area_threshold, fluor_gates, ratios,
+                )
+            except Exception:
+                v = float("nan")
+            if math.isfinite(v):
+                vmin = v if vmin is None else min(vmin, v)
+                vmax = v if vmax is None else max(vmax, v)
+
+    app._heatmap_global_range_cache = {"key": cache_key, "vmin": vmin, "vmax": vmax}
+    return vmin, vmax
 
 
 def redraw_heatmap(app) -> None:
@@ -215,6 +280,16 @@ def redraw_heatmap(app) -> None:
     app._heatmap_cell_well_index = cell_well_index
     app._heatmap_array = arr
     app._heatmap_layout_active = layout
+
+    # Pool min/max across every timepoint so the colormap stays consistent
+    # while the user scrubs the timepoint slider. Cached on app so this
+    # only recomputes when an input changes.
+    g_vmin, g_vmax = _compute_global_range(
+        app, layout, metric, val_col,
+        threshold, cell_area_threshold, fluor_gates, ratios,
+    )
+    app._heatmap_global_vmin = g_vmin
+    app._heatmap_global_vmax = g_vmax
 
     # Render.
     vmin, vmax = _resolve_color_scale(arr, app)

@@ -535,6 +535,10 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
     tuple first, then fall back to a normalized comparison against every
     cache key so the lookup succeeds whichever side ends up holding the
     integer-as-float form.
+
+    When ``fov`` is empty (e.g. pipeline_info has no available_fovs and the
+    dropdown is empty), match the first available FOV for the requested
+    timepoint so single-FOV datasets still render.
     """
     chan_lower = chan_upper.strip().lower()
     fluor = _load_well_channel(app, cache, well, chan_lower)
@@ -546,8 +550,9 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
         target_fov = _norm_token(fov)
         target_tp = _norm_token(tp)
         for (cache_fov, cache_tp), val in fluor.items():
-            if (_norm_token(cache_fov) == target_fov
-                    and _norm_token(cache_tp) == target_tp):
+            tp_match = (not target_tp) or _norm_token(cache_tp) == target_tp
+            fov_match = (not target_fov) or _norm_token(cache_fov) == target_fov
+            if tp_match and fov_match:
                 ref = val
                 break
     if ref is None:
@@ -585,7 +590,7 @@ def image_table_generate(app) -> None:
             fov = cell["fov_cb"].currentText().strip()
 
             arr = None
-            if well and chan and tp and fov:
+            if well and chan and tp:
                 arr = _load_array(app, cache, well, chan, tp, fov)
             rendered[(r, c)] = arr
 
@@ -595,11 +600,12 @@ def image_table_generate(app) -> None:
             cl.setContentsMargins(4, 4, 4, 4)
             cl.setSpacing(2)
 
-            header_text = (
-                f"{well}  {chan.upper()}  T:{tp}  FOV:{fov}"
-                if well and chan and tp and fov
-                else "(unset)"
-            )
+            if well and chan and tp:
+                header_text = f"{well}  {chan.upper()}  T:{tp}"
+                if fov:
+                    header_text += f"  FOV:{fov}"
+            else:
+                header_text = "(unset)"
             header = QLabel(header_text, cell_widget)
             header.setAlignment(Qt.AlignCenter)
             cl.addWidget(header)
@@ -750,7 +756,7 @@ def image_table_export(app) -> None:
             fov = cell["fov_cb"].currentText().strip()
 
             arr = rendered.get((r, c))
-            if arr is None and well and chan and tp and fov:
+            if arr is None and well and chan and tp:
                 arr = _load_array(app, cache, well, chan, tp, fov)
             if arr is not None and crop_tool is not None:
                 arr = crop_tool.apply_to_array(arr)
@@ -769,11 +775,12 @@ def image_table_export(app) -> None:
                     ha="center", va="center", transform=ax.transAxes, fontsize=7,
                 )
 
-            title = (
-                f"{well}  {chan.upper()}  T:{tp}  FOV:{fov}"
-                if well and chan and tp and fov
-                else "(unset)"
-            )
+            if well and chan and tp:
+                title = f"{well}  {chan.upper()}  T:{tp}"
+                if fov:
+                    title += f"  FOV:{fov}"
+            else:
+                title = "(unset)"
             ax.set_title(title, fontsize=7)
             ax.set_xticks([])
             ax.set_yticks([])

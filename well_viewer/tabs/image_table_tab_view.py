@@ -65,8 +65,9 @@ def build_image_table_tab(app, parent: QWidget) -> None:
 
     # ── Header: rows / cols spinners ────────────────────────────────────────
     hdr = QWidget(inner)
+    hdr.setObjectName("Sidebar")
     hl = QHBoxLayout(hdr)
-    hl.setContentsMargins(0, 0, 0, 0)
+    hl.setContentsMargins(8, 6, 8, 6)
     hl.setSpacing(6)
 
     hl.addWidget(QLabel("Rows:", hdr))
@@ -74,6 +75,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     rows_spin.setRange(1, 12)
     rows_spin.setValue(int(app._image_table_rows))
     rows_spin.setFixedWidth(64)
+    rows_spin.valueChanged.connect(lambda _v: app._image_table_apply_dimensions())
     hl.addWidget(rows_spin)
     app._image_table_rows_spin = rows_spin
 
@@ -82,17 +84,17 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     cols_spin.setRange(1, 12)
     cols_spin.setValue(int(app._image_table_cols))
     cols_spin.setFixedWidth(64)
+    cols_spin.valueChanged.connect(lambda _v: app._image_table_apply_dimensions())
     hl.addWidget(cols_spin)
     app._image_table_cols_spin = cols_spin
-
-    hl.addWidget(btn_secondary(hdr, "Apply", app._image_table_apply_dimensions))
     hl.addStretch(1)
     il.addWidget(hdr)
 
     # ── Global Options row (channel is now per-row; see selector grid) ──────
     glob = QWidget(inner)
+    glob.setObjectName("Sidebar")
     gl = QHBoxLayout(glob)
-    gl.setContentsMargins(0, 0, 0, 0)
+    gl.setContentsMargins(8, 6, 8, 6)
     gl.setSpacing(6)
     gl.addWidget(QLabel("Global Options —", glob))
 
@@ -140,20 +142,32 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     sep1 = QFrame(inner)
     sep1.setObjectName("Separator")
     sep1.setFrameShape(QFrame.HLine)
-    sep1.setFixedHeight(1)
+    sep1.setFixedHeight(2)
     il.addWidget(sep1)
+    il.addSpacing(6)
 
     # ── Selector grid (rows × cols of per-cell dropdowns) ───────────────────
-    selector_lbl = QLabel("Selector:", inner)
-    selector_lbl.setProperty("role", "section")
-    il.addWidget(selector_lbl)
+    # Wrap selector area in a styled frame so it is visually distinct from
+    # the global-options strip above and the LUT row below.
+    selector_box = QFrame(inner)
+    selector_box.setObjectName("ImageTableSelector")
+    selector_box.setFrameShape(QFrame.StyledPanel)
+    sb_layout = QVBoxLayout(selector_box)
+    sb_layout.setContentsMargins(8, 6, 8, 8)
+    sb_layout.setSpacing(4)
 
-    selector_host = QWidget(inner)
+    selector_lbl = QLabel("Selector", selector_box)
+    selector_lbl.setProperty("role", "section")
+    sb_layout.addWidget(selector_lbl)
+
+    selector_host = QWidget(selector_box)
     selector_grid = QGridLayout(selector_host)
     selector_grid.setContentsMargins(0, 0, 0, 0)
     selector_grid.setSpacing(4)
     app._image_table_selector_grid = selector_grid
-    il.addWidget(selector_host)
+    sb_layout.addWidget(selector_host)
+    il.addWidget(selector_box)
+    il.addSpacing(6)
 
     # ── LUT row (rebuilt per channel by the controller) ─────────────────────
     lut_lbl = QLabel("LUT (per channel):", inner)
