@@ -59,6 +59,8 @@ def load_directory(app, d: Path, label=None) -> None:
     app._last_sel = None
     app._prev_sel = set()
     app._bar_order = None
+    if hasattr(app, "_invalidate_review_image_frame_cache"):
+        app._invalidate_review_image_frame_cache()
     n = len(csvs)
     app._show_progress(n, f"Loading {n} CSV file(s)…")
     for i, p in enumerate(csvs, 1):

@@ -1334,6 +1334,17 @@ class WellViewerApp(QWidget):
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
         self._review_image_last_fluor_arr = None
         self._review_image_preserve_view_on_refresh: bool = False
+        # Caches for the Review Image hot path. The frame cache stores the
+        # decoded fluorescence + label arrays plus the boundary mask for the
+        # currently-displayed (fluor_ref, mask_ref) pair; LUT edits, channel
+        # switches that reuse the same arrays, and cell toggles all reuse it
+        # instead of re-decoding from disk and re-running the boundary
+        # convolution. The include cache memoises {nucleus_id -> included}
+        # per (well, fov, tp) so a refresh can skip the row-iteration loop
+        # unless the user has actually toggled inclusion or gating ran.
+        self._review_image_frame_cache: Optional[dict] = None
+        self._review_image_include_cache: Dict[Tuple[str, str, str, int], Dict[int, bool]] = {}
+        self._review_image_override_version: int = 0
         # When True, the Review Image tab loads the unprocessed fluorescence
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
@@ -5006,21 +5017,63 @@ class WellViewerApp(QWidget):
                 )
             return
         self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
-
-        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
-        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
-        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
-            self._review_image_status.setText("Could not render review image (numpy/PIL unavailable).")
+        if not _NP_AVAILABLE:
+            self._review_image_status.setText("Could not render review image (numpy unavailable).")
             return
 
-        include_by_nid = self._review_build_include_map(mask_arr, well, fov, tp)
+        # Try the frame cache first: when the user is just adjusting LUT,
+        # toggling cells, or clicking nuclei on the same frame, we can skip
+        # the disk read + boundary convolution entirely.
+        cache_key = (
+            getattr(fluor_ref, "full_path_str", id(fluor_ref)),
+            getattr(mask_ref, "full_path_str", id(mask_ref)),
+        )
+        cached = self._review_image_frame_cache
+        if cached is not None and cached.get("key") == cache_key:
+            fluor_arr = cached["fluor_arr"]
+            center = cached["center"]
+            boundary = cached["boundary"]
+        else:
+            fluor_raw = open_imgref_as_array(fluor_ref, greyscale=True)
+            mask_raw = open_imgref_as_array(mask_ref, greyscale=True)
+            if fluor_raw is None or mask_raw is None:
+                self._review_image_status.setText("Could not render review image (image decode failed).")
+                return
+            fluor_arr = _np.asarray(fluor_raw, dtype=_np.float32)
+            center_int = _np.rint(_np.asarray(mask_raw)).astype(_np.int32, copy=False)
+            padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
+            center = padded[1:-1, 1:-1]
+            boundary = (center > 0) & (
+                (center != padded[:-2, 1:-1]) |
+                (center != padded[2:, 1:-1]) |
+                (center != padded[1:-1, :-2]) |
+                (center != padded[1:-1, 2:])
+            )
+            self._review_image_frame_cache = {
+                "key": cache_key,
+                "fluor_arr": fluor_arr,
+                "center": center,
+                "boundary": boundary,
+            }
+
+        # Memoise the include map per (well, fov, tp, override_version) so
+        # repeat refreshes on the same frame skip the row-iteration loop.
+        ic_key = (well, fov, tp, self._review_image_override_version)
+        include_by_nid = self._review_image_include_cache.get(ic_key)
+        if include_by_nid is None:
+            include_by_nid = self._review_build_include_map(center, well, fov, tp)
+            # Trim the cache to a small bounded set so it doesn't grow with
+            # every (fov, tp) the user visits.
+            if len(self._review_image_include_cache) > 32:
+                self._review_image_include_cache.clear()
+            self._review_image_include_cache[ic_key] = include_by_nid
         preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
         self._review_image_preserve_view_on_refresh = False
         if channel_switch_debug:
             _logger.debug("[RI-CHSW step 6->7] draw_review_image preserve_view=%s", preserve_view)
         self._draw_review_image(
-            fluor_arr, mask_arr, include_by_nid,
-            fit_lut=False, preserve_view=preserve_view,
+            fluor_arr, center, include_by_nid,
+            fit_lut=False, preserve_view=preserve_view, boundary=boundary,
         )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
@@ -5079,6 +5132,7 @@ class WellViewerApp(QWidget):
         *,
         fit_lut: bool = False,
         preserve_view: bool = False,
+        boundary=None,
     ) -> None:
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
@@ -5103,17 +5157,30 @@ class WellViewerApp(QWidget):
             self._review_lut_min_edit.setText(f"{lo:.0f}")
             self._review_lut_max_edit.setText(f"{hi:.0f}")
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
-        rgb = _np.dstack([base, base, base])
+        # Build the RGB array directly with broadcasting; np.dstack would
+        # make three separate copies before stacking.
+        h, w = base.shape
+        rgb = _np.empty((h, w, 3), dtype=_np.uint8)
+        rgb[..., 0] = base
+        rgb[..., 1] = base
+        rgb[..., 2] = base
 
-        center_int = _np.rint(m).astype(_np.int32, copy=False)
-        padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
-        center = padded[1:-1, 1:-1]
-        boundary = (center > 0) & (
-            (center != padded[:-2, 1:-1]) |
-            (center != padded[2:, 1:-1]) |
-            (center != padded[1:-1, :-2]) |
-            (center != padded[1:-1, 2:])
-        )
+        # The caller (``_refresh_review_image``) supplies a cached center +
+        # boundary when the frame hasn't changed. Recompute on demand only
+        # when those caches aren't available.
+        if m.dtype != _np.int32 or m.ndim != 2:
+            center = _np.rint(m).astype(_np.int32, copy=False)
+        else:
+            center = m
+        if boundary is None:
+            padded = _np.pad(center, 1, mode="constant", constant_values=0)
+            center_view = padded[1:-1, 1:-1]
+            boundary = (center_view > 0) & (
+                (center_view != padded[:-2, 1:-1]) |
+                (center_view != padded[2:, 1:-1]) |
+                (center_view != padded[1:-1, :-2]) |
+                (center_view != padded[1:-1, 2:])
+            )
         # Build the inclusion mask via a single np.isin pass over the label
         # image. The previous per-nucleus loop allocated a fresh image-sized
         # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
@@ -5134,8 +5201,13 @@ class WellViewerApp(QWidget):
             sel_boundary = boundary & (center == int(sel_nid))
             rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
 
-        img = _PILImage.fromarray(rgb, mode="RGB")
-        self._review_image_base_pil = img
+        # Stash the rendered RGB so display rescales / zoom can rebuild the
+        # pixmap without recomputing tinted overlays. We retain the PIL
+        # handle for legacy callers that read ``_review_image_base_pil``.
+        self._review_image_base_rgb = _np.ascontiguousarray(rgb)
+        self._review_image_base_pil = (
+            _PILImage.fromarray(rgb, mode="RGB") if _PIL_AVAILABLE else None
+        )
         if not preserve_view:
             self._review_image_zoom = 1.0
             self._review_image_pan_x = 0.0
@@ -5157,28 +5229,63 @@ class WellViewerApp(QWidget):
                 float(getattr(self, "_review_image_pan_y", 0.0)),
             )
 
-    def _render_review_image_display(self) -> None:
-        if not hasattr(self, "_review_image_label") or self._review_image_base_pil is None:
+    def _render_review_image_display(self, *, pan_only: bool = False) -> None:
+        if not hasattr(self, "_review_image_label"):
+            return
+        rgb = getattr(self, "_review_image_base_rgb", None)
+        if rgb is None and self._review_image_base_pil is None:
             return
         if _debug_flags.review_image_channel_switch_debug_enabled():
-            _logger.debug("[RI-CHSW step 7] render_review_image_display start")
-        img = self._review_image_base_pil
-        iw, ih = img.size
+            _logger.debug(
+                "[RI-CHSW step 7] render_review_image_display start pan_only=%s",
+                pan_only,
+            )
+        if rgb is not None:
+            ih, iw = rgb.shape[:2]
+        else:
+            iw, ih = self._review_image_base_pil.size
         vp = self._review_image_canvas.viewport()
         cw = max(1, vp.width())
         ch = max(1, vp.height())
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-        shown = img.resize((nw, nh), _PILImage.NEAREST)
-        if shown.mode != "RGBA":
-            shown = shown.convert("RGBA")
-        data = shown.tobytes("raw", "RGBA")
-        qimg = QImage(data, nw, nh, 4 * nw, QImage.Format_RGBA8888).copy()
-        pm = QPixmap.fromImage(qimg)
-        self._review_image_label.setPixmap(pm)
-        self._review_image_label.resize(max(nw, cw), max(nh, ch))
-        self._review_image_scale = scale
+
+        # Pan keeps the same pixmap and just adjusts scrollbars. Avoiding
+        # the upscale + QImage allocation saves tens of ms per drag event,
+        # which is what makes panning feel jittery on large frames.
+        cached_scale = getattr(self, "_review_image_scale", None)
+        existing_pm = self._review_image_label.pixmap()
+        rebuild = not pan_only or existing_pm is None or existing_pm.isNull() or cached_scale != scale
+
+        if rebuild:
+            if rgb is not None:
+                # Direct numpy -> QImage path skips the PIL roundtrip
+                # (fromarray + resize + convert("RGBA") + tobytes), which
+                # halves the per-refresh allocation and copy work on the
+                # 2048x2048 frames the tab typically displays.
+                buf = rgb if rgb.flags["C_CONTIGUOUS"] else _np.ascontiguousarray(rgb)
+                qimg = QImage(
+                    buf.data, iw, ih, 3 * iw, QImage.Format_RGB888,
+                ).copy()
+                pm = QPixmap.fromImage(qimg)
+                if (nw, nh) != (iw, ih):
+                    pm = pm.scaled(
+                        nw, nh, Qt.IgnoreAspectRatio, Qt.FastTransformation,
+                    )
+            else:
+                img = self._review_image_base_pil
+                shown = img.resize((nw, nh), _PILImage.NEAREST)
+                if shown.mode != "RGBA":
+                    shown = shown.convert("RGBA")
+                data = shown.tobytes("raw", "RGBA")
+                qimg = QImage(
+                    data, nw, nh, 4 * nw, QImage.Format_RGBA8888,
+                ).copy()
+                pm = QPixmap.fromImage(qimg)
+            self._review_image_label.setPixmap(pm)
+            self._review_image_label.resize(max(nw, cw), max(nh, ch))
+            self._review_image_scale = scale
         pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
         pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
         hbar = self._review_image_canvas.horizontalScrollBar()
@@ -5189,12 +5296,13 @@ class WellViewerApp(QWidget):
         vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), cy)))
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
-                "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f",
+                "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f rebuild=%s",
                 iw,
                 ih,
                 nw,
                 nh,
                 scale,
+                rebuild,
             )
 
     def _review_image_zoom_step(self, direction: int) -> None:
@@ -5239,7 +5347,8 @@ class WellViewerApp(QWidget):
         self._review_image_pan_x = float(getattr(self, "_review_image_pan_x", 0.0) + dx)
         self._review_image_pan_y = float(getattr(self, "_review_image_pan_y", 0.0) + dy)
         self._review_image_drag_last_xy = (gx, gy)
-        self._render_review_image_display()
+        # Pan reuses the existing pixmap; only the scrollbars need to move.
+        self._render_review_image_display(pan_only=True)
 
     def _on_review_image_release(self, event) -> None:
         was_dragging = getattr(self, "_review_image_dragging", False)
@@ -5317,6 +5426,10 @@ class WellViewerApp(QWidget):
             return
         key = (self._preview_selected_well, fov_n, tp_n, nid_n)
         self._review_included_overrides[key] = str(included).strip() or "1"
+        # Bump the override version so the include-map cache is bypassed
+        # on the next refresh; the frame cache (decoded image + boundary)
+        # remains valid because the underlying mask label image is unchanged.
+        self._review_image_override_version += 1
         prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
         prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
         prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
@@ -5344,10 +5457,14 @@ class WellViewerApp(QWidget):
         cx = float(xs.mean())
         cy = float(ys.mean())
         self._review_image_zoom = float(max(1.0, zoom))
-        img = self._review_image_base_pil
-        if img is None:
-            return
-        iw, ih = img.size
+        rgb = getattr(self, "_review_image_base_rgb", None)
+        if rgb is not None:
+            ih, iw = rgb.shape[:2]
+        else:
+            img = self._review_image_base_pil
+            if img is None:
+                return
+            iw, ih = img.size
         vp = self._review_image_canvas.viewport()
         cw = max(1, vp.width())
         ch = max(1, vp.height())
@@ -6726,6 +6843,21 @@ class WellViewerApp(QWidget):
         # per-FOV toggle is still applicable. Cheap; only walks _fov_btns.
         if hasattr(self, "_refresh_fov_btn_state"):
             self._refresh_fov_btn_state()
+        # Cell gating writes new ``Included`` flags onto cached rows, which
+        # the Review Image include map mirrors. Bumping the version key
+        # forces the next refresh to recompute the include map (cheap)
+        # while reusing the cached image arrays + boundary mask (expensive).
+        self._review_image_override_version += 1
+
+    def _invalidate_review_image_frame_cache(self) -> None:
+        """Drop the decoded fluor / mask / boundary cache.
+
+        Call on data load (well paths change) and on dataset re-scan so the
+        next refresh re-decodes from disk.
+        """
+        self._review_image_frame_cache = None
+        self._review_image_include_cache.clear()
+        self._review_image_override_version += 1
 
     def _compute_group_stats(
         self,
