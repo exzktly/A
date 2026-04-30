@@ -95,95 +95,128 @@ from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
 from well_viewer.viewer_state import selected_listbox_values as _selected_listbox_values
-from well_viewer.barplot_controller import bar_groups_from_data as _bar_groups_from_data
-from well_viewer.barplot_controller import bar_groups_to_dict as _bar_groups_to_dict
-from well_viewer.barplot_controller import apply_bar_ylims as _bar_apply_ylims
-from well_viewer.barplot_controller import collect_bar_items as _bar_collect_items
-from well_viewer.barplot_controller import ordered_bar_keys as _bar_ordered_keys
-from well_viewer.barplot_controller import render_bar_items as _bar_render_items
 from well_viewer import debug_flags as _debug_flags
-from well_viewer.preview_controller import classify_member as _preview_classify_member
-from well_viewer.preview_controller import open_imgref_as_array as _preview_open_imgref_as_array
-from well_viewer.preview_controller import read_member_bytes as _preview_read_member_bytes
-from well_viewer.preview_controller import scan_zip_members as _preview_scan_zip_members
+# image_resolver names used at module top-level (in _norm_well, _suffix_matcher)
+# must remain eager so module-load constants resolve.
 from well_viewer.image_resolver import (
-    find_well_subfolder_path as _find_well_subfolder_path,
     normalize_well_token as _normalize_well_token,
     output_suffixes_for_kind as _output_suffixes_for_kind,
-    resolve_ref_by_fov_tp as _resolve_ref_by_fov_tp,
-    well_token_matches_text as _well_token_matches_text,
 )
+
+
+# ── Lazy controller proxies ──────────────────────────────────────────────────
+# Most controller delegates are only invoked when the user interacts with a
+# specific tab (redraw plots, click image, run stats, etc.) — never during
+# import or build_ui. Importing them eagerly forces the matplotlib QtAgg
+# backend, numpy, and a tower of view modules to load before the window
+# paints, which dominates startup cost.
+#
+# Each lazy proxy below resolves its target on first call, then caches it.
+# Subsequent calls are a single dict lookup + indirect call.
+def _lazy(module_path: str, attr: str):
+    cache: list = []
+    def _proxy(*args, **kwargs):
+        if not cache:
+            from importlib import import_module
+            cache.append(getattr(import_module(module_path), attr))
+        return cache[0](*args, **kwargs)
+    _proxy.__name__ = f"_lazy<{module_path}.{attr}>"
+    return _proxy
+
+
+_bar_groups_from_data = _lazy("well_viewer.barplot_controller", "bar_groups_from_data")
+_bar_groups_to_dict = _lazy("well_viewer.barplot_controller", "bar_groups_to_dict")
+_bar_apply_ylims = _lazy("well_viewer.barplot_controller", "apply_bar_ylims")
+_bar_collect_items = _lazy("well_viewer.barplot_controller", "collect_bar_items")
+_bar_ordered_keys = _lazy("well_viewer.barplot_controller", "ordered_bar_keys")
+_bar_render_items = _lazy("well_viewer.barplot_controller", "render_bar_items")
+
+_preview_classify_member = _lazy("well_viewer.preview_controller", "classify_member")
+_preview_open_imgref_as_array = _lazy("well_viewer.preview_controller", "open_imgref_as_array")
+_preview_read_member_bytes = _lazy("well_viewer.preview_controller", "read_member_bytes")
+_preview_scan_zip_members = _lazy("well_viewer.preview_controller", "scan_zip_members")
+
+_find_well_subfolder_path = _lazy("well_viewer.image_resolver", "find_well_subfolder_path")
+_resolve_ref_by_fov_tp = _lazy("well_viewer.image_resolver", "resolve_ref_by_fov_tp")
+_well_token_matches_text = _lazy("well_viewer.image_resolver", "well_token_matches_text")
+
+# preview_view.build_preview_picker is invoked from build_centre at startup
+# so we keep it eager. The two interaction helpers can defer.
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
-from well_viewer.views.preview_view import preview_pick_well as _preview_pick_well_view
-from well_viewer.views.preview_view import refresh_preview_picker as _refresh_preview_picker_view
-from well_viewer.image_table_controller import (
-    image_table_apply_dimensions as _it_apply_dimensions,
-    image_table_apply_global as _it_apply_global,
-    image_table_apply_row_channel as _it_apply_row_channel,
-    image_table_auto_lut as _it_auto_lut,
-    image_table_clear_active as _it_clear_active,
-    image_table_distribute_wells as _it_distribute_wells,
-    image_table_export as _it_export,
-    image_table_generate as _it_generate,
-    image_table_pick_well as _it_pick_well,
-    image_table_rebuild_grid as _it_rebuild_grid,
-    image_table_refresh_picker as _it_refresh_picker,
-    image_table_repopulate_dropdowns as _it_repopulate_dropdowns,
-    image_table_select_all as _it_select_all,
-)
-from well_viewer.lineplot_controller import redraw_line_plots as _lineplot_redraw
-from well_viewer.scatter_controller import get_all_timepoints as _scatter_get_timepoints
-from well_viewer.scatter_controller import redraw_scatter as _scatter_redraw
-from well_viewer.grouping_controller import (
-    bg_apply_legacy as _gc_bg_apply_legacy,
-    bg_on_well_change as _gc_bg_on_well_change,
-    grp_add as _gc_grp_add,
-    grp_add_member as _gc_grp_add_member,
-    grp_add_solo_well as _gc_grp_add_solo_well,
-    grp_clear_all as _gc_grp_clear_all,
-    grp_delete as _gc_grp_delete,
-    grp_remove_member as _gc_grp_remove_member,
-    grp_remove_solo as _gc_grp_remove_solo,
-    grp_rename as _gc_grp_rename,
-    grp_select as _gc_grp_select,
-    grp_toggle_visibility as _gc_grp_toggle_visibility,
-    rep_map_apply as _gc_rep_map_apply,
-    rep_map_drag as _gc_rep_map_drag,
-    rep_map_press as _gc_rep_map_press,
-    rep_map_release as _gc_rep_map_release,
-    rep_map_tok_at as _gc_rep_map_tok_at,
-)
-from well_viewer.load_controller import (
-    build_tok_to_label as _load_build_tok_to_label,
-    load_directory as _load_directory_controller,
-    load_path as _load_path_controller,
-)
-from well_viewer.plot_orchestrator import (
-    redraw as _plot_redraw_orchestrator,
-    save_bar_figure as _plot_save_bar_figure_orchestrator,
-    save_line_figure as _plot_save_line_figure_orchestrator,
-    save_matplotlib_fig as _plot_save_matplotlib_fig_orchestrator,
-)
-from well_viewer.montage_controller import montage_auto_lut as _montage_auto_lut_controller
-from well_viewer.montage_controller import montage_redraw_at_zoom as _montage_redraw_at_zoom_controller
-from well_viewer.montage_controller import montage_resize_deferred as _montage_resize_deferred_controller
-from well_viewer.montage_controller import montage_tophat_done as _montage_tophat_done_controller
-from well_viewer.montage_controller import montage_zoom_fit as _montage_zoom_fit_controller
-from well_viewer.montage_controller import montage_zoom_step as _montage_zoom_step_controller
-from well_viewer.montage_controller import on_montage_canvas_resize as _on_montage_canvas_resize_controller
-from well_viewer.montage_controller import on_montage_fluor_motion as _on_montage_fluor_motion_controller
-from well_viewer.montage_controller import on_montage_shift_wheel as _on_montage_shift_wheel_controller
-from well_viewer.montage_controller import on_montage_wheel as _on_montage_wheel_controller
-from well_viewer.montage_controller import _show_image_pixel_tooltip as _show_image_pixel_tooltip_controller
-from well_viewer.review_image_controller import on_review_csv_row_double_click as _on_review_csv_row_double_click_controller
-from well_viewer.review_image_controller import on_review_image_click as _on_review_image_click_controller
-from well_viewer.review_image_controller import select_review_csv_row_for_cell as _select_review_csv_row_for_cell_controller
-from well_viewer.stats_controller import collect_group_values as _stats_collect_group_values
-from well_viewer.stats_controller import draw_ks_cdf as _stats_draw_ks_cdf
-from well_viewer.stats_controller import run_stats as _stats_run_controller
+_preview_pick_well_view = _lazy("well_viewer.views.preview_view", "preview_pick_well")
+_refresh_preview_picker_view = _lazy("well_viewer.views.preview_view", "refresh_preview_picker")
+
+_it_apply_dimensions = _lazy("well_viewer.image_table_controller", "image_table_apply_dimensions")
+_it_apply_global = _lazy("well_viewer.image_table_controller", "image_table_apply_global")
+_it_apply_row_channel = _lazy("well_viewer.image_table_controller", "image_table_apply_row_channel")
+_it_auto_lut = _lazy("well_viewer.image_table_controller", "image_table_auto_lut")
+_it_clear_active = _lazy("well_viewer.image_table_controller", "image_table_clear_active")
+_it_distribute_wells = _lazy("well_viewer.image_table_controller", "image_table_distribute_wells")
+_it_export = _lazy("well_viewer.image_table_controller", "image_table_export")
+_it_generate = _lazy("well_viewer.image_table_controller", "image_table_generate")
+_it_pick_well = _lazy("well_viewer.image_table_controller", "image_table_pick_well")
+_it_rebuild_grid = _lazy("well_viewer.image_table_controller", "image_table_rebuild_grid")
+_it_refresh_picker = _lazy("well_viewer.image_table_controller", "image_table_refresh_picker")
+_it_repopulate_dropdowns = _lazy("well_viewer.image_table_controller", "image_table_repopulate_dropdowns")
+_it_select_all = _lazy("well_viewer.image_table_controller", "image_table_select_all")
+
+_lineplot_redraw = _lazy("well_viewer.lineplot_controller", "redraw_line_plots")
+_scatter_get_timepoints = _lazy("well_viewer.scatter_controller", "get_all_timepoints")
+_scatter_redraw = _lazy("well_viewer.scatter_controller", "redraw_scatter")
+
+_gc_bg_apply_legacy = _lazy("well_viewer.grouping_controller", "bg_apply_legacy")
+_gc_bg_on_well_change = _lazy("well_viewer.grouping_controller", "bg_on_well_change")
+_gc_grp_add = _lazy("well_viewer.grouping_controller", "grp_add")
+_gc_grp_add_member = _lazy("well_viewer.grouping_controller", "grp_add_member")
+_gc_grp_add_solo_well = _lazy("well_viewer.grouping_controller", "grp_add_solo_well")
+_gc_grp_clear_all = _lazy("well_viewer.grouping_controller", "grp_clear_all")
+_gc_grp_delete = _lazy("well_viewer.grouping_controller", "grp_delete")
+_gc_grp_remove_member = _lazy("well_viewer.grouping_controller", "grp_remove_member")
+_gc_grp_remove_solo = _lazy("well_viewer.grouping_controller", "grp_remove_solo")
+_gc_grp_rename = _lazy("well_viewer.grouping_controller", "grp_rename")
+_gc_grp_select = _lazy("well_viewer.grouping_controller", "grp_select")
+_gc_grp_toggle_visibility = _lazy("well_viewer.grouping_controller", "grp_toggle_visibility")
+_gc_rep_map_apply = _lazy("well_viewer.grouping_controller", "rep_map_apply")
+_gc_rep_map_drag = _lazy("well_viewer.grouping_controller", "rep_map_drag")
+_gc_rep_map_press = _lazy("well_viewer.grouping_controller", "rep_map_press")
+_gc_rep_map_release = _lazy("well_viewer.grouping_controller", "rep_map_release")
+_gc_rep_map_tok_at = _lazy("well_viewer.grouping_controller", "rep_map_tok_at")
+
+_load_build_tok_to_label = _lazy("well_viewer.load_controller", "build_tok_to_label")
+_load_directory_controller = _lazy("well_viewer.load_controller", "load_directory")
+_load_path_controller = _lazy("well_viewer.load_controller", "load_path")
+
+_plot_redraw_orchestrator = _lazy("well_viewer.plot_orchestrator", "redraw")
+_plot_save_bar_figure_orchestrator = _lazy("well_viewer.plot_orchestrator", "save_bar_figure")
+_plot_save_line_figure_orchestrator = _lazy("well_viewer.plot_orchestrator", "save_line_figure")
+_plot_save_matplotlib_fig_orchestrator = _lazy("well_viewer.plot_orchestrator", "save_matplotlib_fig")
+
+_montage_auto_lut_controller = _lazy("well_viewer.montage_controller", "montage_auto_lut")
+_montage_redraw_at_zoom_controller = _lazy("well_viewer.montage_controller", "montage_redraw_at_zoom")
+_montage_resize_deferred_controller = _lazy("well_viewer.montage_controller", "montage_resize_deferred")
+_montage_tophat_done_controller = _lazy("well_viewer.montage_controller", "montage_tophat_done")
+_montage_zoom_fit_controller = _lazy("well_viewer.montage_controller", "montage_zoom_fit")
+_montage_zoom_step_controller = _lazy("well_viewer.montage_controller", "montage_zoom_step")
+_on_montage_canvas_resize_controller = _lazy("well_viewer.montage_controller", "on_montage_canvas_resize")
+_on_montage_fluor_motion_controller = _lazy("well_viewer.montage_controller", "on_montage_fluor_motion")
+_on_montage_shift_wheel_controller = _lazy("well_viewer.montage_controller", "on_montage_shift_wheel")
+_on_montage_wheel_controller = _lazy("well_viewer.montage_controller", "on_montage_wheel")
+_show_image_pixel_tooltip_controller = _lazy("well_viewer.montage_controller", "_show_image_pixel_tooltip")
+
+_on_review_csv_row_double_click_controller = _lazy("well_viewer.review_image_controller", "on_review_csv_row_double_click")
+_on_review_image_click_controller = _lazy("well_viewer.review_image_controller", "on_review_image_click")
+_select_review_csv_row_for_cell_controller = _lazy("well_viewer.review_image_controller", "select_review_csv_row_for_cell")
+
+_stats_collect_group_values = _lazy("well_viewer.stats_controller", "collect_group_values")
+_stats_draw_ks_cdf = _lazy("well_viewer.stats_controller", "draw_ks_cdf")
+_stats_run_controller = _lazy("well_viewer.stats_controller", "run_stats")
+
+# stats_view builders are invoked from centre_view at startup; keep eager so
+# the build path doesn't pay a lazy resolution penalty.
 from well_viewer.views.stats_view import build_stats_group_editor as _build_stats_group_editor_view
 from well_viewer.views.stats_view import build_stats_results_panel as _build_stats_results_panel_view
 from well_viewer.views.stats_view import build_stats_tab as _build_stats_tab_view
+
 from well_viewer.viewer_state import make_schema_extractor as _make_schema_extractor
 from well_viewer.viewer_state import read_pipeline_info as _read_pipeline_info_shared
 from well_viewer.ui_helpers import (
@@ -1301,6 +1334,17 @@ class WellViewerApp(QWidget):
         self._review_image_lut_by_channel: Dict[str, Tuple[float, float]] = {}
         self._review_image_last_fluor_arr = None
         self._review_image_preserve_view_on_refresh: bool = False
+        # Caches for the Review Image hot path. The frame cache stores the
+        # decoded fluorescence + label arrays plus the boundary mask for the
+        # currently-displayed (fluor_ref, mask_ref) pair; LUT edits, channel
+        # switches that reuse the same arrays, and cell toggles all reuse it
+        # instead of re-decoding from disk and re-running the boundary
+        # convolution. The include cache memoises {nucleus_id -> included}
+        # per (well, fov, tp) so a refresh can skip the row-iteration loop
+        # unless the user has actually toggled inclusion or gating ran.
+        self._review_image_frame_cache: Optional[dict] = None
+        self._review_image_include_cache: Dict[Tuple[str, str, str, int], Dict[int, bool]] = {}
+        self._review_image_override_version: int = 0
         # When True, the Review Image tab loads the unprocessed fluorescence
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
@@ -2956,6 +3000,103 @@ class WellViewerApp(QWidget):
             self._invalidate_stats_cache()
         return True
 
+    # ── Cell Gating persistence (in pipeline_info.json) ───────────────────────
+
+    def _save_gating_to_pipeline_info(self) -> None:
+        """Persist non-default cell gating params to pipeline_info.json.
+
+        Called from the Cell Gating tab whenever the user edits a value.
+        Silently no-ops when no data directory is loaded or the sidecar
+        is missing — gating params live alongside the pipeline output.
+        """
+        if not self._data_dir:
+            return
+        tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
+            return
+        from well_viewer.gating_state import (
+            build_gating_block,
+            save_gating_to_pipeline_info,
+        )
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        thresh_frac_on = {
+            ch: tab.get_thresh_frac_on(ch) for ch in self._fluor_channels
+        }
+        block = build_gating_block(
+            cell_area_threshold, fluor_gates, thresh_frac_on,
+        )
+        save_gating_to_pipeline_info(self._data_dir, block)
+
+    def _load_gating_from_pipeline_info(self) -> bool:
+        """Apply any saved cell_gating block in pipeline_info.json.
+
+        Returns True when a block was found and applied. The Cell Gating
+        tab is built lazily, so when the sidecar has persisted thresholds
+        we force-build the tab here so its QLineEdits exist before we try
+        to set them — otherwise the user would have to click Cell Gating
+        before saved thresholds applied to the plots.
+        """
+        if not self._data_dir:
+            return False
+        from well_viewer.gating_state import read_gating_params
+        block = read_gating_params(self._data_dir)
+        if not block:
+            return False
+
+        # Cell Gating builds lazily by default. Force-build it now so the
+        # tab's QLineEdits exist and saved thresholds can be applied
+        # immediately, instead of silently waiting for the user to click
+        # the tab.
+        tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
+            build = getattr(self, "_centre_build_pending", None)
+            if callable(build):
+                build("Cell Gating")
+            tab = getattr(self, "_cell_gating_tab", None)
+        if tab is None:
+            return False
+
+        applied = False
+        cell_area = block.get("cell_area_threshold")
+        if cell_area is not None:
+            try:
+                tab._cell_area_edit.setText(str(float(cell_area)))
+                applied = True
+            except (ValueError, TypeError, AttributeError):
+                pass
+
+        fluor_gates = block.get("fluor_gates") or {}
+        if isinstance(fluor_gates, dict):
+            for ch, val in fluor_gates.items():
+                edit = tab._fluor_gate_edits.get(str(ch))
+                if edit is None:
+                    continue
+                try:
+                    edit.setText(str(float(val)))
+                    applied = True
+                except (ValueError, TypeError):
+                    pass
+
+        thresh_frac_on = block.get("thresh_frac_on") or {}
+        if isinstance(thresh_frac_on, dict):
+            # Prime both the cached app-level dict (used by _load_threshold_frac_on)
+            # and the live QLineEdits, in case channel controls already exist.
+            if not hasattr(self, "_thresh_frac_on_saved"):
+                self._thresh_frac_on_saved = {}
+            for ch, val in thresh_frac_on.items():
+                try:
+                    fval = float(val)
+                except (ValueError, TypeError):
+                    continue
+                self._thresh_frac_on_saved[str(ch)] = fval
+                edit = tab._thresh_frac_edits.get(str(ch))
+                if edit is not None:
+                    edit.setText(str(fval))
+                    applied = True
+
+        return applied
+
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
         # Prune global replicate sets
@@ -3592,11 +3733,35 @@ class WellViewerApp(QWidget):
             QTimer.singleShot(50, lambda: self._load_path(Path(d)))
 
     def _load_path(self, path):
+        # Drain any pending deferred tab builds so post-load redraw paths
+        # (e.g., _redraw_bars in _recalculate_threshold call sites) hit
+        # fully-constructed tabs instead of unbuilt placeholders.
+        self._drain_pending_centre_builders()
         _load_path_controller(self, path)
 
 
     def _load_directory(self, d: Path, label: Optional[str] = None) -> None:
+        self._drain_pending_centre_builders()
         _load_directory_controller(self, d, label=label)
+
+    def _drain_pending_centre_builders(self) -> None:
+        """Force-build any centre tab whose body was deferred at startup.
+
+        Tabs marked lazy-only (Cell Gating, smFISH) are intentionally
+        skipped — they construct only when the user actually clicks the
+        tab. The tab-switch handler in ``centre_view`` builds them inline
+        on first access.
+        """
+        pending = getattr(self, "_centre_pending_builders", None)
+        build = getattr(self, "_centre_build_pending", None)
+        if not pending or build is None:
+            return
+        lazy_only = getattr(self, "_centre_lazy_only_titles", frozenset())
+        # Snapshot keys — _centre_build_pending mutates the dict.
+        for title in list(pending.keys()):
+            if title in lazy_only:
+                continue
+            build(title)
 
     def _read_pipeline_info(self, path: Path):
         return _read_pipeline_info_shared(path, logger=_logger, check_parent=True)
@@ -4074,10 +4239,17 @@ class WellViewerApp(QWidget):
         self._threshold_min = lo
         self._threshold_max = hi
 
-        # Load cell areas in the Cell Gating tab
+        # Hydrate persisted gating params from pipeline_info.json. The Cell
+        # Gating tab is lazy by default, but ``_load_gating_from_pipeline_info``
+        # force-builds it whenever the sidecar carries non-default thresholds
+        # so they apply at data-load time without waiting on a user click.
+        # When no thresholds were saved, the call is a cheap no-op and Cell
+        # Gating stays unbuilt.
+        self._load_gating_from_pipeline_info()
         if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+            # Refresh the per-channel CDF + saved ThreshFracOn values now
+            # that the tab exists and channels are known.
             self._cell_gating_tab._load_cell_areas()
-            # Load saved ThreshFracOn values
             self._cell_gating_tab._load_threshold_frac_on()
 
     # ── Ratio metric helpers ─────────────────────────────────────────────────
@@ -4866,21 +5038,63 @@ class WellViewerApp(QWidget):
                 )
             return
         self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
-
-        fluor_arr = open_imgref_as_array(fluor_ref, greyscale=True)
-        mask_arr = open_imgref_as_array(mask_ref, greyscale=True)
-        if fluor_arr is None or mask_arr is None or not _NP_AVAILABLE or not _PIL_AVAILABLE:
-            self._review_image_status.setText("Could not render review image (numpy/PIL unavailable).")
+        if not _NP_AVAILABLE:
+            self._review_image_status.setText("Could not render review image (numpy unavailable).")
             return
 
-        include_by_nid = self._review_build_include_map(mask_arr, well, fov, tp)
+        # Try the frame cache first: when the user is just adjusting LUT,
+        # toggling cells, or clicking nuclei on the same frame, we can skip
+        # the disk read + boundary convolution entirely.
+        cache_key = (
+            getattr(fluor_ref, "full_path_str", id(fluor_ref)),
+            getattr(mask_ref, "full_path_str", id(mask_ref)),
+        )
+        cached = self._review_image_frame_cache
+        if cached is not None and cached.get("key") == cache_key:
+            fluor_arr = cached["fluor_arr"]
+            center = cached["center"]
+            boundary = cached["boundary"]
+        else:
+            fluor_raw = open_imgref_as_array(fluor_ref, greyscale=True)
+            mask_raw = open_imgref_as_array(mask_ref, greyscale=True)
+            if fluor_raw is None or mask_raw is None:
+                self._review_image_status.setText("Could not render review image (image decode failed).")
+                return
+            fluor_arr = _np.asarray(fluor_raw, dtype=_np.float32)
+            center_int = _np.rint(_np.asarray(mask_raw)).astype(_np.int32, copy=False)
+            padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
+            center = padded[1:-1, 1:-1]
+            boundary = (center > 0) & (
+                (center != padded[:-2, 1:-1]) |
+                (center != padded[2:, 1:-1]) |
+                (center != padded[1:-1, :-2]) |
+                (center != padded[1:-1, 2:])
+            )
+            self._review_image_frame_cache = {
+                "key": cache_key,
+                "fluor_arr": fluor_arr,
+                "center": center,
+                "boundary": boundary,
+            }
+
+        # Memoise the include map per (well, fov, tp, override_version) so
+        # repeat refreshes on the same frame skip the row-iteration loop.
+        ic_key = (well, fov, tp, self._review_image_override_version)
+        include_by_nid = self._review_image_include_cache.get(ic_key)
+        if include_by_nid is None:
+            include_by_nid = self._review_build_include_map(center, well, fov, tp)
+            # Trim the cache to a small bounded set so it doesn't grow with
+            # every (fov, tp) the user visits.
+            if len(self._review_image_include_cache) > 32:
+                self._review_image_include_cache.clear()
+            self._review_image_include_cache[ic_key] = include_by_nid
         preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
         self._review_image_preserve_view_on_refresh = False
         if channel_switch_debug:
             _logger.debug("[RI-CHSW step 6->7] draw_review_image preserve_view=%s", preserve_view)
         self._draw_review_image(
-            fluor_arr, mask_arr, include_by_nid,
-            fit_lut=False, preserve_view=preserve_view,
+            fluor_arr, center, include_by_nid,
+            fit_lut=False, preserve_view=preserve_view, boundary=boundary,
         )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
@@ -4939,6 +5153,7 @@ class WellViewerApp(QWidget):
         *,
         fit_lut: bool = False,
         preserve_view: bool = False,
+        boundary=None,
     ) -> None:
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
@@ -4963,17 +5178,30 @@ class WellViewerApp(QWidget):
             self._review_lut_min_edit.setText(f"{lo:.0f}")
             self._review_lut_max_edit.setText(f"{hi:.0f}")
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
-        rgb = _np.dstack([base, base, base])
+        # Build the RGB array directly with broadcasting; np.dstack would
+        # make three separate copies before stacking.
+        h, w = base.shape
+        rgb = _np.empty((h, w, 3), dtype=_np.uint8)
+        rgb[..., 0] = base
+        rgb[..., 1] = base
+        rgb[..., 2] = base
 
-        center_int = _np.rint(m).astype(_np.int32, copy=False)
-        padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
-        center = padded[1:-1, 1:-1]
-        boundary = (center > 0) & (
-            (center != padded[:-2, 1:-1]) |
-            (center != padded[2:, 1:-1]) |
-            (center != padded[1:-1, :-2]) |
-            (center != padded[1:-1, 2:])
-        )
+        # The caller (``_refresh_review_image``) supplies a cached center +
+        # boundary when the frame hasn't changed. Recompute on demand only
+        # when those caches aren't available.
+        if m.dtype != _np.int32 or m.ndim != 2:
+            center = _np.rint(m).astype(_np.int32, copy=False)
+        else:
+            center = m
+        if boundary is None:
+            padded = _np.pad(center, 1, mode="constant", constant_values=0)
+            center_view = padded[1:-1, 1:-1]
+            boundary = (center_view > 0) & (
+                (center_view != padded[:-2, 1:-1]) |
+                (center_view != padded[2:, 1:-1]) |
+                (center_view != padded[1:-1, :-2]) |
+                (center_view != padded[1:-1, 2:])
+            )
         # Build the inclusion mask via a single np.isin pass over the label
         # image. The previous per-nucleus loop allocated a fresh image-sized
         # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
@@ -4994,8 +5222,13 @@ class WellViewerApp(QWidget):
             sel_boundary = boundary & (center == int(sel_nid))
             rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
 
-        img = _PILImage.fromarray(rgb, mode="RGB")
-        self._review_image_base_pil = img
+        # Stash the rendered RGB so display rescales / zoom can rebuild the
+        # pixmap without recomputing tinted overlays. We retain the PIL
+        # handle for legacy callers that read ``_review_image_base_pil``.
+        self._review_image_base_rgb = _np.ascontiguousarray(rgb)
+        self._review_image_base_pil = (
+            _PILImage.fromarray(rgb, mode="RGB") if _PIL_AVAILABLE else None
+        )
         if not preserve_view:
             self._review_image_zoom = 1.0
             self._review_image_pan_x = 0.0
@@ -5017,28 +5250,63 @@ class WellViewerApp(QWidget):
                 float(getattr(self, "_review_image_pan_y", 0.0)),
             )
 
-    def _render_review_image_display(self) -> None:
-        if not hasattr(self, "_review_image_label") or self._review_image_base_pil is None:
+    def _render_review_image_display(self, *, pan_only: bool = False) -> None:
+        if not hasattr(self, "_review_image_label"):
+            return
+        rgb = getattr(self, "_review_image_base_rgb", None)
+        if rgb is None and self._review_image_base_pil is None:
             return
         if _debug_flags.review_image_channel_switch_debug_enabled():
-            _logger.debug("[RI-CHSW step 7] render_review_image_display start")
-        img = self._review_image_base_pil
-        iw, ih = img.size
+            _logger.debug(
+                "[RI-CHSW step 7] render_review_image_display start pan_only=%s",
+                pan_only,
+            )
+        if rgb is not None:
+            ih, iw = rgb.shape[:2]
+        else:
+            iw, ih = self._review_image_base_pil.size
         vp = self._review_image_canvas.viewport()
         cw = max(1, vp.width())
         ch = max(1, vp.height())
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-        shown = img.resize((nw, nh), _PILImage.NEAREST)
-        if shown.mode != "RGBA":
-            shown = shown.convert("RGBA")
-        data = shown.tobytes("raw", "RGBA")
-        qimg = QImage(data, nw, nh, 4 * nw, QImage.Format_RGBA8888).copy()
-        pm = QPixmap.fromImage(qimg)
-        self._review_image_label.setPixmap(pm)
-        self._review_image_label.resize(max(nw, cw), max(nh, ch))
-        self._review_image_scale = scale
+
+        # Pan keeps the same pixmap and just adjusts scrollbars. Avoiding
+        # the upscale + QImage allocation saves tens of ms per drag event,
+        # which is what makes panning feel jittery on large frames.
+        cached_scale = getattr(self, "_review_image_scale", None)
+        existing_pm = self._review_image_label.pixmap()
+        rebuild = not pan_only or existing_pm is None or existing_pm.isNull() or cached_scale != scale
+
+        if rebuild:
+            if rgb is not None:
+                # Direct numpy -> QImage path skips the PIL roundtrip
+                # (fromarray + resize + convert("RGBA") + tobytes), which
+                # halves the per-refresh allocation and copy work on the
+                # 2048x2048 frames the tab typically displays.
+                buf = rgb if rgb.flags["C_CONTIGUOUS"] else _np.ascontiguousarray(rgb)
+                qimg = QImage(
+                    buf.data, iw, ih, 3 * iw, QImage.Format_RGB888,
+                ).copy()
+                pm = QPixmap.fromImage(qimg)
+                if (nw, nh) != (iw, ih):
+                    pm = pm.scaled(
+                        nw, nh, Qt.IgnoreAspectRatio, Qt.FastTransformation,
+                    )
+            else:
+                img = self._review_image_base_pil
+                shown = img.resize((nw, nh), _PILImage.NEAREST)
+                if shown.mode != "RGBA":
+                    shown = shown.convert("RGBA")
+                data = shown.tobytes("raw", "RGBA")
+                qimg = QImage(
+                    data, nw, nh, 4 * nw, QImage.Format_RGBA8888,
+                ).copy()
+                pm = QPixmap.fromImage(qimg)
+            self._review_image_label.setPixmap(pm)
+            self._review_image_label.resize(max(nw, cw), max(nh, ch))
+            self._review_image_scale = scale
         pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
         pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
         hbar = self._review_image_canvas.horizontalScrollBar()
@@ -5049,12 +5317,13 @@ class WellViewerApp(QWidget):
         vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), cy)))
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
-                "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f",
+                "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f rebuild=%s",
                 iw,
                 ih,
                 nw,
                 nh,
                 scale,
+                rebuild,
             )
 
     def _review_image_zoom_step(self, direction: int) -> None:
@@ -5099,7 +5368,8 @@ class WellViewerApp(QWidget):
         self._review_image_pan_x = float(getattr(self, "_review_image_pan_x", 0.0) + dx)
         self._review_image_pan_y = float(getattr(self, "_review_image_pan_y", 0.0) + dy)
         self._review_image_drag_last_xy = (gx, gy)
-        self._render_review_image_display()
+        # Pan reuses the existing pixmap; only the scrollbars need to move.
+        self._render_review_image_display(pan_only=True)
 
     def _on_review_image_release(self, event) -> None:
         was_dragging = getattr(self, "_review_image_dragging", False)
@@ -5177,6 +5447,10 @@ class WellViewerApp(QWidget):
             return
         key = (self._preview_selected_well, fov_n, tp_n, nid_n)
         self._review_included_overrides[key] = str(included).strip() or "1"
+        # Bump the override version so the include-map cache is bypassed
+        # on the next refresh; the frame cache (decoded image + boundary)
+        # remains valid because the underlying mask label image is unchanged.
+        self._review_image_override_version += 1
         prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
         prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
         prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
@@ -5204,10 +5478,14 @@ class WellViewerApp(QWidget):
         cx = float(xs.mean())
         cy = float(ys.mean())
         self._review_image_zoom = float(max(1.0, zoom))
-        img = self._review_image_base_pil
-        if img is None:
-            return
-        iw, ih = img.size
+        rgb = getattr(self, "_review_image_base_rgb", None)
+        if rgb is not None:
+            ih, iw = rgb.shape[:2]
+        else:
+            img = self._review_image_base_pil
+            if img is None:
+                return
+            iw, ih = img.size
         vp = self._review_image_canvas.viewport()
         cw = max(1, vp.width())
         ch = max(1, vp.height())
@@ -6065,6 +6343,10 @@ class WellViewerApp(QWidget):
 
     def _redraw_bars(self) -> None:
         """Draw bar/violin/beeswarm views for the selected timepoint."""
+        # The Bar Plots tab body is built lazily — bail out if the user
+        # somehow triggers a redraw before that builder has run.
+        if not hasattr(self, "_ax_bar_mean"):
+            return
         ax_mean = self._ax_bar_mean
         ax_frac = self._ax_bar_frac
         ax_n = getattr(self, "_ax_bar_n", None)
@@ -6582,6 +6864,21 @@ class WellViewerApp(QWidget):
         # per-FOV toggle is still applicable. Cheap; only walks _fov_btns.
         if hasattr(self, "_refresh_fov_btn_state"):
             self._refresh_fov_btn_state()
+        # Cell gating writes new ``Included`` flags onto cached rows, which
+        # the Review Image include map mirrors. Bumping the version key
+        # forces the next refresh to recompute the include map (cheap)
+        # while reusing the cached image arrays + boundary mask (expensive).
+        self._review_image_override_version += 1
+
+    def _invalidate_review_image_frame_cache(self) -> None:
+        """Drop the decoded fluor / mask / boundary cache.
+
+        Call on data load (well paths change) and on dataset re-scan so the
+        next refresh re-decodes from disk.
+        """
+        self._review_image_frame_cache = None
+        self._review_image_include_cache.clear()
+        self._review_image_override_version += 1
 
     def _compute_group_stats(
         self,
@@ -6903,6 +7200,10 @@ class WellViewerApp(QWidget):
 
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
+        # Scatter Plot: Cells tab body is built lazily — bail out if the
+        # user triggers a redraw before that builder has run.
+        if not hasattr(self, "_scatter_ch_x_var"):
+            return
         try:
             ch_x_entry = self._scatter_ch_x_var.get()
             ch_y_entry = self._scatter_ch_y_var.get()
@@ -7046,6 +7347,10 @@ class WellViewerApp(QWidget):
 
     def _redraw_scatter_agg(self) -> None:
         """Redraw the aggregate scatter plot with current selections."""
+        # Scatter Plot: Aggregate tab body is built lazily — bail out if
+        # the user triggers a redraw before that builder has run.
+        if not hasattr(self, "_scatter_agg_stat_x_var"):
+            return
         try:
             stat_x = self._scatter_agg_stat_x_var.get()
             stat_y = self._scatter_agg_stat_y_var.get()

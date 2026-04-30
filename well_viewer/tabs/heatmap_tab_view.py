@@ -14,10 +14,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
-from well_viewer.heatmap_controller import METRIC_OPTIONS
 from well_viewer.ui_helpers import attach_plot_toolbar, ComboVar, make_plot_with_right_dock
 
 
@@ -26,6 +22,13 @@ _SCALE_OPTIONS = ["Auto", "Fixed"]
 
 
 def build_heatmap_tab(app, parent: QWidget) -> None:
+    # Defer matplotlib + heatmap_controller imports until the tab actually
+    # builds. heatmap_controller pulls in matplotlib.patches and numpy at
+    # module load, so importing it lazily keeps utility entry points like
+    # ``refresh_heatmap_timepoints`` cheap.
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
+    from well_viewer.heatmap_controller import METRIC_OPTIONS
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)

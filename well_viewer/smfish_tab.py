@@ -12,20 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-import matplotlib
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
 )
-
-matplotlib.use("QtAgg")
-
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-from skimage.segmentation import find_boundaries
-from tifffile import imread
 
 from ui.theme import get_color
 from well_viewer.image_resolver import output_suffixes_for_kind, resolve_ref_by_fov_tp
@@ -83,6 +75,16 @@ class SmfishTab(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        # Defer matplotlib imports until the tab actually builds. Loading
+        # the QtAgg backend at module import time was a measurable chunk
+        # of startup latency.
+        import matplotlib  # noqa: F401  (kept for setattr below)
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+        # Make Figure / FigureCanvas reachable from other methods on this
+        # instance so they don't have to re-import each time.
+        self._Figure = Figure
+        self._FigureCanvas = FigureCanvas
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
 
@@ -195,9 +197,9 @@ class SmfishTab(QWidget):
         popup.setWindowTitle("smFISH CDF")
         popup.resize(760, 380)
         vl = QVBoxLayout(popup)
-        self._cdf_fig = Figure(figsize=(7.2, 3.4), dpi=100)
+        self._cdf_fig = self._Figure(figsize=(7.2, 3.4), dpi=100)
         self._cdf_ax = self._cdf_fig.add_subplot(111)
-        self._cdf_canvas = FigureCanvas(self._cdf_fig)
+        self._cdf_canvas = self._FigureCanvas(self._cdf_fig)
         vl.addWidget(self._cdf_canvas)
         popup.finished.connect(lambda _r: self._close_cdf_popup())
         self._cdf_popup = popup
@@ -426,6 +428,7 @@ class SmfishTab(QWidget):
         if sm_raw is None or mk_raw is None:
             self._set_status("Failed to load selected image data.")
             return
+        from tifffile import imread
         self._current_log_img = imread(io.BytesIO(sm_raw)).astype(np.float32)
         self._current_labels = imread(io.BytesIO(mk_raw))
         vals = self._current_log_img[self._current_labels > 0]
@@ -465,6 +468,10 @@ class SmfishTab(QWidget):
 
         self._ax_img.clear()
         self._ax_img.imshow(log_img, cmap="gray", vmin=lut_min, vmax=lut_max)
+        # skimage is multi-second to import on cold caches; defer until the
+        # first redraw so opening the smFISH tab without analysing data
+        # doesn't pay the cost.
+        from skimage.segmentation import find_boundaries
         bnd = find_boundaries(labels, mode="outer")
         if self._show_overlays:
             self._ax_img.contour(bnd.astype(np.uint8), levels=[0.5], colors="red", linewidths=0.5)
@@ -576,6 +583,8 @@ class SmfishTab(QWidget):
         thr = self._get_threshold()
         col = f"{channel}_smfish_count"
         counts: dict[tuple[str, str, str, str], int] = {}
+
+        from tifffile import imread
 
         def _process_well(well: str, zip_path: Path) -> dict[tuple[str, str, str, str], int]:
             per_well_counts: dict[tuple[str, str, str, str], int] = {}
