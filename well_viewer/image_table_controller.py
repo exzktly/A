@@ -41,6 +41,16 @@ LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
 LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
 
 
+# ── Virtual "Nuc+Seg" channel ───────────────────────────────────────────────
+#
+# The pipeline pre-renders a per-(FOV, timepoint) overlay PNG that paints
+# the segmentation mask outline on top of the nuclear channel. Exposing it
+# as a virtual channel here lets the Image Table double as the old Movie
+# Montage view: pick "NUC+SEG" in the channel column and Generate loads
+# those overlay images instead of a raw fluorescence channel.
+NUC_SEG_TOKEN = "NUC+SEG"
+
+
 # ── Sidebar picker ───────────────────────────────────────────────────────────
 
 
@@ -88,7 +98,13 @@ def image_table_clear_active(app) -> None:
 
 
 def _channel_options(app) -> List[str]:
-    """All channel tokens available for selection (uppercase for display)."""
+    """All channel tokens available for selection (uppercase for display).
+
+    Adds the virtual ``NUC+SEG`` token at the end when the pipeline produced
+    a nuclear channel — that's where the pre-rendered segmentation overlay
+    images live, and they're how the Image Table replaces the old Movie
+    Montage tab.
+    """
     info = getattr(app, "_pipeline_info", None) or {}
     chans: List[str] = []
     nuclear = (info.get("nuclear_token") or "").strip()
@@ -102,7 +118,14 @@ def _channel_options(app) -> List[str]:
         tok = str(tok).strip()
         if tok and tok not in chans:
             chans.append(tok)
-    return [c.upper() for c in chans]
+    options = [c.upper() for c in chans]
+    if nuclear:
+        options.append(NUC_SEG_TOKEN)
+    return options
+
+
+def _is_nuc_seg(chan: str) -> bool:
+    return str(chan or "").strip().upper() == NUC_SEG_TOKEN
 
 
 def _norm_token(value: object) -> str:
@@ -119,6 +142,25 @@ def _norm_token(value: object) -> str:
         return f"{float(raw):g}"
     except (TypeError, ValueError):
         return raw
+
+
+def _numeric_token(value: object) -> Optional[int]:
+    """Extract the first run of digits from *value* and return it as int.
+
+    Lets us match dropdown values like ``"1"`` against cache keys like
+    ``"T01"`` (both → ``1``). Returns ``None`` when no digits are present.
+    """
+    import re as _re
+    s = str(value or "").strip()
+    if not s:
+        return None
+    m = _re.search(r"\d+", s)
+    if not m:
+        return None
+    try:
+        return int(m.group(0))
+    except ValueError:
+        return None
 
 
 def _timepoint_options(app) -> List[str]:
@@ -219,6 +261,20 @@ def image_table_rebuild_grid(app) -> None:
     row_lut_color_cbs: List[QComboBox] = []
     for r in range(rows):
         row_box = QGroupBox(f"Row {r + 1}")
+        # Tinted background flags this groupbox as a row-scope control —
+        # changes here propagate to every cell in the row, in contrast to
+        # the per-cell selector groupboxes that use the default background.
+        row_box.setObjectName("ImageTableRowOptions")
+        row_box.setStyleSheet(
+            "QGroupBox#ImageTableRowOptions { "
+            "background-color: rgba(99, 102, 241, 0.10); "
+            "border: 1px solid rgba(99, 102, 241, 0.35); "
+            "border-radius: 4px; margin-top: 8px; "
+            "} "
+            "QGroupBox#ImageTableRowOptions::title { "
+            "subcontrol-origin: margin; left: 8px; padding: 0 4px; "
+            "}"
+        )
         rbl = QVBoxLayout(row_box)
         rbl.setContentsMargins(6, 8, 6, 6)
         rbl.setSpacing(4)
@@ -390,6 +446,62 @@ def image_table_apply_row_channel(app, row_idx: int) -> None:
         cb.blockSignals(False)
 
 
+def image_table_distribute_timepoints(app) -> None:
+    """Walk the available timepoints and assign one to each selector cell.
+
+    Mirrors ``distribute_wells`` but along the time axis: useful for the
+    Movie Montage workflow where every cell shares the same well, channel,
+    and FOV but the timepoint advances cell by cell. The first cell's
+    well / channel / FOV are propagated to every other cell so the table
+    is internally consistent without extra clicks.
+    """
+    cells = getattr(app, "_image_table_cells", None) or []
+    if not cells:
+        app._set_status("Image Table: build a grid first (set rows/cols).")
+        return
+
+    tps = _timepoint_options(app)
+    if not tps:
+        app._set_status("Image Table: no timepoints in pipeline_info.json.")
+        return
+
+    flat_cells = [(r, c, cell) for r, row in enumerate(cells) for c, cell in enumerate(row)]
+    if not flat_cells:
+        return
+
+    # Anchor on the first cell's well/channel/FOV so the user only has to
+    # set one cell before clicking distribute. Falls back to whatever
+    # the dropdowns currently display.
+    anchor = flat_cells[0][2]
+    anchor_well = anchor["well_cb"].currentText().strip()
+    anchor_chan = anchor["chan_cb"].currentText().strip()
+    anchor_fov = anchor["fov_cb"].currentText().strip()
+
+    def _set(cb, text):
+        if not text:
+            return
+        cb.blockSignals(True)
+        try:
+            if cb.findText(text) >= 0:
+                cb.setCurrentText(text)
+        finally:
+            cb.blockSignals(False)
+
+    assignments = 0
+    for flat_idx, (_r, _c, cell) in enumerate(flat_cells):
+        if flat_idx >= len(tps):
+            break
+        _set(cell["well_cb"], anchor_well)
+        _set(cell["chan_cb"], anchor_chan)
+        _set(cell["fov_cb"], anchor_fov)
+        _set(cell["tp_cb"], tps[flat_idx])
+        assignments += 1
+
+    app._set_status(
+        f"Image Table: distributed {assignments} timepoint(s) into the selector grid."
+    )
+
+
 def image_table_distribute_wells(app) -> None:
     """Walk active wells row-wise and assign one to each selector cell.
 
@@ -463,11 +575,15 @@ def image_table_rebuild_lut_row(app) -> None:
         cb_l.addWidget(QLabel("min:", chan_box))
         min_edit = QLineEdit("auto", chan_box)
         min_edit.setFixedWidth(70)
+        # editingFinished fires on both Enter and focus loss, so the user
+        # never has to click Generate to see a LUT change land.
+        min_edit.editingFinished.connect(lambda: image_table_generate(app))
         cb_l.addWidget(min_edit)
 
         cb_l.addWidget(QLabel("max:", chan_box))
         max_edit = QLineEdit("auto", chan_box)
         max_edit.setFixedWidth(70)
+        max_edit.editingFinished.connect(lambda: image_table_generate(app))
         cb_l.addWidget(max_edit)
 
         auto_btn = btn_secondary(
@@ -505,25 +621,40 @@ def _parse_lut(app, chan: str) -> Tuple[Optional[float], Optional[float]]:
 
 
 def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_lower: str) -> Dict:
-    """Return the (fov, tp) → ImgRef dict for (well, channel), with caching."""
+    """Return the (fov, tp) → ImgRef dict for (well, channel), with caching.
+
+    For the special ``"nuc+seg"`` virtual channel the returned dict is the
+    pre-rendered segmentation overlay refs keyed the same way; everything
+    else returns the fluorescence dict for the requested channel token.
+    """
     from well_viewer.runtime_app import find_well_images_and_masks
 
     key = (well, chan_lower)
     if key in cache:
         return cache[key]
+    is_overlay = chan_lower == NUC_SEG_TOKEN.lower()
+    info = getattr(app, "_pipeline_info", None) or {}
+    # Overlay images aren't keyed by a fluor channel; pass the nuclear token
+    # as a sensible default so any token-based filtering inside the loader
+    # has a real channel to match. The returned ``overlay`` dict comes from
+    # the pipeline's pre-rendered segmentation PNGs.
+    fluor_token = chan_lower
+    if is_overlay:
+        fluor_token = (info.get("nuclear_token") or chan_lower).strip().lower()
     try:
-        fluor, _overlay, _mask, _tophat = find_well_images_and_masks(
+        fluor, overlay, _mask, _tophat = find_well_images_and_masks(
             app._data_dir,
             well,
-            fluor_token=chan_lower,
+            fluor_token=fluor_token,
             in_dir=app._in_dir,
             _fov_tp_extractor=app._fov_tp_extractor,
             _pipeline_info=app._pipeline_info,
         )
     except Exception:
-        fluor = {}
-    cache[key] = fluor
-    return fluor
+        fluor, overlay = {}, {}
+    result = overlay if is_overlay else fluor
+    cache[key] = result
+    return result
 
 
 def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str):
@@ -535,6 +666,10 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
     tuple first, then fall back to a normalized comparison against every
     cache key so the lookup succeeds whichever side ends up holding the
     integer-as-float form.
+
+    When ``fov`` is empty (e.g. pipeline_info has no available_fovs and the
+    dropdown is empty), match the first available FOV for the requested
+    timepoint so single-FOV datasets still render.
     """
     chan_lower = chan_upper.strip().lower()
     fluor = _load_well_channel(app, cache, well, chan_lower)
@@ -546,14 +681,35 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
         target_fov = _norm_token(fov)
         target_tp = _norm_token(tp)
         for (cache_fov, cache_tp), val in fluor.items():
-            if (_norm_token(cache_fov) == target_fov
-                    and _norm_token(cache_tp) == target_tp):
+            tp_match = (not target_tp) or _norm_token(cache_tp) == target_tp
+            fov_match = (not target_fov) or _norm_token(cache_fov) == target_fov
+            if tp_match and fov_match:
+                ref = val
+                break
+    if ref is None:
+        # Final fallback: numeric-only match. Cache keys like ``"T01"`` and
+        # dropdown values like ``"1"`` both reduce to integer 1 here, which
+        # rescues runs where pipeline_info.json's available_timepoints were
+        # stored numerically while the on-disk filenames carry a ``T``
+        # prefix (or vice versa).
+        target_fov_n = _numeric_token(fov)
+        target_tp_n = _numeric_token(tp)
+        for (cache_fov, cache_tp), val in fluor.items():
+            tp_n = _numeric_token(cache_tp)
+            fov_n = _numeric_token(cache_fov)
+            tp_match = target_tp_n is None or tp_n == target_tp_n
+            fov_match = target_fov_n is None or fov_n == target_fov_n
+            if tp_match and fov_match:
                 ref = val
                 break
     if ref is None:
         return None
     try:
-        return ref.load()
+        from well_viewer.runtime_app import open_imgref_as_array
+        # Overlay PNGs are RGB — load them in colour so the segmentation
+        # outline survives. Fluor channels load greyscale as before.
+        greyscale = not _is_nuc_seg(chan_upper)
+        return open_imgref_as_array(ref, greyscale=greyscale)
     except Exception:
         return None
 
@@ -563,7 +719,7 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
 
 def image_table_generate(app) -> None:
     """Load images for every cell and lay out the rendered image table."""
-    from well_viewer.runtime_app import make_fluor_thumb
+    from well_viewer.runtime_app import make_fluor_thumb, make_overlay_thumb
     from well_viewer.ui_helpers import clear_layout
 
     cells = getattr(app, "_image_table_cells", None) or []
@@ -585,7 +741,7 @@ def image_table_generate(app) -> None:
             fov = cell["fov_cb"].currentText().strip()
 
             arr = None
-            if well and chan and tp and fov:
+            if well and chan and tp:
                 arr = _load_array(app, cache, well, chan, tp, fov)
             rendered[(r, c)] = arr
 
@@ -595,11 +751,12 @@ def image_table_generate(app) -> None:
             cl.setContentsMargins(4, 4, 4, 4)
             cl.setSpacing(2)
 
-            header_text = (
-                f"{well}  {chan.upper()}  T:{tp}  FOV:{fov}"
-                if well and chan and tp and fov
-                else "(unset)"
-            )
+            if well and chan and tp:
+                header_text = f"{well}  {chan.upper()}  T:{tp}"
+                if fov:
+                    header_text += f"  FOV:{fov}"
+            else:
+                header_text = "(unset)"
             header = QLabel(header_text, cell_widget)
             header.setAlignment(Qt.AlignCenter)
             cl.addWidget(header)
@@ -610,7 +767,15 @@ def image_table_generate(app) -> None:
             if arr is not None:
                 # Apply the shared crop (no-op when not set) and render.
                 cropped = crop_tool.apply_to_array(arr) if crop_tool else arr
-                pix = make_fluor_thumb(cropped, 240, 240, lo, hi, tint=_row_tint(app, r))
+                if _is_nuc_seg(chan) or getattr(arr, "ndim", 2) >= 3:
+                    # Pre-rendered RGB overlay: tint and per-channel LUT
+                    # don't apply, so feed it straight to the overlay
+                    # thumbnailer (which still respects lo/hi when set).
+                    pix = make_overlay_thumb(cropped, 240, 240, lo, hi)
+                else:
+                    pix = make_fluor_thumb(
+                        cropped, 240, 240, lo, hi, tint=_row_tint(app, r),
+                    )
                 # CropTool needs the FULL source array + the active crop on
                 # the label so label-pixel → image-pixel coord conversion
                 # works correctly even when the label already shows a crop.
@@ -633,18 +798,30 @@ def image_table_generate(app) -> None:
     n = sum(1 for v in rendered.values() if v is not None)
     app._set_status(f"Image Table: generated {n} of {len(rendered)} cell(s).")
     if n == 0 and rendered:
-        # Zero hits across the whole grid means key drift somewhere — log a
-        # sample of the available (fov, tp) keys for the first cached well
-        # so the user / a developer can see the format mismatch.
+        # Zero hits across the whole grid means key drift somewhere — log
+        # both the (tp, fov) values the user picked and a sample of the
+        # available cache keys for the first cached well so the format
+        # mismatch is visible.
         try:
             import logging as _logging
             _log = _logging.getLogger("well_viewer.image_table")
+            requested = []
+            for r, row in enumerate(cells):
+                for c, cell in enumerate(row):
+                    requested.append((
+                        r, c,
+                        cell["well_cb"].currentText().strip(),
+                        cell["chan_cb"].currentText().strip(),
+                        cell["tp_cb"].currentText().strip(),
+                        cell["fov_cb"].currentText().strip(),
+                    ))
             for key, fluor in cache.items():
                 sample_keys = list(fluor.keys())[:8]
                 _log.warning(
                     "Image Table generated 0/%d; well=%r channel=%r "
+                    "requested cells (r, c, well, chan, tp, fov)=%r "
                     "available keys (sample, up to 8): %r",
-                    len(rendered), key[0], key[1], sample_keys,
+                    len(rendered), key[0], key[1], requested[:4], sample_keys,
                 )
                 break
         except Exception:
@@ -750,30 +927,50 @@ def image_table_export(app) -> None:
             fov = cell["fov_cb"].currentText().strip()
 
             arr = rendered.get((r, c))
-            if arr is None and well and chan and tp and fov:
+            if arr is None and well and chan and tp:
                 arr = _load_array(app, cache, well, chan, tp, fov)
             if arr is not None and crop_tool is not None:
                 arr = crop_tool.apply_to_array(arr)
 
             if arr is not None:
-                a = _np.asarray(arr, dtype=_np.float32)
+                a = _np.asarray(arr)
                 lo, hi = _parse_lut(app, chan)
-                vmin = lo if lo is not None else float(a.min())
-                vmax = hi if hi is not None else float(a.max())
-                if vmax <= vmin:
-                    vmax = vmin + 1.0
-                ax.imshow(a, cmap=_row_export_cmap(app, r), vmin=vmin, vmax=vmax, aspect="equal")
+                if _is_nuc_seg(chan) or a.ndim >= 3:
+                    # RGB overlay — let matplotlib pass it through directly
+                    # (clamping to uint8 so it does not auto-rescale).
+                    rgb = a[:, :, :3] if a.ndim == 3 else a
+                    if rgb.dtype != _np.uint8:
+                        # imshow rescales floats to [0, 1]; bring it into range.
+                        rgb_f = rgb.astype(_np.float32)
+                        rmin = float(rgb_f.min())
+                        rmax = float(rgb_f.max())
+                        if rmax <= rmin:
+                            rmax = rmin + 1.0
+                        rgb = ((_np.clip(rgb_f, rmin, rmax) - rmin)
+                               / (rmax - rmin) * 255.0).astype(_np.uint8)
+                    ax.imshow(rgb, aspect="equal")
+                else:
+                    af = a.astype(_np.float32)
+                    vmin = lo if lo is not None else float(af.min())
+                    vmax = hi if hi is not None else float(af.max())
+                    if vmax <= vmin:
+                        vmax = vmin + 1.0
+                    ax.imshow(
+                        af, cmap=_row_export_cmap(app, r),
+                        vmin=vmin, vmax=vmax, aspect="equal",
+                    )
             else:
                 ax.text(
                     0.5, 0.5, "(no image)",
                     ha="center", va="center", transform=ax.transAxes, fontsize=7,
                 )
 
-            title = (
-                f"{well}  {chan.upper()}  T:{tp}  FOV:{fov}"
-                if well and chan and tp and fov
-                else "(unset)"
-            )
+            if well and chan and tp:
+                title = f"{well}  {chan.upper()}  T:{tp}"
+                if fov:
+                    title += f"  FOV:{fov}"
+            else:
+                title = "(unset)"
             ax.set_title(title, fontsize=7)
             ax.set_xticks([])
             ax.set_yticks([])

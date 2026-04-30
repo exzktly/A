@@ -50,6 +50,9 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1.addWidget(QLabel("Channel:", ctrl1))
     app._chan_cb_heatmap = QComboBox(ctrl1)
     app._chan_cb_heatmap.addItems(["GFP"])
+    # Ratios appear here as virtual channels and their names can be long
+    # ("ratio:gfp_over_mcherry"), so reserve enough room to read them.
+    app._chan_cb_heatmap.setMinimumWidth(220)
     app._chan_cb_heatmap.currentIndexChanged.connect(
         lambda _i, _src=app._chan_cb_heatmap: app._on_plot_channel_selected(_src)
     )
@@ -103,23 +106,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
 
     layout.addWidget(ctrl2)
 
-    # ── Figure ──────────────────────────────────────────────────────────────
-    app._heatmap_fig = Figure(figsize=(8.0, 6.0), dpi=100)
-    app._heatmap_ax = app._heatmap_fig.add_subplot(1, 1, 1)
-    # Reserve a persistent colorbar axes via make_axes_locatable so each
-    # redraw can refill it in place. Letting fig.colorbar(im, ax=ax)
-    # allocate a fresh axes every redraw was the cause of the heatmap
-    # plot shrinking and drifting left on every refresh — matplotlib does
-    # not restore the original ax position when the colorbar is removed.
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(app._heatmap_ax)
-    app._heatmap_cax = divider.append_axes("right", size="4%", pad=0.08)
-    app._heatmap_canvas = FigureCanvas(app._heatmap_fig)
-    layout.addWidget(app._heatmap_canvas, 1)
-
-    attach_plot_toolbar(layout, app._heatmap_canvas, parent, app, with_fov=False)
-
-    # ── Timepoint slider ────────────────────────────────────────────────────
+    # ── Timepoint slider (placed directly under the option rows) ────────────
     slider_row = QWidget(parent)
     slider_row.setObjectName("Sidebar")
     sl = QHBoxLayout(slider_row)
@@ -139,6 +126,22 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     sep.setFrameShape(QFrame.HLine)
     sep.setFixedHeight(1)
     layout.addWidget(sep)
+
+    # ── Figure ──────────────────────────────────────────────────────────────
+    app._heatmap_fig = Figure(figsize=(8.0, 6.0), dpi=100)
+    app._heatmap_ax = app._heatmap_fig.add_subplot(1, 1, 1)
+    # Reserve a persistent colorbar axes via make_axes_locatable so each
+    # redraw can refill it in place. Letting fig.colorbar(im, ax=ax)
+    # allocate a fresh axes every redraw was the cause of the heatmap
+    # plot shrinking and drifting left on every refresh — matplotlib does
+    # not restore the original ax position when the colorbar is removed.
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    divider = make_axes_locatable(app._heatmap_ax)
+    app._heatmap_cax = divider.append_axes("right", size="4%", pad=0.08)
+    app._heatmap_canvas = FigureCanvas(app._heatmap_fig)
+    layout.addWidget(app._heatmap_canvas, 1)
+
+    attach_plot_toolbar(layout, app._heatmap_canvas, parent, app, with_fov=False)
 
     # ── Mouse hooks ─────────────────────────────────────────────────────────
     app._heatmap_canvas.mpl_connect("button_press_event",

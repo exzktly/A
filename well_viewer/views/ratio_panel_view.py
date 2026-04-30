@@ -1,25 +1,23 @@
-"""Ratio metric definition dialog.
+"""Ratio metric definition panel (embedded in the Sample Definitions tab).
 
 Lets the user define / edit / delete ratio metrics. Each ratio is a virtual
 channel computed at read time from two ``{channel}_{metric}`` columns. The
-dialog reads channel/metric options from the loaded CSVs via
+panel reads channel/metric options from the loaded CSVs via
 ``detect_fluor_channels`` / ``detect_smfish_channels``.
 
 Apply commits the new ratio list to ``app._ratio_metrics`` (via
-``app._set_ratio_metrics``), persists it to the data directory, and
-triggers a redraw of all plots.
+``app._set_ratio_metrics``), persists it to the data directory, and triggers
+a redraw of all plots.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QDoubleSpinBox,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -27,7 +25,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -38,31 +35,34 @@ from well_viewer.ratio_models import RatioMetric
 _METRIC_CHOICES: List[str] = ["mean_intensity", "total_intensity", "max_intensity", "smfish_count"]
 
 
-def open_ratio_panel(app, parent: Optional[QWidget] = None) -> None:
-    """Open the modal ratio definition dialog. ``parent`` defaults to ``app``."""
-    dlg = RatioPanelDialog(app, parent or app)
-    dlg.exec()
+class RatioMetricsPanel(QWidget):
+    """Inline panel for editing the per-dataset list of ratio metrics."""
 
-
-class RatioPanelDialog(QDialog):
     def __init__(self, app, parent: QWidget) -> None:
         super().__init__(parent)
         self._app = app
-        self.setWindowTitle("Ratio Metrics")
-        self.setModal(True)
-        self.resize(720, 380)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+
+        title = QLabel("RATIO METRICS", self)
+        title.setProperty("role", "section")
+        layout.addWidget(title)
 
         intro = QLabel(
             "Define ratio metrics computed at read time as "
             "<i>numerator / (denominator + ε)</i>. Ratios appear as virtual "
-            "channels in every plot tab.",
+            "channels in every plot tab.<br>"
+            "<b>ε (epsilon)</b> is a small constant added to the denominator "
+            "before dividing — it prevents division by zero when the "
+            "denominator channel reads 0. Use 0 to drop those cells (NaN); "
+            "use a small positive number (e.g. 1) to keep them.",
             self,
         )
         intro.setWordWrap(True)
+        intro.setObjectName("Muted")
+        intro.setAlignment(Qt.AlignLeft)
         layout.addWidget(intro)
 
         self._table = QTableWidget(0, 6, self)
@@ -77,20 +77,13 @@ class RatioPanelDialog(QDialog):
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Stretch)
         self._table.verticalHeader().setVisible(False)
-        layout.addWidget(self._table, 1)
+        self._table.setMinimumHeight(140)
+        layout.addWidget(self._table)
 
-        # Bottom row: add/remove + apply/cancel
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
         add_btn = QPushButton("+ Add ratio", self)
-        add_btn.clicked.connect(lambda _=False: self._append_row(RatioMetric(
-            name="ratio_new",
-            numerator_channel=self._default_channel(),
-            numerator_metric="mean_intensity",
-            denominator_channel=self._default_channel(),
-            denominator_metric="mean_intensity",
-            epsilon=0.0,
-        )))
+        add_btn.clicked.connect(self._on_add)
         btn_row.addWidget(add_btn)
 
         remove_btn = QPushButton("− Remove selected", self)
@@ -99,10 +92,6 @@ class RatioPanelDialog(QDialog):
 
         btn_row.addStretch(1)
 
-        cancel_btn = QPushButton("Cancel", self)
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
-
         apply_btn = QPushButton("Apply", self)
         apply_btn.setDefault(True)
         apply_btn.clicked.connect(self._on_apply)
@@ -110,11 +99,21 @@ class RatioPanelDialog(QDialog):
 
         layout.addLayout(btn_row)
 
-        # Populate from current state.
-        for r in list(getattr(app, "_ratio_metrics", []) or []):
+        self.refresh_from_app()
+
+    # ── Public refresh ───────────────────────────────────────────────────────
+
+    def refresh_from_app(self) -> None:
+        """Reload table rows from ``app._ratio_metrics``.
+
+        Called after a fresh dataset load so the panel reflects whatever was
+        persisted in the data directory.
+        """
+        self._table.setRowCount(0)
+        for r in list(getattr(self._app, "_ratio_metrics", []) or []):
             self._append_row(r)
 
-    # ── helpers ──────────────────────────────────────────────────────────────
+    # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _channel_choices(self) -> List[str]:
         chans = list(getattr(self._app, "_fluor_channels", []) or [])
@@ -124,6 +123,16 @@ class RatioPanelDialog(QDialog):
 
     def _default_channel(self) -> str:
         return self._channel_choices()[0]
+
+    def _on_add(self) -> None:
+        self._append_row(RatioMetric(
+            name="ratio_new",
+            numerator_channel=self._default_channel(),
+            numerator_metric="mean_intensity",
+            denominator_channel=self._default_channel(),
+            denominator_metric="mean_intensity",
+            epsilon=0.0,
+        ))
 
     def _append_row(self, ratio: RatioMetric) -> None:
         table = self._table
@@ -150,6 +159,12 @@ class RatioPanelDialog(QDialog):
         eps_spin.setDecimals(6)
         eps_spin.setSingleStep(0.01)
         eps_spin.setValue(float(ratio.epsilon))
+        eps_spin.setToolTip(
+            "ε is added to the denominator before division to avoid /0.\n"
+            "0 = denominators of 0 produce NaN (cell dropped).\n"
+            "Small positive (e.g. 1) = keep those cells, biasing the ratio "
+            "toward 0 when the denominator is small."
+        )
         table.setCellWidget(row, 5, eps_spin)
 
     def _channel_combo(self, current: str) -> QComboBox:
@@ -217,4 +232,10 @@ class RatioPanelDialog(QDialog):
             self._app._ratio_metrics = ratios
         if hasattr(self._app, "_ratios_save_to_data_dir"):
             self._app._ratios_save_to_data_dir()
-        self.accept()
+
+
+def build_ratios_inline_panel(app, parent: QWidget) -> RatioMetricsPanel:
+    """Construct the inline ratio editor and return it for app-level wiring."""
+    panel = RatioMetricsPanel(app, parent)
+    app._ratio_panel = panel
+    return panel
