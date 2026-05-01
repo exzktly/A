@@ -19,22 +19,6 @@ def build_label_editor(app, parent: QWidget) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
-    top_sep = QFrame(parent)
-    top_sep.setObjectName("Separator")
-    top_sep.setFrameShape(QFrame.HLine)
-    top_sep.setFixedHeight(1)
-    layout.addWidget(top_sep)
-
-    hdr = QWidget(parent)
-    hdr.setObjectName("Sidebar")
-    hl = QHBoxLayout(hdr)
-    hl.setContentsMargins(8, 4, 8, 4)
-    title = QLabel("WELL LABELS", hdr)
-    title.setProperty("role", "section")
-    hl.addWidget(title)
-    hl.addStretch(1)
-    layout.addWidget(hdr)
-
     help_lbl = QLabel(
         "Custom names used in figure legends and axis labels only. "
         "Leave blank to use the well token (e.g. A01).",

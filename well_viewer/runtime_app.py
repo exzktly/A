@@ -1907,7 +1907,7 @@ class WellViewerApp(QWidget):
         # sets, bar groups, ratios, and cell gating all flow through these
         # three buttons.
         toolbar = _QWidget(parent)
-        toolbar.setObjectName("Sidebar")
+        toolbar.setObjectName("TabCtrl")
         tl = _QHBoxLayout(toolbar)
         tl.setContentsMargins(8, 6, 8, 6)
         tl.setSpacing(6)
