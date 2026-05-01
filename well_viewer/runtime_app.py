@@ -1943,43 +1943,40 @@ class WellViewerApp(QWidget):
         # ── Sub-tabs ────────────────────────────────────────────────────────
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
-        # Make the tabs themselves easy to read — these are the tab's
-        # primary navigation, not a tertiary control. Wider tabs + larger
-        # font defeats the default cramped styling.
         sub_tabs.tabBar().setExpanding(True)
         sub_tabs.setStyleSheet(
             "QTabWidget#SampleDefinitionsSubTabs::pane { "
-            "border-top: 1px solid rgba(99, 102, 241, 0.40); "
+            "border-top: 1px solid #64748B; "
             "} "
             "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab { "
-            "min-width: 220px; "
-            "padding: 10px 24px; "
-            "font-size: 13px; "
+            "min-width: 140px; "
+            "padding: 7px 18px; "
+            "font-size: 11px; "
             "font-weight: 600; "
-            "letter-spacing: 0.4px; "
             "} "
             "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:selected { "
-            "color: rgb(67, 56, 202); "
-            "border-bottom: 2px solid rgb(99, 102, 241); "
+            "color: #3B82F6; "
+            "border-bottom: 2px solid #3B82F6; "
             "}"
         )
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 
-        # Sub-tab 1: ratios + well-label editor
+        # Sub-tab 1: Well Labels only
         labels_tab = _QWidget(sub_tabs)
-        ll = _QVBoxLayout(labels_tab)
-        ll.setContentsMargins(0, 0, 0, 0)
-        ll.addWidget(build_ratios_inline_panel(self, labels_tab))
-        sep = _QFrame(labels_tab)
-        sep.setObjectName("Separator")
-        sep.setFrameShape(_QFrame.HLine)
-        sep.setFixedHeight(1)
-        ll.addWidget(sep)
+        _QVBoxLayout(labels_tab).setContentsMargins(0, 0, 0, 0)
         self._build_label_editor(labels_tab)
-        sub_tabs.addTab(labels_tab, "Wells & Labels")
+        sub_tabs.addTab(labels_tab, "Well Labels")
 
-        # Sub-tab 2: Cell Gating — lazy-built on first activation so a
+        # Sub-tab 2: Ratio Metrics only
+        ratio_tab = _QWidget(sub_tabs)
+        rl = _QVBoxLayout(ratio_tab)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.addWidget(build_ratios_inline_panel(self, ratio_tab))
+        rl.addStretch(1)
+        sub_tabs.addTab(ratio_tab, "Ratios")
+
+        # Sub-tab 3: Cell Gating — lazy-built on first activation so a
         # user who only edits labels never pays the matplotlib import.
         cell_gating_tab = _QWidget(sub_tabs)
         _QVBoxLayout(cell_gating_tab).setContentsMargins(0, 0, 0, 0)

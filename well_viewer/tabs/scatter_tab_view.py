@@ -31,24 +31,21 @@ _MODE_AGG = "aggregate"
 
 _SEGMENTED_QSS = (
     "QPushButton#ScatterModeBtnLeft, QPushButton#ScatterModeBtnRight { "
-    "background-color: rgba(99, 102, 241, 0.08); "
-    "border: 1px solid rgba(99, 102, 241, 0.45); "
-    "color: rgb(55, 48, 163); "
-    "padding: 8px 22px; font-size: 13px; font-weight: 600; "
-    "letter-spacing: 0.4px; "
+    "background: #334155; "
+    "border: 1px solid #64748B; "
+    "color: #E2E8F0; "
+    "padding: 4px 14px; font-size: 12px; font-weight: 500; "
     "} "
     "QPushButton#ScatterModeBtnLeft:checked, "
     "QPushButton#ScatterModeBtnRight:checked { "
-    "background-color: rgb(99, 102, 241); color: white; "
-    "border-color: rgb(67, 56, 202); "
+    "background: #3B82F6; color: white; border-color: #2563EB; "
     "} "
     "QPushButton#ScatterModeBtnLeft:hover:!checked, "
     "QPushButton#ScatterModeBtnRight:hover:!checked { "
-    "background-color: rgba(99, 102, 241, 0.18); "
+    "background: #475569; "
     "} "
-    "QPushButton#ScatterModeBtnLeft  { "
-    "border-top-right-radius: 0; border-bottom-right-radius: 0; "
-    "border-right: none; "
+    "QPushButton#ScatterModeBtnLeft { "
+    "border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; "
     "} "
     "QPushButton#ScatterModeBtnRight { "
     "border-top-left-radius: 0; border-bottom-left-radius: 0; "
@@ -67,7 +64,7 @@ def build_scatter_tab(app, parent: QWidget) -> None:
 
     # ── Mode bar (segmented button toggle) ──────────────────────────────────
     mode_bar = QWidget(parent)
-    mode_bar.setObjectName("ScatterModeBar")
+    mode_bar.setObjectName("Sidebar")
     mode_bar.setStyleSheet(_SEGMENTED_QSS)
     mb = QHBoxLayout(mode_bar)
     mb.setContentsMargins(10, 6, 10, 6)
