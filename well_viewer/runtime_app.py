@@ -1944,21 +1944,6 @@ class WellViewerApp(QWidget):
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
         sub_tabs.tabBar().setExpanding(True)
-        sub_tabs.setStyleSheet(
-            "QTabWidget#SampleDefinitionsSubTabs::pane { "
-            "border-top: 1px solid #64748B; "
-            "} "
-            "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab { "
-            "min-width: 140px; "
-            "padding: 7px 18px; "
-            "font-size: 11px; "
-            "font-weight: 600; "
-            "} "
-            "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:selected { "
-            "color: #3B82F6; "
-            "border-bottom: 2px solid #3B82F6; "
-            "}"
-        )
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 

@@ -84,7 +84,7 @@ class AllWellApp(QMainWindow):
         theme_label.setObjectName("Muted")
         hl.addWidget(theme_label)
         self._theme_combo = QComboBox()
-        self._theme_combo.addItems(["Dark", "Light"])
+        self._theme_combo.addItems(["Dark", "Light", "Amber"])
         self._theme_combo.setFixedWidth(90)
         self._theme_combo.currentTextChanged.connect(self._on_theme_change)
         hl.addWidget(self._theme_combo)
