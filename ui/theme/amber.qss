@@ -17,6 +17,7 @@ QWidget          { background: ${BG_APP}; }
 QScrollArea      { background: ${BG_APP}; border: 0; }
 
 QWidget#Sidebar   { background: ${BG_SIDE}; }
+QWidget#TabCtrl   { background: ${BG_APP}; }
 QWidget#Panel     { background: ${BG_PANEL}; }
 QWidget#SidePanel { background: ${BG_SIDE}; }
 QFrame#Separator  { background: ${BORDER}; border: none; }

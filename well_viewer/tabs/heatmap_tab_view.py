@@ -43,7 +43,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     # (see ``views/heatmap_layout_sidebar_view.py``); this row is for the
     # plotting parameters only.
     ctrl1 = QWidget(parent)
-    ctrl1.setObjectName("Sidebar")
+    ctrl1.setObjectName("TabCtrl")
     cl1 = QHBoxLayout(ctrl1)
     cl1.setContentsMargins(10, 6, 10, 6)
 
@@ -77,7 +77,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
 
     # ── Control row 2: cmap / scale / log ───────────────────────────────────
     ctrl2 = QWidget(parent)
-    ctrl2.setObjectName("Sidebar")
+    ctrl2.setObjectName("TabCtrl")
     cl2 = QHBoxLayout(ctrl2)
     cl2.setContentsMargins(10, 0, 10, 6)
 
@@ -116,7 +116,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
 
     # ── Timepoint slider (placed directly under the option rows) ────────────
     slider_row = QWidget(parent)
-    slider_row.setObjectName("Sidebar")
+    slider_row.setObjectName("TabCtrl")
     sl = QHBoxLayout(slider_row)
     sl.setContentsMargins(10, 4, 10, 6)
     sl.addWidget(QLabel("t (h):", slider_row))

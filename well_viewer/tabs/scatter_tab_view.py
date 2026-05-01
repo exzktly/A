@@ -64,7 +64,7 @@ def build_scatter_tab(app, parent: QWidget) -> None:
 
     # ── Mode bar (segmented button toggle) ──────────────────────────────────
     mode_bar = QWidget(parent)
-    mode_bar.setObjectName("Sidebar")
+    mode_bar.setObjectName("TabCtrl")
     mode_bar.setStyleSheet(_SEGMENTED_QSS)
     mb = QHBoxLayout(mode_bar)
     mb.setContentsMargins(10, 6, 10, 6)

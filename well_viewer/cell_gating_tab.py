@@ -152,7 +152,7 @@ class CellGatingTab(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
 
         control_frame = QWidget(self)
-        control_frame.setObjectName("Sidebar")
+        control_frame.setObjectName("TabCtrl")
         cf_layout = QVBoxLayout(control_frame)
         cf_layout.setContentsMargins(6, 6, 6, 6)
 

@@ -62,7 +62,7 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     parent = plot_area
 
     ctrl = QWidget(parent)
-    ctrl.setObjectName("Sidebar")
+    ctrl.setObjectName("TabCtrl")
     cl = QHBoxLayout(ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 

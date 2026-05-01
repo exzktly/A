@@ -28,7 +28,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     parent = plot_area
 
     line_ctrl = QWidget(parent)
-    line_ctrl.setObjectName("Sidebar")
+    line_ctrl.setObjectName("TabCtrl")
     cl = QHBoxLayout(line_ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
@@ -94,7 +94,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     layout.addWidget(sep)
 
     cdf_ctrl = QWidget(parent)
-    cdf_ctrl.setObjectName("Sidebar")
+    cdf_ctrl.setObjectName("TabCtrl")
     cc = QHBoxLayout(cdf_ctrl)
     cc.setContentsMargins(8, 3, 8, 3)
     cc.addWidget(QLabel("CDF x:", cdf_ctrl))
