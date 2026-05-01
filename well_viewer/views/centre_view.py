@@ -27,7 +27,6 @@ import logging
 from typing import Callable, Dict, Set
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import (
     QStyle, QStyleOptionTab, QStylePainter,
     QTabBar, QTabWidget, QVBoxLayout, QWidget,
@@ -49,7 +48,6 @@ class _GroupedTabBar(QTabBar):
 
     GAP_PX = 10
     HEADER_PX = 0
-    SEPARATOR_INSET = 3
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -89,39 +87,20 @@ class _GroupedTabBar(QTabBar):
         return size
 
     def paintEvent(self, event):  # noqa: N802 - Qt override
+        half = self.GAP_PX // 2
         style_painter = QStylePainter(self)
         try:
             for i in range(self.count()):
                 opt = QStyleOptionTab()
                 self.initStyleOption(opt, i)
-                # Shift each tab body down past the header strip so the
-                # space above tabs stays clear for group labels.
                 opt.rect = opt.rect.adjusted(0, self.HEADER_PX, 0, 0)
                 if i in self._group_starts:
-                    opt.rect = opt.rect.adjusted(self.GAP_PX, 0, 0, 0)
+                    # Centre the tab within its allocated area (which is GAP_PX
+                    # wider than a normal tab) so its text appears centred.
+                    opt.rect = opt.rect.adjusted(half, 0, -half, 0)
                 style_painter.drawControl(QStyle.CE_TabBarTab, opt)
         finally:
             style_painter.end()
-
-        overlay = QPainter(self)
-        try:
-            line_color = self.palette().text().color()
-            line_color.setAlpha(120)
-            pen = QPen(line_color)
-            pen.setWidth(1)
-
-            # Draw a thin vertical separator in the gap before each group-start tab.
-            for idx in self._group_starts:
-                if idx <= 0 or idx >= self.count():
-                    continue
-                rect = self.tabRect(idx)
-                sep_x = rect.left() + self.GAP_PX // 2
-                top = rect.top() + self.SEPARATOR_INSET
-                bottom = rect.bottom() - self.SEPARATOR_INSET
-                overlay.setPen(pen)
-                overlay.drawLine(sep_x, top, sep_x, bottom)
-        finally:
-            overlay.end()
 
     # ── Wheel-to-scroll the tab bar ────────────────────────────────────────
     #

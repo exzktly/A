@@ -446,3 +446,55 @@ def export_scatter_agg_data(app) -> None:
         app._set_status(f"Exported {len(rows_out)} datapoint(s) → {Path(out_path).name}")
     except OSError as exc:
         _error(app, "Export failed", str(exc))
+
+
+def export_heatmap_data(app) -> None:
+    """Export the currently displayed heatmap grid values to CSV."""
+    import math as _math
+    arr = getattr(app, "_heatmap_array", None)
+    layout = getattr(app, "_heatmap_layout_active", None)
+    cell_index = getattr(app, "_heatmap_cell_well_index", None)
+    if arr is None or layout is None:
+        _warn(app, "Export", "No heatmap data — draw the heatmap first.")
+        return
+    tp_values = list(getattr(app, "_heatmap_tp_values", []) or [])
+    slider = getattr(app, "_heatmap_tp_slider", None)
+    tp = None
+    if slider is not None and tp_values:
+        idx = max(0, min(slider.value(), len(tp_values) - 1))
+        tp = tp_values[idx]
+    ch = getattr(app, "_active_channel", "channel")
+    metric_cb = getattr(app, "_heatmap_metric_cb", None)
+    metric = str(metric_cb.currentText()) if metric_cb else "metric"
+    col_name = f"{ch}_{metric.lower().replace(' ', '_')}"
+    rows_out = []
+    for r in range(layout.rows):
+        for c in range(layout.cols):
+            val = float(arr[r, c]) if not _math.isnan(arr[r, c]) else ""
+            wells = (cell_index or {}).get((r, c), [])
+            rows_out.append({
+                "row": r + 1,
+                "col": c + 1,
+                "wells": ";".join(sorted(wells)),
+                "timepoint_h": f"{tp:g}" if tp is not None else "",
+                col_name: f"{val:.6f}" if val != "" else "",
+            })
+    if not rows_out:
+        _warn(app, "Export", "No heatmap cells to export.")
+        return
+    tp_tag = f"_t{tp:g}h" if tp is not None else ""
+    out_path = _ask_save_csv(
+        app, "Export heatmap data",
+        f"heatmap_{ch}_{metric.replace(' ', '_')}{tp_tag}.csv",
+    )
+    if not out_path:
+        return
+    fieldnames = ["row", "col", "wells", "timepoint_h", col_name]
+    try:
+        with open(out_path, "w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows_out)
+        app._set_status(f"Exported {len(rows_out)} heatmap cell(s) → {Path(out_path).name}")
+    except OSError as exc:
+        _error(app, "Export failed", str(exc))

@@ -10,11 +10,11 @@ from typing import List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QSlider,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider,
     QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import attach_plot_toolbar, ComboVar, make_plot_with_right_dock
+from well_viewer.ui_helpers import attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock
 
 
 _CMAP_OPTIONS = ["viridis", "magma", "coolwarm", "RdYlBu_r", "Greys"]
@@ -65,6 +65,14 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1.addWidget(app._heatmap_metric_cb)
 
     cl1.addStretch(1)
+
+    style_btn = QPushButton("▸", ctrl1)
+    style_btn.setProperty("variant", "secondary")
+    style_btn.setToolTip("Export style / figure settings")
+    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("heatmap"))
+    cl1.addWidget(style_btn)
+
+    cl1.addWidget(btn_primary(ctrl1, "Export CSV", app._export_heatmap_data))
     layout.addWidget(ctrl1)
 
     # ── Control row 2: cmap / scale / log ───────────────────────────────────

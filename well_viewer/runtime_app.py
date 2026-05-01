@@ -7387,6 +7387,11 @@ class WellViewerApp(QWidget):
 
         _export_bar_plot_data(self)
 
+    def _export_heatmap_data(self) -> None:
+        from well_viewer.export_service import export_heatmap_data as _export_heatmap_data
+
+        _export_heatmap_data(self)
+
     def _open_bar_batch_export(self) -> None:
         """Switch Batch Export tab to the inline bar-plot export builder."""
         if not self._well_paths:
@@ -7453,6 +7458,7 @@ class WellViewerApp(QWidget):
             "bar": (getattr(self, "_bar_fig", None), getattr(self, "_bar_canvas", None), "bar_plots.png"),
             "scatter_cells": (getattr(self, "_scatter_fig", None), getattr(self, "_scatter_canvas", None), "scatter_cells.png"),
             "scatter_agg": (getattr(self, "_scatter_agg_fig", None), getattr(self, "_scatter_agg_canvas", None), "scatter_agg.png"),
+            "heatmap": (getattr(self, "_heatmap_fig", None), getattr(self, "_heatmap_canvas", None), "heatmap.png"),
         }
         fig, canvas, default_name = mapping.get(plot_key, (None, None, "figure.png"))
         if fig is None:
