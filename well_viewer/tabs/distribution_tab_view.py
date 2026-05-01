@@ -7,11 +7,11 @@ chosen timepoint, grouped per replicate set or per well.
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, ComboVar, make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
 )
 
 
@@ -93,6 +93,14 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     cl.addWidget(app._distribution_log_x_cb)
 
     cl.addStretch(1)
+
+    style_btn = QPushButton("▸", ctrl)
+    style_btn.setProperty("variant", "secondary")
+    style_btn.setToolTip("Export style / figure settings")
+    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("distribution"))
+    cl.addWidget(style_btn)
+
+    cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_distribution_data))
     layout.addWidget(ctrl)
 
     # Figure / canvas

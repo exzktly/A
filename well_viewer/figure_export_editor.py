@@ -564,6 +564,8 @@ def _resolve_export_dock(app, fig) -> QWidget | None:
         ("_bar_fig", "_bar_export_dock"),
         ("_scatter_fig", "_scatter_export_dock"),
         ("_scatter_agg_fig", "_scatter_agg_export_dock"),
+        ("_heatmap_fig", "_heatmap_export_dock"),
+        ("_distribution_fig", "_distribution_export_dock"),
     )
     for fig_attr, dock_attr in mapping:
         if getattr(app, fig_attr, None) is fig:

@@ -163,7 +163,7 @@ QTabWidget::pane {
 }
 QTabBar { background: ${BG_SIDE}; }
 QTabBar::tab {
-    background: ${BG_APP};
+    background: ${BG_SIDE};
     color: ${TAB_FG};
     padding: 5px 12px;
     border: 1px solid ${TAB_BORDER};
@@ -177,9 +177,9 @@ QTabBar::tab {
     font-weight: normal;
 }
 QTabBar::tab:selected {
-    background: ${BG_SIDE};
+    background: ${BG_APP};
     color: ${ACCENT};
-    border-bottom: 1px solid ${BG_SIDE};
+    border-bottom: 1px solid ${BG_APP};
     margin-bottom: -1px;
     font-weight: bold;
 }
@@ -305,9 +305,9 @@ QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab {
     margin-right: 2px;
 }
 QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:selected {
-    background: ${BG_SIDE};
+    background: ${BG_APP};
     color: ${ACCENT};
-    border-bottom: 1px solid ${BG_SIDE};
+    border-bottom: 1px solid ${BG_APP};
     margin-bottom: -1px;
     font-weight: bold;
 }
@@ -316,7 +316,7 @@ QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:hover:!selected {
     color: ${TAB_FG_ACTIVE};
 }
 QTabWidget#SampleDefinitionsSubTabs::pane {
-    background: ${BG_SIDE};
+    background: ${BG_APP};
     border: 1px solid ${TAB_BORDER};
     top: -1px;
 }
