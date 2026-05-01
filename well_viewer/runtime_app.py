@@ -4256,7 +4256,7 @@ class WellViewerApp(QWidget):
             "max-width: 18px;"
             "max-height: 18px;"
             "padding: 0;"
-            "border-radius: 3px;"
+            "border-radius: 9px;"
         )
 
         btn.setStyleSheet(
