@@ -295,7 +295,7 @@ QTabWidget#SampleDefinitionsSubTabs > QTabBar {
     background: ${BG_SIDE};
 }
 QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab {
-    background: ${BG_APP};
+    background: ${BG_SIDE};
     color: ${TAB_FG};
     border: 1px solid ${TAB_BORDER};
     border-bottom: none;
@@ -321,6 +321,41 @@ QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:hover:!selected {
     color: ${TAB_FG_ACTIVE};
 }
 QTabWidget#SampleDefinitionsSubTabs::pane {
+    background: ${BG_APP};
+    border: 1px solid ${TAB_BORDER};
+    top: -1px;
+}
+
+/* ── Scatter Plot sub-tabs ────────────────────────────────────────────── */
+QTabWidget#ScatterSubTabs > QTabBar {
+    background: ${BG_SIDE};
+}
+QTabWidget#ScatterSubTabs > QTabBar::tab {
+    background: ${BG_SIDE};
+    color: ${TAB_FG};
+    border: 1px solid ${TAB_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: 5px 14px;
+    font-size: 9pt;
+    font-weight: normal;
+    margin-right: 2px;
+}
+QTabWidget#ScatterSubTabs > QTabBar::tab:selected {
+    background: ${BG_APP};
+    color: ${ACCENT};
+    border-bottom: 1px solid ${BG_APP};
+    margin-bottom: -1px;
+    font-weight: bold;
+}
+QTabWidget#ScatterSubTabs > QTabBar::tab:hover:!selected {
+    background: ${BG_HOVER};
+    color: ${TAB_FG_ACTIVE};
+}
+QTabWidget#ScatterSubTabs::pane {
     background: ${BG_APP};
     border: 1px solid ${TAB_BORDER};
     top: -1px;
