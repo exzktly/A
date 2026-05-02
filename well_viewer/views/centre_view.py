@@ -24,10 +24,9 @@ that tab is run inline on the tab-switch event.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable, Dict, Set
 
-from PySide6.QtCore import QRect, Qt, QTimer
-from PySide6.QtGui import QFont, QPainter, QPen
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QStyle, QStyleOptionTab, QStylePainter,
     QTabBar, QTabWidget, QVBoxLayout, QWidget,
@@ -47,10 +46,8 @@ class _GroupedTabBar(QTabBar):
     tab in that group.
     """
 
-    GAP_PX = 16
-    HEADER_PX = 14
-    SEPARATOR_INSET = 3
-    LABEL_FONT_PX = 9
+    GAP_PX = 10
+    HEADER_PX = 0
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -90,79 +87,20 @@ class _GroupedTabBar(QTabBar):
         return size
 
     def paintEvent(self, event):  # noqa: N802 - Qt override
+        half = self.GAP_PX // 2
         style_painter = QStylePainter(self)
         try:
             for i in range(self.count()):
                 opt = QStyleOptionTab()
                 self.initStyleOption(opt, i)
-                # Shift each tab body down past the header strip so the
-                # space above tabs stays clear for group labels.
                 opt.rect = opt.rect.adjusted(0, self.HEADER_PX, 0, 0)
                 if i in self._group_starts:
-                    opt.rect = opt.rect.adjusted(self.GAP_PX, 0, 0, 0)
+                    # Centre the tab within its allocated area (which is GAP_PX
+                    # wider than a normal tab) so its text appears centred.
+                    opt.rect = opt.rect.adjusted(half, 0, -half, 0)
                 style_painter.drawControl(QStyle.CE_TabBarTab, opt)
         finally:
             style_painter.end()
-
-        overlay = QPainter(self)
-        try:
-            line_color = self.palette().text().color()
-            line_color.setAlpha(140)
-            pen = QPen(line_color)
-            pen.setWidth(2)
-
-            label_color = self.palette().text().color()
-            label_color.setAlpha(190)
-            label_font = QFont(self.font())
-            label_font.setPixelSize(self.LABEL_FONT_PX)
-            label_font.setBold(True)
-            label_font.setCapitalization(QFont.AllUppercase)
-            label_font.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
-
-            # Draw vertical separators in the gap region of each group-start tab.
-            for idx in self._group_starts:
-                if idx <= 0 or idx >= self.count():
-                    continue
-                rect = self.tabRect(idx)
-                sep_x = rect.left() + self.GAP_PX // 2
-                top = rect.top() + self.HEADER_PX + self.SEPARATOR_INSET
-                bottom = rect.bottom() - self.SEPARATOR_INSET
-                overlay.setPen(pen)
-                overlay.drawLine(sep_x, top, sep_x, bottom)
-
-            # Draw group labels in the header strip above the first tab of
-            # each group. The label spans from the start of that group's
-            # first tab to the start of the next group's first tab.
-            overlay.setPen(label_color)
-            overlay.setFont(label_font)
-
-            sorted_starts: List[Tuple[int, str]] = []
-            if self.count() > 0 and self._first_group_label:
-                sorted_starts.append((0, self._first_group_label))
-            for idx in sorted(self._group_starts):
-                if 0 < idx < self.count():
-                    sorted_starts.append((idx, self._group_starts[idx]))
-
-            for k, (idx, group_label) in enumerate(sorted_starts):
-                if not group_label:
-                    continue
-                rect = self.tabRect(idx)
-                left = rect.left() + (self.GAP_PX if idx > 0 else 0) + 6
-                # Right edge: just before the next group's first tab, or the
-                # end of the bar if this is the last group.
-                if k + 1 < len(sorted_starts):
-                    next_idx = sorted_starts[k + 1][0]
-                    right = self.tabRect(next_idx).left()
-                else:
-                    right = self.width()
-                top = rect.top() + 1
-                bottom = rect.top() + self.HEADER_PX
-                text_rect = QRect(left, top, max(0, right - left - 4), bottom - top)
-                overlay.drawText(
-                    text_rect, Qt.AlignVCenter | Qt.AlignLeft, group_label,
-                )
-        finally:
-            overlay.end()
 
     # ── Wheel-to-scroll the tab bar ────────────────────────────────────────
     #

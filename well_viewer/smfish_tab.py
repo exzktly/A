@@ -90,7 +90,7 @@ class SmfishTab(QWidget):
 
         # Row 1: channel/fov/tp/threshold/LUT
         ctrl = QWidget(self)
-        ctrl.setObjectName("Sidebar")
+        ctrl.setObjectName("TabCtrl")
         cl = QHBoxLayout(ctrl)
         cl.setContentsMargins(10, 6, 10, 6)
 
@@ -131,7 +131,7 @@ class SmfishTab(QWidget):
 
         # Row 2: action buttons
         btn_row = QWidget(self)
-        btn_row.setObjectName("Sidebar")
+        btn_row.setObjectName("TabCtrl")
         bl = QHBoxLayout(btn_row)
         bl.setContentsMargins(10, 2, 10, 2)
 

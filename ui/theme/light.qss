@@ -17,6 +17,7 @@ QWidget          { background: ${BG_APP}; }
 QScrollArea      { background: ${BG_APP}; border: 0; }
 
 QWidget#Sidebar   { background: ${BG_SIDE}; }
+QWidget#TabCtrl   { background: ${BG_APP}; }
 QWidget#Panel     { background: ${BG_PANEL}; }
 QWidget#SidePanel { background: ${BG_SIDE}; }
 QFrame#Separator  { background: ${BORDER}; border: none; }
@@ -24,7 +25,7 @@ QFrame#Separator  { background: ${BORDER}; border: none; }
 QLabel             { color: ${TXT_PRI}; background: transparent; }
 QLabel#Title       { color: ${TXT_PRI}; font-size: 13pt; font-weight: bold; }
 QLabel#Muted       { color: ${TXT_MUT}; }
-QLabel#Section     { color: ${TXT_PRI}; font-size: 10pt; }
+QLabel#Section     { color: ${TXT_SEC}; font-size: 10pt; font-weight: bold; }
 QLabel#H2          { color: ${TXT_PRI}; font-size: 11pt; font-weight: bold; }
 QLabel#Danger      { color: ${CLR_DANGER}; }
 QLabel#Success     { color: ${CLR_SUCCESS}; }
@@ -34,38 +35,38 @@ QLabel#Warn        { color: ${CLR_WARN_TEXT}; }
 QPushButton {
     background: ${button_bg};
     color: ${button_text};
-    border: 0;
-    border-radius: 4px;
+    border: 1px solid ${BORDER};
+    border-radius: 3px;
     padding: 4px 10px;
 }
 QPushButton:hover    { background: ${BG_HOVER}; }
 QPushButton:disabled { color: ${button_text_disabled}; }
 
-QPushButton[variant="primary"]       { background: ${ACCENT};        color: ${CLR_WHITE}; padding: 5px 12px; }
-QPushButton[variant="primary_dark"]  { background: ${ACCENT_DARK};   color: ${CLR_WHITE}; padding: 6px 14px; font-weight: bold; }
+QPushButton[variant="primary"]       { background: ${ACCENT};        color: ${CLR_WHITE}; border: 1px solid ${ACCENT_DARK};        padding: 5px 12px; }
+QPushButton[variant="primary_dark"]  { background: ${ACCENT_DARK};   color: ${CLR_WHITE}; border: 1px solid ${ACCENT_DARK};        padding: 6px 14px; font-weight: bold; }
 QPushButton[variant="secondary"]     { background: ${BG_CELL};       color: ${TXT_SEC};   padding: 4px 10px; }
 QPushButton[variant="card"]          { background: ${BG_CELL};       color: ${TXT_SEC};   padding: 3px 8px; }
-QPushButton[variant="danger"]        { background: ${CLR_DANGER_BG}; color: ${CLR_DANGER}; padding: 3px 8px; }
+QPushButton[variant="danger"]        { background: ${CLR_DANGER_BG}; color: ${CLR_DANGER}; border: 1px solid ${CLR_DANGER_DARK};   padding: 3px 8px; }
 QPushButton[variant="danger"]:hover  { background: ${CLR_DANGER_HOVER}; color: ${CLR_WHITE}; }
-QPushButton[variant="success"]       { background: ${CLR_SUCCESS};   color: ${CLR_WHITE}; padding: 5px 12px; }
-QPushButton[variant="sem"]           { background: ${ACCENT};        color: ${CLR_WHITE}; padding: 5px 12px; font-weight: bold; }
-QPushButton[variant="sem_warn"]      { background: ${WARN};          color: ${CLR_WHITE}; padding: 5px 12px; font-weight: bold; }
+QPushButton[variant="success"]       { background: ${CLR_SUCCESS};   color: ${CLR_WHITE}; border: 1px solid ${CLR_SUCCESS_DARK};  padding: 5px 12px; }
+QPushButton[variant="sem"]           { background: ${ACCENT};        color: ${CLR_WHITE}; border: 1px solid ${ACCENT_DARK};        padding: 5px 12px; font-weight: bold; }
+QPushButton[variant="sem_warn"]      { background: ${WARN};          color: ${CLR_WHITE}; border: 1px solid ${CLR_WARN_DARK};     padding: 5px 12px; font-weight: bold; }
 QPushButton[variant="toggle"]        { background: ${BG_CELL};       color: ${TXT_SEC};   padding: 4px 10px; }
 QPushButton[variant="toggle"]:hover         { background: ${BG_HOVER}; }
-QPushButton[variant="toggle"]:checked       { background: ${ACCENT};       color: ${CLR_WHITE}; }
+QPushButton[variant="toggle"]:checked       { background: ${ACCENT};       color: ${CLR_WHITE}; border-color: ${ACCENT_DARK}; }
 QPushButton[variant="toggle"]:checked:hover { background: ${ACCENT_DARK};  color: ${CLR_WHITE}; }
 QPushButton[variant="toggle"]:pressed       { background: ${ACCENT_DARK};  color: ${CLR_WHITE}; }
-QPushButton[variant="toggle_active"] { background: ${ACCENT};        color: ${CLR_WHITE}; padding: 4px 10px; }
-QPushButton[variant="toggle_warn"]   { background: ${WARN};          color: ${CLR_WHITE}; padding: 4px 10px; }
+QPushButton[variant="toggle_active"] { background: ${ACCENT};        color: ${CLR_WHITE}; border-color: ${ACCENT_DARK};            padding: 4px 10px; }
+QPushButton[variant="toggle_warn"]   { background: ${WARN};          color: ${CLR_WHITE}; border-color: ${CLR_WARN_DARK};          padding: 4px 10px; }
 QPushButton[variant="toggle_warn"]:checked  { background: ${WARN};         color: ${CLR_WHITE}; }
 QPushButton[variant="toggle_muted"]  { background: ${BG_CELL};       color: ${TXT_MUT};   padding: 4px 10px; }
 QPushButton[variant="toggle_muted"]:hover   { background: ${BG_HOVER}; }
 QPushButton[variant="toggle_accent"] { background: ${BG_CELL};       color: ${ACCENT};    padding: 4px 10px; }
 QPushButton[variant="toggle_accent"]:hover  { background: ${BG_HOVER}; }
-QPushButton[variant="side_accent"]   { background: ${BG_SIDE};       color: ${ACCENT};    padding: 3px 8px; }
-QPushButton[variant="side_muted"]    { background: ${BG_SIDE};       color: ${TXT_MUT};   padding: 3px 8px; }
-QPushButton[variant="run"]           { background: ${CLR_SUCCESS};   color: ${CLR_WHITE}; padding: 6px 14px; font-weight: bold; }
-QPushButton[variant="stop"]          { background: ${CLR_DANGER};    color: ${CLR_WHITE}; padding: 6px 14px; font-weight: bold; }
+QPushButton[variant="side_accent"]   { background: ${BG_SIDE};       color: ${ACCENT};    border: 0; padding: 3px 8px; }
+QPushButton[variant="side_muted"]    { background: ${BG_SIDE};       color: ${TXT_MUT};   border: 0; padding: 3px 8px; }
+QPushButton[variant="run"]           { background: ${CLR_SUCCESS};   color: ${CLR_WHITE}; border: 1px solid ${CLR_SUCCESS_DARK};  padding: 6px 14px; font-weight: bold; }
+QPushButton[variant="stop"]          { background: ${CLR_DANGER};    color: ${CLR_WHITE}; border: 1px solid ${CLR_DANGER_DARK};   padding: 6px 14px; font-weight: bold; }
 QPushButton[variant="quickselect"]   { background: ${button_bg};     color: ${button_text}; padding: 1px 4px; }
 
 /* ── Plate-map wells ──────────────────────────────────────────────────── */
@@ -76,26 +77,26 @@ QPushButton#WellButton {
     max-height: 18px;
     padding: 0;
     border-radius: 9px;
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     background: ${BG_CELL};
 }
 /* No dataset — no border, flat. */
-QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
-/* Wells with data — smooth solid black border; emboss/depress is painted
+QPushButton#WellButton[state="empty"]     { background: ${CLR_AVAIL_WELL}; border: 1px solid transparent; }
+/* Wells with data — 1px themed border; emboss/depress is painted
    on top by WellButton.paintEvent since QSS outset/inset collapses to
    solid once border-radius is set. */
-QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; border: 2px solid #000000; }
-QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         border: 2px solid #000000; }
-QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    border: 2px solid #000000; }
-QPushButton#WellButton[state="warn"]      { background: ${WARN};           border: 2px solid #000000; }
-QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     border: 2px solid #000000; }
+QPushButton#WellButton[state="available"] { background: ${CLR_AVAIL_WELL}; border: 1px solid ${BORDER}; }
+QPushButton#WellButton[state="selected"]  { background: ${ACCENT};         border: 1px solid ${ACCENT_DARK}; }
+QPushButton#WellButton[state="group"]     { background: ${CLR_SUCCESS};    border: 1px solid ${CLR_SUCCESS_DARK}; }
+QPushButton#WellButton[state="warn"]      { background: ${WARN};           border: 1px solid ${CLR_WARN_DARK}; }
+QPushButton#WellButton[state="danger"]    { background: ${CLR_DANGER};     border: 1px solid ${CLR_DANGER_DARK}; }
 QPushButton#WellButton:hover              { background: ${CLR_AVAIL_HOVER}; }
-QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; border: 2px solid transparent; }
+QPushButton#WellButton:disabled           { background: ${CLR_AVAIL_WELL}; border: 1px solid transparent; }
 
 /* ── Replicate-set cards (left panel of Sample Definitions tab) ──────── */
 QWidget[variant="rep_card"] {
     border: 2px solid ${BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
     background: transparent;
 }
 QWidget[variant="rep_card"][active="true"] {
@@ -110,7 +111,7 @@ QWidget[variant="rep_card"] > QWidget { background: transparent; }
 
 /* ── Inputs ───────────────────────────────────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {
-    background: ${BG_PANEL};
+    background: ${BG_CELL};
     color: ${TXT_PRI};
     border: 1px solid ${BORDER};
     border-radius: 3px;
@@ -124,7 +125,7 @@ QTextEdit:focus, QPlainTextEdit:focus {
 }
 
 QComboBox {
-    background: ${BG_PANEL};
+    background: ${BG_CELL};
     color: ${TXT_PRI};
     border: 1px solid ${BORDER};
     border-radius: 3px;
@@ -136,7 +137,7 @@ QComboBox::drop-down {
     subcontrol-position: top right;
     width: 20px;
     border-left: 1px solid ${BORDER};
-    background: ${BG_CELL};
+    background: ${BG_HOVER};
 }
 QComboBox::down-arrow {
     image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3 L5 7 L9 3 Z' fill='%23555555'/></svg>");
@@ -158,20 +159,32 @@ QCheckBox:disabled, QRadioButton:disabled { color: ${CLR_MUTED_DISABLED}; }
 /* ── Tabs ─────────────────────────────────────────────────────────────── */
 QTabWidget::pane {
     background: ${BG_APP};
-    border: 0;
-    border-top: 1px solid ${BORDER};
+    border: 1px solid ${TAB_BORDER};
+    top: -1px;
 }
 QTabBar { background: ${BG_SIDE}; }
 QTabBar::tab {
-    background: ${TAB_BG};
+    background: ${BG_SIDE};
     color: ${TAB_FG};
-    padding: 4px 10px;
-    border: 0;
+    padding: 5px 12px;
+    border: 1px solid ${TAB_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-right: 2px;
     font-size: 9pt;
     font-weight: normal;
 }
-QTabBar::tab:selected { background: ${TAB_BG_ACTIVE}; color: ${ACCENT}; }
-QTabBar::tab:hover    { color: ${TAB_FG_ACTIVE}; }
+QTabBar::tab:selected {
+    background: ${BG_APP};
+    color: ${ACCENT};
+    border-bottom: 1px solid ${BG_APP};
+    margin-bottom: -1px;
+    font-weight: bold;
+}
+QTabBar::tab:hover    { background: ${BG_HOVER}; color: ${TAB_FG_ACTIVE}; }
 
 /* ── Lists / tables / trees ───────────────────────────────────────────── */
 QListWidget, QListView,
@@ -203,7 +216,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 
 QGroupBox {
     border: 1px solid ${BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
     margin-top: 10px;
     color: ${TXT_PRI};
     background: transparent;
@@ -272,3 +285,74 @@ QProgressBar {
     color: ${TXT_PRI};
 }
 QProgressBar::chunk { background: ${ACCENT}; }
+
+/* ── Sample Definitions sub-tabs ──────────────────────────────────────── */
+QTabWidget#SampleDefinitionsSubTabs > QTabBar {
+    background: ${BG_SIDE};
+}
+QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab {
+    background: ${BG_SIDE};
+    color: ${TAB_FG};
+    border: 1px solid ${TAB_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: 5px 14px;
+    font-size: 9pt;
+    font-weight: normal;
+    min-width: 120px;
+    margin-right: 2px;
+}
+QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:selected {
+    background: ${BG_APP};
+    color: ${ACCENT};
+    border-bottom: 1px solid ${BG_APP};
+    margin-bottom: -1px;
+    font-weight: bold;
+}
+QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:hover:!selected {
+    background: ${BG_HOVER};
+    color: ${TAB_FG_ACTIVE};
+}
+QTabWidget#SampleDefinitionsSubTabs::pane {
+    background: ${BG_APP};
+    border: 1px solid ${TAB_BORDER};
+    top: -1px;
+}
+
+/* ── Scatter Plot sub-tabs ────────────────────────────────────────────── */
+QTabWidget#ScatterSubTabs > QTabBar {
+    background: ${BG_SIDE};
+}
+QTabWidget#ScatterSubTabs > QTabBar::tab {
+    background: ${BG_SIDE};
+    color: ${TAB_FG};
+    border: 1px solid ${TAB_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: 5px 14px;
+    font-size: 9pt;
+    font-weight: normal;
+    margin-right: 2px;
+}
+QTabWidget#ScatterSubTabs > QTabBar::tab:selected {
+    background: ${BG_APP};
+    color: ${ACCENT};
+    border-bottom: 1px solid ${BG_APP};
+    margin-bottom: -1px;
+    font-weight: bold;
+}
+QTabWidget#ScatterSubTabs > QTabBar::tab:hover:!selected {
+    background: ${BG_HOVER};
+    color: ${TAB_FG_ACTIVE};
+}
+QTabWidget#ScatterSubTabs::pane {
+    background: ${BG_APP};
+    border: 1px solid ${TAB_BORDER};
+    top: -1px;
+}

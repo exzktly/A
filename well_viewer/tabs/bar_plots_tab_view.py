@@ -34,7 +34,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
 
     # Controls bar
     bar_ctrl = QWidget(bar_right)
-    bar_ctrl.setObjectName("Sidebar")
+    bar_ctrl.setObjectName("TabCtrl")
     cl = QHBoxLayout(bar_ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
@@ -133,7 +133,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
 
     # Y-axis limit controls
     ylim_row = QWidget(bar_right)
-    ylim_row.setObjectName("Sidebar")
+    ylim_row.setObjectName("TabCtrl")
     yl = QHBoxLayout(ylim_row)
     yl.setContentsMargins(8, 4, 8, 4)
 

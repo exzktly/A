@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
@@ -78,10 +79,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     col_lbl = QLabel("Col:", col_frame)
     col_lbl.setObjectName("Muted")
     col_grid.addWidget(col_lbl, 0, 0)
+    _col_font = QFont()
+    _col_font.setPointSize(7)
     for ci, c in enumerate(_PLATE_COLS):
         b = QPushButton(c.lstrip("0") or "0", col_frame)
         b.setProperty("variant", "quickselect")
         b.setFixedHeight(18)
+        b.setFont(_col_font)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, col=c: app._select_col(col))
         col_grid.addWidget(b, 0, ci + 1)

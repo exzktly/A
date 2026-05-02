@@ -140,7 +140,7 @@ QComboBox::drop-down {
     background: ${BG_HOVER};
 }
 QComboBox::down-arrow {
-    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3 L5 7 L9 3 Z' fill='%23d0d0d0'/></svg>");
+    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3 L5 7 L9 3 Z' fill='%23D4A853'/></svg>");
     width: 10px;
     height: 10px;
 }
@@ -157,8 +157,6 @@ QCheckBox, QRadioButton { color: ${TXT_PRI}; spacing: 6px; background: transpare
 QCheckBox:disabled, QRadioButton:disabled { color: ${CLR_MUTED_DISABLED}; }
 
 /* ── Tabs ─────────────────────────────────────────────────────────────── */
-/* Unselected tabs sit on BG_SIDE strip; selected tab recedes into the
-   BG_APP content area (flush-join via margin-bottom/-1px trick). */
 QTabWidget::pane {
     background: ${BG_APP};
     border: 1px solid ${TAB_BORDER};
@@ -289,8 +287,6 @@ QProgressBar {
 QProgressBar::chunk { background: ${ACCENT}; }
 
 /* ── Sample Definitions sub-tabs ──────────────────────────────────────── */
-/* Match the main tab style: rounded top corners, 1px border, selected tab
-   blends into its pane via BG_SIDE + matching border-bottom trick. */
 QTabWidget#SampleDefinitionsSubTabs > QTabBar {
     background: ${BG_SIDE};
 }

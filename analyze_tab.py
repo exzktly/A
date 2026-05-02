@@ -144,10 +144,10 @@ class AnalyzeTab(QWidget):
         # Left — scrollable form
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setObjectName("Sidebar")
+        scroll
         scroll.setMinimumWidth(280)
         form_host = QWidget()
-        form_host.setObjectName("Sidebar")
+        form_host
         self._form_layout = QVBoxLayout(form_host)
         self._form_layout.setContentsMargins(0, 8, 0, 8)
         self._form_layout.setSpacing(0)
@@ -172,7 +172,7 @@ class AnalyzeTab(QWidget):
     def _section(self, parent: QWidget, title: str) -> QWidget:
         """Add a labelled section to *parent* and return its body widget."""
         container = QWidget(parent)
-        container.setObjectName("Sidebar")
+        container
         cl = QVBoxLayout(container)
         cl.setContentsMargins(0, 4, 0, 4)
         cl.setSpacing(2)
@@ -188,7 +188,7 @@ class AnalyzeTab(QWidget):
         cl.addWidget(rule)
 
         body = QWidget(container)
-        body.setObjectName("Sidebar")
+        body
         bl = QVBoxLayout(body)
         bl.setContentsMargins(12, 4, 12, 8)
         bl.setSpacing(3)
@@ -308,7 +308,7 @@ class AnalyzeTab(QWidget):
         sec.layout().addWidget(fl_hint)
 
         self._fluor_frame = QWidget(sec)
-        self._fluor_frame.setObjectName("Sidebar")
+        self._fluor_frame
         self._fluor_frame_layout = QVBoxLayout(self._fluor_frame)
         self._fluor_frame_layout.setContentsMargins(0, 0, 0, 0)
         self._fluor_frame_layout.setSpacing(2)
@@ -460,7 +460,7 @@ class AnalyzeTab(QWidget):
 
     def _build_run_controls(self, parent: QWidget) -> None:
         btn_widget = QWidget(parent)
-        btn_widget.setObjectName("Sidebar")
+        btn_widget
         bl = QHBoxLayout(btn_widget)
         bl.setContentsMargins(12, 10, 12, 10)
         bl.setSpacing(8)
@@ -667,7 +667,7 @@ class AnalyzeTab(QWidget):
         rl.setSpacing(0)
 
         hdr = QWidget(parent)
-        hdr.setObjectName("Sidebar")
+        hdr
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(12, 6, 12, 6)
         hl.addWidget(QLabel("Pipeline Output", hdr))
@@ -685,7 +685,7 @@ class AnalyzeTab(QWidget):
         rl.addWidget(r1)
 
         prog_widget = QWidget(parent)
-        prog_widget.setObjectName("Sidebar")
+        prog_widget
         pl = QHBoxLayout(prog_widget)
         pl.setContentsMargins(12, 6, 12, 6)
         self._prog_lbl = QLabel("", prog_widget)

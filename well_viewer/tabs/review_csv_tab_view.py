@@ -16,7 +16,7 @@ def build_review_csv_tab(app, parent: QWidget) -> None:
     layout.setContentsMargins(10, 10, 10, 10)
 
     ctrl = QWidget(parent)
-    ctrl.setObjectName("Sidebar")
+    ctrl.setObjectName("TabCtrl")
     cl = QHBoxLayout(ctrl)
     cl.setContentsMargins(8, 6, 8, 6)
 

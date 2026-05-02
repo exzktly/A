@@ -14,6 +14,7 @@ _DARK_THEME: Dict[str, str] = {
     "BG_CELL": "#334155", "BG_HOVER": "#475569", "BORDER": "#64748B",
     "TAB_BG": "#1F2937", "TAB_BG_ACTIVE": "#374151",
     "TAB_FG": "#CBD5E1", "TAB_FG_ACTIVE": "#FFFFFF", "TAB_BORDER": "#475569",
+    "GRP_DATA": "#3B82F6", "GRP_CONFIG": "#84CC16",
     "TXT_PRI": "#F8FAFC", "TXT_SEC": "#E2E8F0", "TXT_MUT": "#94A3B8",
     "ACCENT": "#3B82F6", "ACCENT_DARK": "#2563EB", "WARN": "#F59E0B",
     "PLOT_BG": "#FFFFFF", "PLOT_GRD": "#B8CAE3",
@@ -40,6 +41,7 @@ _LIGHT_THEME: Dict[str, str] = {
     "BG_CELL": "#E5E7EB", "BG_HOVER": "#D1D5DB", "BORDER": "#9CA3AF",
     "TAB_BG": "#E5E7EB", "TAB_BG_ACTIVE": "#D1D5DB",
     "TAB_FG": "#4B5563", "TAB_FG_ACTIVE": "#000000", "TAB_BORDER": "#D1D5DB",
+    "GRP_DATA": "#3B82F6", "GRP_CONFIG": "#84CC16",
     "TXT_PRI": "#1F2937", "TXT_SEC": "#374151", "TXT_MUT": "#6B7280",
     "ACCENT": "#3B82F6", "ACCENT_DARK": "#1F2937", "WARN": "#EA580C",
     "PLOT_BG": "#FFFFFF", "PLOT_GRD": "#D0DCF0",
@@ -69,7 +71,38 @@ _WELL_COLORS: Dict[str, str] = {
     "WELL_COLOR_9": "#A855F7",
 }
 
-THEMES: Dict[str, Dict[str, str]] = {"Dark": _DARK_THEME, "Light": _LIGHT_THEME}
+_AMBER_THEME: Dict[str, str] = {
+    "BG_APP": "#0C0A06", "BG_SIDE": "#1A1108", "BG_PANEL": "#110D07",
+    "BG_CELL": "#2A1C0E", "BG_HOVER": "#3A2610", "BORDER": "#6B4A24",
+    "TAB_BG": "#0C0A06", "TAB_BG_ACTIVE": "#2A1C0E",
+    "TAB_FG": "#8C6A3E", "TAB_FG_ACTIVE": "#F5E6C8", "TAB_BORDER": "#3D2810",
+    "GRP_DATA": "#D97706", "GRP_CONFIG": "#84CC16",
+    "TXT_PRI": "#F5E6C8", "TXT_SEC": "#D4A853", "TXT_MUT": "#8C6A3E",
+    "ACCENT": "#D97706", "ACCENT_DARK": "#B45309", "WARN": "#EAB308",
+    "PLOT_BG": "#FFFFFF", "PLOT_GRD": "#D4B896",
+    "PLOT_SPN": "#A07840", "PLOT_TXT": "#4A2E08",
+    "CLR_WHITE": "#FFFFFF", "CLR_OFF_WHITE": "#FEF3C7",
+    "CLR_SUCCESS": "#059669", "CLR_SUCCESS_DARK": "#047857",
+    "CLR_SUCCESS_BG_DARK": "#064E3B", "CLR_SUCCESS_TEXT_SOFT": "#6EE7B7",
+    "CLR_DANGER": "#DC2626", "CLR_DANGER_DARK": "#B91C1C",
+    "CLR_DANGER_BG": "#7F1D1D", "CLR_DANGER_HOVER": "#991B1B",
+    "CLR_ERROR_BG_DARK": "#7F1D1D", "CLR_ERROR_TEXT_SOFT": "#FCA5A5",
+    "CLR_WARN_DARK": "#B45309", "CLR_WARN_TEXT": "#92400E", "CLR_WARN_BG": "#78350F",
+    "CLR_SLATE_BG": "#0C0A06", "CLR_SLATE_TEXT": "#F59E0B",
+    "CLR_MUTED_DISABLED": "#6B4A24", "CLR_MUTED_TEXT_SOFT": "#D4A853",
+    "CLR_PLACEHOLDER": "#6B4A24", "CLR_ERR_BAR": "#3D2810",
+    "CLR_AVAIL_WELL": "#2A1C0E", "CLR_AVAIL_HOVER": "#3A2610",
+    "TOOLTIP_BG": "#1A1108", "TOOLTIP_FG": "#F5E6C8",
+    "button_bg": "#2A1C0E", "button_text": "#F5E6C8",
+    "button_text_disabled": "#6B4A24", "BTN_TEXT_BLACK": "#000000",
+    "INSET_SHADOW": "#0C0A06", "INSET_HIGHLIGHT": "#6B4A24",
+}
+
+THEMES: Dict[str, Dict[str, str]] = {
+    "Dark": _DARK_THEME,
+    "Light": _LIGHT_THEME,
+    "Amber": _AMBER_THEME,
+}
 
 
 def set_theme(name: str) -> None:

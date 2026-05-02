@@ -65,7 +65,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
 
     # ── Header: rows / cols spinners ────────────────────────────────────────
     hdr = QWidget(inner)
-    hdr.setObjectName("Sidebar")
+    hdr.setObjectName("TabCtrl")
     hl = QHBoxLayout(hdr)
     hl.setContentsMargins(8, 6, 8, 6)
     hl.setSpacing(6)
@@ -92,7 +92,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
 
     # ── Global Options row (channel is now per-row; see selector grid) ──────
     glob = QWidget(inner)
-    glob.setObjectName("Sidebar")
+    glob.setObjectName("TabCtrl")
     gl = QHBoxLayout(glob)
     gl.setContentsMargins(8, 6, 8, 6)
     gl.setSpacing(6)

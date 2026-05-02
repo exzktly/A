@@ -1907,7 +1907,7 @@ class WellViewerApp(QWidget):
         # sets, bar groups, ratios, and cell gating all flow through these
         # three buttons.
         toolbar = _QWidget(parent)
-        toolbar.setObjectName("Sidebar")
+        toolbar.setObjectName("TabCtrl")
         tl = _QHBoxLayout(toolbar)
         tl.setContentsMargins(8, 6, 8, 6)
         tl.setSpacing(6)
@@ -1943,43 +1943,25 @@ class WellViewerApp(QWidget):
         # ── Sub-tabs ────────────────────────────────────────────────────────
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
-        # Make the tabs themselves easy to read — these are the tab's
-        # primary navigation, not a tertiary control. Wider tabs + larger
-        # font defeats the default cramped styling.
         sub_tabs.tabBar().setExpanding(True)
-        sub_tabs.setStyleSheet(
-            "QTabWidget#SampleDefinitionsSubTabs::pane { "
-            "border-top: 1px solid rgba(99, 102, 241, 0.40); "
-            "} "
-            "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab { "
-            "min-width: 220px; "
-            "padding: 10px 24px; "
-            "font-size: 13px; "
-            "font-weight: 600; "
-            "letter-spacing: 0.4px; "
-            "} "
-            "QTabWidget#SampleDefinitionsSubTabs > QTabBar::tab:selected { "
-            "color: rgb(67, 56, 202); "
-            "border-bottom: 2px solid rgb(99, 102, 241); "
-            "}"
-        )
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 
-        # Sub-tab 1: ratios + well-label editor
+        # Sub-tab 1: Well Labels only
         labels_tab = _QWidget(sub_tabs)
-        ll = _QVBoxLayout(labels_tab)
-        ll.setContentsMargins(0, 0, 0, 0)
-        ll.addWidget(build_ratios_inline_panel(self, labels_tab))
-        sep = _QFrame(labels_tab)
-        sep.setObjectName("Separator")
-        sep.setFrameShape(_QFrame.HLine)
-        sep.setFixedHeight(1)
-        ll.addWidget(sep)
+        _QVBoxLayout(labels_tab).setContentsMargins(0, 0, 0, 0)
         self._build_label_editor(labels_tab)
-        sub_tabs.addTab(labels_tab, "Wells & Labels")
+        sub_tabs.addTab(labels_tab, "Well Labels")
 
-        # Sub-tab 2: Cell Gating — lazy-built on first activation so a
+        # Sub-tab 2: Ratio Metrics only
+        ratio_tab = _QWidget(sub_tabs)
+        rl = _QVBoxLayout(ratio_tab)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.addWidget(build_ratios_inline_panel(self, ratio_tab))
+        rl.addStretch(1)
+        sub_tabs.addTab(ratio_tab, "Ratios")
+
+        # Sub-tab 3: Cell Gating — lazy-built on first activation so a
         # user who only edits labels never pays the matplotlib import.
         cell_gating_tab = _QWidget(sub_tabs)
         _QVBoxLayout(cell_gating_tab).setContentsMargins(0, 0, 0, 0)
@@ -4226,15 +4208,15 @@ class WellViewerApp(QWidget):
         hover_bg = activebackground or bg
         hover_fg = activeforeground or fg
         disabled_fg = disabledforeground or fg
-        # Uniform 2px border width across every state so fixed-size circles
-        # never change dimensions. Wells with no data get a transparent
-        # border; wells with data get a smooth solid black border. The
-        # embossed/depressed 3D cue is painted by WellButton.paintEvent —
+        # 1px border matching the design-system tokens. Wells with no data
+        # get a transparent border; wells with data get a themed border.
+        # The embossed/depressed 3D cue is painted by WellButton.paintEvent —
         # QSS outset/inset collapses to solid once border-radius is set.
+        from ui.theme import get_color
         if not is_enabled:
-            border = "2px solid transparent"
+            border = "1px solid transparent"
         else:
-            border = "2px solid #000000"
+            border = f"1px solid {get_color('BORDER')}"
         # Drive the paint-event-based 3D cue.
         if hasattr(btn, "set_emboss"):
             if not is_enabled:
@@ -4246,10 +4228,10 @@ class WellViewerApp(QWidget):
 
         # Setting a per-widget stylesheet overrides the application QSS for
         # this widget's selector. Restate the plate-well layout properties
-        # (fixed size, padding, border-radius) here so wells render as
-        # identical circles regardless of which code path styles them. Must
-        # match QPushButton#WellButton in dark.qss / light.qss. No font-size
-        # is set (Qt rejects <=0pt); button text is always empty anyway.
+        # (fixed size, padding, border-radius) here so wells render identically
+        # to QSS-driven wells. Must match QPushButton#WellButton in dark.qss /
+        # light.qss. No font-size is set (Qt rejects <=0pt); button text is
+        # always empty anyway.
         base_layout = (
             "min-width: 18px;"
             "min-height: 18px;"
@@ -7405,6 +7387,16 @@ class WellViewerApp(QWidget):
 
         _export_bar_plot_data(self)
 
+    def _export_heatmap_data(self) -> None:
+        from well_viewer.export_service import export_heatmap_data as _export_heatmap_data
+
+        _export_heatmap_data(self)
+
+    def _export_distribution_data(self) -> None:
+        from well_viewer.export_service import export_distribution_data as _export_distribution_data
+
+        _export_distribution_data(self)
+
     def _open_bar_batch_export(self) -> None:
         """Switch Batch Export tab to the inline bar-plot export builder."""
         if not self._well_paths:
@@ -7471,6 +7463,8 @@ class WellViewerApp(QWidget):
             "bar": (getattr(self, "_bar_fig", None), getattr(self, "_bar_canvas", None), "bar_plots.png"),
             "scatter_cells": (getattr(self, "_scatter_fig", None), getattr(self, "_scatter_canvas", None), "scatter_cells.png"),
             "scatter_agg": (getattr(self, "_scatter_agg_fig", None), getattr(self, "_scatter_agg_canvas", None), "scatter_agg.png"),
+            "heatmap": (getattr(self, "_heatmap_fig", None), getattr(self, "_heatmap_canvas", None), "heatmap.png"),
+            "distribution": (getattr(self, "_distribution_fig", None), getattr(self, "_distribution_canvas", None), "distribution.png"),
         }
         fig, canvas, default_name = mapping.get(plot_key, (None, None, "figure.png"))
         if fig is None:
