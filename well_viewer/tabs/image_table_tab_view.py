@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSpinBox,
-    QVBoxLayout, QWidget,
+    QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from well_viewer.crop_tool import CropTool
@@ -46,6 +46,8 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         app._image_table_last_render = {}
     if not hasattr(app, "_image_table_image_cache"):
         app._image_table_image_cache = {}
+    if not hasattr(app, "_image_table_use_tophat"):
+        app._image_table_use_tophat = False
     # Shared square-region crop helper. on_change re-runs Generate so the
     # rendered grid follows mode toggles and crop changes automatically.
     if not hasattr(app, "_image_table_crop_tool"):
@@ -129,6 +131,19 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     ))
     al.addWidget(btn_primary(actions, "Generate", app._image_table_generate))
     al.addWidget(btn_secondary(actions, "Export", app._image_table_export))
+
+    # Raw ↔ Tophat toggle. Checkable so the button doubles as an indicator
+    # of the current source (pressed = tophat, released = raw).
+    tophat_btn = QPushButton("Tophat", actions)
+    tophat_btn.setProperty("variant", "secondary")
+    tophat_btn.setCheckable(True)
+    tophat_btn.setChecked(bool(app._image_table_use_tophat))
+    tophat_btn.setToolTip(
+        "Toggle between raw fluorescence and pre-filtered tophat images."
+    )
+    tophat_btn.clicked.connect(lambda _=False: app._image_table_toggle_tophat())
+    app._image_table_tophat_btn = tophat_btn
+    al.addWidget(tophat_btn)
 
     # Reuse the shared CropTool helper (also used by Movie Montage).
     crop_sep = QFrame(actions)

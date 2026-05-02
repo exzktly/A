@@ -149,6 +149,8 @@ _refresh_preview_picker_view = _lazy("well_viewer.views.preview_view", "refresh_
 _it_apply_dimensions = _lazy("well_viewer.image_table_controller", "image_table_apply_dimensions")
 _it_apply_global = _lazy("well_viewer.image_table_controller", "image_table_apply_global")
 _it_apply_row_channel = _lazy("well_viewer.image_table_controller", "image_table_apply_row_channel")
+_it_apply_row_well = _lazy("well_viewer.image_table_controller", "image_table_apply_row_well")
+_it_toggle_tophat = _lazy("well_viewer.image_table_controller", "image_table_toggle_tophat")
 _it_auto_lut = _lazy("well_viewer.image_table_controller", "image_table_auto_lut")
 _it_clear_active = _lazy("well_viewer.image_table_controller", "image_table_clear_active")
 _it_distribute_timepoints = _lazy("well_viewer.image_table_controller", "image_table_distribute_timepoints")
@@ -1856,6 +1858,12 @@ class WellViewerApp(QWidget):
 
     def _image_table_apply_row_channel(self, row_idx: int) -> None:
         _it_apply_row_channel(self, row_idx)
+
+    def _image_table_apply_row_well(self, row_idx: int) -> None:
+        _it_apply_row_well(self, row_idx)
+
+    def _image_table_toggle_tophat(self) -> None:
+        _it_toggle_tophat(self)
 
     def _image_table_distribute_wells(self) -> None:
         _it_distribute_wells(self)
