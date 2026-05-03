@@ -299,6 +299,53 @@ def build_review_image_panel(self, parent: QWidget) -> None:
     lr.addStretch(1)
     il.addWidget(lut_row)
 
+    # ── Color customization + binary-mask toggle row ───────────────────
+    from PySide6.QtWidgets import QPushButton as _QPushButton
+    color_row = QWidget(inner)
+    cr = QHBoxLayout(color_row)
+    cr.setContentsMargins(8, 2, 8, 2)
+    self._review_image_color_swatches = {}
+
+    def _add_swatch(label_text: str, key: str, tooltip: str) -> None:
+        cr.addWidget(QLabel(label_text, color_row))
+        sw = _QPushButton("", color_row)
+        sw.setFixedSize(28, 18)
+        sw.setToolTip(tooltip)
+        sw.clicked.connect(
+            lambda _=False, k=key: self._pick_review_image_color(k)
+        )
+        cr.addWidget(sw)
+        self._review_image_color_swatches[key] = sw
+        self._review_image_refresh_color_swatch(key)
+
+    _add_swatch("Boundary:", "boundary",
+                "Color used for included cell boundaries.")
+    _add_swatch("Selected:", "selected",
+                "Color used for the selected cell highlight.")
+    _add_swatch("Tint:", "tint",
+                "Tints the grayscale fluorescence image. White (default) "
+                "leaves it pure grayscale; pick a color to multiply each\n"
+                "channel by the chosen RGB.")
+    cr.addWidget(btn_secondary(color_row, "Reset colors",
+                               self._reset_review_image_colors))
+
+    cr.addSpacing(12)
+
+    self._review_image_binary_btn = _QPushButton("Binary: Off", color_row)
+    self._review_image_binary_btn.setProperty("variant", "toggle")
+    self._review_image_binary_btn.setCheckable(True)
+    self._review_image_binary_btn.setChecked(
+        bool(getattr(self, "_review_image_binary_mask", False))
+    )
+    self._review_image_binary_btn.clicked.connect(
+        lambda _=False: self._toggle_review_image_binary_mask()
+    )
+    cr.addWidget(self._review_image_binary_btn)
+    self._refresh_review_image_binary_btn()
+
+    cr.addStretch(1)
+    il.addWidget(color_row)
+
     self._review_image_canvas = QScrollArea(inner)
     self._review_image_canvas.setWidgetResizable(False)
     self._review_image_canvas.setAlignment(Qt.AlignCenter)
