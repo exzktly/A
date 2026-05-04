@@ -213,6 +213,8 @@ def image_table_repopulate_dropdowns(app) -> None:
 
     for cb in getattr(app, "_image_table_row_chan_cbs", None) or []:
         _reset_combo(cb, chan_opts)
+    for cb in getattr(app, "_image_table_row_well_cbs", None) or []:
+        _reset_combo(cb, well_opts)
 
     cells = getattr(app, "_image_table_cells", None) or []
     for row in cells:
@@ -259,6 +261,7 @@ def image_table_rebuild_grid(app) -> None:
     cells: List[List[Dict[str, Any]]] = []
     row_chan_cbs: List[QComboBox] = []
     row_lut_color_cbs: List[QComboBox] = []
+    row_well_cbs: List[QComboBox] = []
     for r in range(rows):
         row_box = QGroupBox(f"Row {r + 1}")
         # Tinted background flags this groupbox as a row-scope control —
@@ -278,6 +281,17 @@ def image_table_rebuild_grid(app) -> None:
         rbl = QVBoxLayout(row_box)
         rbl.setContentsMargins(6, 8, 6, 6)
         rbl.setSpacing(4)
+
+        # Well — assigns the same well to every cell in this row.
+        well_lbl = QLabel("Well:", row_box)
+        well_lbl.setStyleSheet("font-size: 10px;")
+        rbl.addWidget(well_lbl)
+        row_well_cb = QComboBox(row_box)
+        row_well_cb.addItems(well_opts)
+        rbl.addWidget(row_well_cb)
+        row_well_cb.currentIndexChanged.connect(
+            lambda _i, ridx=r: image_table_apply_row_well(app, ridx)
+        )
 
         # Channel
         chan_lbl = QLabel("Channel:", row_box)
@@ -309,6 +323,7 @@ def image_table_rebuild_grid(app) -> None:
         layout.addWidget(row_box, r, 0)
         row_chan_cbs.append(row_chan_cb)
         row_lut_color_cbs.append(row_color_cb)
+        row_well_cbs.append(row_well_cb)
 
         row: List[Dict[str, Any]] = []
         for c in range(cols):
@@ -321,6 +336,7 @@ def image_table_rebuild_grid(app) -> None:
     app._image_table_cells = cells
     app._image_table_row_chan_cbs = row_chan_cbs
     app._image_table_row_lut_color_cbs = row_lut_color_cbs
+    app._image_table_row_well_cbs = row_well_cbs
 
     image_table_rebuild_lut_row(app)
 
@@ -423,6 +439,29 @@ def image_table_apply_global(app, field: str) -> None:
             cb.blockSignals(False)
 
 
+def image_table_apply_row_well(app, row_idx: int) -> None:
+    """Copy the per-row well selector's value into every cell in that row.
+
+    Mirrors ``image_table_apply_row_channel`` for the well axis: lets the
+    user pick a single well for an entire row without clicking each cell.
+    """
+    row_cbs = getattr(app, "_image_table_row_well_cbs", None) or []
+    cells = getattr(app, "_image_table_cells", None) or []
+    if not (0 <= row_idx < len(row_cbs)) or not (0 <= row_idx < len(cells)):
+        return
+    value = row_cbs[row_idx].currentText()
+    if not value:
+        return
+    for cell in cells[row_idx]:
+        cb = cell.get("well_cb")
+        if cb is None:
+            continue
+        cb.blockSignals(True)
+        if cb.findText(value) >= 0:
+            cb.setCurrentText(value)
+        cb.blockSignals(False)
+
+
 def image_table_apply_row_channel(app, row_idx: int) -> None:
     """Copy the per-row channel selector's value into every cell in that row.
 
@@ -447,13 +486,13 @@ def image_table_apply_row_channel(app, row_idx: int) -> None:
 
 
 def image_table_distribute_timepoints(app) -> None:
-    """Walk the available timepoints and assign one to each selector cell.
+    """Walk the available timepoints and assign one to each column, per row.
 
-    Mirrors ``distribute_wells`` but along the time axis: useful for the
-    Movie Montage workflow where every cell shares the same well, channel,
-    and FOV but the timepoint advances cell by cell. The first cell's
-    well / channel / FOV are propagated to every other cell so the table
-    is internally consistent without extra clicks.
+    Each row gets the same timepoint sequence across its cells, so multi-row
+    tables can compare different wells/channels at matching timepoints. Each
+    row is anchored on its own first cell's well/channel/FOV (preserving any
+    per-row well/channel selections made via ``Distribute Wells`` or the
+    per-row dropdowns) so distinct rows keep their own well assignments.
     """
     cells = getattr(app, "_image_table_cells", None) or []
     if not cells:
@@ -464,18 +503,6 @@ def image_table_distribute_timepoints(app) -> None:
     if not tps:
         app._set_status("Image Table: no timepoints in pipeline_info.json.")
         return
-
-    flat_cells = [(r, c, cell) for r, row in enumerate(cells) for c, cell in enumerate(row)]
-    if not flat_cells:
-        return
-
-    # Anchor on the first cell's well/channel/FOV so the user only has to
-    # set one cell before clicking distribute. Falls back to whatever
-    # the dropdowns currently display.
-    anchor = flat_cells[0][2]
-    anchor_well = anchor["well_cb"].currentText().strip()
-    anchor_chan = anchor["chan_cb"].currentText().strip()
-    anchor_fov = anchor["fov_cb"].currentText().strip()
 
     def _set(cb, text):
         if not text:
@@ -488,18 +515,43 @@ def image_table_distribute_timepoints(app) -> None:
             cb.blockSignals(False)
 
     assignments = 0
-    for flat_idx, (_r, _c, cell) in enumerate(flat_cells):
-        if flat_idx >= len(tps):
-            break
-        _set(cell["well_cb"], anchor_well)
-        _set(cell["chan_cb"], anchor_chan)
-        _set(cell["fov_cb"], anchor_fov)
-        _set(cell["tp_cb"], tps[flat_idx])
-        assignments += 1
+    for row in cells:
+        if not row:
+            continue
+        anchor = row[0]
+        anchor_well = anchor["well_cb"].currentText().strip()
+        anchor_chan = anchor["chan_cb"].currentText().strip()
+        anchor_fov = anchor["fov_cb"].currentText().strip()
+        for c, cell in enumerate(row):
+            if c >= len(tps):
+                break
+            _set(cell["well_cb"], anchor_well)
+            _set(cell["chan_cb"], anchor_chan)
+            _set(cell["fov_cb"], anchor_fov)
+            _set(cell["tp_cb"], tps[c])
+            assignments += 1
 
     app._set_status(
-        f"Image Table: distributed {assignments} timepoint(s) into the selector grid."
+        f"Image Table: distributed {min(len(tps), len(cells[0]) if cells else 0)} "
+        f"timepoint(s) across {len(cells)} row(s) ({assignments} cells filled)."
     )
+
+
+def image_table_toggle_tophat(app) -> None:
+    """Flip the raw/tophat source flag and re-render.
+
+    Bound to a checkable toggle button in the Image Table action row. When
+    ON, ``_load_array`` reads from the pre-filtered tophat dict; when OFF,
+    it reads raw fluor as before.
+    """
+    btn = getattr(app, "_image_table_tophat_btn", None)
+    if btn is not None:
+        app._image_table_use_tophat = bool(btn.isChecked())
+    else:
+        app._image_table_use_tophat = not bool(getattr(app, "_image_table_use_tophat", False))
+    # Tossing the cache so the next Generate fetches the right dict.
+    app._image_table_image_cache = {}
+    image_table_generate(app)
 
 
 def image_table_distribute_wells(app) -> None:
@@ -620,19 +672,33 @@ def _parse_lut(app, chan: str) -> Tuple[Optional[float], Optional[float]]:
 # ── Image loading + caching ──────────────────────────────────────────────────
 
 
-def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_lower: str) -> Dict:
+def _load_well_channel(
+    app,
+    cache: Dict[Tuple[str, str, str], Dict],
+    well: str,
+    chan_lower: str,
+    *,
+    use_tophat: bool = False,
+) -> Dict:
     """Return the (fov, tp) → ImgRef dict for (well, channel), with caching.
 
     For the special ``"nuc+seg"`` virtual channel the returned dict is the
     pre-rendered segmentation overlay refs keyed the same way; everything
     else returns the fluorescence dict for the requested channel token.
+
+    When ``use_tophat`` is True, the pre-filtered tophat dict is returned
+    instead. Tophat is unavailable for the overlay channel — it falls back
+    to the raw fluor lookup. Cells whose (fov, tp) are missing from the
+    tophat dict also fall back to raw at lookup time (handled in
+    ``_load_array``).
     """
     from well_viewer.runtime_app import find_well_images_and_masks
 
-    key = (well, chan_lower)
+    is_overlay = chan_lower == NUC_SEG_TOKEN.lower()
+    variant = "tophat" if (use_tophat and not is_overlay) else "raw"
+    key = (well, chan_lower, variant)
     if key in cache:
         return cache[key]
-    is_overlay = chan_lower == NUC_SEG_TOKEN.lower()
     info = getattr(app, "_pipeline_info", None) or {}
     # Overlay images aren't keyed by a fluor channel; pass the nuclear token
     # as a sensible default so any token-based filtering inside the loader
@@ -642,7 +708,7 @@ def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_
     if is_overlay:
         fluor_token = (info.get("nuclear_token") or chan_lower).strip().lower()
     try:
-        fluor, overlay, _mask, _tophat = find_well_images_and_masks(
+        fluor, overlay, _mask, tophat = find_well_images_and_masks(
             app._data_dir,
             well,
             fluor_token=fluor_token,
@@ -651,13 +717,22 @@ def _load_well_channel(app, cache: Dict[Tuple[str, str], Dict], well: str, chan_
             _pipeline_info=app._pipeline_info,
         )
     except Exception:
-        fluor, overlay = {}, {}
-    result = overlay if is_overlay else fluor
+        fluor, overlay, tophat = {}, {}, {}
+    if is_overlay:
+        result = overlay
+    elif use_tophat:
+        result = tophat
+    else:
+        result = fluor
     cache[key] = result
+    # Stash the raw fluor dict alongside the tophat dict so _load_array can
+    # fall back to raw for any (fov, tp) the tophat scan missed.
+    if use_tophat and not is_overlay:
+        cache.setdefault((well, chan_lower, "raw"), fluor)
     return result
 
 
-def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str):
+def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str, *, use_tophat: bool = False):
     """Load the float32 array for one (well, channel, timepoint, fov).
 
     The dropdown emits tokens normalized via ``_norm_token`` (``"1.0"`` →
@@ -672,7 +747,11 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str)
     timepoint so single-FOV datasets still render.
     """
     chan_lower = chan_upper.strip().lower()
-    fluor = _load_well_channel(app, cache, well, chan_lower)
+    fluor = _load_well_channel(app, cache, well, chan_lower, use_tophat=use_tophat)
+    # When tophat is requested but not produced for this well/channel, drop
+    # back to raw rather than rendering "(no image)".
+    if (use_tophat and not fluor and chan_lower != NUC_SEG_TOKEN.lower()):
+        fluor = _load_well_channel(app, cache, well, chan_lower, use_tophat=False)
     if not fluor:
         return None
 
@@ -729,9 +808,10 @@ def image_table_generate(app) -> None:
         app._set_status("Image Table: build a grid first (set rows/cols and click Apply).")
         return
 
-    cache: Dict[Tuple[str, str], Dict] = {}
+    cache: Dict[Tuple[str, str, str], Dict] = {}
     rendered: Dict[Tuple[int, int], Any] = {}
     crop_tool = getattr(app, "_image_table_crop_tool", None)
+    use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
 
     for r, row in enumerate(cells):
         for c, cell in enumerate(row):
@@ -742,7 +822,7 @@ def image_table_generate(app) -> None:
 
             arr = None
             if well and chan and tp:
-                arr = _load_array(app, cache, well, chan, tp, fov)
+                arr = _load_array(app, cache, well, chan, tp, fov, use_tophat=use_tophat)
             rendered[(r, c)] = arr
 
             lo, hi = _parse_lut(app, chan)
@@ -837,6 +917,7 @@ def image_table_auto_lut(app, channel: str) -> None:
     if cache is None:
         cache = {}
         app._image_table_image_cache = cache
+    use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
 
     try:
         import numpy as _np
@@ -857,7 +938,7 @@ def image_table_auto_lut(app, channel: str) -> None:
                 tp = cell["tp_cb"].currentText().strip()
                 fov = cell["fov_cb"].currentText().strip()
                 if well and tp and fov:
-                    arr = _load_array(app, cache, well, chan_upper, tp, fov)
+                    arr = _load_array(app, cache, well, chan_upper, tp, fov, use_tophat=use_tophat)
             if arr is None:
                 continue
             a = _np.asarray(arr, dtype=_np.float32)
@@ -906,9 +987,10 @@ def image_table_export(app) -> None:
     rows = int(getattr(app, "_image_table_rows", len(cells)) or len(cells))
     cols = int(getattr(app, "_image_table_cols", len(cells[0])) or len(cells[0]))
 
-    cache: Dict[Tuple[str, str], Dict] = dict(getattr(app, "_image_table_image_cache", None) or {})
+    cache: Dict[Tuple[str, str, str], Dict] = dict(getattr(app, "_image_table_image_cache", None) or {})
     rendered = getattr(app, "_image_table_last_render", None) or {}
     crop_tool = getattr(app, "_image_table_crop_tool", None)
+    use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
 
     fig = Figure(
         figsize=(max(2.4, cols * 2.6), max(2.4, rows * 2.8)),
@@ -928,7 +1010,7 @@ def image_table_export(app) -> None:
 
             arr = rendered.get((r, c))
             if arr is None and well and chan and tp:
-                arr = _load_array(app, cache, well, chan, tp, fov)
+                arr = _load_array(app, cache, well, chan, tp, fov, use_tophat=use_tophat)
             if arr is not None and crop_tool is not None:
                 arr = crop_tool.apply_to_array(arr)
 
