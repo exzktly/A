@@ -1364,6 +1364,9 @@ class WellViewerApp(QWidget):
         # black background, instead of the grayscale + colored boundary view.
         self._review_image_binary_mask: bool = False
         self._review_image_binary_btn = None
+        # When False, cell boundary outlines are hidden on the canvas.
+        self._review_image_show_outline: bool = True
+        self._review_image_outline_btn = None
         # Cache for the {nid -> above_threshold} map per (well, fov, tp,
         # override_version, val_col, threshold, area_thr, fluor_gates).
         self._review_image_threshold_map_cache: Dict[Tuple, Dict[int, bool]] = {}
@@ -5339,6 +5342,25 @@ class WellViewerApp(QWidget):
         btn.style().unpolish(btn)
         btn.style().polish(btn)
 
+    def _toggle_review_image_outline(self) -> None:
+        """Flip the cell-outline overlay on/off and refresh the canvas."""
+        self._review_image_show_outline = not bool(
+            getattr(self, "_review_image_show_outline", True)
+        )
+        self._refresh_review_image_outline_btn()
+        self._review_image_preserve_view_on_refresh = True
+        self._refresh_review_image()
+
+    def _refresh_review_image_outline_btn(self) -> None:
+        btn = getattr(self, "_review_image_outline_btn", None)
+        if btn is None:
+            return
+        on = bool(getattr(self, "_review_image_show_outline", True))
+        btn.setChecked(on)
+        btn.setText("Outline: On" if on else "Outline: Off")
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
     def _review_build_include_map(
         self, mask_arr, well: str, fov: str, tp: str,
     ) -> Dict[int, bool]:
@@ -5722,10 +5744,16 @@ class WellViewerApp(QWidget):
                 include_mask = _np.isin(center, included_arr)
             else:
                 include_mask = _np.zeros(center.shape, dtype=bool)
-            draw_boundary = boundary & include_mask
-            boundary_color = _np.asarray(self._review_image_boundary_color, dtype=_np.uint8)
-            rgb[draw_boundary] = boundary_color
-            if sel_nid is not None:
+            show_outline = bool(getattr(self, "_review_image_show_outline", True))
+            if show_outline:
+                draw_boundary = boundary & include_mask
+                boundary_color = _np.asarray(self._review_image_boundary_color, dtype=_np.uint8)
+                rgb[draw_boundary] = boundary_color
+                if sel_nid is not None:
+                    sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
+                    sel_boundary = boundary & (center == int(sel_nid))
+                    rgb[sel_boundary] = sel_color
+            elif sel_nid is not None:
                 sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
                 sel_boundary = boundary & (center == int(sel_nid))
                 rgb[sel_boundary] = sel_color
