@@ -555,23 +555,33 @@ def apply_ax_style(ax, title: str, ylabel: str) -> None:
 # compatibility with callers that import them from runtime_app.
 from well_viewer.data_loading import (
     AggPoint,
+    WellAgg,
+    WellColumns,
     _STRING_COLS,
     _all_fluor_values,
     _all_fluor_values_filtered,
     _beeswarm_jitter,
     _ordinal_timepoints,
     aggregate_with_threshold,
+    aggregate_with_threshold_cols,
+    all_fluor_values_filtered_cols,
+    build_well_agg,
+    build_well_columns_from_rows,
     detect_fluor_channels,
     detect_nuclear_channel_token,
     detect_review_image_channels,
     detect_smfish_channels,
+    fluor_gates_signature,
+    load_well_columns,
     load_well_csv,
     merge_fluor_channels,
     normalize_channel_tokens,
     parse_timepoint_hours,
     parse_well_token,
+    ratio_signature,
     resolve_value,
     row_is_included,
+    stats_from_well_agg,
 )
 from well_viewer.ratio_models import (
     RatioMetric,
@@ -1229,6 +1239,14 @@ class WellViewerApp(QWidget):
         self._tmp_dir:    Optional[Path]        = None
         self._well_paths: Dict[str, Path]       = {}
         self._cache:      Dict[str, List[dict]] = {}
+        # Columnar mirror of ``_cache`` for vectorized aggregation. Built
+        # lazily by ``_get_columns(label)`` and invalidated alongside
+        # ``_cache`` whenever the directory reloads.
+        self._cols:       Dict[str, WellColumns] = {}
+        # Cache of post-filter, post-groupby intermediates keyed on
+        # (label, version, val_col, area, gates_sig, ratio_sig). Threshold
+        # changes do NOT invalidate this; only gating/cell-area/well-reload do.
+        self._well_agg_cache: Dict[tuple, WellAgg] = {}
         self._all_timepoints_cache: List[float] = []
         self._all_fovs_cache: List[str] = []
         self._last_sel:   Optional[str]         = None
@@ -4975,6 +4993,125 @@ class WellViewerApp(QWidget):
             self._cache[label] = load_well_csv(self._well_paths[label])
         return self._cache[label]
 
+    def _get_columns(self, label: str) -> WellColumns:
+        """Return the columnar (numpy) view of *label*, building lazily.
+
+        The first call materializes ``WellColumns`` from the cached row list
+        (or by reading the CSV if the row cache is also empty). Subsequent
+        calls reuse the result. The cell-gating worker must call
+        ``_invalidate_well_columns(label)`` after mutating included flags so
+        downstream aggregation caches refresh.
+        """
+        cols = self._cols.get(label)
+        if cols is None:
+            rows = self._get_rows(label)
+            cols = build_well_columns_from_rows(rows)
+            self._cols[label] = cols
+        return cols
+
+    def _invalidate_well_columns(self, label: Optional[str] = None) -> None:
+        """Bump version + drop agg-cache entries for *label* (or every well)."""
+        if label is None:
+            for cols in self._cols.values():
+                cols.version += 1
+            self._well_agg_cache.clear()
+            return
+        cols = self._cols.get(label)
+        if cols is not None:
+            cols.version += 1
+        # Drop matching agg-cache entries (key[0] is label).
+        if self._well_agg_cache:
+            stale = [k for k in self._well_agg_cache if k[0] == label]
+            for k in stale:
+                del self._well_agg_cache[k]
+
+    def _well_agg(
+        self,
+        label: str,
+        *,
+        val_col: Optional[str] = None,
+        cell_area_threshold: Optional[float] = None,
+        fluor_gates: Optional[Dict[str, float]] = None,
+    ) -> WellAgg:
+        """Return the threshold-independent ``WellAgg`` for *label* (cached)."""
+        cols = self._get_columns(label)
+        if val_col is None:
+            val_col = self._active_val_col
+        if cell_area_threshold is None:
+            cell_area_threshold = self._get_cell_area_threshold()
+        if fluor_gates is None:
+            fluor_gates = self._get_all_fluor_gates()
+        ratios = getattr(self, "_ratio_index", None)
+        gates_sig = fluor_gates_signature(fluor_gates)
+        ratio_sig = ratio_signature(val_col, ratios)
+        key = (label, cols.version, val_col, float(cell_area_threshold), gates_sig, ratio_sig)
+        cached = self._well_agg_cache.get(key)
+        if cached is not None:
+            return cached
+        agg = build_well_agg(
+            cols,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            ratios=ratios,
+        )
+        self._well_agg_cache[key] = agg
+        return agg
+
+    def _aggregate_well(
+        self,
+        label: str,
+        threshold: float,
+        *,
+        use_sem: bool = False,
+        per_fov_spread: bool = False,
+        val_col: Optional[str] = None,
+        cell_area_threshold: Optional[float] = None,
+        fluor_gates: Optional[Dict[str, float]] = None,
+    ) -> List[AggPoint]:
+        """Return threshold-applied ``AggPoint`` list for *label* (cache-friendly)."""
+        agg = self._well_agg(
+            label,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+        )
+        return stats_from_well_agg(
+            agg, threshold, use_sem=use_sem, per_fov_spread=per_fov_spread
+        )
+
+    def _filtered_values_for_well(
+        self,
+        label: str,
+        *,
+        val_col: Optional[str] = None,
+        cell_area_threshold: Optional[float] = None,
+        fluor_gates: Optional[Dict[str, float]] = None,
+        tp_filter: Optional[float] = None,
+    ):
+        """Return gated value array for *label*; reuses the cached ``WellAgg``.
+
+        The returned array is the same set of values that ``WellAgg.values``
+        carries, optionally narrowed to a single timepoint. Callers should
+        treat it as read-only.
+        """
+        agg = self._well_agg(
+            label,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+        )
+        if tp_filter is None or agg.values.size == 0:
+            return agg.values
+        # Find the group index for the requested timepoint (within tolerance).
+        diffs = _np.abs(agg.timepoints - float(tp_filter))
+        if diffs.size == 0:
+            return agg.values[:0]
+        gi = int(diffs.argmin())
+        if diffs[gi] > 1e-6:
+            return agg.values[:0]
+        return agg.values[agg.inv == gi]
+
     # ── Preview panel ─────────────────────────────────────────────────────────
 
     def _update_preview(self, well_label: Optional[str]) -> None:
@@ -7129,14 +7266,14 @@ class WellViewerApp(QWidget):
         n = len(wells)
         bar_w = min(0.6, 5.0 / max(n, 1))
         for i, lbl in enumerate(wells):
-            rows = self._get_rows(lbl)
-            pts = aggregate_with_threshold(
-                rows, threshold, use_sem=use_sem,
+            pts = self._aggregate_well(
+                lbl,
+                threshold,
+                use_sem=use_sem,
+                per_fov_spread=per_fov_spread,
                 val_col=self._active_val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
-                per_fov_spread=per_fov_spread,
-                ratios=getattr(self, "_ratio_index", None),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
@@ -7347,6 +7484,80 @@ class WellViewerApp(QWidget):
         return [r for i, r in enumerate(self._rep_sets_loaded())
                 if i not in self._rep_hidden]
 
+    def _compute_rep_summary(
+        self,
+        rset: "ReplicateSet",
+        target_t: float,
+        threshold: float,
+        use_sem: bool,
+    ) -> tuple:
+        """Mean ± SD/SEM, fraction ± SD/SEM, and total ``n_above`` for *rset* at *target_t*.
+
+        Returns ``(gm, gerr, gf, ferr, n_above_total)``. Reads each well's
+        ``WellAgg`` (cached, threshold-independent) and applies the threshold
+        once per well. Results memoized in ``_stats_cache``.
+        """
+        if not hasattr(self, "_stats_cache"):
+            self._stats_cache = {}
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        cache_key = ("rep_summary", rset.name, tuple(rset.wells), target_t, threshold, use_sem,
+                     self._active_val_col, cell_area_threshold,
+                     tuple(sorted(fluor_gates.items())))
+        cached = self._stats_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        well_means: List[float] = []
+        well_fracs: List[float] = []
+        n_above_total = 0
+        for lbl in rset.wells:
+            if lbl not in self._well_paths:
+                continue
+            agg = self._well_agg(
+                lbl,
+                val_col=self._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            if agg.n_groups == 0:
+                continue
+            diffs = _np.abs(agg.timepoints - float(target_t))
+            gi = int(diffs.argmin())
+            if diffs[gi] > 1e-6:
+                continue
+            mask_g = agg.inv == gi
+            n_total = int(agg.n_total_per_t[gi])
+            if n_total == 0:
+                continue
+            vals_g = agg.values[mask_g]
+            above_mask = vals_g > threshold
+            n_above = int(above_mask.sum())
+            n_above_total += n_above
+            if n_above:
+                well_means.append(float(vals_g[above_mask].mean()))
+            well_fracs.append(n_above / n_total)
+
+        if well_means:
+            gm = statistics.mean(well_means)
+            n = len(well_means)
+            gsd = statistics.pstdev(well_means) if n > 1 else 0.0
+            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
+        else:
+            gm, gerr = float("nan"), 0.0
+
+        if well_fracs:
+            gf = statistics.mean(well_fracs)
+            nf = len(well_fracs)
+            fsd = statistics.pstdev(well_fracs) if nf > 1 else 0.0
+            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
+        else:
+            gf, ferr = float("nan"), 0.0
+
+        result = (gm, gerr, gf, ferr, n_above_total)
+        self._stats_cache[cache_key] = result
+        return result
+
     def _compute_rep_stats(
         self,
         rset: "ReplicateSet",
@@ -7354,96 +7565,20 @@ class WellViewerApp(QWidget):
         threshold: float,
         use_sem: bool,
     ) -> tuple:
-        """
-        Mean fluor ± SD/SEM for a single ReplicateSet at *target_t*.
-
-        Statistics are computed across the loaded wells of the set.
-        Each well contributes one mean-fluor value; SD/SEM is across those values.
-        Results are cached in _stats_cache.
-        """
-        if not hasattr(self, "_stats_cache"):
-            self._stats_cache = {}
-        cell_area_threshold = self._get_cell_area_threshold()
-        fluor_gates = self._get_all_fluor_gates()
-        cache_key = ("rep", rset.name, tuple(rset.wells), target_t, threshold, use_sem,
-                      self._active_val_col, cell_area_threshold, tuple(sorted(fluor_gates.items())))
-        if cache_key in self._stats_cache:
-            return self._stats_cache[cache_key]
-
-        well_means: List[float] = []
-        well_fracs: List[float] = []
-        for lbl in rset.wells:
-            if lbl not in self._well_paths:
-                continue
-            rows = self._get_rows(lbl)
-            pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
-                                            val_col=self._active_val_col,
-                                            cell_area_threshold=cell_area_threshold,
-                                            fluor_gates=fluor_gates,
-                                            ratios=getattr(self, "_ratio_index", None))
-            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            if matched:
-                _, m, _sd, f, *_ = matched[0]
-                if not math.isnan(m): well_means.append(m)
-                if not math.isnan(f): well_fracs.append(f)
-
-        if well_means:
-            gm  = statistics.mean(well_means)
-            n   = len(well_means)
-            gsd = statistics.pstdev(well_means) if n > 1 else 0.0
-            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
-        else:
-            gm, gerr = float("nan"), 0.0
-
-        if well_fracs:
-            gf  = statistics.mean(well_fracs)
-            nf  = len(well_fracs)
-            fsd = statistics.pstdev(well_fracs) if nf > 1 else 0.0
-            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
-        else:
-            gf, ferr = float("nan"), 0.0
-
-        result = (gm, gerr, gf, ferr)
-        self._stats_cache[cache_key] = result
-        return result
+        """Backwards-compatible 4-tuple wrapper around ``_compute_rep_summary``."""
+        gm, gerr, gf, ferr, _ = self._compute_rep_summary(rset, target_t, threshold, use_sem)
+        return gm, gerr, gf, ferr
 
     def _compute_rep_n_above(self, rset: "ReplicateSet", target_t: float) -> int:
         """Total events-above-threshold contributing to *rset* at *target_t*.
 
-        Sums ``n_above`` (AggPoint index 4) across loaded wells of the set
-        after gating, so the bar plot's third panel reports the count of
-        cells that actually exceeded the active threshold — the same
-        numerator that drives the fraction-above-threshold value.
+        Now reads ``n_above_total`` from ``_compute_rep_summary`` to avoid
+        running a second aggregation pass on the same wells.
         """
-        if not hasattr(self, "_stats_cache"):
-            self._stats_cache = {}
         threshold = self._get_thresh_frac_on(self._active_channel)
-        cell_area_threshold = self._get_cell_area_threshold()
-        fluor_gates = self._get_all_fluor_gates()
-        cache_key = ("rep_n_above", rset.name, tuple(rset.wells), target_t, threshold,
-                     self._active_val_col, cell_area_threshold,
-                     tuple(sorted(fluor_gates.items())))
-        if cache_key in self._stats_cache:
-            return self._stats_cache[cache_key]
-
-        total = 0
-        for lbl in rset.wells:
-            if lbl not in self._well_paths:
-                continue
-            rows = self._get_rows(lbl)
-            pts = aggregate_with_threshold(
-                rows, threshold, use_sem=False,
-                val_col=self._active_val_col,
-                cell_area_threshold=cell_area_threshold,
-                fluor_gates=fluor_gates,
-                ratios=getattr(self, "_ratio_index", None),
-            )
-            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            if matched:
-                # AggPoint index 4 = n_above; index 5 = n_total.
-                total += int(matched[0][4])
-        self._stats_cache[cache_key] = total
-        return total
+        use_sem = self._use_sem.get()
+        _, _, _, _, n_above_total = self._compute_rep_summary(rset, target_t, threshold, use_sem)
+        return int(n_above_total)
 
     def _invalidate_stats_cache(self) -> None:
         """Discard cached group statistics. Call whenever group definitions change."""
@@ -7500,17 +7635,27 @@ class WellViewerApp(QWidget):
             for lbl in rset:
                 if lbl not in self._well_paths:
                     continue
-                rows = self._get_rows(lbl)
-                pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
-                                                val_col=self._active_val_col,
-                                                cell_area_threshold=cell_area_threshold,
-                                                fluor_gates=fluor_gates,
-                                                ratios=getattr(self, "_ratio_index", None))
-                matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-                if matched:
-                    _, m, _sd, f, *_ = matched[0]
-                    if not math.isnan(m): set_means.append(m)
-                    if not math.isnan(f): set_fracs.append(f)
+                agg = self._well_agg(
+                    lbl,
+                    val_col=self._active_val_col,
+                    cell_area_threshold=cell_area_threshold,
+                    fluor_gates=fluor_gates,
+                )
+                if agg.n_groups == 0:
+                    continue
+                diffs = _np.abs(agg.timepoints - float(target_t))
+                gi = int(diffs.argmin())
+                if diffs[gi] > 1e-6:
+                    continue
+                vals_g = agg.values[agg.inv == gi]
+                n_total = int(agg.n_total_per_t[gi])
+                if n_total == 0:
+                    continue
+                above_mask = vals_g > threshold
+                n_above = int(above_mask.sum())
+                if n_above:
+                    set_means.append(float(vals_g[above_mask].mean()))
+                set_fracs.append(n_above / n_total)
             if set_means:
                 rep_means.append(statistics.mean(set_means))
             if set_fracs:

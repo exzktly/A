@@ -12,8 +12,11 @@ import math
 import re
 import statistics
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+
+import numpy as np
 
 from .ratio_models import RatioMetric, is_ratio_key
 
@@ -601,3 +604,497 @@ def iter_plot_groups(app) -> Iterator[Tuple[str, str, List[dict]]]:
         if w not in well_paths:
             continue
         yield w, _color(w, idx), app._get_rows(w)
+
+
+# ── Columnar (numpy) representation for fast aggregation ─────────────────────
+#
+# The CSV-derived ``List[dict]`` representation is O(N) Python-level work for
+# every aggregation. ``WellColumns`` mirrors the same data into a dict-of-numpy
+# arrays so the line/bar-plot hot paths (gating mask, threshold compare,
+# group-by-timepoint reductions) become vectorized.
+#
+# The legacy ``aggregate_with_threshold`` / ``_all_fluor_values_filtered``
+# functions remain so external callers passing raw rows keep working; this
+# module also exposes columnar twins that operate directly on ``WellColumns``.
+
+
+@dataclass
+class WellColumns:
+    """Columnar mirror of a well's CSV rows for vectorized analytics.
+
+    Fields are aligned: index ``i`` refers to the same physical row across
+    every array. ``included_mask`` mirrors the per-row ``Included`` flag and
+    is mutated in place by the cell-gating worker; ``version`` is bumped
+    whenever ``included_mask`` changes so dependent caches invalidate.
+    """
+
+    n_rows: int
+    numeric: Dict[str, np.ndarray] = field(default_factory=dict)
+    strings: Dict[str, np.ndarray] = field(default_factory=dict)
+    area_px: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
+    tp_hours: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
+    tp_strings: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=object))
+    fov_codes: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int32))
+    fov_labels: List[str] = field(default_factory=list)
+    included_mask: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=bool))
+    version: int = 0
+
+    def get_numeric(self, col: str) -> Optional[np.ndarray]:
+        return self.numeric.get(col)
+
+
+def _to_float_array(values: Iterable[Any]) -> np.ndarray:
+    """Coerce mixed values to float64 with NaN for unparseable entries."""
+    out = np.empty(len(values) if hasattr(values, "__len__") else 0, dtype=np.float64)
+    for i, v in enumerate(values):
+        if isinstance(v, bool):
+            out[i] = float(v)
+        else:
+            try:
+                out[i] = float(v)
+            except (TypeError, ValueError):
+                out[i] = float("nan")
+    return out
+
+
+def build_well_columns_from_rows(rows: List[dict]) -> WellColumns:
+    """Build a ``WellColumns`` from a list of CSV-loaded dict rows.
+
+    Used by both ``load_well_columns`` (after parsing the CSV) and by legacy
+    callers that already hold ``List[dict]``. Unparseable timepoint strings
+    leave ``tp_hours`` as NaN and the original string in ``tp_strings``;
+    aggregators apply an ordinal fallback only when needed.
+    """
+    n = len(rows)
+    cols = WellColumns(n_rows=n)
+    if n == 0:
+        return cols
+
+    keys = list(rows[0].keys())
+    string_keys = {k for k in keys if str(k).strip().lower() in _STRING_COLS}
+    numeric_keys = [k for k in keys if k not in string_keys]
+
+    for k in numeric_keys:
+        col = np.empty(n, dtype=np.float64)
+        for i, row in enumerate(rows):
+            v = row.get(k, float("nan"))
+            if isinstance(v, bool):
+                col[i] = float(v)
+            else:
+                try:
+                    col[i] = float(v)
+                except (TypeError, ValueError):
+                    col[i] = float("nan")
+        cols.numeric[k] = col
+
+    for k in string_keys:
+        arr = np.empty(n, dtype=object)
+        for i, row in enumerate(rows):
+            arr[i] = row.get(k, "")
+        cols.strings[k] = arr
+
+    if "area_px" in cols.numeric:
+        cols.area_px = cols.numeric["area_px"]
+    else:
+        cols.area_px = np.zeros(n, dtype=np.float64)
+
+    # tp_hours: prefer numeric column, fall back to parsing the timepoint
+    # string. Truly unparseable strings stay NaN here and are resolved via
+    # ordinal mapping inside the aggregator (matching legacy semantics).
+    tp_hours = np.empty(n, dtype=np.float64)
+    if "timepoint_hours" in cols.numeric:
+        tp_hours[:] = cols.numeric["timepoint_hours"]
+    else:
+        tp_hours[:] = float("nan")
+
+    tp_strings = np.empty(n, dtype=object)
+    str_col = cols.strings.get("timepoint")
+    needs_parse = ~np.isfinite(tp_hours)
+    if str_col is not None:
+        for i in range(n):
+            tp_strings[i] = str(str_col[i] or "")
+        if needs_parse.any():
+            for i in np.flatnonzero(needs_parse):
+                parsed = parse_timepoint_hours(tp_strings[i])
+                if parsed is not None:
+                    tp_hours[i] = parsed
+    else:
+        tp_strings[:] = ""
+    cols.tp_hours = tp_hours
+    cols.tp_strings = tp_strings
+
+    # fov as int codes for fast bincount in per-FOV aggregations.
+    fov_str = cols.strings.get("fov")
+    if fov_str is not None:
+        labels: list[str] = []
+        idx_by_label: dict[str, int] = {}
+        codes = np.empty(n, dtype=np.int32)
+        for i in range(n):
+            raw = str(fov_str[i] or "1").strip() or "1"
+            code = idx_by_label.get(raw)
+            if code is None:
+                code = len(labels)
+                idx_by_label[raw] = code
+                labels.append(raw)
+            codes[i] = code
+        cols.fov_codes = codes
+        cols.fov_labels = labels
+    else:
+        cols.fov_codes = np.zeros(n, dtype=np.int32)
+        cols.fov_labels = ["1"]
+
+    inc = np.ones(n, dtype=bool)
+    inc_col = None
+    for k in keys:
+        if str(k).strip() == "Included":
+            inc_col = k
+            break
+    if inc_col is not None:
+        for i, row in enumerate(rows):
+            try:
+                inc[i] = int(float(row.get(inc_col, 1))) == 1
+            except (TypeError, ValueError):
+                inc[i] = False
+    cols.included_mask = inc
+
+    return cols
+
+
+def load_well_columns(path: Path) -> WellColumns:
+    """Read a well CSV directly into a ``WellColumns``.
+
+    Currently a thin wrapper around ``load_well_csv`` + ``build_well_columns_from_rows``.
+    Kept as a separate entry point so the row-list intermediate can be
+    eliminated later without touching call sites.
+    """
+    rows = load_well_csv(path)
+    return build_well_columns_from_rows(rows)
+
+
+def _resolve_value_array(
+    cols: WellColumns,
+    key: str,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
+) -> np.ndarray:
+    """Vectorized counterpart of ``resolve_value`` returning a length-``n_rows`` array."""
+    n = cols.n_rows
+    if is_ratio_key(key):
+        if not ratios:
+            return np.full(n, np.nan, dtype=np.float64)
+        ratio = ratios.get(key)
+        if ratio is None:
+            return np.full(n, np.nan, dtype=np.float64)
+        num_col = cols.numeric.get(ratio.numerator_col())
+        den_col = cols.numeric.get(ratio.denominator_col())
+        if num_col is None or den_col is None:
+            return np.full(n, np.nan, dtype=np.float64)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            denom = den_col + ratio.epsilon
+            out = np.where(denom != 0.0, num_col / denom, np.nan)
+        out = np.where(np.isfinite(num_col) & np.isfinite(den_col), out, np.nan)
+        return out.astype(np.float64, copy=False)
+
+    arr = cols.numeric.get(key)
+    if arr is None:
+        return np.full(n, np.nan, dtype=np.float64)
+    out = np.where(np.isfinite(arr), arr, np.nan)
+    return out.astype(np.float64, copy=False)
+
+
+def _compute_gating_mask(
+    cols: WellColumns,
+    cell_area_threshold: float,
+    fluor_gates: Optional[Dict[str, float]],
+) -> np.ndarray:
+    """Return the per-row boolean mask after Included/area/fluor-gate filtering."""
+    mask = cols.included_mask & (cols.area_px > cell_area_threshold)
+    if not fluor_gates:
+        return mask
+    for channel, gate in fluor_gates.items():
+        col = cols.numeric.get(f"{channel}_mean_intensity")
+        if col is None:
+            mask = np.zeros_like(mask)
+            return mask
+        mask &= np.isfinite(col) & (col > gate)
+    return mask
+
+
+def _resolve_tp_hours_with_ordinals(cols: WellColumns) -> np.ndarray:
+    """Return ``tp_hours`` with ordinal fallback for unparseable strings.
+
+    Mirrors the per-call ordinal mapping in the legacy
+    ``aggregate_with_threshold`` so unparseable timepoints still group.
+    """
+    tp = cols.tp_hours
+    missing = ~np.isfinite(tp)
+    if not missing.any():
+        return tp
+    # Empty strings get assigned 0.0 (legacy behavior) — no ordinal needed.
+    tps = cols.tp_strings
+    out = tp.copy()
+    distinct: set[str] = set()
+    for i in np.flatnonzero(missing):
+        s = str(tps[i] or "")
+        if s:
+            distinct.add(s)
+        else:
+            out[i] = 0.0
+    if distinct:
+        ordinals = {s: float(j) for j, s in enumerate(sorted(distinct))}
+        for i in np.flatnonzero(missing):
+            s = str(tps[i] or "")
+            if s:
+                out[i] = ordinals[s]
+    return out
+
+
+@dataclass
+class WellAgg:
+    """Threshold-independent intermediate for fast plot redraws.
+
+    Built once per ``(well, version, val_col, area_threshold, fluor_gates,
+    ratio)`` combination and reused across threshold-only changes.
+    """
+
+    timepoints: np.ndarray  # sorted unique tp_hours, float64
+    inv: np.ndarray  # group index per surviving row, intp
+    values: np.ndarray  # gated values, float64
+    fov_codes: np.ndarray  # post-mask fov codes, intp (or empty)
+    n_total_per_t: np.ndarray  # gated row count per timepoint, int64
+
+    @property
+    def n_groups(self) -> int:
+        return int(self.timepoints.shape[0])
+
+
+_EMPTY_WELL_AGG = WellAgg(
+    timepoints=np.zeros(0, dtype=np.float64),
+    inv=np.zeros(0, dtype=np.intp),
+    values=np.zeros(0, dtype=np.float64),
+    fov_codes=np.zeros(0, dtype=np.intp),
+    n_total_per_t=np.zeros(0, dtype=np.int64),
+)
+
+
+def build_well_agg(
+    cols: WellColumns,
+    *,
+    val_col: str,
+    cell_area_threshold: float,
+    fluor_gates: Optional[Dict[str, float]],
+    ratios: Optional[Dict[str, RatioMetric]],
+) -> WellAgg:
+    """Apply gating/area/value filters and group by timepoint — no threshold."""
+    if cols.n_rows == 0:
+        return _EMPTY_WELL_AGG
+
+    mask = _compute_gating_mask(cols, cell_area_threshold, fluor_gates)
+    if not mask.any():
+        return _EMPTY_WELL_AGG
+
+    val = _resolve_value_array(cols, val_col, ratios)
+    mask &= np.isfinite(val)
+    if not mask.any():
+        return _EMPTY_WELL_AGG
+
+    tp_hours = _resolve_tp_hours_with_ordinals(cols)
+    mask &= np.isfinite(tp_hours)
+    if not mask.any():
+        return _EMPTY_WELL_AGG
+
+    t = tp_hours[mask]
+    v = val[mask]
+    fov = cols.fov_codes[mask].astype(np.intp, copy=False)
+
+    uniq, inv = np.unique(t, return_inverse=True)
+    n_total = np.bincount(inv, minlength=int(uniq.shape[0])).astype(np.int64)
+    return WellAgg(
+        timepoints=uniq.astype(np.float64, copy=False),
+        inv=inv.astype(np.intp, copy=False),
+        values=v.astype(np.float64, copy=False),
+        fov_codes=fov,
+        n_total_per_t=n_total,
+    )
+
+
+def stats_from_well_agg(
+    agg: WellAgg,
+    threshold: float,
+    *,
+    use_sem: bool = False,
+    per_fov_spread: bool = False,
+) -> List[AggPoint]:
+    """Reduce a cached ``WellAgg`` to ``AggPoint`` tuples for *threshold*."""
+    n_groups = agg.n_groups
+    if n_groups == 0:
+        return []
+
+    inv = agg.inv
+    v = agg.values
+    n_total = agg.n_total_per_t
+
+    above = v > threshold
+    n_above = np.bincount(inv, weights=above.astype(np.float64), minlength=n_groups).astype(np.int64)
+    sum_ab = np.bincount(inv, weights=np.where(above, v, 0.0), minlength=n_groups)
+    sq_ab = np.bincount(inv, weights=np.where(above, v * v, 0.0), minlength=n_groups)
+
+    safe_n = np.where(n_above > 0, n_above, 1)
+    mean = np.where(n_above > 0, sum_ab / safe_n, np.nan)
+    var = sq_ab / safe_n - np.where(n_above > 0, mean * mean, 0.0)
+    sd = np.sqrt(np.maximum(var, 0.0))
+
+    spread = np.zeros(n_groups, dtype=np.float64)
+    frac_spread = np.zeros(n_groups, dtype=np.float64)
+    n_above_per_fov_mean = np.zeros(n_groups, dtype=np.float64)
+    n_above_per_fov_spread = np.zeros(n_groups, dtype=np.float64)
+
+    if per_fov_spread and agg.fov_codes.size:
+        fov = agg.fov_codes
+        n_fov = int(fov.max()) + 1
+        comp = inv.astype(np.int64) * np.int64(n_fov) + fov.astype(np.int64)
+        comp_above = comp[above]
+        v_above = v[above]
+        fov_total = np.bincount(comp, minlength=n_groups * n_fov).astype(np.int64).reshape(n_groups, n_fov)
+        fov_n_above = (
+            np.bincount(comp_above, minlength=n_groups * n_fov)
+            .astype(np.int64)
+            .reshape(n_groups, n_fov)
+        )
+        fov_sum_above = (
+            np.bincount(comp_above, weights=v_above, minlength=n_groups * n_fov)
+            .reshape(n_groups, n_fov)
+        )
+        present = fov_total > 0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fov_mean = np.where(
+                fov_n_above > 0, fov_sum_above / np.maximum(fov_n_above, 1), np.nan
+            )
+            fov_frac = np.where(
+                present, fov_n_above / np.maximum(fov_total, 1), np.nan
+            )
+
+        for gi in range(n_groups):
+            fm_row = fov_mean[gi]
+            fm_valid = fm_row[np.isfinite(fm_row)]
+            if fm_valid.size > 1:
+                s = float(np.std(fm_valid, ddof=0))
+                spread[gi] = s / math.sqrt(fm_valid.size) if use_sem else s
+
+            ff_row = fov_frac[gi]
+            ff_valid = ff_row[np.isfinite(ff_row)]
+            if ff_valid.size > 1:
+                s = float(np.std(ff_valid, ddof=0))
+                frac_spread[gi] = s / math.sqrt(ff_valid.size) if use_sem else s
+
+            fn_row = fov_n_above[gi][present[gi]]
+            if fn_row.size >= 1:
+                n_above_per_fov_mean[gi] = float(fn_row.mean())
+            if fn_row.size > 1:
+                s = float(np.std(fn_row.astype(np.float64), ddof=0))
+                n_above_per_fov_spread[gi] = s / math.sqrt(fn_row.size) if use_sem else s
+    else:
+        if use_sem:
+            with np.errstate(invalid="ignore"):
+                sem_div = np.where(n_above > 1, np.sqrt(np.maximum(n_above, 1)), 1.0)
+                spread = np.where(n_above > 1, sd / sem_div, 0.0)
+        else:
+            spread = np.where(n_above > 1, sd, 0.0)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        frac_above = np.where(n_total > 0, n_above / np.maximum(n_total, 1), np.nan)
+
+    result: List[AggPoint] = []
+    timepoints = agg.timepoints
+    for gi in range(n_groups):
+        m = mean[gi]
+        result.append((
+            float(timepoints[gi]),
+            float("nan") if math.isnan(m) else float(m),
+            float(spread[gi]),
+            float(frac_above[gi]),
+            int(n_above[gi]),
+            int(n_total[gi]),
+            float(frac_spread[gi]),
+            float(n_above_per_fov_mean[gi]),
+            float(n_above_per_fov_spread[gi]),
+        ))
+    return result
+
+
+def aggregate_with_threshold_cols(
+    cols: WellColumns,
+    threshold: float,
+    *,
+    use_sem: bool = False,
+    val_col: str = "gfp_mean_intensity",
+    cell_area_threshold: float = 0.0,
+    fluor_gates: Optional[Dict[str, float]] = None,
+    per_fov_spread: bool = False,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
+) -> List[AggPoint]:
+    """Vectorized counterpart of ``aggregate_with_threshold``.
+
+    Equivalent to ``stats_from_well_agg(build_well_agg(...))``; kept as a
+    single-shot entry point for callers that don't cache the intermediate.
+    """
+    agg = build_well_agg(
+        cols,
+        val_col=val_col,
+        cell_area_threshold=cell_area_threshold,
+        fluor_gates=fluor_gates,
+        ratios=ratios,
+    )
+    return stats_from_well_agg(agg, threshold, use_sem=use_sem, per_fov_spread=per_fov_spread)
+
+
+def all_fluor_values_filtered_cols(
+    cols: WellColumns,
+    *,
+    val_col: str = "gfp_mean_intensity",
+    cell_area_threshold: float = 0.0,
+    fluor_gates: Optional[Dict[str, float]] = None,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
+    tp_filter: Optional[float] = None,
+) -> np.ndarray:
+    """Vectorized counterpart of ``_all_fluor_values_filtered``.
+
+    Returns a 1-D float64 ndarray; callers that want a Python list can call
+    ``.tolist()``.
+    """
+    if cols.n_rows == 0:
+        return np.zeros(0, dtype=np.float64)
+
+    mask = _compute_gating_mask(cols, cell_area_threshold, fluor_gates)
+    if not mask.any():
+        return np.zeros(0, dtype=np.float64)
+
+    val = _resolve_value_array(cols, val_col, ratios)
+    mask &= np.isfinite(val)
+
+    if tp_filter is not None:
+        tp = _resolve_tp_hours_with_ordinals(cols)
+        mask &= np.isfinite(tp) & (np.abs(tp - tp_filter) <= 1e-6)
+
+    return val[mask]
+
+
+def fluor_gates_signature(
+    fluor_gates: Optional[Dict[str, float]],
+) -> Tuple[Tuple[str, float], ...]:
+    """Hashable signature for a fluor-gate dict (sorted by channel name)."""
+    if not fluor_gates:
+        return ()
+    return tuple(sorted((str(k), float(v)) for k, v in fluor_gates.items()))
+
+
+def ratio_signature(
+    val_col: str,
+    ratios: Optional[Dict[str, RatioMetric]],
+) -> Tuple[Any, ...]:
+    """Hashable signature for the ratio metric used by *val_col* (or empty)."""
+    if not is_ratio_key(val_col) or not ratios:
+        return ()
+    rm = ratios.get(val_col)
+    if rm is None:
+        return ()
+    return (val_col, rm.numerator_col(), rm.denominator_col(), float(rm.epsilon))

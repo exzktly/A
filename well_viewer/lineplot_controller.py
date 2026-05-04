@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
@@ -66,14 +68,20 @@ def redraw_line_plots(
             color = well_colors[set_idx % len(well_colors)]
             valid_wells = [w for w in rset.wells if w in app._well_paths]
             all_tps: set = set()
-            all_fluor_vals_rset = []
+            cdf_arrays: list = []
             cell_area_threshold = app._get_cell_area_threshold()
             fluor_gates = app._get_all_fluor_gates()
             for lbl in valid_wells:
-                rows = app._get_rows(lbl)
-                for t, *_ in aggregate_with_threshold(rows, threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)):
-                    all_tps.add(t)
-                all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
+                agg = app._well_agg(
+                    lbl,
+                    val_col=app._active_val_col,
+                    cell_area_threshold=cell_area_threshold,
+                    fluor_gates=fluor_gates,
+                )
+                if agg.n_groups:
+                    all_tps.update(agg.timepoints.tolist())
+                if agg.values.size:
+                    cdf_arrays.append(agg.values)
             agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
             for t in sorted(all_tps):
                 gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
@@ -93,20 +101,30 @@ def redraw_line_plots(
                     app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=lbl_str, zorder=3)
                     app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                 any_ts = True
-            if all_fluor_vals_rset:
-                fluor_s = sorted(all_fluor_vals_rset)
-                n = len(fluor_s)
-                app._line_ax_cdf.plot(fluor_s, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{lbl_str} (n={n:,})", zorder=3)
-                any_cdf = True
+            if cdf_arrays:
+                pooled = np.concatenate(cdf_arrays)
+                fluor_s = np.sort(pooled)
+                n = int(fluor_s.size)
+                if n:
+                    cdf_y = (np.arange(1, n + 1, dtype=np.float64) / n)
+                    app._line_ax_cdf.plot(fluor_s, cdf_y, color=color, lw=1.8, label=f"{lbl_str} (n={n:,})", zorder=3)
+                    any_cdf = True
     else:
         cell_area_threshold = app._get_cell_area_threshold()
         fluor_gates = app._get_all_fluor_gates()
         per_fov_spread = app._use_fov_spread_active()
         for i, label in enumerate(selected):
             color = well_colors[i % len(well_colors)]
-            rows = app._get_rows(label)
             disp = app._well_display_label(label)
-            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread, ratios=getattr(app, "_ratio_index", None))
+            pts = app._aggregate_well(
+                label,
+                threshold,
+                use_sem=use_sem,
+                per_fov_spread=per_fov_spread,
+                val_col=app._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
             if pts:
                 times, means, spreads, fracs, *_ = zip(*pts)
                 vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
@@ -120,10 +138,17 @@ def redraw_line_plots(
                     app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=disp, zorder=3)
                     app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                 any_ts = True
-            vals = sorted(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
-            if vals:
-                n = len(vals)
-                app._line_ax_cdf.plot(vals, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{disp} (n={n:,})", zorder=3)
+            vals = app._filtered_values_for_well(
+                label,
+                val_col=app._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            if vals.size:
+                vals_sorted = np.sort(vals)
+                n = int(vals_sorted.size)
+                cdf_y = np.arange(1, n + 1, dtype=np.float64) / n
+                app._line_ax_cdf.plot(vals_sorted, cdf_y, color=color, lw=1.8, label=f"{disp} (n={n:,})", zorder=3)
                 any_cdf = True
 
     if any_ts:

@@ -55,6 +55,10 @@ def load_directory(app, d: Path, label=None) -> None:
     app._data_dir = d
     app._well_paths.clear()
     app._cache.clear()
+    if hasattr(app, "_cols"):
+        app._cols.clear()
+    if hasattr(app, "_well_agg_cache"):
+        app._well_agg_cache.clear()
     app._selected_wells.clear()
     app._last_sel = None
     app._prev_sel = set()

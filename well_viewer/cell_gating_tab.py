@@ -63,6 +63,9 @@ class GatingWorker(QThread):
 
         included_total = 0
         excluded_total = 0
+        ratios = getattr(self._app, "_ratio_index", None)
+        # Imported lazily so non-numpy environments still load this module.
+        from well_viewer.data_loading import _compute_gating_mask  # noqa: WPS433
 
         for idx, label in enumerate(labels):
             if self._cancelled:
@@ -73,40 +76,70 @@ class GatingWorker(QThread):
                     )
                 return
 
-            rows = self._app._get_rows(label)
-            well_included = 0
-            for row in rows:
-                include = 1
-                try:
-                    area = float(row.get("area_px", 0))
-                    if area <= cell_area_threshold:
+            cols = self._app._get_columns(label)
+            # Vectorized include mask: Included flag is *replaced* (not AND-ed)
+            # so loosening a threshold re-includes previously-excluded rows,
+            # matching the legacy semantics. The legacy loop ignored the prior
+            # Included flag entirely and recomputed from area + gates.
+            mask = _np.ones(cols.n_rows, dtype=bool) if _NP_AVAILABLE else None
+            if mask is not None:
+                if cols.area_px.size:
+                    mask &= cols.area_px > float(cell_area_threshold)
+                for channel, gate_threshold in fluor_gates.items():
+                    col_arr = cols.numeric.get(f"{channel}_mean_intensity")
+                    if col_arr is None:
+                        mask[:] = False
+                        break
+                    mask &= _np.isfinite(col_arr) & (col_arr > float(gate_threshold))
+                # Mirror the new include mask onto WellColumns (bumps version
+                # via _invalidate_well_columns) and onto the legacy row dicts
+                # so consumers that still read row["Included"] (review image,
+                # legacy aggregators) stay consistent.
+                cols.included_mask = mask
+                rows = self._app._cache.get(label)
+                if rows is not None:
+                    # tolist() returns native Python ints in one C call;
+                    # cheaper than int(np_int[i]) per row.
+                    flags = mask.astype(_np.int8).tolist()
+                    for i, row in enumerate(rows):
+                        row["Included"] = flags[i]
+                self._app._invalidate_well_columns(label)
+                well_included = int(mask.sum())
+            else:
+                # Numpy unavailable: fall back to row-wise Python loop.
+                rows = self._app._get_rows(label)
+                well_included = 0
+                for row in rows:
+                    include = 1
+                    try:
+                        area = float(row.get("area_px", 0))
+                        if area <= cell_area_threshold:
+                            include = 0
+                    except (ValueError, TypeError):
                         include = 0
-                except (ValueError, TypeError):
-                    include = 0
-
-                if include:
-                    for channel, gate_threshold in fluor_gates.items():
-                        col = f"{channel}_mean_intensity"
-                        try:
-                            fluor = float(row.get(col, float("nan")))
-                            if fluor != fluor or fluor <= gate_threshold:
+                    if include:
+                        for channel, gate_threshold in fluor_gates.items():
+                            col = f"{channel}_mean_intensity"
+                            try:
+                                fluor = float(row.get(col, float("nan")))
+                                if fluor != fluor or fluor <= gate_threshold:
+                                    include = 0
+                                    break
+                            except (ValueError, TypeError):
                                 include = 0
                                 break
-                        except (ValueError, TypeError):
-                            include = 0
-                            break
-
-                row["Included"] = include
-                if include:
-                    well_included += 1
+                    row["Included"] = include
+                    if include:
+                        well_included += 1
 
             included_total += well_included
-            excluded_total += len(rows) - well_included
+            row_count = cols.n_rows if mask is not None else len(self._app._get_rows(label))
+            excluded_total += row_count - well_included
 
             if debug:
                 logger.info(
                     "GatingWorker progress %d/%d well=%s rows=%d included=%d",
-                    idx + 1, total, label, len(rows), well_included,
+                    idx + 1, total, label, row_count, well_included,
                 )
 
             self.progress.emit(idx + 1, total)
