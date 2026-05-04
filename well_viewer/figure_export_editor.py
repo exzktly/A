@@ -5,11 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from io import BytesIO
+
+from PySide6.QtCore import QByteArray, Qt
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
-    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
+    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QMessageBox, QPushButton, QScrollArea, QSpinBox,
+    QVBoxLayout, QWidget,
 )
 
 DEFAULT_EXPORT_STYLE_PREFS = {
@@ -419,6 +423,52 @@ class _ExportStyleSidebar(QWidget):
         grid.addWidget(lay_row, row, 1)
         row += 1
 
+        # ── Line plot reorder panel (only when bound to the line-plot figure)
+        self._line_order_rsets_list: QListWidget | None = None
+        self._line_order_wells_list: QListWidget | None = None
+        if self._is_line_fig():
+            grid.addWidget(QLabel("Replicate Set Order"), row, 0, 1, 2)
+            row += 1
+            rs_list = QListWidget(body)
+            rs_list.setDragDropMode(QAbstractItemView.InternalMove)
+            rs_list.setSelectionMode(QAbstractItemView.SingleSelection)
+            rs_list.setMaximumHeight(120)
+            rs_list.model().rowsMoved.connect(
+                lambda *_: self._on_line_order_rsets_changed()
+            )
+            grid.addWidget(rs_list, row, 0, 1, 2)
+            self._line_order_rsets_list = rs_list
+            row += 1
+
+            grid.addWidget(QLabel("Well Order"), row, 0, 1, 2)
+            row += 1
+            w_list = QListWidget(body)
+            w_list.setDragDropMode(QAbstractItemView.InternalMove)
+            w_list.setSelectionMode(QAbstractItemView.SingleSelection)
+            w_list.setMaximumHeight(120)
+            w_list.model().rowsMoved.connect(
+                lambda *_: self._on_line_order_wells_changed()
+            )
+            grid.addWidget(w_list, row, 0, 1, 2)
+            self._line_order_wells_list = w_list
+            row += 1
+            self._refresh_line_order_lists()
+
+        # ── Clipboard copy row
+        clip = QWidget(body)
+        cl = QHBoxLayout(clip)
+        cl.setContentsMargins(0, 8, 0, 0)
+        copy_png_btn = QPushButton("Copy PNG", clip)
+        copy_png_btn.setProperty("variant", "secondary")
+        copy_png_btn.clicked.connect(lambda _=False: self._copy_png())
+        cl.addWidget(copy_png_btn)
+        copy_svg_btn = QPushButton("Copy SVG", clip)
+        copy_svg_btn.setProperty("variant", "secondary")
+        copy_svg_btn.clicked.connect(lambda _=False: self._copy_svg())
+        cl.addWidget(copy_svg_btn)
+        grid.addWidget(clip, row, 0, 1, 2)
+        row += 1
+
         btns = QWidget(body)
         bl = QHBoxLayout(btns)
         bl.setContentsMargins(0, 8, 0, 0)
@@ -551,6 +601,121 @@ class _ExportStyleSidebar(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))
 
+    # ── Clipboard copy ───────────────────────────────────────────────────────
+
+    def _copy_png(self) -> None:
+        """Copy the current figure to the clipboard as a PNG image."""
+        try:
+            self._persist()
+            apply_export_style_to_current(self._app, self._fig, self._canvas)
+            buf = BytesIO()
+            self._fig.savefig(
+                buf, format="png", dpi=300,
+                bbox_inches="tight", transparent=False,
+            )
+            img = QImage.fromData(buf.getvalue(), "PNG")
+            if img.isNull():
+                QMessageBox.critical(self, "Copy failed", "Could not encode PNG.")
+                return
+            QApplication.clipboard().setPixmap(QPixmap.fromImage(img))
+            self._app._set_status("Figure copied to clipboard (PNG)")
+        except Exception as exc:
+            QMessageBox.critical(self, "Copy PNG failed", str(exc))
+
+    def _copy_svg(self) -> None:
+        """Copy the current figure to the clipboard as SVG markup."""
+        try:
+            self._persist()
+            apply_export_style_to_current(self._app, self._fig, self._canvas)
+            import matplotlib as _mpl
+            from PySide6.QtCore import QMimeData
+            orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
+            _mpl.rcParams["svg.fonttype"] = "none"
+            try:
+                buf = BytesIO()
+                self._fig.savefig(
+                    buf, format="svg",
+                    bbox_inches="tight", transparent=True,
+                )
+            finally:
+                _mpl.rcParams["svg.fonttype"] = orig_svg
+            data = buf.getvalue()
+            mime = QMimeData()
+            mime.setData("image/svg+xml", QByteArray(data))
+            try:
+                mime.setText(data.decode("utf-8"))
+            except UnicodeDecodeError:
+                pass
+            QApplication.clipboard().setMimeData(mime)
+            self._app._set_status("Figure copied to clipboard (SVG)")
+        except Exception as exc:
+            QMessageBox.critical(self, "Copy SVG failed", str(exc))
+
+    # ── Line-plot reorder ────────────────────────────────────────────────────
+
+    def _is_line_fig(self) -> bool:
+        return getattr(self._app, "_line_fig", None) is self._fig
+
+    def _refresh_line_order_lists(self) -> None:
+        """Repopulate the rep-set / well order lists from current app state."""
+        app = self._app
+        if self._line_order_rsets_list is not None:
+            self._line_order_rsets_list.blockSignals(True)
+            self._line_order_rsets_list.clear()
+            try:
+                active = app._rep_sets_active() or []
+            except Exception:
+                active = []
+            names = [getattr(rs, "name", "") for rs in active if getattr(rs, "name", "")]
+            saved = list(getattr(app, "_line_order_rsets", []) or [])
+            ordered = [n for n in saved if n in names] + [n for n in names if n not in saved]
+            for n in ordered:
+                self._line_order_rsets_list.addItem(n)
+            self._line_order_rsets_list.blockSignals(False)
+
+        if self._line_order_wells_list is not None:
+            self._line_order_wells_list.blockSignals(True)
+            self._line_order_wells_list.clear()
+            try:
+                selected = list(app._selected_labels() or [])
+            except Exception:
+                selected = []
+            saved = list(getattr(app, "_line_order_wells", []) or [])
+            ordered = [w for w in saved if w in selected] + [w for w in selected if w not in saved]
+            for w in ordered:
+                self._line_order_wells_list.addItem(w)
+            self._line_order_wells_list.blockSignals(False)
+
+    def _on_line_order_rsets_changed(self) -> None:
+        if self._line_order_rsets_list is None:
+            return
+        order = [
+            self._line_order_rsets_list.item(i).text()
+            for i in range(self._line_order_rsets_list.count())
+        ]
+        self._app._line_order_rsets = order
+        if hasattr(self._app, "_line_order_schedule_save"):
+            self._app._line_order_schedule_save()
+        try:
+            self._app._redraw()
+        except Exception:
+            pass
+
+    def _on_line_order_wells_changed(self) -> None:
+        if self._line_order_wells_list is None:
+            return
+        order = [
+            self._line_order_wells_list.item(i).text()
+            for i in range(self._line_order_wells_list.count())
+        ]
+        self._app._line_order_wells = order
+        if hasattr(self._app, "_line_order_schedule_save"):
+            self._app._line_order_schedule_save()
+        try:
+            self._app._redraw()
+        except Exception:
+            pass
+
 
 class _ExportEditorSession:
     def __init__(self, sidebar: _ExportStyleSidebar) -> None:
@@ -600,6 +765,12 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
         sb.show()
         sb.raise_()
         sb._on_fields_changed()
+        # Re-populate the line-order lists so they reflect the current rep-set
+        # / well selection each time the panel is opened.
+        try:
+            sb._refresh_line_order_lists()
+        except Exception:
+            pass
         return _ExportEditorSession(sb)
     except Exception as exc:
         QMessageBox.warning(app if isinstance(app, QWidget) else None,

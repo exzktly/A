@@ -82,6 +82,22 @@ def load_directory(app, d: Path, label=None) -> None:
             app._load_sample_definitions_from_pipeline_info()
         except Exception:
             pass
+    # Hydrate per-cell Segmentation-tab overrides (cell_overrides.json) before
+    # any controller queries cached rows, then project them onto row['Included']
+    # so all downstream stats honor user curation. Both calls are safe no-ops
+    # when no patch file exists.
+    if hasattr(app, "_cell_overrides_load_from_data_dir"):
+        try:
+            app._cell_overrides_load_from_data_dir()
+            app._apply_review_overrides_to_cache()
+        except Exception:
+            pass
+    # Hydrate user-defined line-plot draw order (line_order.json).
+    if hasattr(app, "_line_order_load_from_data_dir"):
+        try:
+            app._line_order_load_from_data_dir()
+        except Exception:
+            pass
     app._refresh_sidebar_map()
     app._bar_groups_prune()
     if hasattr(app, "_bar_map_btns"):

@@ -4,15 +4,23 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+from well_viewer.data_loading import row_is_included
+
 
 def collect_group_values(app, grp, target_t: float) -> List[float]:
-    """Return per-cell fluor values above threshold for a group at target_t."""
+    """Return per-cell fluor values above threshold for a group at target_t.
+
+    Honors the CSV ``Included`` flag (and any Segmentation-tab overrides
+    projected onto it via ``_apply_review_overrides_to_cache``).
+    """
     threshold = app._threshold
     vals: List[float] = []
     for lbl in grp.wells:
         if lbl not in app._well_paths:
             continue
         for row in app._get_rows(lbl):
+            if not row_is_included(row):
+                continue
             raw = row.get("timepoint_hours")
             try:
                 t = float(raw)

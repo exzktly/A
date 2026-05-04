@@ -115,6 +115,13 @@ class GatingWorker(QThread):
             time.sleep(0.01)
 
         if not self._cancelled:
+            # Re-apply user overrides on top of the gating-computed Included
+            # so per-cell curation in the Segmentation tab is not clobbered by
+            # threshold-based recomputes.
+            try:
+                self._app._apply_review_overrides_to_cache()
+            except Exception:
+                pass
             # CRITICAL: Only invalidate stats cache, NOT _refresh_review_csv_rows.
             # That call deep-copies every cached row across every well and
             # blows up memory by orders of magnitude.
