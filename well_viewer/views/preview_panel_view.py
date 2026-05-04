@@ -241,7 +241,7 @@ def build_review_image_panel(self, parent: QWidget) -> None:
     self._review_image_tp_cb = self._review_image_tp_menu  # alias for review_image_controller
     cl.addStretch(1)
 
-    cl.addWidget(btn_secondary(ctrl, "Toggle Included",
+    cl.addWidget(btn_secondary(ctrl, "Delete Cell",
                                self._toggle_selected_review_cell))
 
     # Raw vs top-hat fluorescence source toggle. Defaults to top-hat.
@@ -330,6 +330,18 @@ def build_review_image_panel(self, parent: QWidget) -> None:
                                self._reset_review_image_colors))
 
     cr.addSpacing(12)
+
+    self._review_image_outline_btn = _QPushButton("Outline: On", color_row)
+    self._review_image_outline_btn.setProperty("variant", "toggle")
+    self._review_image_outline_btn.setCheckable(True)
+    self._review_image_outline_btn.setChecked(
+        bool(getattr(self, "_review_image_show_outline", True))
+    )
+    self._review_image_outline_btn.clicked.connect(
+        lambda _=False: self._toggle_review_image_outline()
+    )
+    cr.addWidget(self._review_image_outline_btn)
+    self._refresh_review_image_outline_btn()
 
     self._review_image_binary_btn = _QPushButton("Binary: Off", color_row)
     self._review_image_binary_btn.setProperty("variant", "toggle")
