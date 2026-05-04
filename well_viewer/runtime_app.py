@@ -1352,6 +1352,21 @@ class WellViewerApp(QWidget):
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
         self._review_image_raw_btn = None
+        # User-customizable colors for the Review Image overlay. Tint scales
+        # the grayscale fluorescence channel-by-channel; (255, 255, 255)
+        # leaves the image fully grayscale.
+        self._review_image_boundary_color: Tuple[int, int, int] = (255, 64, 64)
+        self._review_image_selected_color: Tuple[int, int, int] = (255, 230, 64)
+        self._review_image_tint_color: Tuple[int, int, int] = (255, 255, 255)
+        self._review_image_color_swatches: Dict[str, object] = {}
+        # Binary-mask visualization: when True, render cells as white (above
+        # threshold per the bar-plot gating logic) or black (below) on a
+        # black background, instead of the grayscale + colored boundary view.
+        self._review_image_binary_mask: bool = False
+        self._review_image_binary_btn = None
+        # Cache for the {nid -> above_threshold} map per (well, fov, tp,
+        # override_version, val_col, threshold, area_thr, fluor_gates).
+        self._review_image_threshold_map_cache: Dict[Tuple, Dict[int, bool]] = {}
         # Movie Montage square-region crop. State lives in a CropTool
         # instance; legacy attribute names are preserved as read-only
         # delegates further down so existing readers (export_service,
@@ -5247,6 +5262,83 @@ class WellViewerApp(QWidget):
             "Click to switch to the unprocessed raw image."
         )
 
+    # ── Review Image color customization ──────────────────────────────────
+
+    _REVIEW_IMAGE_COLOR_DEFAULTS: Dict[str, Tuple[int, int, int]] = {
+        "boundary": (255, 64, 64),
+        "selected": (255, 230, 64),
+        "tint": (255, 255, 255),
+    }
+
+    def _review_image_get_color(self, which: str) -> Tuple[int, int, int]:
+        attr = f"_review_image_{which}_color"
+        return tuple(getattr(self, attr, self._REVIEW_IMAGE_COLOR_DEFAULTS[which]))  # type: ignore[return-value]
+
+    def _review_image_set_color(self, which: str, rgb: Tuple[int, int, int]) -> None:
+        attr = f"_review_image_{which}_color"
+        rgb_clamped = tuple(max(0, min(255, int(c))) for c in rgb)
+        setattr(self, attr, rgb_clamped)
+        self._review_image_refresh_color_swatch(which)
+        self._review_image_preserve_view_on_refresh = True
+        self._refresh_review_image()
+
+    def _review_image_refresh_color_swatch(self, which: str) -> None:
+        swatches = getattr(self, "_review_image_color_swatches", {}) or {}
+        btn = swatches.get(which)
+        if btn is None:
+            return
+        r, g, b = self._review_image_get_color(which)
+        btn.setStyleSheet(
+            f"QPushButton {{ background-color: rgb({r},{g},{b}); "
+            f"border: 1px solid #444; min-width: 28px; min-height: 18px; }}"
+        )
+
+    def _pick_review_image_color(self, which: str) -> None:
+        """Open a color dialog and apply the selection to ``which`` slot."""
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QColorDialog
+        r, g, b = self._review_image_get_color(which)
+        initial = QColor(int(r), int(g), int(b))
+        chosen = QColorDialog.getColor(initial, None, f"Pick {which} color")
+        if not chosen.isValid():
+            return
+        self._review_image_set_color(which, (chosen.red(), chosen.green(), chosen.blue()))
+
+    def _reset_review_image_colors(self) -> None:
+        """Restore the default colors for boundary / selection / tint."""
+        for which, default in self._REVIEW_IMAGE_COLOR_DEFAULTS.items():
+            setattr(self, f"_review_image_{which}_color", tuple(default))
+            self._review_image_refresh_color_swatch(which)
+        self._review_image_preserve_view_on_refresh = True
+        self._refresh_review_image()
+
+    # ── Binary mask toggle ────────────────────────────────────────────────
+
+    def _toggle_review_image_binary_mask(self) -> None:
+        """Flip the binary-mask overlay on/off and refresh the canvas."""
+        self._review_image_binary_mask = not bool(
+            getattr(self, "_review_image_binary_mask", False)
+        )
+        self._refresh_review_image_binary_btn()
+        self._review_image_preserve_view_on_refresh = True
+        self._refresh_review_image()
+
+    def _refresh_review_image_binary_btn(self) -> None:
+        btn = getattr(self, "_review_image_binary_btn", None)
+        if btn is None:
+            return
+        on = bool(getattr(self, "_review_image_binary_mask", False))
+        btn.setChecked(on)
+        btn.setText("Binary: On" if on else "Binary: Off")
+        btn.setToolTip(
+            "Binary mask: cells above the active threshold are drawn white,\n"
+            "cells below are drawn black, on a black background.\n"
+            "Uses the same gating as the bar plots, filtered to the\n"
+            "displayed FOV/timepoint."
+        )
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
     def _review_build_include_map(
         self, mask_arr, well: str, fov: str, tp: str,
     ) -> Dict[int, bool]:
@@ -5269,6 +5361,66 @@ class WellViewerApp(QWidget):
             incl = self._review_effective_included(well, row).strip()
             include_by_nid[nid] = (incl != "0")
         return include_by_nid
+
+    def _review_build_threshold_map(
+        self, mask_arr, well: str, fov: str, tp: str,
+    ) -> Dict[int, bool]:
+        """Build {nid: above_threshold} for cells in the displayed FOV/timepoint.
+
+        Mirrors the bar plot's gating logic: a cell is "above threshold" only
+        when it passes (a) cell-area gating, (b) every fluorescence gate, and
+        (c) ``row[active_val_col] > thresh_frac_on``. Rows from other FOVs or
+        timepoints are explicitly skipped so a binary mask built from the
+        full well's rows can't pull in mismatched nucleus IDs.
+        """
+        center = _np.asarray(mask_arr)
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        threshold = self._get_thresh_frac_on()
+        val_col = self._active_val_col
+        ratios = getattr(self, "_ratio_index", None)
+        above_by_nid: Dict[int, bool] = {
+            int(nid): False for nid in _np.unique(center) if int(nid) > 0
+        }
+        for row in self._review_load_rows(well):
+            row_fov, row_tp, row_nid = self._review_row_keys(row)
+            if row_fov != fov or row_tp != tp or not row_nid:
+                continue
+            try:
+                nid = int(float(row_nid))
+            except Exception:
+                continue
+            if not row_is_included(row):
+                above_by_nid[nid] = False
+                continue
+            try:
+                area = float(row.get("area_px", 0))
+            except (TypeError, ValueError):
+                above_by_nid[nid] = False
+                continue
+            if area <= cell_area_threshold:
+                above_by_nid[nid] = False
+                continue
+            gates_passed = True
+            for chan, gate in fluor_gates.items():
+                col = f"{chan}_mean_intensity"
+                try:
+                    fluor = float(row.get(col, float("nan")))
+                except (TypeError, ValueError):
+                    gates_passed = False
+                    break
+                if fluor != fluor or fluor <= gate:
+                    gates_passed = False
+                    break
+            if not gates_passed:
+                above_by_nid[nid] = False
+                continue
+            val = resolve_value(row, val_col, ratios)
+            if val != val:  # NaN guard
+                above_by_nid[nid] = False
+                continue
+            above_by_nid[nid] = bool(val > threshold)
+        return above_by_nid
 
     def _refresh_review_image(self) -> None:
         if not hasattr(self, "_review_image_label"):
@@ -5394,6 +5546,27 @@ class WellViewerApp(QWidget):
             if len(self._review_image_include_cache) > 32:
                 self._review_image_include_cache.clear()
             self._review_image_include_cache[ic_key] = include_by_nid
+
+        # Above-threshold map is only needed when the binary-mask overlay is
+        # active. Cache by (well, fov, tp, override_version, val_col,
+        # threshold, area_thr, fluor_gates) so any gating change invalidates.
+        above_by_nid: Optional[Dict[int, bool]] = None
+        if bool(getattr(self, "_review_image_binary_mask", False)):
+            cell_area_threshold = self._get_cell_area_threshold()
+            fluor_gates = self._get_all_fluor_gates()
+            threshold = self._get_thresh_frac_on()
+            tm_key = (
+                well, fov, tp, self._review_image_override_version,
+                self._active_val_col, threshold, cell_area_threshold,
+                tuple(sorted(fluor_gates.items())),
+            )
+            above_by_nid = self._review_image_threshold_map_cache.get(tm_key)
+            if above_by_nid is None:
+                above_by_nid = self._review_build_threshold_map(center, well, fov, tp)
+                if len(self._review_image_threshold_map_cache) > 32:
+                    self._review_image_threshold_map_cache.clear()
+                self._review_image_threshold_map_cache[tm_key] = above_by_nid
+
         preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
         self._review_image_preserve_view_on_refresh = False
         if channel_switch_debug:
@@ -5401,6 +5574,7 @@ class WellViewerApp(QWidget):
         self._draw_review_image(
             fluor_arr, center, include_by_nid,
             fit_lut=False, preserve_view=preserve_view, boundary=boundary,
+            above_by_nid=above_by_nid,
         )
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
@@ -5460,6 +5634,7 @@ class WellViewerApp(QWidget):
         fit_lut: bool = False,
         preserve_view: bool = False,
         boundary=None,
+        above_by_nid: Optional[Dict[int, bool]] = None,
     ) -> None:
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
@@ -5484,13 +5659,7 @@ class WellViewerApp(QWidget):
             self._review_lut_min_edit.setText(f"{lo:.0f}")
             self._review_lut_max_edit.setText(f"{hi:.0f}")
         base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
-        # Build the RGB array directly with broadcasting; np.dstack would
-        # make three separate copies before stacking.
         h, w = base.shape
-        rgb = _np.empty((h, w, 3), dtype=_np.uint8)
-        rgb[..., 0] = base
-        rgb[..., 1] = base
-        rgb[..., 2] = base
 
         # The caller (``_refresh_review_image``) supplies a cached center +
         # boundary when the frame hasn't changed. Recompute on demand only
@@ -5508,25 +5677,58 @@ class WellViewerApp(QWidget):
                 (center_view != padded[1:-1, :-2]) |
                 (center_view != padded[1:-1, 2:])
             )
-        # Build the inclusion mask via a single np.isin pass over the label
-        # image. The previous per-nucleus loop allocated a fresh image-sized
-        # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
-        # with ~1000 cells per FOV churned ~4 GB of transient bool arrays
-        # per refresh. Most got GC'd, but Linux's allocator does not return
-        # those pages to the OS, so RSS grew on every click. np.isin runs
-        # the comparison in C with O(image_pixels) extra memory.
-        included_ids = [int(nid) for nid, inc in include_by_nid.items() if inc]
-        if included_ids:
-            included_arr = _np.fromiter(included_ids, dtype=center.dtype, count=len(included_ids))
-            include_mask = _np.isin(center, included_arr)
-        else:
-            include_mask = _np.zeros(center.shape, dtype=bool)
-        draw_boundary = boundary & include_mask
-        rgb[draw_boundary] = _np.array([255, 64, 64], dtype=_np.uint8)
+
+        binary_mask_mode = bool(getattr(self, "_review_image_binary_mask", False))
         sel_nid = self._review_image_selected_nucleus
-        if sel_nid is not None:
-            sel_boundary = boundary & (center == int(sel_nid))
-            rgb[sel_boundary] = _np.array([255, 230, 64], dtype=_np.uint8)
+
+        if binary_mask_mode:
+            if above_by_nid is None:
+                above_by_nid = {}
+            rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
+            above_ids = [int(nid) for nid, ab in above_by_nid.items() if ab]
+            if above_ids:
+                above_arr = _np.fromiter(above_ids, dtype=center.dtype, count=len(above_ids))
+                above_mask = _np.isin(center, above_arr)
+                rgb[above_mask] = _np.array([255, 255, 255], dtype=_np.uint8)
+            if sel_nid is not None:
+                sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
+                sel_boundary = boundary & (center == int(sel_nid))
+                rgb[sel_boundary] = sel_color
+        else:
+            # Build the RGB array with the configured tint applied.
+            tint = self._review_image_tint_color
+            tr, tg, tb = (max(0, min(255, int(c))) for c in tint)
+            rgb = _np.empty((h, w, 3), dtype=_np.uint8)
+            if (tr, tg, tb) == (255, 255, 255):
+                rgb[..., 0] = base
+                rgb[..., 1] = base
+                rgb[..., 2] = base
+            else:
+                base_f = base.astype(_np.float32)
+                rgb[..., 0] = _np.clip(base_f * (tr / 255.0), 0, 255).astype(_np.uint8)
+                rgb[..., 1] = _np.clip(base_f * (tg / 255.0), 0, 255).astype(_np.uint8)
+                rgb[..., 2] = _np.clip(base_f * (tb / 255.0), 0, 255).astype(_np.uint8)
+
+            # Build the inclusion mask via a single np.isin pass over the label
+            # image. The previous per-nucleus loop allocated a fresh image-sized
+            # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
+            # with ~1000 cells per FOV churned ~4 GB of transient bool arrays
+            # per refresh. Most got GC'd, but Linux's allocator does not return
+            # those pages to the OS, so RSS grew on every click. np.isin runs
+            # the comparison in C with O(image_pixels) extra memory.
+            included_ids = [int(nid) for nid, inc in include_by_nid.items() if inc]
+            if included_ids:
+                included_arr = _np.fromiter(included_ids, dtype=center.dtype, count=len(included_ids))
+                include_mask = _np.isin(center, included_arr)
+            else:
+                include_mask = _np.zeros(center.shape, dtype=bool)
+            draw_boundary = boundary & include_mask
+            boundary_color = _np.asarray(self._review_image_boundary_color, dtype=_np.uint8)
+            rgb[draw_boundary] = boundary_color
+            if sel_nid is not None:
+                sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
+                sel_boundary = boundary & (center == int(sel_nid))
+                rgb[sel_boundary] = sel_color
 
         # Stash the rendered RGB so display rescales / zoom can rebuild the
         # pixmap without recomputing tinted overlays. We retain the PIL
@@ -5544,9 +5746,14 @@ class WellViewerApp(QWidget):
         self._review_image_label._raw_arr = arr      # type: ignore[attr-defined]
         self._apply_review_image_cursor()
         suffix = f"  \u00b7  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
-        self._review_image_status.setText(
-            f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
-        )
+        if binary_mask_mode:
+            self._review_image_status.setText(
+                f"Binary mask: cells above threshold for {self._active_channel_label()} shown white.{suffix}"
+            )
+        else:
+            self._review_image_status.setText(
+                f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
+            )
         if _debug_flags.review_image_channel_switch_debug_enabled():
             _logger.debug(
                 "[RI-CHSW step 7] draw_review_image complete status_channel=%r zoom=%.3f pan=(%.1f, %.1f)",
