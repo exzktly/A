@@ -5389,18 +5389,18 @@ class WellViewerApp(QWidget):
     ) -> Dict[int, bool]:
         """Build {nid: above_threshold} for cells in the displayed FOV/timepoint.
 
-        Mirrors the bar plot's gating logic: a cell is "above threshold" only
-        when it passes (a) cell-area gating, (b) every fluorescence gate, and
-        (c) ``row[active_val_col] > thresh_frac_on``. Rows from other FOVs or
-        timepoints are explicitly skipped so a binary mask built from the
-        full well's rows can't pull in mismatched nucleus IDs.
+        Uses the image channel's mean-intensity column and its ThreshFracOn
+        threshold, plus the shared area/fluor-gate criteria. Rows from other
+        FOVs or timepoints are explicitly skipped so a binary mask built from
+        the full well's rows can't pull in mismatched nucleus IDs.
         """
         center = _np.asarray(mask_arr)
         cell_area_threshold = self._get_cell_area_threshold()
         fluor_gates = self._get_all_fluor_gates()
-        threshold = self._get_thresh_frac_on()
-        val_col = self._active_val_col
-        ratios = getattr(self, "_ratio_index", None)
+        img_chan = str(getattr(self, "_active_image_channel", None) or self._active_channel).lower()
+        threshold = self._get_thresh_frac_on(img_chan)
+        val_col = f"{img_chan}_mean_intensity"
+        ratios = None
         above_by_nid: Dict[int, bool] = {
             int(nid): False for nid in _np.unique(center) if int(nid) > 0
         }
@@ -5576,10 +5576,11 @@ class WellViewerApp(QWidget):
         if bool(getattr(self, "_review_image_binary_mask", False)):
             cell_area_threshold = self._get_cell_area_threshold()
             fluor_gates = self._get_all_fluor_gates()
-            threshold = self._get_thresh_frac_on()
+            img_chan = str(getattr(self, "_active_image_channel", None) or self._active_channel).lower()
+            threshold = self._get_thresh_frac_on(img_chan)
             tm_key = (
                 well, fov, tp, self._review_image_override_version,
-                self._active_val_col, threshold, cell_area_threshold,
+                img_chan, threshold, cell_area_threshold,
                 tuple(sorted(fluor_gates.items())),
             )
             above_by_nid = self._review_image_threshold_map_cache.get(tm_key)
@@ -5776,7 +5777,7 @@ class WellViewerApp(QWidget):
         suffix = f"  \u00b7  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
         if binary_mask_mode:
             self._review_image_status.setText(
-                f"Binary mask: cells above threshold for {self._active_channel_label()} shown white.{suffix}"
+                f"Binary mask: cells above threshold for {str(getattr(self, '_active_image_channel', None) or self._active_channel).upper()} shown white.{suffix}"
             )
         else:
             self._review_image_status.setText(
