@@ -1770,7 +1770,7 @@ class WellViewerApp(QWidget):
         self._stats_write_result("")
 
     def _stats_update_tp_menu(self) -> None:
-        """Populate the timepoint dropdown from loaded wells."""
+        """Populate the timepoint, channel, and statistic dropdowns."""
         all_tps: set = set()
         for label in self._well_paths:
             for row in self._get_rows(label):
@@ -1784,6 +1784,29 @@ class WellViewerApp(QWidget):
         _set_combo_values(self._stats_tp_cb, tp_strs or ["—"])
         if hasattr(self._stats_tp_cb, "setCurrentText"):
             self._stats_tp_cb.setCurrentText(tp_strs[0] if tp_strs else "—")
+
+        # Channel dropdown — list every measurement column so the user can pick
+        # any value to compare. Mirrors the scatter-tab dropdown construction
+        # so labels and the _col_for_scatter_entry mapping are reused.
+        channels = list(self._fluor_channels) if self._fluor_channels else []
+        ch_options: List[str] = []
+        for ch in channels:
+            ch_options.append(ch)
+            if ch in self._smfish_channels:
+                ch_options.append(f"{ch} (spots)")
+        ch_options.extend(self._ratio_dropdown_labels())
+        if not ch_options:
+            ch_options = ["—"]
+        if hasattr(self, "_stats_channel_cb") and self._stats_channel_cb is not None:
+            current_ch = self._stats_channel_cb.currentText()
+            _set_combo_values(self._stats_channel_cb, ch_options)
+            if current_ch in ch_options:
+                self._stats_channel_cb.setCurrentText(current_ch)
+            else:
+                # Default to the active channel when possible to match the
+                # bar/line plots' current selection.
+                active = self._active_channel if self._active_channel in ch_options else ch_options[0]
+                self._stats_channel_cb.setCurrentText(active)
 
     def _stats_write_result(self, text: str) -> None:
         self._stats_result_text.setReadOnly(False)
@@ -1806,7 +1829,56 @@ class WellViewerApp(QWidget):
     def _stats_collect_group_values(
         self, grp: BarGroup, target_t: float
     ) -> List[float]:
-        return _stats_collect_group_values(self, grp, target_t)
+        return _stats_collect_group_values(
+            self, grp, target_t,
+            val_col=self._stats_active_val_col(),
+            threshold=self._stats_active_threshold(),
+            statistic=self._stats_active_statistic(),
+        )
+
+    _STATS_STATISTIC_KEYS = {
+        "Mean (above threshold)": "mean",
+        "Median (above threshold)": "median",
+        "Fraction above threshold": "fraction",
+    }
+
+    def _stats_active_channel_entry(self) -> str:
+        cb = getattr(self, "_stats_channel_cb", None)
+        if cb is None:
+            return self._active_channel or ""
+        text = cb.currentText().strip()
+        return text if text and text != "—" else (self._active_channel or "")
+
+    def _stats_active_val_col(self) -> str:
+        """Resolve the selected channel-dropdown entry to a value-column key."""
+        entry = self._stats_active_channel_entry()
+        if not entry:
+            return self._active_val_col
+        try:
+            return self._col_for_scatter_entry(entry)
+        except Exception:
+            return self._active_val_col
+
+    def _stats_active_threshold(self) -> float:
+        """Use the per-channel ThreshFracOn from the Cell Gating tab.
+
+        For ratio columns the channel-specific threshold doesn't apply; fall
+        back to the global threshold so a sensible cutoff still exists.
+        """
+        val_col = self._stats_active_val_col()
+        if is_ratio_key(val_col):
+            return float(self._threshold)
+        # val_col is "<channel>_mean_intensity" or "<channel>_smfish_count".
+        if "_" in val_col:
+            channel = val_col.split("_", 1)[0]
+            return float(self._get_thresh_frac_on(channel))
+        return float(self._get_thresh_frac_on(self._active_channel))
+
+    def _stats_active_statistic(self) -> str:
+        cb = getattr(self, "_stats_statistic_cb", None)
+        if cb is None:
+            return "mean"
+        return self._STATS_STATISTIC_KEYS.get(cb.currentText(), "mean")
 
     def _stats_run(self) -> None:
         _stats_run_controller(
