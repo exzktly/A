@@ -1348,6 +1348,15 @@ class WellViewerApp(QWidget):
         self._review_image_frame_cache: Optional[dict] = None
         self._review_image_include_cache: Dict[Tuple[str, str, str, int], Dict[int, bool]] = {}
         self._review_image_override_version: int = 0
+        # Debounce flag for cell_overrides.json autosave; coalesces bursts of
+        # toggles into a single disk write via QTimer.singleShot.
+        self._cell_overrides_save_pending: bool = False
+        # User-controlled draw order for the Line Plot tab. Empty list ⇒ use
+        # natural order (replicate-set list order or selection order). Non-empty
+        # entries are drawn first in saved order; unknown items append at end.
+        self._line_order_rsets: list[str] = []
+        self._line_order_wells: list[str] = []
+        self._line_order_save_pending: bool = False
         # When True, the Review Image tab loads the unprocessed fluorescence
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
@@ -1459,6 +1468,9 @@ class WellViewerApp(QWidget):
 
                 row["Included"] = include
 
+        # Re-apply user overrides on top of the gating-computed Included so
+        # per-cell curation persists across threshold recomputes.
+        self._apply_review_overrides_to_cache()
         # CRITICAL: Do NOT call _refresh_review_csv_rows() here. It rebuilds
         # the Review CSV table by deep-copying every cached row across every
         # well (``[dict(row) for row in self._get_rows(label)]``), which
@@ -1758,7 +1770,7 @@ class WellViewerApp(QWidget):
         self._stats_write_result("")
 
     def _stats_update_tp_menu(self) -> None:
-        """Populate the timepoint dropdown from loaded wells."""
+        """Populate the timepoint, channel, and statistic dropdowns."""
         all_tps: set = set()
         for label in self._well_paths:
             for row in self._get_rows(label):
@@ -1772,6 +1784,29 @@ class WellViewerApp(QWidget):
         _set_combo_values(self._stats_tp_cb, tp_strs or ["—"])
         if hasattr(self._stats_tp_cb, "setCurrentText"):
             self._stats_tp_cb.setCurrentText(tp_strs[0] if tp_strs else "—")
+
+        # Channel dropdown — list every measurement column so the user can pick
+        # any value to compare. Mirrors the scatter-tab dropdown construction
+        # so labels and the _col_for_scatter_entry mapping are reused.
+        channels = list(self._fluor_channels) if self._fluor_channels else []
+        ch_options: List[str] = []
+        for ch in channels:
+            ch_options.append(ch)
+            if ch in self._smfish_channels:
+                ch_options.append(f"{ch} (spots)")
+        ch_options.extend(self._ratio_dropdown_labels())
+        if not ch_options:
+            ch_options = ["—"]
+        if hasattr(self, "_stats_channel_cb") and self._stats_channel_cb is not None:
+            current_ch = self._stats_channel_cb.currentText()
+            _set_combo_values(self._stats_channel_cb, ch_options)
+            if current_ch in ch_options:
+                self._stats_channel_cb.setCurrentText(current_ch)
+            else:
+                # Default to the active channel when possible to match the
+                # bar/line plots' current selection.
+                active = self._active_channel if self._active_channel in ch_options else ch_options[0]
+                self._stats_channel_cb.setCurrentText(active)
 
     def _stats_write_result(self, text: str) -> None:
         self._stats_result_text.setReadOnly(False)
@@ -1794,7 +1829,56 @@ class WellViewerApp(QWidget):
     def _stats_collect_group_values(
         self, grp: BarGroup, target_t: float
     ) -> List[float]:
-        return _stats_collect_group_values(self, grp, target_t)
+        return _stats_collect_group_values(
+            self, grp, target_t,
+            val_col=self._stats_active_val_col(),
+            threshold=self._stats_active_threshold(),
+            statistic=self._stats_active_statistic(),
+        )
+
+    _STATS_STATISTIC_KEYS = {
+        "Mean (above threshold)": "mean",
+        "Median (above threshold)": "median",
+        "Fraction above threshold": "fraction",
+    }
+
+    def _stats_active_channel_entry(self) -> str:
+        cb = getattr(self, "_stats_channel_cb", None)
+        if cb is None:
+            return self._active_channel or ""
+        text = cb.currentText().strip()
+        return text if text and text != "—" else (self._active_channel or "")
+
+    def _stats_active_val_col(self) -> str:
+        """Resolve the selected channel-dropdown entry to a value-column key."""
+        entry = self._stats_active_channel_entry()
+        if not entry:
+            return self._active_val_col
+        try:
+            return self._col_for_scatter_entry(entry)
+        except Exception:
+            return self._active_val_col
+
+    def _stats_active_threshold(self) -> float:
+        """Use the per-channel ThreshFracOn from the Cell Gating tab.
+
+        For ratio columns the channel-specific threshold doesn't apply; fall
+        back to the global threshold so a sensible cutoff still exists.
+        """
+        val_col = self._stats_active_val_col()
+        if is_ratio_key(val_col):
+            return float(self._threshold)
+        # val_col is "<channel>_mean_intensity" or "<channel>_smfish_count".
+        if "_" in val_col:
+            channel = val_col.split("_", 1)[0]
+            return float(self._get_thresh_frac_on(channel))
+        return float(self._get_thresh_frac_on(self._active_channel))
+
+    def _stats_active_statistic(self) -> str:
+        cb = getattr(self, "_stats_statistic_cb", None)
+        if cb is None:
+            return "mean"
+        return self._STATS_STATISTIC_KEYS.get(cb.currentText(), "mean")
 
     def _stats_run(self) -> None:
         _stats_run_controller(
@@ -3075,6 +3159,135 @@ class WellViewerApp(QWidget):
                 refresh_heatmap_layout_sidebar(self)
             except Exception:
                 pass
+
+    # ── Cell-override persistence (Segmentation tab patch file) ──────────────
+
+    def _cell_overrides_path(self) -> Optional[Path]:
+        if self._data_dir:
+            return self._data_dir / "cell_overrides.json"
+        return None
+
+    def _cell_overrides_save_to_data_dir(self) -> None:
+        path = self._cell_overrides_path()
+        if path is None:
+            return
+        overrides = []
+        for (well, fov, tp, nid), val in self._review_included_overrides.items():
+            overrides.append({
+                "well": str(well),
+                "fov": str(fov),
+                "tp": str(tp),
+                "nucleus_id": str(nid),
+                "included": str(val),
+            })
+        payload = {"version": 1, "overrides": overrides}
+        try:
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+            tmp.replace(path)
+        except OSError as exc:
+            _logger.warning("Failed to save cell overrides to %s: %s", path, exc)
+
+    def _cell_overrides_load_from_data_dir(self) -> None:
+        path = self._cell_overrides_path()
+        if path is None or not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed to load cell overrides from %s: %s", path, exc)
+            return
+        overrides = data.get("overrides") if isinstance(data, dict) else None
+        if not isinstance(overrides, list):
+            return
+        self._review_included_overrides.clear()
+        for entry in overrides:
+            if not isinstance(entry, dict):
+                continue
+            well = str(entry.get("well", "")).strip()
+            fov = str(entry.get("fov", "")).strip()
+            tp = str(entry.get("tp", "")).strip()
+            nid = str(entry.get("nucleus_id", "")).strip()
+            inc = str(entry.get("included", "1")).strip() or "1"
+            if not (well and fov and tp and nid):
+                continue
+            # Re-normalize keys via _review_row_keys so they match the form
+            # _set_review_cell_included will produce on subsequent toggles.
+            fov_n, tp_n, nid_n = self._review_row_keys(
+                {"fov": fov, "tp": tp, "nucleus_id": nid}
+            )
+            if not (fov_n and tp_n and nid_n):
+                continue
+            self._review_included_overrides[(well, fov_n, tp_n, nid_n)] = inc
+        self._review_image_override_version += 1
+
+    def _cell_overrides_schedule_save(self) -> None:
+        """Debounced autosave: coalesces a burst of toggles into one write."""
+        if self._cell_overrides_save_pending:
+            return
+        if self._cell_overrides_path() is None:
+            return
+        self._cell_overrides_save_pending = True
+        QTimer.singleShot(500, self._cell_overrides_flush)
+
+    def _cell_overrides_flush(self) -> None:
+        self._cell_overrides_save_pending = False
+        self._cell_overrides_save_to_data_dir()
+
+    # ── Line-plot order persistence ──────────────────────────────────────────
+
+    def _line_order_path(self) -> Optional[Path]:
+        if self._data_dir:
+            return self._data_dir / "line_order.json"
+        return None
+
+    def _line_order_save_to_data_dir(self) -> None:
+        path = self._line_order_path()
+        if path is None:
+            return
+        payload = {
+            "version": 1,
+            "rsets": list(self._line_order_rsets),
+            "wells": list(self._line_order_wells),
+        }
+        try:
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+            tmp.replace(path)
+        except OSError as exc:
+            _logger.warning("Failed to save line order to %s: %s", path, exc)
+
+    def _line_order_load_from_data_dir(self) -> None:
+        path = self._line_order_path()
+        if path is None or not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning("Failed to load line order from %s: %s", path, exc)
+            return
+        if not isinstance(data, dict):
+            return
+        rsets = data.get("rsets") or []
+        wells = data.get("wells") or []
+        self._line_order_rsets = [str(x) for x in rsets if isinstance(x, str)]
+        self._line_order_wells = [str(x) for x in wells if isinstance(x, str)]
+
+    def _line_order_schedule_save(self) -> None:
+        if self._line_order_save_pending:
+            return
+        if self._line_order_path() is None:
+            return
+        self._line_order_save_pending = True
+        QTimer.singleShot(500, self._line_order_flush)
+
+    def _line_order_flush(self) -> None:
+        self._line_order_save_pending = False
+        self._line_order_save_to_data_dir()
 
     # ── Sample Definitions persistence (in pipeline_info.json) ────────────────
 
@@ -5988,6 +6201,17 @@ class WellViewerApp(QWidget):
             return
         key = (self._preview_selected_well, fov_n, tp_n, nid_n)
         self._review_included_overrides[key] = str(included).strip() or "1"
+        # Project the override onto the cached row immediately so other tabs
+        # (Bar/Line/Distribution/Stats/Heatmap) honor it without waiting for
+        # the next gating recompute, then invalidate the stats cache.
+        self._apply_review_overrides_to_cache(self._preview_selected_well)
+        if hasattr(self, "_invalidate_stats_cache"):
+            try:
+                self._invalidate_stats_cache()
+            except Exception:
+                pass
+        # Persist to disk (debounced) so curation survives between sessions.
+        self._cell_overrides_schedule_save()
         # Bump the override version so the include-map cache is bypassed
         # on the next refresh; the frame cache (decoded image + boundary)
         # remains valid because the underlying mask label image is unchanged.
@@ -6103,6 +6327,15 @@ class WellViewerApp(QWidget):
                 redraw_heatmap(self)
             except Exception:
                 _logger.exception("Heat map redraw failed")
+
+        # Keep the Export Configurator's line-order lists in sync with the
+        # current selection / replicate sets when the sidebar is open.
+        for sb in (getattr(self, "_export_style_sidebars", {}) or {}).values():
+            try:
+                if getattr(sb, "_is_line_fig", lambda: False)():
+                    sb._refresh_line_order_lists()
+            except Exception:
+                pass
 
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
@@ -6513,6 +6746,40 @@ class WellViewerApp(QWidget):
             if ovr is not None:
                 return ovr
         return str(row.get("Included", "1"))
+
+    def _apply_review_overrides_to_cache(self, label: Optional[str] = None) -> None:
+        """Project overrides onto cached row['Included'] so non-Review tabs see them.
+
+        The override dict is the source of truth; this projects values onto the
+        cached rows so every controller using row_is_included(row) automatically
+        respects user toggles. Called after gating recomputes (which rewrite
+        row['Included'] from thresholds), after patch-file load, and on toggle.
+        """
+        if not self._review_included_overrides:
+            return
+        by_label: Dict[str, Dict[Tuple[str, str, str], str]] = {}
+        for (lbl, fov, tp, nid), val in self._review_included_overrides.items():
+            if label is not None and lbl != label:
+                continue
+            by_label.setdefault(lbl, {})[(fov, tp, nid)] = val
+        for lbl, lookup in by_label.items():
+            if lbl not in self._well_paths:
+                continue
+            try:
+                rows = self._get_rows(lbl)
+            except Exception:
+                continue
+            for row in rows:
+                fov, tp, nid = self._review_row_keys(row)
+                if not (fov and tp and nid):
+                    continue
+                val = lookup.get((fov, tp, nid))
+                if val is None:
+                    continue
+                try:
+                    row["Included"] = int(float(str(val).strip() or "1"))
+                except (TypeError, ValueError):
+                    row["Included"] = 1 if str(val).strip() == "1" else 0
 
     def _review_load_rows(self, label: str) -> List[dict]:
         """Return the canonical cached rows for ``label`` (no copies).

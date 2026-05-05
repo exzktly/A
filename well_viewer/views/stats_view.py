@@ -171,8 +171,33 @@ def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
     app._stats_tp_cb.addItems(["—"])
     cl.addWidget(app._stats_tp_cb, 1, 1, Qt.AlignLeft)
 
+    app._stats_channel_label = QLabel("Channel:", app._stats_ctrl)
+    cl.addWidget(app._stats_channel_label, 2, 0, Qt.AlignLeft)
+
+    app._stats_channel_cb = QComboBox(app._stats_ctrl)
+    app._stats_channel_cb.addItems(["—"])
+    app._stats_channel_cb.currentIndexChanged.connect(
+        lambda _i: app._stats_on_test_change()
+    )
+    cl.addWidget(app._stats_channel_cb, 2, 1, Qt.AlignLeft)
+
+    app._stats_statistic_label = QLabel("Statistic:", app._stats_ctrl)
+    cl.addWidget(app._stats_statistic_label, 3, 0, Qt.AlignLeft)
+
+    app._stats_statistic_cb = QComboBox(app._stats_ctrl)
+    app._stats_statistic_cb.addItems([
+        "Mean (above threshold)",
+        "Median (above threshold)",
+        "Fraction above threshold",
+    ])
+    app._stats_statistic_cb.setCurrentText("Mean (above threshold)")
+    app._stats_statistic_cb.currentIndexChanged.connect(
+        lambda _i: app._stats_on_test_change()
+    )
+    cl.addWidget(app._stats_statistic_cb, 3, 1, Qt.AlignLeft)
+
     run_btn = btn_primary(app._stats_ctrl, "Run test", app._stats_run)
-    cl.addWidget(run_btn, 0, 2, 2, 1)
+    cl.addWidget(run_btn, 0, 2, 4, 1)
     layout.addWidget(app._stats_ctrl)
 
     app._stats_sep = QFrame(parent)

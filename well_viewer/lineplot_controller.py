@@ -8,6 +8,40 @@ import math
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
+def _apply_order(items, saved_order, key):
+    """Reorder ``items`` so entries matching ``saved_order`` come first.
+
+    Items whose ``key(item)`` appears in ``saved_order`` are emitted in the
+    saved order; the remainder follow in their natural (input) order. An empty
+    or missing saved_order is a no-op (returns items unchanged).
+    """
+    if not saved_order:
+        return list(items)
+    items = list(items)
+    by_key: dict[str, list] = {}
+    natural_order: list = []
+    for it in items:
+        try:
+            k = str(key(it))
+        except Exception:
+            k = ""
+        by_key.setdefault(k, []).append(it)
+        natural_order.append(it)
+    seen_objs: set = set()
+    out: list = []
+    for k in saved_order:
+        bucket = by_key.get(str(k))
+        if not bucket:
+            continue
+        for it in bucket:
+            out.append(it)
+            seen_objs.add(id(it))
+    for it in natural_order:
+        if id(it) not in seen_objs:
+            out.append(it)
+    return out
+
+
 def redraw_line_plots(
     app,
     *,
@@ -56,7 +90,12 @@ def redraw_line_plots(
     any_ts = any_cdf = False
     if active_rsets:
         all_rsets = list(getattr(app, "_rep_sets", []))
-        for idx, rset in enumerate(active_rsets):
+        ordered_rsets = _apply_order(
+            active_rsets,
+            list(getattr(app, "_line_order_rsets", []) or []),
+            key=lambda r: getattr(r, "name", ""),
+        )
+        for idx, rset in enumerate(ordered_rsets):
             # Keep line-plot colors aligned with the sidebar well-picker colors:
             # color index must come from the full replicate-set list, not the
             # visible subset order.
@@ -102,7 +141,12 @@ def redraw_line_plots(
         cell_area_threshold = app._get_cell_area_threshold()
         fluor_gates = app._get_all_fluor_gates()
         per_fov_spread = app._use_fov_spread_active()
-        for i, label in enumerate(selected):
+        ordered_selected = _apply_order(
+            selected,
+            list(getattr(app, "_line_order_wells", []) or []),
+            key=lambda x: x,
+        )
+        for i, label in enumerate(ordered_selected):
             color = well_colors[i % len(well_colors)]
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
