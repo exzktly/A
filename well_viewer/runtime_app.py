@@ -52,7 +52,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -74,6 +74,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRubberBand,
     QScrollArea,
     QSizePolicy,
     QSlider,
@@ -1324,6 +1325,14 @@ class WellViewerApp(QWidget):
         self._review_image_selected_nucleus: Optional[int] = None
         self._review_image_nucleus_to_iid: Dict[int, str] = {}
         self._review_image_include_edit_mode: bool = False
+        # Rubber-band rectangle state for box-delete in include-edit mode.
+        # Anchor is in label-local pixels; the QRubberBand is parented to
+        # _review_image_label so it scrolls with the image and is unaffected
+        # by window position. Coordinates are converted to mask-array space
+        # at release time using the current _review_image_scale.
+        self._review_image_box_anchor: Optional[Tuple[float, float]] = None
+        self._review_image_box_active: bool = False
+        self._review_image_rubber_band: Optional[QRubberBand] = None
         self._review_included_overrides: Dict[Tuple[str, str, str, str], str] = {}
         self._review_csv_lookup_context: Dict[str, str] = {}
         self._review_image_zoom: float = 1.0
@@ -6104,12 +6113,45 @@ class WellViewerApp(QWidget):
             self._review_image_zoom_step(direction)
 
     def _on_review_image_press(self, event) -> None:
+        # In include-edit mode, LMB drag draws a rubber-band rectangle for
+        # bulk delete instead of panning. We record the anchor in label-local
+        # pixels (event.position()) so it is invariant to window position
+        # and scrollbar state.
+        if getattr(self, "_review_image_include_edit_mode", False):
+            pos = event.position()
+            ax, ay = float(pos.x()), float(pos.y())
+            self._review_image_box_anchor = (ax, ay)
+            self._review_image_box_active = True
+            label = getattr(self, "_review_image_label", None)
+            if label is not None:
+                rb = self._review_image_rubber_band
+                if rb is None:
+                    rb = QRubberBand(QRubberBand.Rectangle, label)
+                    self._review_image_rubber_band = rb
+                rb.setGeometry(QRect(int(ax), int(ay), 1, 1))
+                rb.show()
+            return
         self._review_image_dragging = True
         self._review_image_drag_moved = False
         gp = event.globalPosition().toPoint()
         self._review_image_drag_last_xy = (int(gp.x()), int(gp.y()))
 
     def _on_review_image_drag(self, event) -> None:
+        # Rubber-band update path: stay anchored in label-local pixels.
+        if getattr(self, "_review_image_box_active", False):
+            anchor = self._review_image_box_anchor
+            rb = self._review_image_rubber_band
+            if anchor is None or rb is None:
+                return
+            ax, ay = anchor
+            pos = event.position()
+            cx, cy = float(pos.x()), float(pos.y())
+            x0 = int(min(ax, cx))
+            y0 = int(min(ay, cy))
+            w = max(1, int(abs(cx - ax)))
+            h = max(1, int(abs(cy - ay)))
+            rb.setGeometry(QRect(x0, y0, w, h))
+            return
         if not getattr(self, "_review_image_dragging", False):
             return
         gp = event.globalPosition().toPoint()
@@ -6126,6 +6168,30 @@ class WellViewerApp(QWidget):
         self._render_review_image_display(pan_only=True)
 
     def _on_review_image_release(self, event) -> None:
+        # Rubber-band finalize path. A drag shorter than this many label-local
+        # pixels in either axis falls through to the existing single-cell
+        # click handler, so quick taps in edit mode still toggle one cell.
+        _CLICK_PX_THRESH = 3
+        if getattr(self, "_review_image_box_active", False):
+            anchor = self._review_image_box_anchor
+            rb = self._review_image_rubber_band
+            self._review_image_box_active = False
+            self._review_image_box_anchor = None
+            if rb is not None:
+                rb.hide()
+            if anchor is None:
+                return
+            ax, ay = anchor
+            pos = event.position()
+            rx, ry = float(pos.x()), float(pos.y())
+            if abs(rx - ax) < _CLICK_PX_THRESH and abs(ry - ay) < _CLICK_PX_THRESH:
+                self._on_review_image_click(event)
+                return
+            scale = float(getattr(self, "_review_image_scale", 1.0) or 1.0)
+            mx0, mx1 = int(ax / scale), int(rx / scale)
+            my0, my1 = int(ay / scale), int(ry / scale)
+            self._apply_box_delete(mx0, my0, mx1, my1)
+            return
         was_dragging = getattr(self, "_review_image_dragging", False)
         moved = getattr(self, "_review_image_drag_moved", False)
         self._review_image_dragging = False
@@ -6229,6 +6295,80 @@ class WellViewerApp(QWidget):
         self._review_image_pan_x = prev_pan_x
         self._review_image_pan_y = prev_pan_y
         self._render_review_image_display()
+
+    def _set_review_cells_included_batch(
+        self, items: List[Tuple[str, str, str, str]]
+    ) -> None:
+        """Apply many (fov, tp, nid, included) overrides with a single redraw.
+
+        Mirrors _set_review_cell_included but coalesces the per-call
+        cache-projection, stats invalidation, save-schedule, and image
+        refresh — otherwise a 100-cell box delete would redraw 100 times.
+        """
+        if self._preview_selected_well is None or not items:
+            return
+        well = self._preview_selected_well
+        any_changed = False
+        for fov, tp, nid, included in items:
+            fov_n, tp_n, nid_n = self._review_row_keys(
+                {"fov": fov, "tp": tp, "nucleus_id": nid}
+            )
+            if not (fov_n and tp_n and nid_n):
+                continue
+            self._review_included_overrides[(well, fov_n, tp_n, nid_n)] = (
+                str(included).strip() or "1"
+            )
+            any_changed = True
+        if not any_changed:
+            return
+        self._apply_review_overrides_to_cache(well)
+        if hasattr(self, "_invalidate_stats_cache"):
+            try:
+                self._invalidate_stats_cache()
+            except Exception:
+                pass
+        self._cell_overrides_schedule_save()
+        self._review_image_override_version += 1
+        prev_zoom = float(getattr(self, "_review_image_zoom", 1.0))
+        prev_pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
+        prev_pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
+        self._refresh_review_image()
+        self._review_image_zoom = prev_zoom
+        self._review_image_pan_x = prev_pan_x
+        self._review_image_pan_y = prev_pan_y
+        self._render_review_image_display()
+
+    def _apply_box_delete(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """Mark every cell with any pixel in mask[y0:y1, x0:x1] as Included=0.
+
+        Coordinates are in mask-array pixel space (already converted from
+        label-local pixels by _on_review_image_release using the current
+        _review_image_scale, so window position, scroll, and zoom are
+        already accounted for).
+        """
+        label = getattr(self, "_review_image_label", None)
+        mask = getattr(label, "_mask_arr", None) if label is not None else None
+        if mask is None or self._preview_selected_well is None:
+            return
+        h, w = int(mask.shape[0]), int(mask.shape[1])
+        xa, xb = sorted((max(0, min(w, int(x0))), max(0, min(w, int(x1)))))
+        ya, yb = sorted((max(0, min(h, int(y0))), max(0, min(h, int(y1)))))
+        if xb - xa < 1 or yb - ya < 1:
+            return
+        sub = mask[ya:yb, xa:xb]
+        nids = [int(n) for n in _np.unique(sub) if int(n) > 0]
+        if not nids:
+            self._set_status("Box selection: no cells inside rectangle.")
+            return
+        fov = self._preview_fov_cb.currentText().strip()
+        tp_cb = getattr(self, "_review_image_tp_cb", None)
+        tp = tp_cb.currentText().strip() if tp_cb is not None else ""
+        self._set_review_cells_included_batch(
+            [(fov, tp, str(nid), "0") for nid in nids]
+        )
+        self._set_status(
+            f"Box delete: marked {len(nids)} cell(s) Included=0."
+        )
 
     def _zoom_review_image_to_selected_nucleus(self, zoom: float = 3.0) -> None:
         if not hasattr(self, "_review_image_label") or not hasattr(self, "_review_image_canvas"):
