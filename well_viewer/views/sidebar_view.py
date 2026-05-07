@@ -31,7 +31,7 @@ def build_sidebar(app, parent: QWidget) -> None:
       - Selected-well count label
       - Group-mode hint label
     """
-    from well_viewer.runtime_app import _PLATE_ROWS, _PLATE_COLS
+    from well_viewer.plate_layout import PLATE_ROWS as _PLATE_ROWS, PLATE_COLS as _PLATE_COLS
     from well_viewer.views.well_button import build_plate_grid
 
     # Ensure parent has a vertical layout

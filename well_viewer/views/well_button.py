@@ -225,7 +225,7 @@ def build_plate_grid(
 
     Returns the layout for further configuration by the caller.
     """
-    from well_viewer.runtime_app import _PLATE_ROWS, _PLATE_COLS
+    from well_viewer.plate_layout import PLATE_ROWS as _PLATE_ROWS, PLATE_COLS as _PLATE_COLS
 
     layout = parent.layout()
     if layout is None:

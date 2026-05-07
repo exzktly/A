@@ -326,10 +326,8 @@ _logger = logging.getLogger("well_viewer")
 CLR_ACCENT_DARK = ACCENT_DARK
 CLR_DISABLED_WELL = CLR_MUTED_DISABLED   # disabled-well border on placeholder bars
 
-WELL_COLORS = [
-    WELL_COLOR_1, WELL_COLOR_2, WELL_COLOR_3, CLR_SUCCESS, WELL_COLOR_4,
-    WELL_COLOR_5, WELL_COLOR_6, WELL_COLOR_7, WELL_COLOR_8, WELL_COLOR_9,
-]
+from well_viewer.plate_layout import WELL_COLORS
+
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
@@ -532,23 +530,7 @@ def load_json_file(parent, *, title: str = "Load",
         return None
 
 
-def apply_ax_style(ax, title: str, ylabel: str) -> None:
-    """
-    Apply the standard dark-on-light plot style to *ax*.
-
-    Extracted from WellViewerApp._style_ax and the local _style() closures
-    inside _render_subset_figure so there is a single authoritative copy.
-    """
-    ax.set_facecolor(PLOT_BG)
-    for sp in ax.spines.values():
-        sp.set_color(PLOT_SPN)
-        sp.set_linewidth(0.8)
-    ax.tick_params(colors=PLOT_TXT, labelsize=8)
-    ax.xaxis.label.set_color(PLOT_TXT)
-    ax.yaxis.label.set_color(PLOT_TXT)
-    ax.set_title(title, color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
-    ax.set_ylabel(ylabel, fontsize=8, labelpad=5, color=PLOT_TXT)
-    ax.grid(True, color=PLOT_GRD, linewidth=0.7, linestyle="-")
+from well_viewer.plot_style import apply_ax_style
 
 
 # Pure-data helpers live in data_loading.py. Re-exported here for backwards
@@ -584,530 +566,35 @@ from well_viewer.ratio_models import (
 
 
 # =============================================================================
-# Image reference and finders
+# Image reference + discovery — implementation lives in image_discovery.py.
+# Names are re-exported here so existing callers (scatter_callbacks,
+# image_table_controller, review_image_renderer) keep working.
 # =============================================================================
 
-_IMAGE_EXTS   = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
-
-
-def _suffix_matcher(kind: str) -> re.Pattern[str]:
-    suffixes = [re.escape(sfx) for sfx in _output_suffixes_for_kind(kind, target_channel="x")]
-    if kind in {"fluor_processed", "smfish"}:
-        suffixes = [sfx.replace("x", r"\w+") for sfx in suffixes]
-    return re.compile(r"(?:%s)$" % "|".join(suffixes), re.I)
-
-
-_MASK_RE      = _suffix_matcher("mask")
-_OVERLAY_RE   = _suffix_matcher("overlay")
-_TOPHAT_FLUOR_RE = _suffix_matcher("fluor_processed")
-_OUT_ZIP_RE   = re.compile(r"^([A-Ha-h])(\d{1,2})_out\.zip$", re.I)
-_PLAIN_ZIP_RE = re.compile(r"^([A-Ha-h])(\d{1,2})\.zip$",     re.I)
-_FNAME_RE     = re.compile(
-    r"^(?P<exp>[^_]+)_(?P<channel>[^_]*)_(?P<well>[^_]+)_(?P<fov>[^_]+)_(?P<tp>[^_.]+)",
-    re.I,
+from well_viewer.image_discovery import (
+    ImgRef as _ImgRef,
+    classify_member as _classify_member,
+    extract_pipeline_fields as _extract_pipeline_fields,
+    find_out_well_zips_in_dir as _find_out_well_zips_in_dir,
+    find_plain_well_zips_in_dir as _find_plain_well_zips_in_dir,
+    find_well_images_and_masks,
+    find_well_subfolder as _find_well_subfolder,
+    find_well_zips_in_dir as _find_well_zips_in_dir,
+    legacy_extractor as _legacy_extractor,
+    open_imgref_as_array,
+    read_member_bytes as _read_member_bytes,
+    scan_folder_members as _scan_folder_members,
+    scan_zip_members as _scan_zip_members,
 )
+from well_viewer.image_discovery import _norm_well, _suffix_matcher  # noqa: F401  (legacy uses)
+from well_viewer.image_discovery import _IMAGE_EXTS  # noqa: F401  (legacy uses)
+from well_viewer.image_discovery import _MASK_RE, _OVERLAY_RE, _TOPHAT_FLUOR_RE  # noqa: F401
+from well_viewer.image_discovery import _OUT_ZIP_RE, _PLAIN_ZIP_RE, _FNAME_RE  # noqa: F401
 
+# extract_well_token is still referenced as ``_extract_well_token`` in many
+# places below — keep the legacy alias.
+from well_viewer.data_loading import extract_well_token as _extract_well_token  # noqa: F401
 
-def _norm_well(raw: str) -> Optional[str]:
-    normalized = _normalize_well_token(raw)
-    return normalized or None
-
-
-from well_viewer.data_loading import extract_well_token as _extract_well_token
-
-
-class _ImgRef:
-    """Pointer to an image on disk or inside a zip (possibly nested)."""
-    __slots__ = ("disk_path", "zip_path", "zip_member")
-
-    def __init__(self, disk_path: Optional[Path] = None,
-                 zip_path: Optional[Path] = None,
-                 zip_member: Optional[str] = None) -> None:
-        self.disk_path  = disk_path
-        self.zip_path   = zip_path
-        self.zip_member = zip_member
-
-    @property
-    def name(self) -> str:
-        if self.disk_path:
-            return self.disk_path.name
-        if self.zip_member:
-            return Path(self.zip_member.split("::")[-1]).name
-        return "unknown"
-
-    @property
-    def full_path_str(self) -> str:
-        if self.disk_path:
-            return str(self.disk_path)
-        if self.zip_path and self.zip_member:
-            return f"{self.zip_path}  >>  {self.zip_member}"
-        return "unknown"
-
-
-def _read_member_bytes(zip_path: Path, member: str) -> Optional[bytes]:
-    """Read bytes of a zip member; handles nested 'outer::inner' notation."""
-    return _preview_read_member_bytes(zip_path=zip_path, member=member, logger=_logger)
-
-
-def open_imgref_as_array(ref: _ImgRef,
-                         greyscale: bool = False) -> "Optional[_np.ndarray]":
-    """
-    Load an image as a numpy array at full native bit depth.
-
-    Returns float32 for single-channel images; uint8 (H×W×3) for RGB images
-    such as overlays.  Pass greyscale=True to force conversion to float32
-    greyscale (used for fluorescence and mask panels where colour is irrelevant).
-
-    Prefers tifffile for TIFFs (better 16-bit support); falls back to PIL.
-    """
-    return _preview_open_imgref_as_array(
-        ref=ref,
-        greyscale=greyscale,
-        np_available=_NP_AVAILABLE,
-        tifffile_available=_TIFFFILE_AVAILABLE,
-        pil_available=_PIL_AVAILABLE,
-        tifffile_module=_tifffile,
-        pil_image_module=_PILImage if _PIL_AVAILABLE else None,
-        np_module=_np,
-        io_module=io,
-        read_member_bytes_fn=_read_member_bytes,
-        logger=_logger,
-    )
-
-
-def _legacy_extractor(stem: str) -> Tuple[str, str]:
-    """Fallback extractor that uses the classic 5-field regex."""
-    m = _FNAME_RE.match(stem)
-    if m:
-        return m.group("fov"), m.group("tp")
-    _logger.debug("_FNAME_RE no match: stem=%r", stem)
-    return "unknown", "unknown"
-
-
-def _extract_pipeline_fields(stem: str, pipeline_info: Optional[dict]) -> Dict[str, str]:
-    """Parse *stem* into schema fields from pipeline_info.json when available."""
-    if not pipeline_info:
-        return {}
-    sep = str(pipeline_info.get("separator", "_"))
-    schema_fields = [
-        str(f).strip() for f in (pipeline_info.get("schema_fields", []) or [])
-        if str(f).strip()
-    ]
-    if not schema_fields:
-        schema = str(pipeline_info.get("schema", "")).strip()
-        schema_fields = [f.strip() for f in schema.split(":") if f.strip()]
-    if not schema_fields:
-        return {}
-    parts = stem.split(sep)
-    return {field: (parts[i] if i < len(parts) else "") for i, field in enumerate(schema_fields)}
-
-
-def _classify_member(
-    name: str,
-    fluor_lower: str,
-    _fov_tp_extractor=None,
-    _pipeline_info: Optional[dict] = None,
-) -> Tuple[str, str, str]:
-    """Return (kind, fov, tp) where kind is 'fluor', 'tophat_fluor', 'mask', 'overlay', or ''.
-
-    *fluor_lower* is the lowercase fluorescent channel token (e.g. 'gfp', 'mcherry').
-    *_fov_tp_extractor* is an optional callable(stem) -> (fov, tp).  When
-    None the legacy hardcoded _FNAME_RE is used as a fallback so that results
-    directories produced before pipeline_info.json was introduced still work.
-    """
-    kind, fov, tp = _preview_classify_member(
-        name=name,
-        fluor_lower=fluor_lower,
-        mask_re=_MASK_RE,
-        overlay_re=_OVERLAY_RE,
-        tophat_fluor_re=_TOPHAT_FLUOR_RE,
-        fov_tp_extractor=_fov_tp_extractor,
-        legacy_extractor=_legacy_extractor,
-        pipeline_fields_extractor=lambda stem: _extract_pipeline_fields(stem, _pipeline_info),
-    )
-    if _debug_flags.review_image_channel_switch_debug_enabled():
-        _logger.debug(
-            "[RI-CHSW step 5] classify_member name=%r fluor=%r -> kind=%r fov=%r tp=%r",
-            name,
-            fluor_lower,
-            kind,
-            fov,
-            tp,
-        )
-    return kind, fov, tp
-
-
-def _scan_zip_members(
-    zip_path: Path,
-    fluor_lower: str,
-    member_prefix: str = "",
-    _fov_tp_extractor=None,
-    _pipeline_info: Optional[dict] = None,
-) -> Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
-           Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
-           Dict[Tuple[str,str], _ImgRef]]:
-    """Scan a zip file (or nested zip via member_prefix) for fluor/overlay/mask/tophat images."""
-    return _preview_scan_zip_members(
-        zip_path=zip_path,
-        fluor_lower=fluor_lower,
-        image_exts=_IMAGE_EXTS,
-        classify_member_fn=_classify_member,
-        imgref_factory=lambda p, m: _ImgRef(zip_path=p, zip_member=m),
-        logger=_logger,
-        member_prefix=member_prefix,
-        fov_tp_extractor=_fov_tp_extractor,
-        pipeline_info=_pipeline_info,
-    )
-
-
-def _find_well_zips_in_dir(data_dir: Path, well_token: str) -> List[Path]:
-    """Return [_out.zip, <well>.zip] for this well token, _out first (legacy flat mode)."""
-    out_zips, plain_zips = [], []
-    for p in sorted(data_dir.glob("*.zip")):
-        if p.name.startswith("."):
-            continue
-        m = _OUT_ZIP_RE.match(p.name)
-        if m and _norm_well(m.group(1) + m.group(2)) == well_token:
-            out_zips.append(p)
-            continue
-        m2 = _PLAIN_ZIP_RE.match(p.name)
-        if m2 and _norm_well(m2.group(1) + m2.group(2)) == well_token:
-            plain_zips.append(p)
-    return out_zips + plain_zips
-
-
-def _find_plain_well_zips_in_dir(in_dir: Path, well_token: str) -> List[Path]:
-    """Return plain <well>.zip paths from the input directory."""
-    result = []
-    for p in sorted(in_dir.glob("*.zip")):
-        if p.name.startswith("."):
-            continue
-        m = _PLAIN_ZIP_RE.match(p.name)
-        if m and _norm_well(m.group(1) + m.group(2)) == well_token:
-            result.append(p)
-    return result
-
-
-def _find_out_well_zips_in_dir(out_dir: Path, well_token: str) -> List[Path]:
-    """Return <well>_out.zip paths from the output directory."""
-    result = []
-    for p in sorted(out_dir.glob("*.zip")):
-        if p.name.startswith("."):
-            continue
-        m = _OUT_ZIP_RE.match(p.name)
-        if m and _norm_well(m.group(1) + m.group(2)) == well_token:
-            result.append(p)
-    return result
-
-
-def _find_well_subfolder(parent_dir: Path, well_token: str) -> "Optional[Path]":
-    """Return well subfolder matching token, accepting both A1/A01 forms."""
-    return _find_well_subfolder_path(parent_dir, well_token)
-
-
-def _scan_folder_members(
-    folder_path: Path,
-    fluor_lower: str,
-    _fov_tp_extractor=None,
-    _pipeline_info: Optional[dict] = None,
-) -> "Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef]]":
-    """Scan a plain disk folder for fluor/overlay/mask/tophat/smfish images."""
-    fluor:        "Dict[Tuple[str,str], _ImgRef]" = {}
-    overlay:      "Dict[Tuple[str,str], _ImgRef]" = {}
-    mask:         "Dict[Tuple[str,str], _ImgRef]" = {}
-    tophat_fluor: "Dict[Tuple[str,str], _ImgRef]" = {}
-    smfish:       "Dict[Tuple[str,str], _ImgRef]" = {}
-    try:
-        _logger.info("Scanning folder %s", folder_path)
-        for p in sorted(folder_path.iterdir()):
-            if not p.is_file():
-                continue
-            if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
-                continue
-            kind, fov, tp = _classify_member(
-                p.name,
-                fluor_lower,
-                _fov_tp_extractor,
-                _pipeline_info=_pipeline_info,
-            )
-            if not kind:
-                continue
-            key = (fov, tp)
-            ref = _ImgRef(disk_path=p)
-            if kind == "fluor":
-                fluor.setdefault(key, ref)
-            elif kind == "tophat_fluor":
-                tophat_fluor.setdefault(key, ref)
-            elif kind == "overlay":
-                overlay.setdefault(key, ref)
-            elif kind == "mask":
-                mask.setdefault(key, ref)
-            elif kind == "smfish":
-                smfish.setdefault(key, ref)
-    except Exception as exc:
-        _logger.warning("Failed scanning folder %s: %s", folder_path, exc)
-    return fluor, overlay, mask, tophat_fluor, smfish
-
-
-def find_well_images_and_masks(
-    data_dir: Optional[Path],
-    well_label: str,
-    fluor_token: str = "GFP",
-    in_dir: Optional[Path] = None,
-    _fov_tp_extractor=None,
-    _pipeline_info: Optional[dict] = None,
-) -> Tuple[Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef],
-           Dict[Tuple[str,str], _ImgRef], Dict[Tuple[str,str], _ImgRef]]:
-    """
-    Find fluorescent channel images, overlay images, label masks, and pre-filtered tophat images.
-
-    Returns (fluor_dict, overlay_dict, mask_dict, tophat_dict), each keyed by (fov, timepoint).
-
-    *_fov_tp_extractor* is a callable(stem) -> (fov, tp) built from the
-    pipeline_info.json sidecar that analyze_tab.py writes alongside each run.
-    When None the legacy hardcoded _FNAME_RE regex is used as a fallback so that
-    output directories produced before pipeline_info.json was introduced still
-    work correctly.
-
-    Directory layout modes
-    ----------------------
-    Structured (in/out):
-      *in_dir*   – contains plain <well>.zip with original fluorescent/NIR images.
-      *data_dir* – the "out" folder; contains <well>_out.zip (masks + overlays)
-                   and the per-well CSVs.
-      Fluorescent images are sourced from *in_dir*; masks/overlays from *data_dir*.
-
-    Flat (legacy):
-      *in_dir* is None.  All zips are searched in *data_dir* with the old
-      priority: <well>_out.zip first (masks/overlays), then <well>.zip (fluor).
-
-    Archive mode:
-      *source_zip* is set; nested per-well zips are searched inside it.
-    """
-    well_token  = _extract_well_token(well_label)
-    fluor_lower   = fluor_token.lower()  # passed to _classify_member as fluor_lower
-    fluor:        Dict[Tuple[str,str], _ImgRef] = {}
-    overlay:      Dict[Tuple[str,str], _ImgRef] = {}
-    mask:         Dict[Tuple[str,str], _ImgRef] = {}
-    tophat_fluor: Dict[Tuple[str,str], _ImgRef] = {}
-
-    _logger.info(
-        "Searching images: well=%r token=%r  in_dir=%s  data_dir=%s",
-        well_label, well_token,
-        str(in_dir)   if in_dir   else "None",
-        str(data_dir) if data_dir else "None",
-    )
-    image_load_debug = (
-        _debug_flags.review_image_load_debug_enabled()
-        or _debug_flags.movie_montage_load_debug_enabled()
-    )
-    channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
-    if channel_switch_debug:
-        _logger.debug(
-            "[RI-CHSW step 5] find_well_images_and_masks start well=%r token=%r fluor=%r",
-            well_label,
-            well_token,
-            fluor_lower,
-        )
-
-    # ── 1. Structured in/out directory layout ────────────────────────────────
-    # in_dir  → plain <well>.zip files → GFP source images
-    # data_dir → <well>_out.zip files  → masks and overlays
-    if in_dir and in_dir.is_dir() and well_token:
-        in_zips = _find_plain_well_zips_in_dir(in_dir, well_token)
-        for wzip in in_zips:
-            g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
-                                                   _fov_tp_extractor=_fov_tp_extractor,
-                                                   _pipeline_info=_pipeline_info)
-            for k, v in g.items():
-                fluor.setdefault(k, v)
-            # Fluor zips may also contain overlays/masks in some workflows
-            for k, v in ov.items():
-                overlay.setdefault(k, v)
-            for k, v in mk.items():
-                mask.setdefault(k, v)
-            for k, v in th.items():
-                tophat_fluor.setdefault(k, v)
-
-    if in_dir and data_dir and data_dir.is_dir() and well_token:
-        # out-zips contain masks and overlays
-        out_zips = _find_out_well_zips_in_dir(data_dir, well_token)
-        for wzip in out_zips:
-            g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
-                                                   _fov_tp_extractor=_fov_tp_extractor,
-                                                   _pipeline_info=_pipeline_info)
-            for k, v in g.items():
-                fluor.setdefault(k, v)
-            for k, v in ov.items():
-                overlay.setdefault(k, v)
-            for k, v in mk.items():
-                mask.setdefault(k, v)
-            for k, v in th.items():
-                tophat_fluor.setdefault(k, v)
-
-    # ── 1b. Well subfolder layout (folder mode, no zips) ─────────────────────
-    # in_dir/<well>/   → fluor/NIR source images
-    # data_dir/<well>/ → masks, overlays, tophat output images
-    if in_dir and in_dir.is_dir() and well_token:
-        in_folder = _find_well_subfolder(in_dir, well_token)
-        if in_folder:
-            if image_load_debug:
-                _logger.info("[image-load-debug] in_folder resolved for %s -> %s", well_token, in_folder)
-            g, ov, mk, th, _sm = _scan_folder_members(
-                in_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
-            )
-            for k, v in g.items():
-                fluor.setdefault(k, v)
-            for k, v in ov.items():
-                overlay.setdefault(k, v)
-            for k, v in mk.items():
-                mask.setdefault(k, v)
-            for k, v in th.items():
-                tophat_fluor.setdefault(k, v)
-        elif image_load_debug:
-            _logger.info("[image-load-debug] in_folder missing for token=%s in %s", well_token, in_dir)
-
-    if in_dir and data_dir and data_dir.is_dir() and well_token:
-        out_folder = _find_well_subfolder(data_dir, well_token)
-        if out_folder:
-            if image_load_debug:
-                _logger.info("[image-load-debug] out_folder resolved for %s -> %s", well_token, out_folder)
-            g, ov, mk, th, _sm = _scan_folder_members(
-                out_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
-            )
-            for k, v in g.items():
-                fluor.setdefault(k, v)
-            for k, v in ov.items():
-                overlay.setdefault(k, v)
-            for k, v in mk.items():
-                mask.setdefault(k, v)
-            for k, v in th.items():
-                tophat_fluor.setdefault(k, v)
-        elif image_load_debug:
-            _logger.info("[image-load-debug] out_folder missing for token=%s in %s", well_token, data_dir)
-
-    # ── 2. Flat directory: all zips in data_dir ───────────────────────────────
-    if in_dir is None and data_dir and data_dir.is_dir() and well_token:
-        for wzip in _find_well_zips_in_dir(data_dir, well_token):
-            g, ov, mk, th, _sm = _scan_zip_members(wzip, fluor_lower,
-                                                   _fov_tp_extractor=_fov_tp_extractor,
-                                                   _pipeline_info=_pipeline_info)
-            for k, v in g.items():
-                fluor.setdefault(k, v)
-            for k, v in ov.items():
-                overlay.setdefault(k, v)
-            for k, v in mk.items():
-                mask.setdefault(k, v)
-            for k, v in th.items():
-                tophat_fluor.setdefault(k, v)
-
-    # ── 2b. Flat directory: <well>/ subfolders in data_dir ───────────────────
-    if in_dir is None and data_dir and data_dir.is_dir() and well_token:
-        flat_folder = _find_well_subfolder(data_dir, well_token)
-        if flat_folder:
-            g, ov, mk, th, _sm = _scan_folder_members(
-                flat_folder, fluor_lower, _fov_tp_extractor=_fov_tp_extractor, _pipeline_info=_pipeline_info
-            )
-            for k, v in g.items():
-                fluor.setdefault(k, v)
-            for k, v in ov.items():
-                overlay.setdefault(k, v)
-            for k, v in mk.items():
-                mask.setdefault(k, v)
-            for k, v in th.items():
-                tophat_fluor.setdefault(k, v)
-
-    # ── 3. Raw files on disk fallback ─────────────────────────────────────────
-    search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()] if in_dir else (
-        [data_dir] if data_dir and data_dir.is_dir() else []
-    )
-    if not fluor and search_dirs:
-        for search_root in search_dirs:
-            for p in sorted(search_root.rglob("*")):
-                if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
-                    continue
-                kind, fov, tp = _classify_member(
-                    p.name,
-                    fluor_lower,
-                    _fov_tp_extractor,
-                    _pipeline_info=_pipeline_info,
-                )
-                if not kind:
-                    continue
-                if well_token:
-                    # Filter by well: when a schema extractor is present we have
-                    # no dedicated well-field extractor here, so we use a safe
-                    # substring match.  With the legacy path we keep the old
-                    # regex-based well comparison for backward compatibility.
-                    parsed = _extract_pipeline_fields(p.stem, _pipeline_info)
-                    parsed_well = _norm_well(str(parsed.get("well", ""))) if parsed else None
-                    if parsed_well:
-                        if parsed_well != well_token:
-                            if image_load_debug:
-                                _logger.info(
-                                    "[image-load-debug] skip %s parsed_well=%s token=%s",
-                                    p.name,
-                                    parsed_well,
-                                    well_token,
-                                )
-                            continue
-                    elif _fov_tp_extractor is None:
-                        m = _FNAME_RE.match(p.stem)
-                        fw = _norm_well(m.group("well")) if m else None
-                        if fw and fw != well_token:
-                            if image_load_debug:
-                                _logger.info(
-                                    "[image-load-debug] skip %s legacy_well=%s token=%s",
-                                    p.name,
-                                    fw,
-                                    well_token,
-                                )
-                            continue
-                        if not fw and not _well_token_matches_text(p.name, well_token):
-                            if image_load_debug:
-                                _logger.info(
-                                    "[image-load-debug] skip %s no well token match target=%s",
-                                    p.name,
-                                    well_token,
-                                )
-                            continue
-                    elif not _well_token_matches_text(p.name, well_token):
-                        if image_load_debug:
-                            _logger.info(
-                                "[image-load-debug] skip %s schema path no well token match target=%s",
-                                p.name,
-                                well_token,
-                            )
-                        continue
-                ref = _ImgRef(disk_path=p)
-                if kind == "fluor":
-                    fluor.setdefault((fov, tp), ref)
-                elif kind == "tophat_fluor":
-                    tophat_fluor.setdefault((fov, tp), ref)
-                elif kind == "overlay":
-                    overlay.setdefault((fov, tp), ref)
-                else:
-                    mask.setdefault((fov, tp), ref)
-
-    if not fluor:
-        _logger.warning("No fluor images found for %r (token=%r)", well_label, well_token)
-    if not overlay:
-        _logger.info("No overlay images found for %r (token=%r)", well_label, well_token)
-    if not mask:
-        _logger.warning("No masks found for %r (token=%r)", well_label, well_token)
-    if tophat_fluor:
-        _logger.info("Pre-filtered tophat images found for %r (%d)", well_label, len(tophat_fluor))
-    if channel_switch_debug:
-        _logger.debug(
-            "[RI-CHSW step 5] find_well_images_and_masks done fluor=%d tophat=%d overlay=%d mask=%d",
-            len(fluor),
-            len(tophat_fluor),
-            len(overlay),
-            len(mask),
-        )
-
-    return (dict(sorted(fluor.items())), dict(sorted(overlay.items())),
-            dict(sorted(mask.items())), dict(sorted(tophat_fluor.items())))
 
 # =============================================================================
 # Categorical label colourmap  (canonical: well_viewer/views/image_panel_view.py)
@@ -1188,8 +675,7 @@ class BatchSubset:
 
 
 # Plate layout constants
-_PLATE_ROWS = list("ABCDEFGH")
-_PLATE_COLS = [f"{c:02d}" for c in range(1, 13)]  # "01" … "12"
+from well_viewer.plate_layout import PLATE_ROWS as _PLATE_ROWS, PLATE_COLS as _PLATE_COLS
 
 
 class _SubsetEntry:
@@ -1603,148 +1089,50 @@ class WellViewerApp(QWidget):
             extract_well_token_fn=_extract_well_token,
         )
 
+    # Stats tab group-editor methods (delegate to stats_controller)
+
     def _stats_active_group(self) -> Optional[BarGroup]:
-        if 0 <= self._stats_active_grp < len(self._stats_groups):
-            return self._stats_groups[self._stats_active_grp]
-        return None
+        from well_viewer.stats_controller import stats_active_group
+        return stats_active_group(self)
 
     def _stats_apply_drag(self, tok: str) -> None:
-        if tok in self._stats_drag_visited:
-            return
-        self._stats_drag_visited.add(tok)
-        grp = self._stats_active_group()
-        if grp is None or tok not in self._well_paths:
-            return
-        rset = next((r for r in self._rep_sets if tok in r.wells), None)
-        if rset is not None:
-            if self._stats_drag_adding:
-                if rset not in grp.members:
-                    grp.members.append(rset)
-            else:
-                if rset in grp.members:
-                    grp.members.remove(rset)
-        else:
-            if self._stats_drag_adding:
-                if tok not in grp.solo_wells:
-                    grp.solo_wells.append(tok)
-            else:
-                if tok in grp.solo_wells:
-                    grp.solo_wells.remove(tok)
-        self._stats_refresh_single_btn(tok)
+        from well_viewer.stats_controller import stats_apply_drag
+        stats_apply_drag(self, tok)
 
     def _stats_refresh_single_btn(self, tok: str) -> None:
         self._stats_refresh_map()
 
     def _stats_refresh_map(self) -> None:
-        bg, fg, fg_disabled = self._plate_theme_colors()
-        avail = set(self._well_paths.keys())
-        tok_color: Dict[str, str] = {}
-        for gi, grp in enumerate(self._stats_groups):
-            c = WELL_COLORS[gi % len(WELL_COLORS)]
-            for w in grp.wells:
-                tok_color.setdefault(w, c)
-        grp = self._stats_active_group()
-        active_wells: set = set(grp.wells) if grp else set()
-        for tok, btn in self._stats_map_btns.items():
-            if tok not in avail:
-                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
-            elif tok in tok_color:
-                self._plate_apply_colored(
-                    btn, tok_color[tok],
-                    active=tok in active_wells, fg_disabled=fg_disabled,
-                )
-            else:
-                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
+        from well_viewer.stats_controller import stats_refresh_map
+        stats_refresh_map(self)
 
     def _stats_refresh_group_list(self) -> None:
-        container = self._stats_grp_inner
-        layout = container.layout()
-        if layout is None:
-            layout = QVBoxLayout(container)
-            layout.setContentsMargins(4, 4, 4, 4)
-            layout.setSpacing(2)
-        _clear_layout(layout)
-        if not self._stats_groups:
-            lbl = QLabel("No groups.  Click + Add to create one.")
-            lbl.setObjectName("Muted")
-            layout.addWidget(lbl)
-            self._stats_refresh_map()
-            return
-        for gi, grp in enumerate(self._stats_groups):
-            is_sel = (gi == self._stats_active_grp)
-            color  = WELL_COLORS[gi % len(WELL_COLORS)]
-            card = QFrame()
-            card.setObjectName("StatsGroupCard")
-            if is_sel:
-                card.setProperty("state", "selected")
-            hl = QHBoxLayout(card)
-            hl.setContentsMargins(6, 4, 6, 4)
-            dot = QLabel("\u25cf")
-            dot.setStyleSheet(f"color: {color};")
-            hl.addWidget(dot)
-            hl.addWidget(QLabel(grp.name))
-            n_mem = len(grp.members)
-            n_sol = len(grp.solo_wells)
-            parts = []
-            if n_mem: parts.append(f"{n_mem} set{'s' if n_mem!=1 else ''}")
-            if n_sol: parts.append(f"{n_sol} solo well{'s' if n_sol!=1 else ''}")
-            if not parts: parts = ["empty"]
-            meta = QLabel(f"  ({', '.join(parts)})")
-            meta.setObjectName("Muted")
-            hl.addWidget(meta)
-            hl.addStretch(1)
-            idx = gi
-            ren_btn = QPushButton("\u270e")
-            ren_btn.setFlat(True)
-            ren_btn.clicked.connect(lambda _=False, i=idx: self._stats_grp_rename(i))
-            hl.addWidget(ren_btn)
-            del_btn = QPushButton("\u2715")
-            del_btn.setFlat(True)
-            del_btn.clicked.connect(lambda _=False, i=idx: self._stats_grp_delete(i))
-            hl.addWidget(del_btn)
-
-            def _click_select(ev, i=idx):
-                self._stats_select_grp(i)
-            card.mousePressEvent = _click_select
-            layout.addWidget(card)
-        layout.addStretch(1)
-        self._stats_refresh_map()
+        from well_viewer.stats_controller import stats_refresh_group_list
+        stats_refresh_group_list(self)
 
     def _stats_select_grp(self, idx: int) -> None:
-        self._stats_active_grp = idx
-        self._stats_refresh_group_list()
+        from well_viewer.stats_controller import stats_select_grp
+        stats_select_grp(self, idx)
 
     def _stats_grp_add(self) -> None:
-        n = len(self._stats_groups) + 1
-        self._stats_groups.append(BarGroup(f"Group {n}"))
-        self._stats_active_grp = len(self._stats_groups) - 1
-        self._stats_refresh_group_list()
+        from well_viewer.stats_controller import stats_grp_add
+        stats_grp_add(self)
 
     def _stats_grp_delete(self, idx: int) -> None:
-        if 0 <= idx < len(self._stats_groups):
-            self._stats_groups.pop(idx)
-            self._stats_active_grp = max(0, min(
-                self._stats_active_grp, len(self._stats_groups) - 1))
-            self._stats_refresh_group_list()
+        from well_viewer.stats_controller import stats_grp_delete
+        stats_grp_delete(self, idx)
 
     def _stats_grp_rename(self, idx: int) -> None:
-        if not (0 <= idx < len(self._stats_groups)):
-            return
-        old = self._stats_groups[idx].name
-        name = ask_name_dialog(self, title="Rename group", default=old)
-        if name:
-            self._stats_groups[idx].name = name
-            self._stats_refresh_group_list()
+        from well_viewer.stats_controller import stats_grp_rename
+        stats_grp_rename(self, idx)
 
     def _stats_grp_clear_all(self) -> None:
-        self._stats_groups.clear()
-        self._stats_active_grp = -1
-        self._stats_refresh_group_list()
+        from well_viewer.stats_controller import stats_grp_clear_all
+        stats_grp_clear_all(self)
 
     def _stats_sync_from_app(self) -> None:
-        self._stats_groups = copy.deepcopy(self._groups_from_rep_sets())
-        self._stats_active_grp = 0 if self._stats_groups else -1
-        self._stats_refresh_group_list()
+        from well_viewer.stats_controller import stats_sync_from_app
+        stats_sync_from_app(self)
 
     # ── Stats right: test selector + results ─────────────────────────────────
 
@@ -2715,114 +2103,21 @@ class WellViewerApp(QWidget):
                 self._bar_rebuild_groups()
 
 
-    # ── Quick-group helpers (bar panel) ──────────────────────────────────────
+    # ── Quick-group helpers (delegates to grouping_controller) ────────────────
 
     def _rep_quick_row_pairs(self) -> None:
-        """
-        Backward compatibility wrapper: row pairs, row-first iteration.
-        Calls the new unified _rep_quick_pairs() function with appropriate settings.
-        """
         self._rep_quick_pair_dir = "row"
         self._rep_quick_iter_order = "row"
         self._rep_quick_pairs()
 
     def _rep_quick_col_pairs(self) -> None:
-        """
-        Backward compatibility wrapper: column pairs, column-first iteration.
-        Calls the new unified _rep_quick_pairs() function with appropriate settings.
-        """
         self._rep_quick_pair_dir = "col"
         self._rep_quick_iter_order = "col"
         self._rep_quick_pairs()
 
     def _rep_quick_pairs(self) -> None:
-        """
-        Generate quick replicate pairs using current dropdown selections.
-
-        Uses _rep_quick_pair_dir (row or col) and _rep_quick_iter_order (row or col).
-        """
-        pair_dir = self._rep_quick_pair_dir  # "row" or "col"
-        iter_order = self._rep_quick_iter_order  # "row" or "col"
-        new_sets: List[ReplicateSet] = []
-
-        # Generate pairs based on direction
-        if pair_dir == "row":
-            # Row pairs: pair adjacent columns (A01+A02, A03+A04, ...)
-            if iter_order == "row":
-                # Row-first iteration (same as _rep_quick_row_pairs)
-                for row_ltr in _PLATE_ROWS:
-                    loaded = [f"{row_ltr}{col}" for col in _PLATE_COLS
-                              if f"{row_ltr}{col}" in self._well_paths]
-                    new_sets.extend(self._make_replicate_pairs(loaded, row_ltr))
-            else:
-                # Column-first iteration: collect all row pairs, then sort by column
-                by_col = {}  # col -> list of sets from that column
-                for row_ltr in _PLATE_ROWS:
-                    loaded = [f"{row_ltr}{col}" for col in _PLATE_COLS
-                              if f"{row_ltr}{col}" in self._well_paths]
-                    row_sets = self._make_replicate_pairs(loaded, row_ltr)
-                    # Extract which column(s) each set belongs to
-                    for s in row_sets:
-                        if s.wells:
-                            # Get column from first well (all should be same row)
-                            col = _extract_well_token(s.wells[0])
-                            if col and len(col) > 1:
-                                col = col[1:]  # Extract column part
-                                if col not in by_col:
-                                    by_col[col] = []
-                                by_col[col].append(s)
-                # Add sets in column-first order
-                for col in _PLATE_COLS:
-                    if col in by_col:
-                        new_sets.extend(by_col[col])
-        else:
-            # Column pairs: pair adjacent rows (A01+B01, C01+D01, ...)
-            if iter_order == "col":
-                # Column-first iteration (same as _rep_quick_col_pairs)
-                for col in _PLATE_COLS:
-                    loaded = [f"{row_ltr}{col}" for row_ltr in _PLATE_ROWS
-                              if f"{row_ltr}{col}" in self._well_paths]
-                    new_sets.extend(self._make_replicate_pairs(loaded, col))
-            else:
-                # Row-first iteration: collect all column pairs, then sort by row
-                by_row = {}  # row -> list of sets from that row
-                for col in _PLATE_COLS:
-                    loaded = [f"{row_ltr}{col}" for row_ltr in _PLATE_ROWS
-                              if f"{row_ltr}{col}" in self._well_paths]
-                    col_sets = self._make_replicate_pairs(loaded, col)
-                    # Extract which row each set belongs to
-                    for s in col_sets:
-                        if s.wells:
-                            # Get row from first well (all should be same column)
-                            tok = _extract_well_token(s.wells[0])
-                            if tok and len(tok) > 0:
-                                row = tok[0]  # Extract row part
-                                if row not in by_row:
-                                    by_row[row] = []
-                                by_row[row].append(s)
-                # Add sets in row-first order
-                for row in _PLATE_ROWS:
-                    if row in by_row:
-                        new_sets.extend(by_row[row])
-
-        if not new_sets:
-            return
-        if self._rep_sets:
-            resp = QMessageBox.question(
-                self, "Replace replicate sets?",
-                f"This will replace the current {len(self._rep_sets)} "
-                "replicate set(s). Continue?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            if resp != QMessageBox.Yes:
-                return
-            for grp in self._bar_groups:
-                grp.members.clear()
-        self._rep_sets = new_sets
-        self._active_rep_idx = 0 if self._rep_sets else -1
-        self._rep_hidden.clear()
-        self._invalidate_stats_cache()
-        self._rep_quick_refresh_ui()
+        from well_viewer.grouping_controller import rep_quick_pairs
+        rep_quick_pairs(self)
 
     def _rep_quick_pairs_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _rep_quick_pairs()."""
@@ -2834,128 +2129,6 @@ class WellViewerApp(QWidget):
         self._rep_quick_iter_order = "row" if "Across" in iter_order_display else "col"
 
         self._rep_quick_pairs()
-
-    def _rep_quick_refresh_ui(self) -> None:
-        """
-        Lightweight post-assignment refresh for Quick Replicates.
-
-        Rebuilds only what is currently visible:
-          - Plate maps (rep panel map + bar sidebar map + line sidebar map)
-            are always refreshed — they are cheap (just button colour changes).
-          - The card list in the Replicates tab centre is only rebuilt if that
-            tab is currently active; with 48 sets it creates hundreds of widgets
-            and is invisible when another tab is open.
-          - Plot redraws are deferred via after(0) so the UI paints first.
-        """
-        # Always update the plate-map colourings — these are fast
-        self._rep_refresh_map()
-        self._refresh_sidebar_map()
-        self._bar_refresh_map()
-
-        # Rebuild the Replicates tab card list only if it is visible
-        try:
-            active_tab = self._notebook.tabText(self._notebook.currentIndex())
-        except Exception:
-            active_tab = ""
-        if active_tab == "Sample Definitions":
-            self._rep_panel_refresh()
-
-        # Defer expensive plot redraws — only if the relevant tab is visible.
-        # _on_tab_change already triggers redraws on tab switch, so skipping
-        # these when the user is on another tab has no visible effect.
-        try:
-            active_tab = self._notebook.tabText(self._notebook.currentIndex())
-        except Exception:
-            active_tab = ""
-        if active_tab == "Bar Plots":
-            QTimer.singleShot(0, self._redraw_bars)
-        elif active_tab == "Line Graphs":
-            QTimer.singleShot(0, self._redraw)
-
-    def _make_replicate_pairs(self, toks: List[str], prefix: str) -> List[ReplicateSet]:
-        """Pair adjacent tokens into ReplicateSets; singletons become solo sets."""
-        sets: List[ReplicateSet] = []
-        i = 0
-        while i < len(toks):
-            if i + 1 < len(toks):
-                t1, t2 = toks[i], toks[i + 1]
-                sets.append(ReplicateSet(f"{t1}/{t2}", [t1, t2]))
-                i += 2
-            else:
-                t = toks[i]
-                sets.append(ReplicateSet(t, [t]))
-                i += 1
-        return sets
-
-    def _bar_quick_groups(self) -> None:
-        """
-        Generate quick bar groups using current dropdown selections.
-
-        Uses _bar_quick_pair_dir (row or col) and _bar_quick_iter_order (row or col).
-        Each group (row or column) contains paired replicate sets.
-        """
-        pair_dir = self._bar_quick_pair_dir  # "row" or "col"
-        iter_order = self._bar_quick_iter_order  # "row" or "col"
-        self._bar_groups.clear()
-        self._bar_active_grp = -1
-
-        if pair_dir == "row":
-            # Row pairs with grouping by row or column
-            if iter_order == "row":
-                # Group by row (row-first): Same as _bar_quick_groups_row_pairs
-                for row_ltr in _PLATE_ROWS:
-                    loaded = [f"{row_ltr}{col}" for col in _PLATE_COLS
-                              if f"{row_ltr}{col}" in self._well_paths]
-                    if not loaded:
-                        continue
-                    sets = self._make_replicate_pairs(loaded, row_ltr)
-                    self._bar_groups.append(BarGroup(f"Row {row_ltr}", members=sets))
-            else:
-                # Group by column (column-first): Column groups with row pairs within
-                for col in _PLATE_COLS:
-                    pairs_in_col = []
-                    for row_ltr in _PLATE_ROWS:
-                        loaded = [f"{row_ltr}{col}"]
-                        # Look ahead to pair with next column
-                        next_col_idx = _PLATE_COLS.index(col) + 1
-                        if next_col_idx < len(_PLATE_COLS):
-                            loaded.append(f"{row_ltr}{_PLATE_COLS[next_col_idx]}")
-                        loaded = [t for t in loaded if t in self._well_paths]
-                        if loaded:
-                            pairs_in_col.extend(self._make_replicate_pairs(loaded, col))
-                    if pairs_in_col:
-                        self._bar_groups.append(BarGroup(f"Col {col}", members=pairs_in_col))
-        else:
-            # Column pairs with grouping by row or column
-            if iter_order == "col":
-                # Group by column (column-first): Same as _bar_quick_groups_col_pairs
-                for col in _PLATE_COLS:
-                    loaded = [f"{row_ltr}{col}" for row_ltr in _PLATE_ROWS
-                              if f"{row_ltr}{col}" in self._well_paths]
-                    if not loaded:
-                        continue
-                    sets = self._make_replicate_pairs(loaded, col)
-                    self._bar_groups.append(BarGroup(f"Col {col}", members=sets))
-            else:
-                # Group by row (row-first): Row groups with column pairs within
-                for row_ltr in _PLATE_ROWS:
-                    pairs_in_row = []
-                    for col in _PLATE_COLS:
-                        loaded = [f"{row_ltr}{col}"]
-                        # Look ahead to pair with next row
-                        next_row_idx = _PLATE_ROWS.index(row_ltr) + 1
-                        if next_row_idx < len(_PLATE_ROWS):
-                            loaded.append(f"{_PLATE_ROWS[next_row_idx]}{col}")
-                        loaded = [t for t in loaded if t in self._well_paths]
-                        if loaded:
-                            pairs_in_row.extend(self._make_replicate_pairs(loaded, col))
-                    if pairs_in_row:
-                        self._bar_groups.append(BarGroup(f"Row {row_ltr}", members=pairs_in_row))
-
-        if self._bar_groups:
-            self._bar_active_grp = 0
-        self._bar_rebuild_groups_ui_now()        # instant: show cards
-        QTimer.singleShot(50, self._bar_rebuild_groups) # deferred: update plots
 
     def _bar_quick_groups_from_dropdowns(self) -> None:
         """Read dropdown values and update state, then call _bar_quick_groups()."""
@@ -2986,101 +2159,35 @@ class WellViewerApp(QWidget):
         self._bar_quick_iter_order = "col"
         self._bar_quick_groups()
 
-    # ── Bar group persistence ─────────────────────────────────────────────────
+    def _make_replicate_pairs(self, toks: List[str], prefix: str) -> List[ReplicateSet]:
+        from well_viewer.grouping_controller import make_replicate_pairs
+        return make_replicate_pairs(toks, prefix)
+
+    def _rep_quick_refresh_ui(self) -> None:
+        from well_viewer.grouping_controller import rep_quick_refresh_ui
+        rep_quick_refresh_ui(self)
+
+    def _bar_quick_groups(self) -> None:
+        from well_viewer.grouping_controller import bar_quick_groups
+        bar_quick_groups(self)
+
+    # ── Bar group persistence (delegates to well_viewer.persistence.bar_groups)
 
     def _bar_groups_to_dict(self) -> List[dict]:
-        """Serialise the full state (rep_sets pool + groups) to a dict list.
-
-        Schema:
-          {
-            "rep_sets": [{"name": str, "wells": [token,…]}, …],
-            "groups":   [{"name": str, "hidden": bool,
-                          "members": [set_name,…],
-                          "solo_wells": [token,…]}, …]
-          }
-        Returned as a dict (not list) for portability.
-        """
-        return _bar_groups_to_dict(
-            self._rep_sets,
-            self._bar_groups,
-            extract_well_token=_extract_well_token,
-        )
+        from well_viewer.persistence import bar_groups as _bg_persist
+        return _bg_persist.to_dict(self._rep_sets, self._bar_groups)
 
     def _bar_groups_from_dict(self, data) -> None:
-        """Restore groups state from a saved dict (new schema) or list (legacy)."""
-        self._rep_sets.clear()
-        self._bar_groups.clear()
-        self._bar_active_grp = -1
-        self._active_rep_idx = -1
-        self._rep_hidden.clear()
-        self._rep_sets, self._bar_groups = _bar_groups_from_data(
-            data,
-            tok_to_label=self._tok_to_label,
-        )
-        if self._bar_groups:
-            self._bar_active_grp = 0
-
+        from well_viewer.persistence import bar_groups as _bg_persist
+        _bg_persist.from_dict(self, data)
 
     def _bar_save_groups(self) -> None:
-        """Write current bar groups to a JSON file chosen by the user."""
-        if not self._bar_groups:
-            QMessageBox.warning(
-                self, "Nothing to save",
-                "Define at least one group before saving.",
-            )
-            return
-        out_dir = self._data_dir if self._data_dir else None
-        init_dir = str(out_dir) if out_dir else ""
-        init_path = str(Path(init_dir) / "bar_groups.json") if init_dir else "bar_groups.json"
-        path_str, _ = QFileDialog.getSaveFileName(
-            self, "Save bar group definitions",
-            init_path,
-            "Group definitions JSON (*.json);;All files (*.*)",
-        )
-        if not path_str:
-            return
-        try:
-            with open(path_str, "w", encoding="utf-8") as fh:
-                json.dump(self._bar_groups_to_dict(), fh, indent=2)
-            _logger.info("Bar groups saved to %s", path_str)
-        except OSError as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
+        from well_viewer.persistence import bar_groups as _bg_persist
+        _bg_persist.save_via_dialog(self)
 
     def _bar_load_groups(self) -> None:
-        """Load bar groups from a previously saved JSON file."""
-        out_dir = self._data_dir if self._data_dir else None
-        init_dir = str(out_dir) if out_dir else ""
-        path_str, _ = QFileDialog.getOpenFileName(
-            self, "Load bar group definitions",
-            init_dir,
-            "Group definitions JSON (*.json);;All files (*.*)",
-        )
-        if not path_str:
-            return
-        try:
-            with open(path_str, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            if not isinstance(data, list):
-                raise ValueError("Expected a JSON array at the top level.")
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
-            QMessageBox.critical(
-                self, "Load failed",
-                f"Could not read group definitions:\n{exc}",
-            )
-            return
-        if self._bar_groups:
-            resp = QMessageBox.question(
-                self, "Replace existing groups?",
-                f"Loading will replace the current {len(self._bar_groups)} "
-                f"group(s).  Continue?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            if resp != QMessageBox.Yes:
-                return
-        self._bar_groups_from_dict(data)
-        self._bar_rebuild_groups()
-        _logger.info("Bar groups loaded from %s (%d group(s))",
-                     path_str, len(self._bar_groups))
+        from well_viewer.persistence import bar_groups as _bg_persist
+        _bg_persist.load_via_dialog(self)
 
     def _open_ratio_panel(self) -> None:
         """Bring the Sample Definitions tab forward — the ratio editor lives there now."""
@@ -3092,490 +2199,95 @@ class WellViewerApp(QWidget):
                 nb.setCurrentIndex(i)
                 return
 
-    # ── Ratio metric persistence ─────────────────────────────────────────────
+    # ── Ratio / heatmap / cell-override / line-order persistence ─────────────
+    # Each block delegates to ``well_viewer.persistence.<domain>``.
 
     def _ratios_path(self) -> Optional[Path]:
-        if self._data_dir:
-            return self._data_dir / "ratios.json"
-        return None
+        from well_viewer.persistence import ratios as _r
+        return _r.path_for(self)
 
     def _ratios_save_to_data_dir(self) -> None:
-        path = self._ratios_path()
-        if path is None:
-            return
-        try:
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump(ratios_to_dict(self._ratio_metrics), fh, indent=2)
-        except OSError as exc:
-            _logger.warning("Failed to save ratios to %s: %s", path, exc)
+        from well_viewer.persistence import ratios as _r
+        _r.save_to_data_dir(self)
 
     def _ratios_load_from_data_dir(self) -> None:
-        path = self._ratios_path()
-        if path is None or not path.exists():
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, json.JSONDecodeError) as exc:
-            _logger.warning("Failed to load ratios from %s: %s", path, exc)
-            return
-        self._set_ratio_metrics(ratios_from_dict(data))
-
-    # ── Heatmap layout persistence ───────────────────────────────────────────
+        from well_viewer.persistence import ratios as _r
+        _r.load_from_data_dir(self)
 
     def _heatmap_layouts_path(self) -> Optional[Path]:
-        if self._data_dir:
-            return self._data_dir / "heatmap_layouts.json"
-        return None
+        from well_viewer.persistence import heatmap_layouts as _h
+        return _h.path_for(self)
 
     def _heatmap_layouts_save_to_data_dir(self) -> None:
-        path = self._heatmap_layouts_path()
-        if path is None:
-            return
-        layouts = list(getattr(self, "_heatmap_layouts", []) or [])
-        try:
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump([lay.to_dict() for lay in layouts], fh, indent=2)
-        except OSError as exc:
-            _logger.warning("Failed to save heatmap layouts to %s: %s", path, exc)
+        from well_viewer.persistence import heatmap_layouts as _h
+        _h.save_to_data_dir(self)
 
     def _heatmap_layouts_load_from_data_dir(self) -> None:
-        path = self._heatmap_layouts_path()
-        if path is None or not path.exists():
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, json.JSONDecodeError) as exc:
-            _logger.warning("Failed to load heatmap layouts from %s: %s", path, exc)
-            return
-        from well_viewer.heatmap_models import layouts_from_dict  # local import to avoid cycles
-        self._heatmap_layouts = layouts_from_dict(data)
-        if hasattr(self, "_heatmap_sidebar_table"):
-            try:
-                from well_viewer.views.heatmap_layout_sidebar_view import (
-                    refresh_heatmap_layout_sidebar,
-                )
-                refresh_heatmap_layout_sidebar(self)
-            except Exception:
-                pass
-
-    # ── Cell-override persistence (Segmentation tab patch file) ──────────────
+        from well_viewer.persistence import heatmap_layouts as _h
+        _h.load_from_data_dir(self)
 
     def _cell_overrides_path(self) -> Optional[Path]:
-        if self._data_dir:
-            return self._data_dir / "cell_overrides.json"
-        return None
+        from well_viewer.persistence import cell_overrides as _c
+        return _c.path_for(self)
 
     def _cell_overrides_save_to_data_dir(self) -> None:
-        path = self._cell_overrides_path()
-        if path is None:
-            return
-        overrides = []
-        for (well, fov, tp, nid), val in self._review_included_overrides.items():
-            overrides.append({
-                "well": str(well),
-                "fov": str(fov),
-                "tp": str(tp),
-                "nucleus_id": str(nid),
-                "included": str(val),
-            })
-        payload = {"version": 1, "overrides": overrides}
-        try:
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2)
-            tmp.replace(path)
-        except OSError as exc:
-            _logger.warning("Failed to save cell overrides to %s: %s", path, exc)
+        from well_viewer.persistence import cell_overrides as _c
+        _c.save_to_data_dir(self)
 
     def _cell_overrides_load_from_data_dir(self) -> None:
-        path = self._cell_overrides_path()
-        if path is None or not path.exists():
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, json.JSONDecodeError) as exc:
-            _logger.warning("Failed to load cell overrides from %s: %s", path, exc)
-            return
-        overrides = data.get("overrides") if isinstance(data, dict) else None
-        if not isinstance(overrides, list):
-            return
-        self._review_included_overrides.clear()
-        for entry in overrides:
-            if not isinstance(entry, dict):
-                continue
-            well = str(entry.get("well", "")).strip()
-            fov = str(entry.get("fov", "")).strip()
-            tp = str(entry.get("tp", "")).strip()
-            nid = str(entry.get("nucleus_id", "")).strip()
-            inc = str(entry.get("included", "1")).strip() or "1"
-            if not (well and fov and tp and nid):
-                continue
-            # Re-normalize keys via _review_row_keys so they match the form
-            # _set_review_cell_included will produce on subsequent toggles.
-            fov_n, tp_n, nid_n = self._review_row_keys(
-                {"fov": fov, "tp": tp, "nucleus_id": nid}
-            )
-            if not (fov_n and tp_n and nid_n):
-                continue
-            self._review_included_overrides[(well, fov_n, tp_n, nid_n)] = inc
-        self._review_image_override_version += 1
+        from well_viewer.persistence import cell_overrides as _c
+        _c.load_from_data_dir(self)
 
     def _cell_overrides_schedule_save(self) -> None:
-        """Debounced autosave: coalesces a burst of toggles into one write."""
-        if self._cell_overrides_save_pending:
-            return
-        if self._cell_overrides_path() is None:
-            return
-        self._cell_overrides_save_pending = True
-        QTimer.singleShot(500, self._cell_overrides_flush)
-
-    def _cell_overrides_flush(self) -> None:
-        self._cell_overrides_save_pending = False
-        self._cell_overrides_save_to_data_dir()
-
-    # ── Line-plot order persistence ──────────────────────────────────────────
+        from well_viewer.persistence import cell_overrides as _c
+        _c.schedule_save(self)
 
     def _line_order_path(self) -> Optional[Path]:
-        if self._data_dir:
-            return self._data_dir / "line_order.json"
-        return None
+        from well_viewer.persistence import line_order as _lo
+        return _lo.path_for(self)
 
     def _line_order_save_to_data_dir(self) -> None:
-        path = self._line_order_path()
-        if path is None:
-            return
-        payload = {
-            "version": 1,
-            "rsets": list(self._line_order_rsets),
-            "wells": list(self._line_order_wells),
-        }
-        try:
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2)
-            tmp.replace(path)
-        except OSError as exc:
-            _logger.warning("Failed to save line order to %s: %s", path, exc)
+        from well_viewer.persistence import line_order as _lo
+        _lo.save_to_data_dir(self)
 
     def _line_order_load_from_data_dir(self) -> None:
-        path = self._line_order_path()
-        if path is None or not path.exists():
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, json.JSONDecodeError) as exc:
-            _logger.warning("Failed to load line order from %s: %s", path, exc)
-            return
-        if not isinstance(data, dict):
-            return
-        rsets = data.get("rsets") or []
-        wells = data.get("wells") or []
-        self._line_order_rsets = [str(x) for x in rsets if isinstance(x, str)]
-        self._line_order_wells = [str(x) for x in wells if isinstance(x, str)]
+        from well_viewer.persistence import line_order as _lo
+        _lo.load_from_data_dir(self)
 
     def _line_order_schedule_save(self) -> None:
-        if self._line_order_save_pending:
-            return
-        if self._line_order_path() is None:
-            return
-        self._line_order_save_pending = True
-        QTimer.singleShot(500, self._line_order_flush)
+        from well_viewer.persistence import line_order as _lo
+        _lo.schedule_save(self)
 
-    def _line_order_flush(self) -> None:
-        self._line_order_save_pending = False
-        self._line_order_save_to_data_dir()
-
-    # ── Sample Definitions persistence (in pipeline_info.json) ────────────────
+    # ── Sample Definitions + Cell Gating persistence ─────────────────────────
+    # Implementations live in ``well_viewer.persistence.{sample_definitions,cell_gating}``.
 
     def _save_sample_definitions_to_pipeline_info(self) -> None:
-        """Merge well labels + groups into the pipeline_info.json sidecar."""
-        from well_viewer.sample_definitions import (
-            build_sample_definitions,
-            save_to_pipeline_info,
-        )
-        if not self._data_dir:
-            QMessageBox.warning(
-                self, "No data loaded",
-                "Open a data folder before saving sample definitions.",
-            )
-            return
-        block = build_sample_definitions(
-            self._well_labels,
-            self._rep_sets,
-            self._bar_groups,
-            extract_well_token=_extract_well_token,
-        )
-        try:
-            info_path = save_to_pipeline_info(self._data_dir, block)
-        except FileNotFoundError as exc:
-            QMessageBox.warning(self, "pipeline_info.json missing", str(exc))
-            return
-        except OSError as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
-            return
-        self._set_status(
-            f"Sample definitions saved to {info_path.name}: "
-            f"{len(block['well_labels'])} label(s), "
-            f"{len(block['rep_sets'])} replicate set(s), "
-            f"{len(block['groups'])} group(s)."
-        )
+        from well_viewer.persistence import sample_definitions as _sd
+        _sd.save_to_pipeline_info(self)
 
     def _load_sample_definitions_from_pipeline_info(self) -> bool:
-        """Apply any saved sample_definitions block in pipeline_info.json.
-
-        Returns True when a block was found and applied.
-        """
-        from well_viewer.sample_definitions import (
-            parse_groups_block,
-            parse_well_labels,
-            read_sample_definitions,
-        )
-        if not self._data_dir:
-            return False
-        block = read_sample_definitions(self._data_dir)
-        if not block:
-            return False
-        labels = parse_well_labels(block, valid_tokens=self._well_paths.keys())
-        if labels:
-            self._well_labels.update(labels)
-        rep_sets, bar_groups = parse_groups_block(
-            block, tok_to_label=self._tok_to_label,
-        )
-        if rep_sets or bar_groups:
-            self._rep_sets = rep_sets
-            self._bar_groups = bar_groups
-            self._active_rep_idx = -1
-            self._bar_active_grp = 0 if bar_groups else -1
-        if labels or rep_sets or bar_groups:
-            self._invalidate_stats_cache()
-        return True
-
-    # ── Sample Definitions tab — combined Save / Load / Clear All ─────────────
+        from well_viewer.persistence import sample_definitions as _sd
+        return _sd.load_from_pipeline_info(self)
 
     def _save_sample_definitions_all(self) -> None:
-        """Persist labels + reps + groups + ratios from the Sample Definitions tab.
-
-        Wraps the per-block savers so the user gets a single Save button at
-        the top of the tab and a single status update.
-        """
-        if not self._data_dir:
-            QMessageBox.warning(
-                self, "No data loaded",
-                "Open a data folder before saving sample definitions.",
-            )
-            return
-        # Push any pending ratio table edits into app state before saving.
-        panel = getattr(self, "_ratio_panel", None)
-        if panel is not None:
-            try:
-                panel._on_apply()
-            except Exception:
-                _logger.exception("Ratio panel apply failed during Save")
-        self._save_sample_definitions_to_pipeline_info()
-        self._ratios_save_to_data_dir()
-        # Cell-gating values auto-save on each edit, but persist again here
-        # so a user who only clicks Save still gets the latest values flushed
-        # (and to keep this button as a single source of truth for the tab).
-        try:
-            self._save_gating_to_pipeline_info()
-        except Exception:
-            _logger.exception("Gating save during combined Save failed")
+        from well_viewer.persistence import sample_definitions as _sd
+        _sd.save_all(self)
 
     def _load_sample_definitions_all(self) -> None:
-        """Reload labels + reps + groups + ratios + gating from the data folder."""
-        if not self._data_dir:
-            QMessageBox.warning(
-                self, "No data loaded",
-                "Open a data folder before loading sample definitions.",
-            )
-            return
-        applied = self._load_sample_definitions_from_pipeline_info()
-        self._ratios_load_from_data_dir()
-        try:
-            self._load_gating_from_pipeline_info()
-        except Exception:
-            _logger.exception("Gating load during combined Load failed")
-        # Repaint the Sample Definitions UI so the user sees the reloaded state.
-        if hasattr(self, "_groups_centre_refresh"):
-            try:
-                self._groups_centre_refresh()
-            except Exception:
-                _logger.exception("Sample Definitions refresh after Load failed")
-        panel = getattr(self, "_ratio_panel", None)
-        if panel is not None:
-            try:
-                panel.refresh_from_app()
-            except Exception:
-                _logger.exception("Ratio panel refresh after Load failed")
-        self._set_status(
-            "Sample definitions reloaded." if applied
-            else "No saved sample definitions found in this data folder."
-        )
+        from well_viewer.persistence import sample_definitions as _sd
+        _sd.load_all(self)
 
     def _clear_sample_definitions_all(self) -> None:
-        """Clear every definition driven from the Sample Definitions tab."""
-        confirm = QMessageBox.question(
-            self, "Clear sample definitions",
-            "Discard all well labels, replicate sets, bar groups, ratio "
-            "metrics, and cell-gating thresholds defined on this tab?\n\n"
-            "Saved JSON files are not touched until you click Save.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if confirm != QMessageBox.Yes:
-            return
-
-        # Well labels
-        self._well_labels.clear()
-        if hasattr(self, "_label_panel_refresh"):
-            try:
-                self._label_panel_refresh()
-            except Exception:
-                pass
-
-        # Replicate sets
-        self._rep_sets = []
-        self._active_rep_idx = -1
-
-        # Bar groups
-        self._bar_groups = []
-        self._bar_active_grp = -1
-
-        # Ratio metrics
-        self._set_ratio_metrics([])
-
-        # Cell gating — reset every editable input to its default in the
-        # already-built widget so the user sees the cleared state.
-        gating = getattr(self, "_cell_gating_tab", None)
-        if gating is not None:
-            try:
-                gating._cell_area_edit.setText("0.0")
-                for edit in gating._fluor_gate_edits.values():
-                    edit.setText("0.0")
-                for edit in gating._thresh_frac_edits.values():
-                    edit.setText("50.0")
-                if hasattr(gating, "_on_gating_change"):
-                    gating._on_gating_change()
-                if hasattr(gating, "_on_threshold_frac_on_change"):
-                    gating._on_threshold_frac_on_change()
-            except Exception:
-                _logger.exception("Cell Gating reset during Clear failed")
-
-        if hasattr(self, "_groups_centre_refresh"):
-            try:
-                self._groups_centre_refresh()
-            except Exception:
-                _logger.exception("Sample Definitions refresh after Clear failed")
-        self._invalidate_stats_cache()
-        if hasattr(self, "_redraw"):
-            try:
-                self._redraw()
-            except Exception:
-                pass
-        self._set_status("Sample definitions cleared.")
-
-    # ── Cell Gating persistence (in pipeline_info.json) ───────────────────────
+        from well_viewer.persistence import sample_definitions as _sd
+        _sd.clear_all(self)
 
     def _save_gating_to_pipeline_info(self) -> None:
-        """Persist non-default cell gating params to pipeline_info.json.
-
-        Called from the Cell Gating tab whenever the user edits a value.
-        Silently no-ops when no data directory is loaded or the sidecar
-        is missing — gating params live alongside the pipeline output.
-        """
-        if not self._data_dir:
-            return
-        tab = getattr(self, "_cell_gating_tab", None)
-        if tab is None:
-            return
-        from well_viewer.gating_state import (
-            build_gating_block,
-            save_gating_to_pipeline_info,
-        )
-        cell_area_threshold = self._get_cell_area_threshold()
-        fluor_gates = self._get_all_fluor_gates()
-        thresh_frac_on = {
-            ch: tab.get_thresh_frac_on(ch) for ch in self._fluor_channels
-        }
-        block = build_gating_block(
-            cell_area_threshold, fluor_gates, thresh_frac_on,
-        )
-        save_gating_to_pipeline_info(self._data_dir, block)
+        from well_viewer.persistence import cell_gating as _cg
+        _cg.save_to_pipeline_info(self)
 
     def _load_gating_from_pipeline_info(self) -> bool:
-        """Apply any saved cell_gating block in pipeline_info.json.
-
-        Returns True when a block was found and applied. The Cell Gating
-        tab is built lazily, so when the sidecar has persisted thresholds
-        we force-build the tab here so its QLineEdits exist before we try
-        to set them — otherwise the user would have to click Cell Gating
-        before saved thresholds applied to the plots.
-        """
-        if not self._data_dir:
-            return False
-        from well_viewer.gating_state import read_gating_params
-        block = read_gating_params(self._data_dir)
-        if not block:
-            return False
-
-        # Cell Gating now lives as a sub-tab inside Sample Definitions and
-        # builds lazily. Force the host Sample Definitions tab to build,
-        # then build the sub-tab, so the QLineEdits exist and saved
-        # thresholds can be applied immediately.
-        tab = getattr(self, "_cell_gating_tab", None)
-        if tab is None:
-            build = getattr(self, "_centre_build_pending", None)
-            if callable(build):
-                build("Sample Definitions")
-            if hasattr(self, "_build_cell_gating_subtab"):
-                self._build_cell_gating_subtab()
-            tab = getattr(self, "_cell_gating_tab", None)
-        if tab is None:
-            return False
-
-        applied = False
-        cell_area = block.get("cell_area_threshold")
-        if cell_area is not None:
-            try:
-                tab._cell_area_edit.setText(str(float(cell_area)))
-                applied = True
-            except (ValueError, TypeError, AttributeError):
-                pass
-
-        fluor_gates = block.get("fluor_gates") or {}
-        if isinstance(fluor_gates, dict):
-            for ch, val in fluor_gates.items():
-                edit = tab._fluor_gate_edits.get(str(ch))
-                if edit is None:
-                    continue
-                try:
-                    edit.setText(str(float(val)))
-                    applied = True
-                except (ValueError, TypeError):
-                    pass
-
-        thresh_frac_on = block.get("thresh_frac_on") or {}
-        if isinstance(thresh_frac_on, dict):
-            # Prime both the cached app-level dict (used by _load_threshold_frac_on)
-            # and the live QLineEdits, in case channel controls already exist.
-            if not hasattr(self, "_thresh_frac_on_saved"):
-                self._thresh_frac_on_saved = {}
-            for ch, val in thresh_frac_on.items():
-                try:
-                    fval = float(val)
-                except (ValueError, TypeError):
-                    continue
-                self._thresh_frac_on_saved[str(ch)] = fval
-                edit = tab._thresh_frac_edits.get(str(ch))
-                if edit is not None:
-                    edit.setText(str(fval))
-                    applied = True
-
-        return applied
+        from well_viewer.persistence import cell_gating as _cg
+        return _cg.load_from_pipeline_info(self)
 
     def _bar_groups_prune(self) -> None:
         """Remove stale well references after a new dataset is loaded."""
@@ -5191,151 +3903,8 @@ class WellViewerApp(QWidget):
     # ── Preview panel ─────────────────────────────────────────────────────────
 
     def _update_preview(self, well_label: Optional[str]) -> None:
-        """Load images for *well_label* and render the inline montage."""
-        channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
-        if well_label is None:
-            if hasattr(self, "_preview_well_lbl"):
-                self._preview_well_lbl.setText("No well selected")
-            if hasattr(self, "_review_image_well_lbl"):
-                self._review_image_well_lbl.setText("No well selected")
-            if hasattr(self, "_fov_menu"):
-                _set_combo_values(self._fov_menu, ["—"])
-                self._preview_fov_var.set("—")
-            if hasattr(self, "_review_image_fov_menu"):
-                _set_combo_values(self._review_image_fov_menu, ["—"])
-            if hasattr(self, "_review_image_tp_menu"):
-                _set_combo_values(self._review_image_tp_menu, ["—"])
-                self._review_image_tp_var.set("—")
-            self._preview_fluor = self._preview_overlay = self._preview_mask = {}
-            if hasattr(self, "_montage_inner"):
-                _clear_layout(self._montage_inner.layout())
-                self._montage_photos.clear()
-                self._montage_status.setText("Select a well in the left panel.")
-            if hasattr(self, "_review_image_status"):
-                self._review_image_status.setText("Select a well in the left panel.")
-            if channel_switch_debug:
-                _logger.debug("[RI-CHSW step 4] update_preview early return: no well selected")
-            return
-
-        if hasattr(self, "_preview_well_lbl"):
-            tok = _extract_well_token(well_label) or well_label
-            self._preview_well_lbl.setText(tok)
-        if hasattr(self, "_review_image_well_lbl"):
-            tok = _extract_well_token(well_label) or well_label
-            self._review_image_well_lbl.setText(tok)
-
-        try:
-            active_image_channel = str(self._active_image_channel or "").strip().lower()
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 4] update_preview start well=%r active_channel=%r",
-                    well_label,
-                    active_image_channel,
-                )
-            fluor, overlay, mask, tophat_fluor = find_well_images_and_masks(
-                self._data_dir,
-                well_label,
-                fluor_token=active_image_channel,
-                in_dir=self._in_dir,
-                _fov_tp_extractor=self._fov_tp_extractor,
-                _pipeline_info=self._pipeline_info,
-            )
-        except Exception as _exc:
-            _logger.exception("Unexpected error searching images for %r: %s", well_label, _exc)
-            fluor, overlay, mask, tophat_fluor = {}, {}, {}, {}
-        self._preview_fluor        = fluor
-        self._preview_overlay    = overlay
-        self._preview_mask       = mask
-        self._preview_tophat_fluor = tophat_fluor
-        if channel_switch_debug:
-            _logger.debug(
-                "[RI-CHSW step 4] update_preview refs loaded well=%r active_channel=%r fluor=%d tophat=%d overlay=%d mask=%d",
-                well_label,
-                active_image_channel,
-                len(fluor),
-                len(tophat_fluor),
-                len(overlay),
-                len(mask),
-            )
-
-        # Reset controls to "no preload" state now; _refresh_preview_montage
-        # will call _update_tophat_controls() with the authoritative result
-        # after it has checked tophat coverage at the current FOV level.
-        if hasattr(self, "_th_checkbox"):
-            self._update_tophat_controls(preloaded=False)
-
-        def _norm_fov(value: object) -> str:
-            raw = str(value or "").strip()
-            if not raw:
-                return ""
-            try:
-                return f"{float(raw):g}"
-            except Exception:
-                return raw
-
-        def _fov_sort_key(token: str) -> tuple[int, float, str]:
-            try:
-                return (0, float(token), token)
-            except ValueError:
-                return (1, 0.0, token)
-
-        all_fovs = sorted(
-            {
-                fov_norm
-                for refs in (fluor, overlay, mask, tophat_fluor)
-                for (fov, _tp) in refs.keys()
-                for fov_norm in [_norm_fov(fov)]
-                if fov_norm
-            },
-            key=_fov_sort_key,
-        )
-        if channel_switch_debug:
-            _logger.debug(
-                "[RI-CHSW step 4] update_preview candidate_fovs=%s selected_fov_before=%r",
-                all_fovs,
-                self._preview_fov_var.get() if hasattr(self, "_preview_fov_var") else "—",
-            )
-
-        if not (fluor or overlay or mask or tophat_fluor):
-            if hasattr(self, "_fov_menu"):
-                _set_combo_values(self._fov_menu, ["—"])
-                self._preview_fov_var.set("—")
-            tok = _extract_well_token(well_label) or well_label
-            dirs = f"in={self._in_dir}  out={self._data_dir}"
-            msg = f"No images found for {tok}. Searched: {dirs}"
-            _logger.warning(msg)
-            if hasattr(self, "_montage_status"):
-                self._montage_status.setText(f"No images found for {tok} — check Log for details.")
-            return
-
-        if hasattr(self, "_fov_menu"):
-            _set_combo_values(self._fov_menu, all_fovs)
-            cur = self._preview_fov_var.get()
-            if all_fovs:
-                self._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
-            else:
-                self._preview_fov_var.set("—")
-        if hasattr(self, "_review_image_fov_menu"):
-            _set_combo_values(self._review_image_fov_menu, all_fovs or ["—"])
-
-        # Movie Montage was retired; ``_preview_fov_var`` only exists when
-        # that tab built. Guard so a Review-Image-only viewer doesn't crash
-        # the well picker.
-        if hasattr(self, "_preview_fov_var"):
-            cur = self._preview_fov_var.get()
-            if all_fovs and cur not in all_fovs:
-                self._preview_fov_var.set(all_fovs[0])
-
-        if hasattr(self, "_refresh_preview_montage"):
-            try:
-                self._refresh_preview_montage()
-            except AttributeError:
-                # Movie Montage helpers may reference vars that no longer
-                # exist — swallow rather than fail the click.
-                pass
-        if channel_switch_debug:
-            _logger.debug("[RI-CHSW step 4->6] triggering refresh_review_image after preview reload")
-        self._refresh_review_image()
+        from well_viewer.review_image_renderer import update_preview
+        update_preview(self, well_label)
 
     def _on_preview_sel_change(self, _e=None) -> None:
         self._refresh_preview_montage()
@@ -5658,159 +4227,30 @@ class WellViewerApp(QWidget):
         return above_by_nid
 
     def _refresh_review_image(self) -> None:
-        if not hasattr(self, "_review_image_label"):
-            return
-        channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
-        image_load_debug = _debug_flags.review_image_load_debug_enabled()
-        well = self._preview_selected_well
-        if well is None:
-            if channel_switch_debug:
-                _logger.debug("[RI-CHSW step 6] refresh_review_image aborted: no selected well")
-            return
+        from well_viewer.review_image_renderer import refresh_review_image
+        refresh_review_image(self)
 
-        # Pull the FOV from whichever combo is wired up. The review tab
-        # has its own ``_review_image_fov_menu``; ``_preview_fov_var``
-        # only exists when the (now-retired) Movie Montage tab was built.
-        fov_raw = ""
-        if hasattr(self, "_review_image_fov_menu"):
-            fov_raw = str(self._review_image_fov_menu.currentText() or "").strip()
-        if not fov_raw and hasattr(self, "_preview_fov_var"):
-            fov_raw = str(self._preview_fov_var.get() or "").strip()
-        fov = self._review_norm_fov(fov_raw)
-        if not fov_raw or fov_raw == "—" or not fov:
-            self._review_image_status.setText("No FOV selected.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image aborted: invalid fov raw=%r norm=%r",
-                    fov_raw, fov,
-                )
-            return
-
-        tp_values = self._review_collect_timepoints(fov)
-        if channel_switch_debug:
-            _logger.debug(
-                "[RI-CHSW step 6] refresh_review_image start well=%r selected_fov_raw=%r normalized_fov=%r active_channel=%r",
-                well, fov_raw, fov, getattr(self, "_active_image_channel", ""),
-            )
-        _set_combo_values(self._review_image_tp_menu, tp_values or ["—"])
-        if tp_values and self._review_image_tp_var.get() not in tp_values:
-            self._review_image_tp_var.set(tp_values[0])
-        tp_raw = str(self._review_image_tp_var.get() or "").strip()
-        tp = self._norm_timepoint(tp_raw)
-        if not tp_raw or tp_raw == "—" or not tp:
-            self._review_image_status.setText("No timepoint selected.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image aborted: invalid timepoint raw=%r norm=%r",
-                    tp_raw, tp,
-                )
-            return
-
-        fluor_ref, mask_ref = self._review_resolve_image_refs(
-            fov_raw=fov_raw, tp_raw=tp_raw,
-        )
-        if image_load_debug:
-            fluor_path = getattr(fluor_ref, "full_path_str", str(fluor_ref)) if fluor_ref is not None else None
-            mask_path = getattr(mask_ref, "full_path_str", str(mask_ref)) if mask_ref is not None else None
-            _debug_flags.debug_with_source(
-                _logger,
-                "Review Image load attempt well=%s fov=%s tp=%s fluor_path=%s",
-                well, fov, tp, fluor_path,
-            )
-            _debug_flags.debug_with_source(
-                _logger,
-                "Review Image load attempt well=%s fov=%s tp=%s mask_path=%s",
-                well, fov, tp, mask_path,
-            )
-        if fluor_ref is None or mask_ref is None:
-            self._review_image_status.setText("Missing fluorescence image or label map for selected FOV/timepoint.")
-            if channel_switch_debug:
-                _logger.debug(
-                    "[RI-CHSW step 6] refresh_review_image missing refs fluor_ref=%r mask_ref=%r",
-                    fluor_ref, mask_ref,
-                )
-            return
-        self._review_image_is_tif = str(getattr(fluor_ref, "name", "")).lower().endswith((".tif", ".tiff"))
-        if not _NP_AVAILABLE:
-            self._review_image_status.setText("Could not render review image (numpy unavailable).")
-            return
-
-        # Try the frame cache first: when the user is just adjusting LUT,
-        # toggling cells, or clicking nuclei on the same frame, we can skip
-        # the disk read + boundary convolution entirely.
-        cache_key = (
-            getattr(fluor_ref, "full_path_str", id(fluor_ref)),
-            getattr(mask_ref, "full_path_str", id(mask_ref)),
-        )
-        cached = self._review_image_frame_cache
-        if cached is not None and cached.get("key") == cache_key:
-            fluor_arr = cached["fluor_arr"]
-            center = cached["center"]
-            boundary = cached["boundary"]
-        else:
-            fluor_raw = open_imgref_as_array(fluor_ref, greyscale=True)
-            mask_raw = open_imgref_as_array(mask_ref, greyscale=True)
-            if fluor_raw is None or mask_raw is None:
-                self._review_image_status.setText("Could not render review image (image decode failed).")
-                return
-            fluor_arr = _np.asarray(fluor_raw, dtype=_np.float32)
-            center_int = _np.rint(_np.asarray(mask_raw)).astype(_np.int32, copy=False)
-            padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
-            center = padded[1:-1, 1:-1]
-            boundary = (center > 0) & (
-                (center != padded[:-2, 1:-1]) |
-                (center != padded[2:, 1:-1]) |
-                (center != padded[1:-1, :-2]) |
-                (center != padded[1:-1, 2:])
-            )
-            self._review_image_frame_cache = {
-                "key": cache_key,
-                "fluor_arr": fluor_arr,
-                "center": center,
-                "boundary": boundary,
-            }
-
-        # Memoise the include map per (well, fov, tp, override_version) so
-        # repeat refreshes on the same frame skip the row-iteration loop.
-        ic_key = (well, fov, tp, self._review_image_override_version)
-        include_by_nid = self._review_image_include_cache.get(ic_key)
-        if include_by_nid is None:
-            include_by_nid = self._review_build_include_map(center, well, fov, tp)
-            # Trim the cache to a small bounded set so it doesn't grow with
-            # every (fov, tp) the user visits.
-            if len(self._review_image_include_cache) > 32:
-                self._review_image_include_cache.clear()
-            self._review_image_include_cache[ic_key] = include_by_nid
-
-        # Above-threshold map is only needed when the binary-mask overlay is
-        # active. Cache by (well, fov, tp, override_version, val_col,
-        # threshold, area_thr, fluor_gates) so any gating change invalidates.
-        above_by_nid: Optional[Dict[int, bool]] = None
-        if bool(getattr(self, "_review_image_binary_mask", False)):
-            cell_area_threshold = self._get_cell_area_threshold()
-            fluor_gates = self._get_all_fluor_gates()
-            threshold = self._get_thresh_frac_on()
-            tm_key = (
-                well, fov, tp, self._review_image_override_version,
-                self._active_val_col, threshold, cell_area_threshold,
-                tuple(sorted(fluor_gates.items())),
-            )
-            above_by_nid = self._review_image_threshold_map_cache.get(tm_key)
-            if above_by_nid is None:
-                above_by_nid = self._review_build_threshold_map(center, well, fov, tp)
-                if len(self._review_image_threshold_map_cache) > 32:
-                    self._review_image_threshold_map_cache.clear()
-                self._review_image_threshold_map_cache[tm_key] = above_by_nid
-
-        preserve_view = bool(getattr(self, "_review_image_preserve_view_on_refresh", False))
-        self._review_image_preserve_view_on_refresh = False
-        if channel_switch_debug:
-            _logger.debug("[RI-CHSW step 6->7] draw_review_image preserve_view=%s", preserve_view)
-        self._draw_review_image(
-            fluor_arr, center, include_by_nid,
-            fit_lut=False, preserve_view=preserve_view, boundary=boundary,
+    def _draw_review_image(
+        self,
+        fluor_arr,
+        mask_arr,
+        include_by_nid: Dict[int, bool],
+        *,
+        fit_lut: bool = False,
+        preserve_view: bool = False,
+        boundary=None,
+        above_by_nid: Optional[Dict[int, bool]] = None,
+    ) -> None:
+        from well_viewer.review_image_renderer import draw_review_image
+        draw_review_image(
+            self, fluor_arr, mask_arr, include_by_nid,
+            fit_lut=fit_lut, preserve_view=preserve_view, boundary=boundary,
             above_by_nid=above_by_nid,
         )
+
+    def _render_review_image_display(self, *, pan_only: bool = False) -> None:
+        from well_viewer.review_image_renderer import render_review_image_display
+        render_review_image_display(self, pan_only=pan_only)
 
     def _review_image_resolve_lut(self, arr) -> Tuple[float, float]:
         chan = str(self._active_image_channel or "").lower()
@@ -5859,226 +4299,6 @@ class WellViewerApp(QWidget):
             self._review_lut_max_var.set(f"{hi:.0f}")
         self._review_image_preserve_view_on_refresh = True
         self._refresh_review_image()
-
-    def _draw_review_image(
-        self,
-        fluor_arr,
-        mask_arr,
-        include_by_nid: Dict[int, bool],
-        *,
-        fit_lut: bool = False,
-        preserve_view: bool = False,
-        boundary=None,
-        above_by_nid: Optional[Dict[int, bool]] = None,
-    ) -> None:
-        if _debug_flags.review_image_channel_switch_debug_enabled():
-            _logger.debug(
-                "[RI-CHSW step 7] draw_review_image channel=%r fit_lut=%s preserve_view=%s",
-                getattr(self, "_active_image_channel", ""),
-                fit_lut,
-                preserve_view,
-            )
-        arr = _np.asarray(fluor_arr, dtype=_np.float32)
-        self._review_image_last_fluor_arr = arr
-        m = _np.asarray(mask_arr)
-        if fit_lut:
-            lo, hi = float(arr.min()), float(arr.max())
-            if hi <= lo:
-                hi = lo + 1.0
-            self._review_image_lut_by_channel[str(self._active_image_channel or "").lower()] = (lo, hi)
-        else:
-            lo, hi = self._review_image_resolve_lut(arr)
-        if hasattr(self, "_review_lut_chan_lbl"):
-            self._review_lut_chan_lbl.setText(f"{self._active_image_channel.upper()} LUT min:")
-        if hasattr(self, "_review_lut_min_edit") and hasattr(self, "_review_lut_max_edit"):
-            self._review_lut_min_edit.setText(f"{lo:.0f}")
-            self._review_lut_max_edit.setText(f"{hi:.0f}")
-        base = ((_np.clip(arr, lo, hi) - lo) / (hi - lo) * 255).astype(_np.uint8)
-        h, w = base.shape
-
-        # The caller (``_refresh_review_image``) supplies a cached center +
-        # boundary when the frame hasn't changed. Recompute on demand only
-        # when those caches aren't available.
-        if m.dtype != _np.int32 or m.ndim != 2:
-            center = _np.rint(m).astype(_np.int32, copy=False)
-        else:
-            center = m
-        if boundary is None:
-            padded = _np.pad(center, 1, mode="constant", constant_values=0)
-            center_view = padded[1:-1, 1:-1]
-            boundary = (center_view > 0) & (
-                (center_view != padded[:-2, 1:-1]) |
-                (center_view != padded[2:, 1:-1]) |
-                (center_view != padded[1:-1, :-2]) |
-                (center_view != padded[1:-1, 2:])
-            )
-
-        binary_mask_mode = bool(getattr(self, "_review_image_binary_mask", False))
-        sel_nid = self._review_image_selected_nucleus
-
-        if binary_mask_mode:
-            if above_by_nid is None:
-                above_by_nid = {}
-            rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
-            above_ids = [int(nid) for nid, ab in above_by_nid.items() if ab]
-            if above_ids:
-                above_arr = _np.fromiter(above_ids, dtype=center.dtype, count=len(above_ids))
-                above_mask = _np.isin(center, above_arr)
-                rgb[above_mask] = _np.array([255, 255, 255], dtype=_np.uint8)
-            if sel_nid is not None:
-                sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
-                sel_boundary = boundary & (center == int(sel_nid))
-                rgb[sel_boundary] = sel_color
-        else:
-            # Build the RGB array with the configured tint applied.
-            tint = self._review_image_tint_color
-            tr, tg, tb = (max(0, min(255, int(c))) for c in tint)
-            rgb = _np.empty((h, w, 3), dtype=_np.uint8)
-            if (tr, tg, tb) == (255, 255, 255):
-                rgb[..., 0] = base
-                rgb[..., 1] = base
-                rgb[..., 2] = base
-            else:
-                base_f = base.astype(_np.float32)
-                rgb[..., 0] = _np.clip(base_f * (tr / 255.0), 0, 255).astype(_np.uint8)
-                rgb[..., 1] = _np.clip(base_f * (tg / 255.0), 0, 255).astype(_np.uint8)
-                rgb[..., 2] = _np.clip(base_f * (tb / 255.0), 0, 255).astype(_np.uint8)
-
-            # Build the inclusion mask via a single np.isin pass over the label
-            # image. The previous per-nucleus loop allocated a fresh image-sized
-            # boolean array (~4 MB at 2048x2048) for every nucleus id, so a well
-            # with ~1000 cells per FOV churned ~4 GB of transient bool arrays
-            # per refresh. Most got GC'd, but Linux's allocator does not return
-            # those pages to the OS, so RSS grew on every click. np.isin runs
-            # the comparison in C with O(image_pixels) extra memory.
-            included_ids = [int(nid) for nid, inc in include_by_nid.items() if inc]
-            if included_ids:
-                included_arr = _np.fromiter(included_ids, dtype=center.dtype, count=len(included_ids))
-                include_mask = _np.isin(center, included_arr)
-            else:
-                include_mask = _np.zeros(center.shape, dtype=bool)
-            show_outline = bool(getattr(self, "_review_image_show_outline", True))
-            if show_outline:
-                draw_boundary = boundary & include_mask
-                boundary_color = _np.asarray(self._review_image_boundary_color, dtype=_np.uint8)
-                rgb[draw_boundary] = boundary_color
-                if sel_nid is not None:
-                    sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
-                    sel_boundary = boundary & (center == int(sel_nid))
-                    rgb[sel_boundary] = sel_color
-            elif sel_nid is not None:
-                sel_color = _np.asarray(self._review_image_selected_color, dtype=_np.uint8)
-                sel_boundary = boundary & (center == int(sel_nid))
-                rgb[sel_boundary] = sel_color
-
-        # Stash the rendered RGB so display rescales / zoom can rebuild the
-        # pixmap without recomputing tinted overlays. We retain the PIL
-        # handle for legacy callers that read ``_review_image_base_pil``.
-        self._review_image_base_rgb = _np.ascontiguousarray(rgb)
-        self._review_image_base_pil = (
-            _PILImage.fromarray(rgb, mode="RGB") if _PIL_AVAILABLE else None
-        )
-        if not preserve_view:
-            self._review_image_zoom = 1.0
-            self._review_image_pan_x = 0.0
-            self._review_image_pan_y = 0.0
-        self._render_review_image_display()
-        self._review_image_label._mask_arr = center  # type: ignore[attr-defined]
-        self._review_image_label._raw_arr = arr      # type: ignore[attr-defined]
-        self._apply_review_image_cursor()
-        suffix = f"  \u00b7  highlighted nucleus {sel_nid}" if sel_nid is not None else ""
-        if binary_mask_mode:
-            self._review_image_status.setText(
-                f"Binary mask: cells above threshold for {self._active_channel_label()} shown white.{suffix}"
-            )
-        else:
-            self._review_image_status.setText(
-                f"Showing channel {self._active_image_channel.upper()} with included cell boundaries.{suffix}"
-            )
-        if _debug_flags.review_image_channel_switch_debug_enabled():
-            _logger.debug(
-                "[RI-CHSW step 7] draw_review_image complete status_channel=%r zoom=%.3f pan=(%.1f, %.1f)",
-                self._active_image_channel,
-                float(getattr(self, "_review_image_zoom", 1.0)),
-                float(getattr(self, "_review_image_pan_x", 0.0)),
-                float(getattr(self, "_review_image_pan_y", 0.0)),
-            )
-
-    def _render_review_image_display(self, *, pan_only: bool = False) -> None:
-        if not hasattr(self, "_review_image_label"):
-            return
-        rgb = getattr(self, "_review_image_base_rgb", None)
-        if rgb is None and self._review_image_base_pil is None:
-            return
-        if _debug_flags.review_image_channel_switch_debug_enabled():
-            _logger.debug(
-                "[RI-CHSW step 7] render_review_image_display start pan_only=%s",
-                pan_only,
-            )
-        if rgb is not None:
-            ih, iw = rgb.shape[:2]
-        else:
-            iw, ih = self._review_image_base_pil.size
-        vp = self._review_image_canvas.viewport()
-        cw = max(1, vp.width())
-        ch = max(1, vp.height())
-        fit = min(cw / max(iw, 1), ch / max(ih, 1))
-        scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
-        nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-
-        # Pan keeps the same pixmap and just adjusts scrollbars. Avoiding
-        # the upscale + QImage allocation saves tens of ms per drag event,
-        # which is what makes panning feel jittery on large frames.
-        cached_scale = getattr(self, "_review_image_scale", None)
-        existing_pm = self._review_image_label.pixmap()
-        rebuild = not pan_only or existing_pm is None or existing_pm.isNull() or cached_scale != scale
-
-        if rebuild:
-            if rgb is not None:
-                # Direct numpy -> QImage path skips the PIL roundtrip
-                # (fromarray + resize + convert("RGBA") + tobytes), which
-                # halves the per-refresh allocation and copy work on the
-                # 2048x2048 frames the tab typically displays.
-                buf = rgb if rgb.flags["C_CONTIGUOUS"] else _np.ascontiguousarray(rgb)
-                qimg = QImage(
-                    buf.data, iw, ih, 3 * iw, QImage.Format_RGB888,
-                ).copy()
-                pm = QPixmap.fromImage(qimg)
-                if (nw, nh) != (iw, ih):
-                    pm = pm.scaled(
-                        nw, nh, Qt.IgnoreAspectRatio, Qt.FastTransformation,
-                    )
-            else:
-                img = self._review_image_base_pil
-                shown = img.resize((nw, nh), _PILImage.NEAREST)
-                if shown.mode != "RGBA":
-                    shown = shown.convert("RGBA")
-                data = shown.tobytes("raw", "RGBA")
-                qimg = QImage(
-                    data, nw, nh, 4 * nw, QImage.Format_RGBA8888,
-                ).copy()
-                pm = QPixmap.fromImage(qimg)
-            self._review_image_label.setPixmap(pm)
-            self._review_image_label.resize(max(nw, cw), max(nh, ch))
-            self._review_image_scale = scale
-        pan_x = float(getattr(self, "_review_image_pan_x", 0.0))
-        pan_y = float(getattr(self, "_review_image_pan_y", 0.0))
-        hbar = self._review_image_canvas.horizontalScrollBar()
-        vbar = self._review_image_canvas.verticalScrollBar()
-        cx = max(0, (max(nw, cw) - cw) // 2) - int(pan_x)
-        cy = max(0, (max(nh, ch) - ch) // 2) - int(pan_y)
-        hbar.setValue(max(hbar.minimum(), min(hbar.maximum(), cx)))
-        vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), cy)))
-        if _debug_flags.review_image_channel_switch_debug_enabled():
-            _logger.debug(
-                "[RI-CHSW step 7] render_review_image_display done img=%sx%s shown=%sx%s scale=%.4f rebuild=%s",
-                iw,
-                ih,
-                nw,
-                nh,
-                scale,
-                rebuild,
-            )
 
     def _review_image_zoom_step(self, direction: int) -> None:
         steps = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
@@ -6838,121 +5058,34 @@ class WellViewerApp(QWidget):
             self._bar_tp_cb.setCurrentText("—")
 
     # ── Bar drag-and-drop reordering ─────────────────────────────────────────
+    # Implementations live in ``well_viewer.barplot_controller``.
 
     def _bar_event_xdata(self, event) -> "Optional[float]":
-        """Return data-x for a matplotlib MouseEvent over any bar axis.
-
-        Accepts events on the mean, fraction, or N panels. Returns None if
-        the cursor is outside the bar plot axes.
-        """
-        ax = getattr(event, "inaxes", None)
-        if ax is not self._ax_bar_mean and ax is not self._ax_bar_frac and ax is not getattr(self, "_ax_bar_n", None):
-            return None
-        xdata = getattr(event, "xdata", None)
-        if xdata is None:
-            return None
-        return float(xdata)
+        from well_viewer.barplot_controller import bar_event_xdata
+        return bar_event_xdata(self, event)
 
     def _bar_current_keys(self) -> List:
-        """Return the ordered list of keys currently rendered on the bar plot.
-
-        In rep-set mode: list of rset.name strings.
-        In per-well mode: list of well label strings.
-        Respects any existing _bar_order.
-        """
         return _bar_ordered_keys(self)
 
     def _bar_idx_at_x(self, xdata: float, n: int) -> int:
-        """Return the bar index nearest to *xdata*, clamped to [0, n-1]."""
-        return max(0, min(n - 1, int(round(xdata))))
+        from well_viewer.barplot_controller import bar_idx_at_x
+        return bar_idx_at_x(xdata, n)
 
     def _bar_reset_order(self) -> None:
-        self._bar_order = None
-        self._bar_reset_order_btn.setProperty("variant", "toggle_muted")
-        self._bar_reset_order_btn.style().unpolish(self._bar_reset_order_btn)
-        self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
-        self._redraw_bars()
+        from well_viewer.barplot_controller import bar_reset_order
+        bar_reset_order(self)
 
     def _on_bar_drag_press(self, event) -> None:
-        """Begin drag — record which bar was pressed."""
-        if getattr(event, "button", None) != 1:
-            return
-        xdata = self._bar_event_xdata(event)
-        if xdata is None:
-            return
-        keys = self._bar_current_keys()
-        n    = len(keys)
-        if n < 2:
-            return
-        idx = self._bar_idx_at_x(xdata, n)
-        self._bar_drag_state.update(active=True, src_idx=idx, cur_idx=idx)
+        from well_viewer.barplot_controller import on_bar_drag_press
+        on_bar_drag_press(self, event)
 
     def _on_bar_drag_motion(self, event) -> None:
-        """Update drop-target indicator while dragging."""
-        ds = self._bar_drag_state
-        if not ds["active"]:
-            return
-        xdata = self._bar_event_xdata(event)
-        if xdata is None:
-            return
-        keys = self._bar_current_keys()
-        n    = len(keys)
-        if n < 2:
-            return
-        tgt = self._bar_idx_at_x(xdata, n)
-        if tgt == ds["cur_idx"]:
-            return
-        ds["cur_idx"] = tgt
-
-        # Draw a vertical guide line in both axes at the drop position
-        for ax in (self._ax_bar_mean, self._ax_bar_frac, getattr(self, "_ax_bar_n", None)):
-            if ax is None:
-                continue
-            for ln in list(ax.lines):
-                if getattr(ln, "_bar_drag_guide", False):
-                    ln.remove()
-            if tgt > ds["src_idx"]:
-                guide_x = min(tgt + 0.5, n - 0.5)
-            else:
-                guide_x = max(tgt - 0.5, -0.5)
-            ln = ax.axvline(guide_x, color=ACCENT, lw=1.5, ls="--",
-                            alpha=0.8, zorder=10)
-            ln._bar_drag_guide = True   # type: ignore[attr-defined]
-        self._bar_canvas.draw_idle()
+        from well_viewer.barplot_controller import on_bar_drag_motion
+        on_bar_drag_motion(self, event, accent_color=ACCENT)
 
     def _on_bar_drag_release(self, event) -> None:
-        """Finalise drop — reorder and redraw (Tk ButtonRelease-1)."""
-        ds = self._bar_drag_state
-        if not ds["active"]:
-            return
-        ds["active"] = False
-
-        # Remove guide lines
-        for ax in (self._ax_bar_mean, self._ax_bar_frac, getattr(self, "_ax_bar_n", None)):
-            if ax is None:
-                continue
-            for ln in list(ax.lines):
-                if getattr(ln, "_bar_drag_guide", False):
-                    ln.remove()
-
-        src = ds["src_idx"]
-        tgt = ds["cur_idx"]
-        if src == tgt:
-            self._bar_canvas.draw_idle()
-            return
-
-        keys = self._bar_current_keys()
-        if not (0 <= src < len(keys) and 0 <= tgt < len(keys)):
-            self._bar_canvas.draw_idle()
-            return
-
-        item = keys.pop(src)
-        keys.insert(tgt, item)
-        self._bar_order = keys
-        self._bar_reset_order_btn.setProperty("variant", "toggle_accent")
-        self._bar_reset_order_btn.style().unpolish(self._bar_reset_order_btn)
-        self._bar_reset_order_btn.style().polish(self._bar_reset_order_btn)
-        self._redraw_bars()
+        from well_viewer.barplot_controller import on_bar_drag_release
+        on_bar_drag_release(self, event)
 
     def _apply_bar_ylims(
         self,
@@ -6998,265 +5131,45 @@ class WellViewerApp(QWidget):
         tp_str: str,
         threshold: float,
     ) -> None:
-        """
-        Violin plot rendering: one column per well/group, KDE-smoothed distribution.
-
-        Mean fluor panel: filled KDE shape (cells above threshold) with median marker.
-        Fraction panel: scalar dot per well (same as beeswarm).
-
-        Bandwidth is controlled by self._violin_bw; higher = smoother.
-        """
-        try:
-            from scipy.stats import gaussian_kde
-        except ImportError:
-            ax_mean.text(0.5, 0.5, "scipy required for violin plot",
-                         transform=ax_mean.transAxes, ha="center", va="center",
-                         color=TXT_MUT, fontsize=9)
-            return
-
-        import numpy as np_local
-        n       = len(wells)
-        slider = getattr(self, "_violin_slider", None)
-        bw_raw = float(slider.value()) / 100.0 if slider is not None else 1.0
-        bw      = max(0.05, bw_raw)
-        bar_w   = min(0.4, 3.0 / max(n, 1))   # half-width of each violin
-
-        xs_ticks = list(range(n))
-        frac_vals: List[float] = []
-        ratios = getattr(self, "_ratio_index", None)
-
-        for i, (lbl, color) in enumerate(zip(wells, colors)):
-            rows = self._get_rows(lbl)
-            vals: List[float] = []
-            n_total = n_above = 0
-            for row in rows:
-                if not row_is_included(row):
-                    continue
-                raw_t = row.get("timepoint_hours")
-                try:
-                    t = float(raw_t)
-                except (TypeError, ValueError):
-                    continue
-                if abs(t - target_t) > 1e-6:
-                    continue
-                v = resolve_value(row, self._active_val_col, ratios)
-                if math.isnan(v):
-                    continue
-                n_total += 1
-                if v > threshold:
-                    n_above += 1
-                    vals.append(v)
-
-            frac_vals.append(n_above / n_total if n_total else float("nan"))
-
-            if len(vals) < 3:
-                # Too few points for KDE — fall back to a thin bar
-                if vals:
-                    ax_mean.scatter([i], [vals[0]], c=color, s=20, zorder=4)
-                continue
-
-            arr = np_local.array(vals, dtype=float)
-            kde = gaussian_kde(arr, bw_method=bw)
-            y_min, y_max = arr.min(), arr.max()
-            y_pad = (y_max - y_min) * 0.05
-            ys = np_local.linspace(y_min - y_pad, y_max + y_pad, 200)
-            density = kde(ys)
-            # Normalise density to the violin half-width
-            max_d = density.max()
-            if max_d > 0:
-                density = density / max_d * bar_w
-
-            # Draw filled violin (mirrored around x=i)
-            ax_mean.fill_betweenx(ys, i - density, i + density,
-                                  color=color, alpha=0.55, zorder=2)
-            ax_mean.plot(i - density, ys, color=color, lw=0.6, alpha=0.7, zorder=3)
-            ax_mean.plot(i + density, ys, color=color, lw=0.6, alpha=0.7, zorder=3)
-
-            # Median marker
-            median = float(np_local.median(arr))
-            ax_mean.hlines(median, i - bar_w * 0.6, i + bar_w * 0.6,
-                           colors="white", lw=2.0, zorder=5)
-            ax_mean.hlines(median, i - bar_w * 0.6, i + bar_w * 0.6,
-                           colors=color, lw=1.2, zorder=6)
-
-        # Fraction panel — scalar dot per well
-        for i, (fv, color) in enumerate(zip(frac_vals, colors)):
-            if not math.isnan(fv):
-                ax_frac.scatter([i], [fv], c=color, s=30, zorder=3, linewidths=0)
-            else:
-                ax_frac.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                marker="x", zorder=3, linewidths=1)
-
-        # Threshold line, tick labels
-        ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.7, zorder=1)
-        ax_frac.axhline(0.5, color=BORDER, lw=0.8, ls="--", alpha=0.5, zorder=1)
-        for ax in (ax_mean, ax_frac):
-            ax.set_xticks(xs_ticks)
-            ax.set_xticklabels(xlabels,
-                               rotation=45 if n > 8 else 0,
-                               ha="right" if n > 8 else "center",
-                               fontsize=7)
-            ax.set_xlim(-0.6, n - 0.4)
-        ax_frac.set_ylim(-0.05, 1.05)
-        ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
-        ax_mean.set_title(
-            f"{self._active_channel.upper()} distribution (violin, bw={bw:.2f})  —  t = {tp_str} h",
-            color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
-        ax_frac.set_title(
-            f"Fraction above threshold  —  t = {tp_str} h",
-            color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
+        from well_viewer.barplot_renderer import draw_violin
+        draw_violin(self, ax_mean, ax_frac, wells, colors, xlabels,
+                    target_t, tp_str, threshold)
 
     def _draw_beeswarm(
         self,
         ax_mean: "Axes",
         ax_frac: "Axes",
-        wells: List[str],          # ordered list of well labels to plot
-        colors: List[str],         # parallel colour per well
-        xlabels: List[str],        # x-tick labels
+        wells: List[str],
+        colors: List[str],
+        xlabels: List[str],
         target_t: float,
         tp_str: str,
         threshold: float,
     ) -> None:
-        """
-        Beeswarm rendering: one column per well, each cell a point.
-
-        Mean fluor panel: raw per-cell values above threshold, jittered.
-        Fraction panel: per-well fraction (scalar dot, no jitter needed).
-        Replicate groupings are ignored — every well is plotted independently.
-        """
-        n = len(wells)
-        xs_ticks = list(range(n))
-        bar_w    = min(0.35, 3.0 / max(n, 1))  # narrow spread per column
-        ratios = getattr(self, "_ratio_index", None)
-
-        for i, (lbl, color) in enumerate(zip(wells, colors)):
-            rows = self._get_rows(lbl)
-            # Collect raw per-cell values at target_t above threshold
-            cell_vals: List[float] = []
-            frac_val: Optional[float] = None
-            n_above = n_total = 0
-            for row in rows:
-                if not row_is_included(row):
-                    continue
-                raw = row.get("timepoint_hours")
-                t: Optional[float] = (raw if isinstance(raw, float)
-                                      and not math.isnan(raw)
-                                      else parse_timepoint_hours(
-                                          str(row.get("timepoint", ""))))
-                if t is None or abs(t - target_t) > 1e-6:
-                    continue
-                val = resolve_value(row, self._active_val_col, ratios)
-                if math.isnan(val):
-                    continue
-                n_total += 1
-                if val > threshold:
-                    n_above += 1
-                    cell_vals.append(val)
-            if n_total > 0:
-                frac_val = n_above / n_total
-
-            if cell_vals:
-                jx, jy = _beeswarm_jitter(cell_vals, x_center=float(i),
-                                           max_spread=bar_w)
-                ax_mean.scatter(jx, jy, c=color, s=6, alpha=0.55,
-                                zorder=3, linewidths=0)
-                # Mean marker
-                m = sum(cell_vals) / len(cell_vals)
-                ax_mean.plot([i - bar_w * 0.6, i + bar_w * 0.6],
-                             [m, m], color=color, lw=1.5, zorder=4)
-            else:
-                # No data placeholder: tiny cross.
-                ax_mean.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                marker="x", zorder=3, linewidths=1)
-
-            if frac_val is not None:
-                ax_frac.scatter([i], [frac_val], c=color, s=30,
-                                zorder=3, linewidths=0)
-            else:
-                ax_frac.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
-                                marker="x", zorder=3, linewidths=1)
-
-        ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--",
-                        alpha=0.7, zorder=1)
-        ax_frac.axhline(0.5, color=BORDER, lw=0.8, ls="--",
-                        alpha=0.5, zorder=1)
-        for ax in (ax_mean, ax_frac):
-            ax.set_xticks(xs_ticks)
-            ax.set_xticklabels(xlabels,
-                               rotation=45 if n > 8 else 0,
-                               ha="right" if n > 8 else "center",
-                               fontsize=7)
-            ax.set_xlim(-0.6, n - 0.4)
-        ax_frac.set_ylim(-0.05, 1.05)
-        ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
-        ax_mean.set_title(
-            f"{self._active_channel.upper()} per cell (above threshold)  —  t = {tp_str} h",
-            color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
-        ax_frac.set_title(
-            f"Fraction above threshold  —  t = {tp_str} h",
-            color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
+        from well_viewer.barplot_renderer import draw_beeswarm
+        draw_beeswarm(self, ax_mean, ax_frac, wells, colors, xlabels,
+                      target_t, tp_str, threshold)
 
     def _redraw_bars(self) -> None:
-        """Draw bar/violin/beeswarm views for the selected timepoint."""
-        # The Bar Plots tab body is built lazily — bail out if the user
-        # somehow triggers a redraw before that builder has run.
-        if not hasattr(self, "_ax_bar_mean"):
-            return
-        ax_mean = self._ax_bar_mean
-        ax_frac = self._ax_bar_frac
-        ax_n = getattr(self, "_ax_bar_n", None)
-        ax_mean.cla()
-        ax_frac.cla()
-        if ax_n is not None:
-            ax_n.cla()
+        from well_viewer.barplot_renderer import redraw_bars
+        redraw_bars(self)
 
-        use_sem = self._use_sem.get()
-        band_lbl = "SEM" if use_sem else "SD"
-        threshold = self._get_thresh_frac_on(self._active_channel)
-
-        active_rsets = self._rep_sets_active()
-        bar_selected = self._selected_bar_wells(active_rsets)
-
-        _ch = self._active_channel.upper()
-        apply_ax_style(ax_mean,
-                       f"Mean {_ch} (above threshold) ± {band_lbl}",
-                       f"Mean {_ch}")
-        apply_ax_style(ax_frac,
-                       "Fraction of Cells Above Threshold",
-                       "Fraction")
-        if ax_n is not None:
-            fov_active = self._use_fov_spread_active()
-            if fov_active:
-                apply_ax_style(
-                    ax_n,
-                    f"Mean events above threshold per FOV ± {band_lbl}",
-                    "N(above)/FOV",
-                )
-            else:
-                apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
-        ax_frac.set_ylim(-0.05, 1.05)
-
-        if not bar_selected and not active_rsets:
-            self._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG, ax_n=ax_n)
-            return
-
-        tp_data = self._resolve_bar_timepoint()
-        if tp_data is None:
-            self._draw_bar_empty_state(ax_mean, ax_frac, "Select a timepoint above", ax_n=ax_n)
-            return
-        target_t, tp_str = tp_data
-
-        if self._draw_per_cell_bar_mode(
-            ax_mean=ax_mean,
-            ax_frac=ax_frac,
-            ax_n=ax_n,
-            active_rsets=active_rsets,
-            target_t=target_t,
-            tp_str=tp_str,
-            threshold=threshold,
-        ):
-            return
-        self._draw_grouped_bar_mode(
+    def _draw_grouped_bar_mode(
+        self,
+        *,
+        ax_mean,
+        ax_frac,
+        ax_n=None,
+        active_rsets: "List[ReplicateSet]",
+        target_t: float,
+        tp_str: str,
+        threshold: float,
+        band_lbl: str,
+        use_sem: bool,
+    ) -> None:
+        from well_viewer.barplot_renderer import draw_grouped_bar_mode
+        draw_grouped_bar_mode(
+            self,
             ax_mean=ax_mean,
             ax_frac=ax_frac,
             ax_n=ax_n,
@@ -7267,9 +5180,6 @@ class WellViewerApp(QWidget):
             band_lbl=band_lbl,
             use_sem=use_sem,
         )
-        from well_viewer.figure_export_editor import apply_export_style_to_current
-
-        apply_export_style_to_current(self, self._bar_fig, getattr(self, "_bar_canvas", None))
 
     def _selected_bar_wells(self, active_rsets: "List[ReplicateSet]") -> List[str]:
         if active_rsets:
@@ -7437,114 +5347,6 @@ class WellViewerApp(QWidget):
         ax_n.yaxis.set_major_locator(MaxNLocator(integer=not per_fov_spread))
         setattr(ax_n, "_categorical_xaxis", True)
 
-    def _draw_grouped_bar_mode(
-        self,
-        *,
-        ax_mean,
-        ax_frac,
-        ax_n=None,
-        active_rsets: "List[ReplicateSet]",
-        target_t: float,
-        tp_str: str,
-        threshold: float,
-        band_lbl: str,
-        use_sem: bool,
-    ) -> None:
-        use_groups, items, _ = self._collect_bar_items(target_t)
-        if use_groups:
-            by_key = {r.name: r for r in active_rsets}
-            all_set_idx = {r.name: i for i, r in enumerate(getattr(self, "_rep_sets", []))}
-            color_by_key = {
-                r.name: WELL_COLORS[all_set_idx.get(r.name, i) % len(WELL_COLORS)]
-                for i, r in enumerate(active_rsets)
-            }
-            ordered = []
-            for key in self._bar_current_keys():
-                rset = by_key.get(key)
-                if not rset:
-                    continue
-                gm, g_err_m, gf, g_err_f = self._compute_rep_stats(rset, target_t, threshold, use_sem)
-                n_above = self._compute_rep_n_above(rset, target_t)
-                base_lbl = self._replicate_display_label(rset)
-                display = base_lbl
-                # Trailing 0.0 = n_above_spread; rep-set mode never combines
-                # with the Aggregate-FOVs toggle (the toggle is auto-disabled
-                # while rep sets are active), so there is no per-FOV error
-                # bar on the events panel here.
-                ordered.append(
-                    (
-                        rset.name,
-                        display,
-                        gm,
-                        g_err_m,
-                        gf,
-                        g_err_f,
-                        not math.isnan(gm),
-                        color_by_key.get(rset.name, WELL_COLORS[0]),
-                        int(n_above),
-                        0.0,
-                    )
-                )
-            xlabels = [display for _, display, *_ in ordered]
-            draw_items = ordered
-        else:
-            # Per-well items are (label, mean, spread, frac, frac_spread, has, n_above);
-            # preserve the full tuple so the renderer can draw the fraction
-            # error bar when per-FOV spread is enabled and the events panel.
-            key_to_item = {item[0]: item for item in items}
-            ordered_keys = [k for k in self._bar_current_keys() if k in key_to_item]
-            draw_items = [key_to_item[k] for k in ordered_keys]
-            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in draw_items]
-
-        _bar_render_items(
-            ax_mean=ax_mean,
-            ax_frac=ax_frac,
-            ax_n=ax_n,
-            use_groups=use_groups,
-            items=draw_items,
-            xlabels=xlabels,
-            threshold=threshold,
-            well_colors=WELL_COLORS,
-            warn_color=WARN,
-            border_color=BORDER,
-            placeholder_color=CLR_PLACEHOLDER,
-            disabled_well_color=CLR_DISABLED_WELL,
-            err_bar_color=CLR_ERR_BAR,
-        )
-        ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
-        _ch = self._active_channel.upper()
-        ax_mean.set_title(
-            f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
-            color=TXT_PRI,
-            fontsize=9,
-            fontweight="bold",
-            pad=6,
-        )
-        ax_frac.set_title(
-            f"Fraction above threshold  —  t = {tp_str} h",
-            color=TXT_PRI,
-            fontsize=9,
-            fontweight="bold",
-            pad=6,
-        )
-        if ax_n is not None:
-            fov_active = self._use_fov_spread_active()
-            if fov_active:
-                n_title = f"Mean events above threshold per FOV ± {band_lbl}  —  t = {tp_str} h"
-                n_ylabel = "N(above)/FOV"
-            else:
-                n_title = f"Events above threshold (N)  —  t = {tp_str} h"
-                n_ylabel = "N(above)"
-            ax_n.set_title(
-                n_title,
-                color=TXT_PRI,
-                fontsize=9,
-                fontweight="bold",
-                pad=6,
-            )
-            ax_n.set_ylabel(n_ylabel, fontsize=8, labelpad=5)
-        self._apply_bar_ylims(ax_mean, ax_frac, ax_n=ax_n)
-        self._bar_canvas.draw_idle()
 
     # ── Bar plot export ───────────────────────────────────────────────────────
 

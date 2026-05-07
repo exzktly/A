@@ -1,14 +1,14 @@
-"""smFISH tab widget (Qt port)."""
+"""smFISH tab widget (Qt port).
+
+View-only: classification, zip scanning, image decoding, and the
+apply-to-all worker live in ``smfish_controller.py`` and ``smfish_worker.py``.
+"""
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import logging
 import re
-import threading
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -20,25 +20,18 @@ from PySide6.QtWidgets import (
 )
 
 from ui.theme import get_color
-from well_viewer.image_resolver import output_suffixes_for_kind, resolve_ref_by_fov_tp
-from well_viewer.preview_controller import classify_member, read_member_bytes, scan_zip_members
+from well_viewer.image_resolver import resolve_ref_by_fov_tp
+from well_viewer.smfish_controller import (
+    SmfishImgRef as _ImgRef,
+    make_classifier,
+    read_image_arrays,
+    scan_well_zip,
+)
+from well_viewer.smfish_worker import apply_global_threshold_async
 from well_viewer.ui_helpers import attach_plot_toolbar
 from well_viewer.viewer_state import make_schema_extractor
 
 logger = logging.getLogger("smfish_tab")
-
-
-@dataclass
-class _ImgRef:
-    zip_path: Path | None = None
-    zip_member: str | None = None
-    disk_path: Path | None = None
-
-    @property
-    def name(self) -> str:
-        if self.disk_path is not None:
-            return self.disk_path.name
-        return Path(self.zip_member or "").name
 
 
 class _WorkerBridge(QObject):
@@ -56,6 +49,7 @@ class SmfishTab(QWidget):
         self._fov_tp_extractor: Callable[[str], tuple[str, str]] | None = None
         self._smfish_tokens: list[str] = []
         self._well_to_zip: dict[str, Path] = {}
+        self._classifier = make_classifier(self._separator)
         self._current_log_img: np.ndarray | None = None
         self._current_labels: np.ndarray | None = None
         self._current_sorted_vals: np.ndarray | None = None
@@ -64,7 +58,7 @@ class SmfishTab(QWidget):
         self._fit_on_next_redraw = True
         self._show_overlays = True
         self._cdf_popup: QDialog | None = None
-        self._cdf_canvas: FigureCanvas | None = None
+        self._cdf_canvas = None
         self._cdf_ax = None
         self._cdf_fig = None
 
@@ -81,8 +75,6 @@ class SmfishTab(QWidget):
         import matplotlib  # noqa: F401  (kept for setattr below)
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.figure import Figure
-        # Make Figure / FigureCanvas reachable from other methods on this
-        # instance so they don't have to re-import each time.
         self._Figure = Figure
         self._FigureCanvas = FigureCanvas
         root = QVBoxLayout(self)
@@ -276,6 +268,7 @@ class SmfishTab(QWidget):
             info = json.loads(info_path.read_text())
             self._smfish_tokens = [str(t).strip() for t in info.get("smfish_tokens", []) if str(t).strip()]
             self._separator = str(info.get("separator", "_"))
+            self._classifier = make_classifier(self._separator)
             fov_idx = int(info.get("fov_index", -1))
             tp_idx = int(info.get("tp_index", -1))
             if fov_idx >= 0 and tp_idx >= 0:
@@ -321,53 +314,6 @@ class SmfishTab(QWidget):
         sels = sorted(self._app._selected_wells, key=lambda lbl: self._app._parse_rc(lbl))
         return sels[0] if len(sels) == 1 else None
 
-    @staticmethod
-    def _norm_well_token(well: str) -> str:
-        m = re.match(r"([A-Ha-h])(\d{1,2})$", well.strip())
-        if not m:
-            return well.strip().upper()
-        return f"{m.group(1).upper()}{int(m.group(2)):02d}"
-
-    @staticmethod
-    def _norm_id(v: str) -> str:
-        t = (v or "").strip()
-        if t.isdigit():
-            return str(int(t))
-        return t
-
-    def _classify_local(self, name: str, fluor_lower: str, fov_tp_extractor=None):
-        mask_re = re.compile(
-            r"(?:%s)$" % "|".join(re.escape(sfx) for sfx in output_suffixes_for_kind("mask")),
-            re.I,
-        )
-        overlay_re = re.compile(
-            r"(?:%s)$" % "|".join(re.escape(sfx) for sfx in output_suffixes_for_kind("overlay")),
-            re.I,
-        )
-        tophat_re = re.compile(
-            r"(?:%s)$" % "|".join(
-                re.escape(sfx).replace(re.escape(fluor_lower), r"\w+")
-                for sfx in output_suffixes_for_kind("fluor_processed", target_channel=fluor_lower)
-            ),
-            re.I,
-        )
-
-        def _legacy(stem: str) -> tuple[str, str]:
-            parts = stem.split(self._separator)
-            if len(parts) >= 2:
-                return parts[-2], parts[-1]
-            return "unknown", "unknown"
-
-        return classify_member(
-            name=name,
-            fluor_lower=fluor_lower,
-            mask_re=mask_re,
-            overlay_re=overlay_re,
-            tophat_fluor_re=tophat_re,
-            fov_tp_extractor=fov_tp_extractor,
-            legacy_extractor=_legacy,
-        )
-
     def _scan_selected_zip(self):
         if self._out_dir is None:
             return {}, {}
@@ -376,17 +322,12 @@ class SmfishTab(QWidget):
         zip_path = self._well_to_zip.get(well)
         if not well or not channel or zip_path is None:
             return {}, {}
-        _g, _ov, mask, tophat, smfish = scan_zip_members(
+        return scan_well_zip(
             zip_path=zip_path,
-            fluor_lower=channel,
-            image_exts={".tif", ".tiff", ".png", ".jpg", ".jpeg"},
-            classify_member_fn=self._classify_local,
-            imgref_factory=lambda p, m: _ImgRef(zip_path=p, zip_member=m),
-            logger=logger,
+            channel=channel,
+            classifier=self._classifier,
             fov_tp_extractor=self._fov_tp_extractor,
         )
-        source = smfish if smfish else tophat
-        return source, mask
 
     def _refresh_fov_tp_values(self) -> None:
         smfish, mask = self._scan_selected_zip()
@@ -423,16 +364,11 @@ class SmfishTab(QWidget):
         if sm_ref is None or mk_ref is None:
             self._set_status("No smFISH/mask pair found for current selection.")
             return
-        sm_raw = read_member_bytes(zip_path=sm_ref.zip_path, member=sm_ref.zip_member, logger=logger)
-        mk_raw = read_member_bytes(zip_path=mk_ref.zip_path, member=mk_ref.zip_member, logger=logger)
-        if sm_raw is None or mk_raw is None:
+        result = read_image_arrays(sm_ref, mk_ref)
+        if result is None:
             self._set_status("Failed to load selected image data.")
             return
-        from tifffile import imread
-        self._current_log_img = imread(io.BytesIO(sm_raw)).astype(np.float32)
-        self._current_labels = imread(io.BytesIO(mk_raw))
-        vals = self._current_log_img[self._current_labels > 0]
-        self._current_sorted_vals = np.sort(vals) if vals.size else np.array([], dtype=np.float32)
+        self._current_log_img, self._current_labels, self._current_sorted_vals = result
         well = self._selected_well_token() or "N/A"
         self._set_status(f"Loaded {well} fov={fov_raw} tp={tp_raw}.")
         self._fit_on_next_redraw = True
@@ -561,7 +497,30 @@ class SmfishTab(QWidget):
         self._canvas_img.draw_idle()
 
     def _apply_to_all(self) -> None:
-        threading.Thread(target=self._apply_to_all_worker, daemon=True).start()
+        if self._out_dir is None:
+            self._set_status("No output loaded.")
+            return
+        channel = self._channel_cb.currentText().strip().lower()
+        thr = self._get_threshold()
+
+        def _after_csv() -> None:
+            QTimer.singleShot(0, self._refresh_app_cache)
+            QTimer.singleShot(
+                0,
+                lambda: QMessageBox.information(self, "smFISH", "Apply to All finished."),
+            )
+
+        apply_global_threshold_async(
+            out_dir=self._out_dir,
+            well_to_zip=self._well_to_zip,
+            channel=channel,
+            threshold=thr,
+            classifier=self._classifier,
+            fov_tp_extractor=self._fov_tp_extractor,
+            status_cb=self._bridge.status.emit,
+            done_cb=self._bridge.done.emit,
+            after_csv_cb=_after_csv,
+        )
 
     def _refresh_app_cache(self) -> None:
         if self._app is None:
@@ -571,98 +530,3 @@ class SmfishTab(QWidget):
                 self._app._cache[label] = self._app._load_well_csv(path)
         self._app._recalculate_threshold()
         self._app._redraw()
-
-    def _apply_to_all_worker(self) -> None:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        out_dir = self._out_dir
-        channel = self._channel_cb.currentText().strip().lower()
-        if out_dir is None or not channel:
-            self._bridge.status.emit("Select channel and ensure one well is selected.")
-            return
-        thr = self._get_threshold()
-        col = f"{channel}_smfish_count"
-        counts: dict[tuple[str, str, str, str], int] = {}
-
-        from tifffile import imread
-
-        def _process_well(well: str, zip_path: Path) -> dict[tuple[str, str, str, str], int]:
-            per_well_counts: dict[tuple[str, str, str, str], int] = {}
-            g, _ov, mask, _th, smfish = scan_zip_members(
-                zip_path=zip_path,
-                fluor_lower=channel,
-                image_exts={".tif", ".tiff", ".png", ".jpg", ".jpeg"},
-                classify_member_fn=self._classify_local,
-                imgref_factory=lambda p, m: _ImgRef(zip_path=p, zip_member=m),
-                logger=logger,
-                fov_tp_extractor=self._fov_tp_extractor,
-            )
-            _ = g
-            for key in sorted(set(smfish).intersection(mask)):
-                sm_ref = smfish[key]
-                mk_ref = mask[key]
-                sm_raw = read_member_bytes(zip_path=sm_ref.zip_path, member=sm_ref.zip_member, logger=logger)
-                mk_raw = read_member_bytes(zip_path=mk_ref.zip_path, member=mk_ref.zip_member, logger=logger)
-                if sm_raw is None or mk_raw is None:
-                    continue
-                log_img = imread(io.BytesIO(sm_raw)).astype(np.float32)
-                labels = imread(io.BytesIO(mk_raw))
-                hits = labels[(labels > 0) & (log_img > thr)].astype(np.int64, copy=False)
-                if hits.size:
-                    hit_counts = np.bincount(hits)
-                    for nid in np.nonzero(hit_counts)[0]:
-                        per_well_counts[(well, key[0], key[1], str(int(nid)))] = int(hit_counts[nid])
-            return per_well_counts
-
-        wells = sorted(self._well_to_zip.items())
-        if wells:
-            max_workers = min(8, len(wells))
-            self._bridge.status.emit(
-                f"Applying global threshold across {len(wells)} wells using {max_workers} workers..."
-            )
-            completed = 0
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_well = {
-                    executor.submit(_process_well, well, zip_path): well
-                    for well, zip_path in wells
-                }
-                for future in as_completed(future_to_well):
-                    well = future_to_well[future]
-                    completed += 1
-                    try:
-                        counts.update(future.result())
-                    except Exception as e:
-                        logger.exception("smFISH global threshold failed for %s: %s", well, e)
-                    self._bridge.status.emit(f"Processed {well} ({completed}/{len(wells)})...")
-
-        for well in sorted(self._well_to_zip):
-            csv_matches = list(out_dir.glob(f"*_{well}.csv"))
-            if not csv_matches:
-                continue
-            csv_path = csv_matches[0]
-            with csv_path.open("r", newline="", encoding="utf-8") as fh:
-                reader = csv.DictReader(fh)
-                rows = list(reader)
-                fieldnames = list(reader.fieldnames or [])
-            if col not in fieldnames:
-                fieldnames.append(col)
-
-            for row in rows:
-                r_well = self._norm_well_token((row.get("well") or well))
-                fov = self._norm_id((row.get("fov") or row.get("FOV") or ""))
-                tp = self._norm_id((row.get("timepoint") or row.get("tp") or row.get("time") or ""))
-                nid = (row.get("nucleus_id") or "").strip()
-                key = (r_well, fov, tp, nid)
-                row[col] = str(counts.get(key, 0))
-
-            with csv_path.open("w", newline="", encoding="utf-8") as fh:
-                writer = csv.DictWriter(fh, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
-
-        QTimer.singleShot(0, self._refresh_app_cache)
-        self._bridge.done.emit("Apply to All complete. Line/Bar plots refreshed.")
-        QTimer.singleShot(
-            0,
-            lambda: QMessageBox.information(self, "smFISH", "Apply to All finished."),
-        )

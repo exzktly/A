@@ -195,3 +195,174 @@ def bg_apply_legacy(app, tok: str) -> None:
         else:
             app._selected_wells.discard(tok)
     app._bar_refresh_single_btn(tok)
+
+
+# ── Quick-group helpers (extracted from runtime_app) ──────────────────────────
+#
+# Bulk replicate-set / bar-group constructors driven by the "Quick Replicates"
+# and "Quick Groups" dropdowns on the Sample Definitions panel.
+
+from PySide6.QtCore import QTimer
+from well_viewer.plate_layout import PLATE_COLS, PLATE_ROWS
+
+
+def make_replicate_pairs(toks, prefix: str):
+    """Pair adjacent tokens into ReplicateSets; singletons become solo sets."""
+    sets = []
+    i = 0
+    while i < len(toks):
+        if i + 1 < len(toks):
+            t1, t2 = toks[i], toks[i + 1]
+            sets.append(ReplicateSet(f"{t1}/{t2}", [t1, t2]))
+            i += 2
+        else:
+            t = toks[i]
+            sets.append(ReplicateSet(t, [t]))
+            i += 1
+    return sets
+
+
+def rep_quick_pairs(app) -> None:
+    """Generate quick replicate pairs using current dropdown selections."""
+    pair_dir = app._rep_quick_pair_dir
+    iter_order = app._rep_quick_iter_order
+    new_sets = []
+
+    if pair_dir == "row":
+        if iter_order == "row":
+            for row_ltr in PLATE_ROWS:
+                loaded = [f"{row_ltr}{col}" for col in PLATE_COLS
+                          if f"{row_ltr}{col}" in app._well_paths]
+                new_sets.extend(make_replicate_pairs(loaded, row_ltr))
+        else:
+            by_col = {}
+            for row_ltr in PLATE_ROWS:
+                loaded = [f"{row_ltr}{col}" for col in PLATE_COLS
+                          if f"{row_ltr}{col}" in app._well_paths]
+                row_sets = make_replicate_pairs(loaded, row_ltr)
+                for s in row_sets:
+                    if s.wells:
+                        col = _extract_well_token(s.wells[0])
+                        if col and len(col) > 1:
+                            col = col[1:]
+                            by_col.setdefault(col, []).append(s)
+            for col in PLATE_COLS:
+                if col in by_col:
+                    new_sets.extend(by_col[col])
+    else:
+        if iter_order == "col":
+            for col in PLATE_COLS:
+                loaded = [f"{row_ltr}{col}" for row_ltr in PLATE_ROWS
+                          if f"{row_ltr}{col}" in app._well_paths]
+                new_sets.extend(make_replicate_pairs(loaded, col))
+        else:
+            by_row = {}
+            for col in PLATE_COLS:
+                loaded = [f"{row_ltr}{col}" for row_ltr in PLATE_ROWS
+                          if f"{row_ltr}{col}" in app._well_paths]
+                col_sets = make_replicate_pairs(loaded, col)
+                for s in col_sets:
+                    if s.wells:
+                        tok = _extract_well_token(s.wells[0])
+                        if tok and len(tok) > 0:
+                            row = tok[0]
+                            by_row.setdefault(row, []).append(s)
+            for row in PLATE_ROWS:
+                if row in by_row:
+                    new_sets.extend(by_row[row])
+
+    if not new_sets:
+        return
+    if app._rep_sets:
+        resp = QMessageBox.question(
+            app, "Replace replicate sets?",
+            f"This will replace the current {len(app._rep_sets)} "
+            "replicate set(s). Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if resp != QMessageBox.Yes:
+            return
+        for grp in app._bar_groups:
+            grp.members.clear()
+    app._rep_sets = new_sets
+    app._active_rep_idx = 0 if app._rep_sets else -1
+    app._rep_hidden.clear()
+    app._invalidate_stats_cache()
+    rep_quick_refresh_ui(app)
+
+
+def rep_quick_refresh_ui(app) -> None:
+    """Lightweight post-assignment refresh for Quick Replicates."""
+    app._rep_refresh_map()
+    app._refresh_sidebar_map()
+    app._bar_refresh_map()
+
+    try:
+        active_tab = app._notebook.tabText(app._notebook.currentIndex())
+    except Exception:
+        active_tab = ""
+    if active_tab == "Sample Definitions":
+        app._rep_panel_refresh()
+
+    if active_tab == "Bar Plots":
+        QTimer.singleShot(0, app._redraw_bars)
+    elif active_tab == "Line Graphs":
+        QTimer.singleShot(0, app._redraw)
+
+
+def bar_quick_groups(app) -> None:
+    """Generate quick bar groups using current dropdown selections."""
+    pair_dir = app._bar_quick_pair_dir
+    iter_order = app._bar_quick_iter_order
+    app._bar_groups.clear()
+    app._bar_active_grp = -1
+
+    if pair_dir == "row":
+        if iter_order == "row":
+            for row_ltr in PLATE_ROWS:
+                loaded = [f"{row_ltr}{col}" for col in PLATE_COLS
+                          if f"{row_ltr}{col}" in app._well_paths]
+                if not loaded:
+                    continue
+                sets = make_replicate_pairs(loaded, row_ltr)
+                app._bar_groups.append(BarGroup(f"Row {row_ltr}", members=sets))
+        else:
+            for col in PLATE_COLS:
+                pairs_in_col = []
+                for row_ltr in PLATE_ROWS:
+                    loaded = [f"{row_ltr}{col}"]
+                    next_col_idx = PLATE_COLS.index(col) + 1
+                    if next_col_idx < len(PLATE_COLS):
+                        loaded.append(f"{row_ltr}{PLATE_COLS[next_col_idx]}")
+                    loaded = [t for t in loaded if t in app._well_paths]
+                    if loaded:
+                        pairs_in_col.extend(make_replicate_pairs(loaded, col))
+                if pairs_in_col:
+                    app._bar_groups.append(BarGroup(f"Col {col}", members=pairs_in_col))
+    else:
+        if iter_order == "col":
+            for col in PLATE_COLS:
+                loaded = [f"{row_ltr}{col}" for row_ltr in PLATE_ROWS
+                          if f"{row_ltr}{col}" in app._well_paths]
+                if not loaded:
+                    continue
+                sets = make_replicate_pairs(loaded, col)
+                app._bar_groups.append(BarGroup(f"Col {col}", members=sets))
+        else:
+            for row_ltr in PLATE_ROWS:
+                pairs_in_row = []
+                for col in PLATE_COLS:
+                    loaded = [f"{row_ltr}{col}"]
+                    next_row_idx = PLATE_ROWS.index(row_ltr) + 1
+                    if next_row_idx < len(PLATE_ROWS):
+                        loaded.append(f"{PLATE_ROWS[next_row_idx]}{col}")
+                    loaded = [t for t in loaded if t in app._well_paths]
+                    if loaded:
+                        pairs_in_row.extend(make_replicate_pairs(loaded, col))
+                if pairs_in_row:
+                    app._bar_groups.append(BarGroup(f"Row {row_ltr}", members=pairs_in_row))
+
+    if app._bar_groups:
+        app._bar_active_grp = 0
+    app._bar_rebuild_groups_ui_now()
+    QTimer.singleShot(50, app._bar_rebuild_groups)

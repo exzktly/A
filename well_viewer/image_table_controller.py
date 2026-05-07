@@ -240,11 +240,7 @@ def image_table_apply_dimensions(app) -> None:
 def image_table_rebuild_grid(app) -> None:
     """Rebuild the selector grid (rows × cols of cell groupboxes) plus the
     per-row channel + LUT-colour column at column 0."""
-    from PySide6.QtWidgets import QComboBox
-    from well_viewer.ui_helpers import clear_layout
-
-    layout = app._image_table_selector_grid
-    clear_layout(layout)
+    from well_viewer.views.image_table_grid_view import build_image_table_grid
 
     rows = int(getattr(app, "_image_table_rows", 2) or 2)
     cols = int(getattr(app, "_image_table_cols", 3) or 3)
@@ -254,85 +250,20 @@ def image_table_rebuild_grid(app) -> None:
     fov_opts = _fov_options(app)
     well_opts = _well_options(app)
 
-    # Preserve existing per-row LUT-colour selections across rebuilds when
-    # row count is unchanged or shrinks; defaults are picked otherwise.
-    prev_lut_cbs: List[QComboBox] = list(getattr(app, "_image_table_row_lut_color_cbs", []) or [])
+    cells, row_chan_cbs, row_lut_color_cbs, row_well_cbs = build_image_table_grid(
+        app,
+        rows=rows,
+        cols=cols,
+        chan_opts=chan_opts,
+        tp_opts=tp_opts,
+        fov_opts=fov_opts,
+        well_opts=well_opts,
+        lut_color_names=LUT_COLOR_NAMES,
+        on_apply_row_well=image_table_apply_row_well,
+        on_apply_row_channel=image_table_apply_row_channel,
+        on_generate=image_table_generate,
+    )
 
-    cells: List[List[Dict[str, Any]]] = []
-    row_chan_cbs: List[QComboBox] = []
-    row_lut_color_cbs: List[QComboBox] = []
-    row_well_cbs: List[QComboBox] = []
-    for r in range(rows):
-        row_box = QGroupBox(f"Row {r + 1}")
-        # Tinted background flags this groupbox as a row-scope control —
-        # changes here propagate to every cell in the row, in contrast to
-        # the per-cell selector groupboxes that use the default background.
-        row_box.setObjectName("ImageTableRowOptions")
-        row_box.setStyleSheet(
-            "QGroupBox#ImageTableRowOptions { "
-            "background-color: rgba(99, 102, 241, 0.10); "
-            "border: 1px solid rgba(99, 102, 241, 0.35); "
-            "border-radius: 4px; margin-top: 8px; "
-            "} "
-            "QGroupBox#ImageTableRowOptions::title { "
-            "subcontrol-origin: margin; left: 8px; padding: 0 4px; "
-            "}"
-        )
-        rbl = QVBoxLayout(row_box)
-        rbl.setContentsMargins(6, 8, 6, 6)
-        rbl.setSpacing(4)
-
-        # Well — assigns the same well to every cell in this row.
-        well_lbl = QLabel("Well:", row_box)
-        well_lbl.setStyleSheet("font-size: 10px;")
-        rbl.addWidget(well_lbl)
-        row_well_cb = QComboBox(row_box)
-        row_well_cb.addItems(well_opts)
-        rbl.addWidget(row_well_cb)
-        row_well_cb.currentIndexChanged.connect(
-            lambda _i, ridx=r: image_table_apply_row_well(app, ridx)
-        )
-
-        # Channel
-        chan_lbl = QLabel("Channel:", row_box)
-        chan_lbl.setStyleSheet("font-size: 10px;")
-        rbl.addWidget(chan_lbl)
-        row_chan_cb = QComboBox(row_box)
-        row_chan_cb.addItems(chan_opts)
-        rbl.addWidget(row_chan_cb)
-        row_chan_cb.currentIndexChanged.connect(
-            lambda _i, ridx=r: image_table_apply_row_channel(app, ridx)
-        )
-
-        # LUT colour
-        col_lbl = QLabel("LUT colour:", row_box)
-        col_lbl.setStyleSheet("font-size: 10px;")
-        rbl.addWidget(col_lbl)
-        row_color_cb = QComboBox(row_box)
-        row_color_cb.addItems(LUT_COLOR_NAMES)
-        if r < len(prev_lut_cbs):
-            prev_text = prev_lut_cbs[r].currentText()
-            if prev_text in LUT_COLOR_NAMES:
-                row_color_cb.setCurrentText(prev_text)
-        rbl.addWidget(row_color_cb)
-        # Re-render whenever the user picks a new colour.
-        row_color_cb.currentIndexChanged.connect(
-            lambda _i: image_table_generate(app)
-        )
-
-        layout.addWidget(row_box, r, 0)
-        row_chan_cbs.append(row_chan_cb)
-        row_lut_color_cbs.append(row_color_cb)
-        row_well_cbs.append(row_well_cb)
-
-        row: List[Dict[str, Any]] = []
-        for c in range(cols):
-            cell = _build_selector_cell(
-                app, r, c, well_opts, chan_opts, tp_opts, fov_opts,
-            )
-            layout.addWidget(cell["frame"], r, c + 1)
-            row.append(cell)
-        cells.append(row)
     app._image_table_cells = cells
     app._image_table_row_chan_cbs = row_chan_cbs
     app._image_table_row_lut_color_cbs = row_lut_color_cbs
@@ -367,45 +298,6 @@ def _row_export_cmap(app, r: int):
     return LinearSegmentedColormap.from_list(
         f"row{r}_tint", [(0.0, 0.0, 0.0), tuple(tint)],
     )
-
-
-def _build_selector_cell(
-    app, r: int, c: int,
-    well_opts: List[str], chan_opts: List[str],
-    tp_opts: List[str], fov_opts: List[str],
-) -> Dict[str, Any]:
-    from PySide6.QtWidgets import QComboBox
-
-    box = QGroupBox(f"({r + 1}, {c + 1})")
-    inner = QVBoxLayout(box)
-    inner.setContentsMargins(6, 8, 6, 6)
-    inner.setSpacing(2)
-
-    def _row(label_text: str, options: List[str]) -> QComboBox:
-        rl = QHBoxLayout()
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(4)
-        lbl = QLabel(label_text, box)
-        lbl.setFixedWidth(54)
-        rl.addWidget(lbl)
-        cb = QComboBox(box)
-        cb.addItems(options)
-        rl.addWidget(cb, 1)
-        inner.addLayout(rl)
-        return cb
-
-    well_cb = _row("Well:", well_opts)
-    chan_cb = _row("Channel:", chan_opts)
-    tp_cb = _row("Timepoint:", tp_opts)
-    fov_cb = _row("FOV:", fov_opts)
-
-    return {
-        "frame": box,
-        "well_cb": well_cb,
-        "chan_cb": chan_cb,
-        "tp_cb": tp_cb,
-        "fov_cb": fov_cb,
-    }
 
 
 def image_table_apply_global(app, field: str) -> None:
@@ -608,46 +500,14 @@ def image_table_distribute_wells(app) -> None:
 
 def image_table_rebuild_lut_row(app) -> None:
     """Rebuild the per-channel LUT editors (one min/max pair per channel)."""
-    from well_viewer.ui_helpers import btn_secondary, clear_layout
+    from well_viewer.views.image_table_grid_view import build_lut_row
 
-    container = getattr(app, "_image_table_lut_container", None)
-    if container is None:
-        return
-    layout = container.layout()
-    clear_layout(layout)
-
-    chans = _channel_options(app)
-    app._image_table_lut = {}
-    for chan in chans:
-        chan_box = QGroupBox(chan, container)
-        cb_l = QHBoxLayout(chan_box)
-        cb_l.setContentsMargins(6, 8, 6, 4)
-        cb_l.setSpacing(4)
-
-        cb_l.addWidget(QLabel("min:", chan_box))
-        min_edit = QLineEdit("auto", chan_box)
-        min_edit.setFixedWidth(70)
-        # editingFinished fires on both Enter and focus loss, so the user
-        # never has to click Generate to see a LUT change land.
-        min_edit.editingFinished.connect(lambda: image_table_generate(app))
-        cb_l.addWidget(min_edit)
-
-        cb_l.addWidget(QLabel("max:", chan_box))
-        max_edit = QLineEdit("auto", chan_box)
-        max_edit.setFixedWidth(70)
-        max_edit.editingFinished.connect(lambda: image_table_generate(app))
-        cb_l.addWidget(max_edit)
-
-        auto_btn = btn_secondary(
-            chan_box, "Auto",
-            lambda c=chan: image_table_auto_lut(app, c),
-        )
-        cb_l.addWidget(auto_btn)
-
-        layout.addWidget(chan_box)
-        app._image_table_lut[chan] = {"min": min_edit, "max": max_edit}
-
-    layout.addStretch(1)
+    build_lut_row(
+        app,
+        chan_opts=_channel_options(app),
+        on_generate=image_table_generate,
+        on_auto_lut=image_table_auto_lut,
+    )
 
 
 def _parse_lut(app, chan: str) -> Tuple[Optional[float], Optional[float]]:
