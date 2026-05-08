@@ -287,6 +287,7 @@ class BarBatchExportPanel(BatchExportPanel):
             color = WELL_COLORS[i % len(WELL_COLORS)]
             pts = aggregate_with_threshold(
                 rows, threshold, use_sem=use_sem,
+                val_col=self._app._active_val_col,
                 cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates,
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
