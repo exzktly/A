@@ -381,6 +381,21 @@ def redraw_heatmap(app) -> None:
         spine.set_visible(False)
     ax.tick_params(length=0)
 
+    # Row/col drag-reorder visual: colour source blue, drop-target red.
+    drag = getattr(app, "_heatmap_label_drag", None)
+    if drag is not None:
+        _kind = drag["kind"]
+        _src = drag["src"]
+        _over = drag.get("over")
+        _drag_labels = ax.get_xticklabels() if _kind == "col" else ax.get_yticklabels()
+        for _i, _lbl in enumerate(_drag_labels):
+            if _i == _src:
+                _lbl.set_color("#2563EB")
+                _lbl.set_fontweight("bold")
+            elif _over is not None and _i == _over and _over != _src:
+                _lbl.set_color("#DC2626")
+                _lbl.set_fontweight("bold")
+
     # Cell text annotations.
     for (r, c), wells in cell_well_index.items():
         v = arr[r, c]
@@ -548,3 +563,152 @@ def on_heatmap_motion(app, event) -> None:
             sample = ",".join(wells[:3]) + ("…" if len(wells) > 3 else "")
             metric = _selected_metric(app)
             status_lbl.setText(f"{sample}: {_format_cell_value(v, metric)}")
+
+
+# ── Row/col label drag-to-reorder ────────────────────────────────────────────
+
+def _label_at_event(app, event) -> Optional[Tuple[str, int]]:
+    """Return ("row", i) or ("col", i) if *event* is over a tick label, else None."""
+    ax = getattr(app, "_heatmap_ax", None)
+    canvas = getattr(app, "_heatmap_canvas", None)
+    if ax is None or canvas is None or event.x is None or event.y is None:
+        return None
+    try:
+        renderer = canvas.get_renderer()
+    except Exception:
+        return None
+    pad = 4  # extra pixels so small labels are easier to grab
+    for i, lbl in enumerate(ax.get_xticklabels()):
+        try:
+            bb = lbl.get_window_extent(renderer=renderer)
+            if (bb.x0 - pad <= event.x <= bb.x1 + pad and
+                    bb.y0 - pad <= event.y <= bb.y1 + pad):
+                return ("col", i)
+        except Exception:
+            continue
+    for i, lbl in enumerate(ax.get_yticklabels()):
+        try:
+            bb = lbl.get_window_extent(renderer=renderer)
+            if (bb.x0 - pad <= event.x <= bb.x1 + pad and
+                    bb.y0 - pad <= event.y <= bb.y1 + pad):
+                return ("row", i)
+        except Exception:
+            continue
+    return None
+
+
+def _update_drag_label_colors(app) -> None:
+    """Apply drag highlight colours to existing tick label artists and redraw."""
+    ax = getattr(app, "_heatmap_ax", None)
+    canvas = getattr(app, "_heatmap_canvas", None)
+    if ax is None or canvas is None:
+        return
+    drag = getattr(app, "_heatmap_label_drag", None)
+    # Reset all labels to default.
+    for lbl in ax.get_xticklabels():
+        lbl.set_color("black")
+        lbl.set_fontweight("normal")
+    for lbl in ax.get_yticklabels():
+        lbl.set_color("black")
+        lbl.set_fontweight("normal")
+    if drag is not None:
+        kind = drag["kind"]
+        src = drag["src"]
+        over = drag.get("over")
+        labels = ax.get_xticklabels() if kind == "col" else ax.get_yticklabels()
+        for i, lbl in enumerate(labels):
+            if i == src:
+                lbl.set_color("#2563EB")
+                lbl.set_fontweight("bold")
+            elif over is not None and i == over and over != src:
+                lbl.set_color("#DC2626")
+                lbl.set_fontweight("bold")
+    canvas.draw_idle()
+
+
+def _set_canvas_cursor(app, cursor_shape) -> None:
+    canvas = getattr(app, "_heatmap_canvas", None)
+    if canvas is None:
+        return
+    try:
+        from PySide6.QtCore import Qt as _Qt
+        if cursor_shape is None:
+            canvas.unsetCursor()
+        else:
+            canvas.setCursor(cursor_shape)
+    except Exception:
+        pass
+
+
+def on_heatmap_label_drag_press(app, event) -> bool:
+    """Start a label drag on left-press over a tick label. Returns True if consumed."""
+    if getattr(event, "button", None) != 1:
+        return False
+    if getattr(event, "dblclick", False):
+        return False
+    target = _label_at_event(app, event)
+    if target is None:
+        return False
+    kind, idx = target
+    app._heatmap_label_drag = {"kind": kind, "src": idx, "over": idx}
+    _update_drag_label_colors(app)
+    try:
+        from PySide6.QtCore import Qt as _Qt
+        _set_canvas_cursor(app, _Qt.ClosedHandCursor)
+    except Exception:
+        pass
+    return True
+
+
+def on_heatmap_label_drag_motion(app, event) -> None:
+    """Update drag highlight while the mouse moves."""
+    drag = getattr(app, "_heatmap_label_drag", None)
+    if drag is None:
+        # Show open-hand cursor when hovering over any label.
+        target = _label_at_event(app, event)
+        try:
+            from PySide6.QtCore import Qt as _Qt
+            if target is not None:
+                _set_canvas_cursor(app, _Qt.OpenHandCursor)
+            else:
+                _set_canvas_cursor(app, None)
+        except Exception:
+            pass
+        return
+    target = _label_at_event(app, event)
+    if target is not None and target[0] == drag["kind"]:
+        drag["over"] = target[1]
+    else:
+        drag["over"] = None
+    _update_drag_label_colors(app)
+
+
+def on_heatmap_label_drag_release(app, event) -> None:
+    """Finish drag: apply reorder if source ≠ target, then clean up."""
+    drag = getattr(app, "_heatmap_label_drag", None)
+    if drag is None:
+        return
+    src = drag["src"]
+    over = drag.get("over")
+    kind = drag["kind"]
+    app._heatmap_label_drag = None
+    _set_canvas_cursor(app, None)
+    if over is not None and over != src:
+        _apply_label_reorder(app, kind, src, over)
+    else:
+        _update_drag_label_colors(app)  # just clear highlights
+
+
+def _apply_label_reorder(app, kind: str, src: int, dst: int) -> None:
+    from well_viewer.views.heatmap_layout_sidebar_view import (
+        _ensure_sidebar_layout,
+        _persist_and_redraw,
+        refresh_heatmap_layout_sidebar,
+    )
+    layout = _ensure_sidebar_layout(app)
+    if kind == "row":
+        layout.reorder_rows(src, dst)
+    else:
+        layout.reorder_cols(src, dst)
+    _persist_and_redraw(app)
+    refresh_heatmap_layout_sidebar(app)

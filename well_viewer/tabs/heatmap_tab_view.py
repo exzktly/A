@@ -175,15 +175,14 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     attach_plot_toolbar(layout, app._heatmap_canvas, parent, app, with_fov=False)
 
     # ── Mouse hooks ─────────────────────────────────────────────────────────
+    # Unified press handler: label-drag first, then double-click rename, then
+    # normal cell selection.  A single connection keeps ordering deterministic.
     app._heatmap_canvas.mpl_connect("button_press_event",
-                                     lambda evt: _on_canvas_click(app, evt))
+                                     lambda evt: _on_canvas_press(app, evt))
     app._heatmap_canvas.mpl_connect("motion_notify_event",
                                      lambda evt: _on_canvas_motion(app, evt))
-    # Double-click on a row/col tick label → rename it.
-    app._heatmap_canvas.mpl_connect(
-        "button_press_event",
-        lambda evt: _on_label_double_click(app, evt),
-    )
+    app._heatmap_canvas.mpl_connect("button_release_event",
+                                     lambda evt: _on_canvas_release(app, evt))
 
     refresh_heatmap_timepoints(app)
 
@@ -400,14 +399,27 @@ def _on_label_double_click(app, evt) -> None:
     _persist_and_redraw(app)
 
 
-def _on_canvas_click(app, evt) -> None:
-    from well_viewer.heatmap_controller import on_heatmap_click
+def _on_canvas_press(app, evt) -> None:
+    from well_viewer.heatmap_controller import on_heatmap_label_drag_press, on_heatmap_click
+    # Label drag takes priority; double-click rename is next; cell select last.
+    if on_heatmap_label_drag_press(app, evt):
+        return
+    if getattr(evt, "dblclick", False):
+        _on_label_double_click(app, evt)
+        return
     on_heatmap_click(app, evt)
 
 
 def _on_canvas_motion(app, evt) -> None:
-    from well_viewer.heatmap_controller import on_heatmap_motion
-    on_heatmap_motion(app, evt)
+    from well_viewer.heatmap_controller import on_heatmap_label_drag_motion, on_heatmap_motion
+    on_heatmap_label_drag_motion(app, evt)
+    if not getattr(app, "_heatmap_label_drag", None):
+        on_heatmap_motion(app, evt)
+
+
+def _on_canvas_release(app, evt) -> None:
+    from well_viewer.heatmap_controller import on_heatmap_label_drag_release
+    on_heatmap_label_drag_release(app, evt)
 
 
 def _redraw(app) -> None:
