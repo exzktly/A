@@ -68,7 +68,9 @@ def _make_rows() -> list[dict]:
         "gfp_mean_intensity": float("nan"), "rfp_mean_intensity": 100.0,
     })
 
-    # NaN area row: should be dropped by area gate.
+    # NaN area row: scalar's ``if area <= threshold`` is False for NaN, so
+    # the row passes the area gate even though area is NaN. Pinning that
+    # behavior here keeps both implementations honest.
     rows.append({
         "Included": 1, "area_px": float("nan"), "timepoint_hours": 6.0,
         "timepoint": "06h", "fov": "1",

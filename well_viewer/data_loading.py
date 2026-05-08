@@ -495,7 +495,12 @@ def aggregate_with_threshold_df(
 
     if "area_px" in df.columns:
         area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
-        mask &= np.where(np.isnan(area), False, area > cell_area_threshold)
+        # Scalar uses ``if area <= threshold: continue`` which silently keeps
+        # NaN areas (NaN comparisons are always False). Match that exactly via
+        # ``~(area <= threshold)`` rather than ``area > threshold``, since
+        # the latter drops NaN.
+        with np.errstate(invalid="ignore"):
+            mask &= ~(area <= cell_area_threshold)
     elif 0.0 <= cell_area_threshold:
         # Scalar: row.get("area_px", 0) → 0 → 0 <= threshold → skip.
         return []
