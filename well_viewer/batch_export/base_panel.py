@@ -42,7 +42,6 @@ from well_viewer.batch_export._common import (
     BarGroup,
     _bar_render_items,
     _all_fluor_values,
-    aggregate_with_threshold,
     _extract_well_token,
     _PLATE_COLS,
     _PLATE_ROWS,
@@ -961,19 +960,17 @@ class BatchExportPanel(QWidget):
                     valid_wells = [w for w in rset.wells if w in self._app._well_paths]
                     if not valid_wells:
                         continue
-                    all_rows: List[dict] = []
-                    for w in valid_wells:
-                        all_rows.extend(self._app._get_rows(w))
                     _val_col = self._app._active_val_col
                     _ch = self._app._active_channel
                     _cell_area_threshold = self._app._get_cell_area_threshold()
                     _fluor_gates = self._app._get_all_fluor_gates()
-                    pts = aggregate_with_threshold(
-                        all_rows, threshold, use_sem=use_sem,
-                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                    pts = self._app._aggregate_group(
+                        valid_wells, threshold=threshold, use_sem=use_sem,
+                        val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
-                    for t, mean, sd, frac, n_above, n_total in pts:
+                    for t, mean, sd, frac, n_above, n_total, *_ in pts:
                         rows_out.append({
                             "group": grp.name, "member": rset.name,
                             "member_type": "replicate_set",
@@ -991,12 +988,13 @@ class BatchExportPanel(QWidget):
                     _ch = self._app._active_channel
                     _cell_area_threshold = self._app._get_cell_area_threshold()
                     _fluor_gates = self._app._get_all_fluor_gates()
-                    pts = aggregate_with_threshold(
-                        self._app._get_rows(w), threshold, use_sem=use_sem,
-                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                    pts = self._app._aggregate_well(
+                        w, threshold=threshold, use_sem=use_sem,
+                        val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
-                    for t, mean, sd, frac, n_above, n_total in pts:
+                    for t, mean, sd, frac, n_above, n_total, *_ in pts:
                         rows_out.append({
                             "group": grp.name, "member": w, "member_type": "solo_well",
                             "wells": w, "n_wells": 1, "time_h": f"{t:.4f}",
@@ -1094,9 +1092,10 @@ class BatchExportPanel(QWidget):
                 fluor_vals_raw: List[float] = []
                 for lbl in valid_wells:
                     rows = self._app._get_rows(lbl)
-                    for t, *_ in aggregate_with_threshold(
-                        rows, threshold, use_sem=False,
-                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                    for t, *_ in self._app._aggregate_well(
+                        lbl, threshold=threshold, use_sem=False,
+                        val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     ):
                         all_tps.add(t)
@@ -1128,9 +1127,10 @@ class BatchExportPanel(QWidget):
                 fluor_vals = sorted(fluor_vals_raw)
             else:
                 rows = self._app._get_rows(member_key)
-                pts = aggregate_with_threshold(
-                    rows, threshold, use_sem=use_sem,
-                    val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                pts = self._app._aggregate_well(
+                    member_key, threshold=threshold, use_sem=use_sem,
+                    val_col=_val_col,
+                    cell_area_threshold=_cell_area_threshold,
                     fluor_gates=_fluor_gates,
                 )
                 if pts:
