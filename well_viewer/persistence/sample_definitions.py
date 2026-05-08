@@ -31,11 +31,18 @@ def save_to_pipeline_info(app) -> None:
             "Open a data folder before saving sample definitions.",
         )
         return
+    notes_edit = getattr(app, "_notes_edit", None)
+    notes_text = (
+        notes_edit.toPlainText() if notes_edit is not None
+        else getattr(app, "_notes_text", "") or ""
+    )
+    app._notes_text = notes_text
     block = build_sample_definitions(
         app._well_labels,
         app._rep_sets,
         app._bar_groups,
         extract_well_token=extract_well_token,
+        notes=notes_text,
     )
     try:
         info_path = _write_block(app._data_dir, block)
@@ -60,6 +67,7 @@ def load_from_pipeline_info(app) -> bool:
     """
     from well_viewer.sample_definitions import (
         parse_groups_block,
+        parse_notes,
         parse_well_labels,
         read_sample_definitions,
     )
@@ -79,6 +87,15 @@ def load_from_pipeline_info(app) -> bool:
         app._bar_groups = bar_groups
         app._active_rep_idx = -1
         app._bar_active_grp = 0 if bar_groups else -1
+    notes = parse_notes(block)
+    app._notes_text = notes
+    notes_edit = getattr(app, "_notes_edit", None)
+    if notes_edit is not None and notes_edit.toPlainText() != notes:
+        blocked = notes_edit.blockSignals(True)
+        try:
+            notes_edit.setPlainText(notes)
+        finally:
+            notes_edit.blockSignals(blocked)
     if labels or rep_sets or bar_groups:
         app._invalidate_stats_cache()
     return True
@@ -156,6 +173,15 @@ def clear_all(app) -> None:
             app._label_panel_refresh()
         except Exception:
             pass
+
+    app._notes_text = ""
+    notes_edit = getattr(app, "_notes_edit", None)
+    if notes_edit is not None:
+        blocked = notes_edit.blockSignals(True)
+        try:
+            notes_edit.clear()
+        finally:
+            notes_edit.blockSignals(blocked)
 
     app._rep_sets = []
     app._active_rep_idx = -1

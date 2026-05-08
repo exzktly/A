@@ -85,6 +85,12 @@ def collect_scatter_data(
 
     if active_rsets:
         # Group by replicate sets
+        from well_viewer.lineplot_controller import _apply_order as _apply_rs_order
+        active_rsets = _apply_rs_order(
+            active_rsets,
+            list(getattr(app, "_line_order_rsets", []) or []),
+            key=lambda r: getattr(r, "name", ""),
+        )
         for group_idx, rset in enumerate(active_rsets):
             group_name = rset.name
             color = well_colors[group_idx % len(well_colors)]
@@ -150,9 +156,15 @@ def collect_scatter_data(
                 }
     else:
         # No groups: show each well separately
+        from well_viewer.lineplot_controller import _apply_order as _apply_well_order
         selected_wells = sorted(
             (lbl for lbl in app._selected_wells if lbl in app._well_paths),
             key=lambda lbl: app._parse_rc(lbl),
+        )
+        selected_wells = _apply_well_order(
+            selected_wells,
+            list(getattr(app, "_line_order_wells", []) or []),
+            key=lambda x: x,
         )
 
         for well_idx, well_label in enumerate(selected_wells):

@@ -88,6 +88,12 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
     active_rsets = app._rep_sets_active()
 
     if active_rsets:
+        from well_viewer.lineplot_controller import _apply_order as _apply_rs_order
+        active_rsets = _apply_rs_order(
+            active_rsets,
+            list(getattr(app, "_line_order_rsets", []) or []),
+            key=lambda r: getattr(r, "name", ""),
+        )
         items: list = []
         for idx, rset in enumerate(active_rsets):
             color = well_colors[idx % len(well_colors)]
@@ -102,9 +108,15 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
             items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_above), 0.0))
         return True, items, band_lbl
 
+    from well_viewer.lineplot_controller import _apply_order as _apply_well_order
     bar_selected = sorted(
         (lbl for lbl in app._selected_wells if lbl in app._well_paths),
         key=lambda lbl: app._parse_rc(lbl),
+    )
+    bar_selected = _apply_well_order(
+        bar_selected,
+        list(getattr(app, "_line_order_wells", []) or []),
+        key=lambda x: x,
     )
     items = []
     cell_area_threshold = app._get_cell_area_threshold()

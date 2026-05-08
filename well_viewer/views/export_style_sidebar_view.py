@@ -16,8 +16,8 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QMessageBox, QPushButton, QScrollArea, QSpinBox,
-    QVBoxLayout, QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from well_viewer.figure_export_editor import (
@@ -252,34 +252,78 @@ class ExportStyleSidebar(QWidget):
         grid.addWidget(lay_row, row, 1)
         row += 1
 
-        # ── Line plot reorder panel (only when bound to the line-plot figure)
+        # ── Reorder panel — replicate-set OR well draw order with Apply.
+        # Only one of the two lists is shown at a time, mirroring the
+        # branching in the line/bar/scatter renderers: when rep-sets are
+        # active the rep-set list drives color order; otherwise the well
+        # list does. The heatmap fig is bound to the editor too but its
+        # colors are positional, so the section stays hidden there.
+        # Items show sample-definition labels (well_labels / replicate
+        # display labels) but carry the underlying token / rep-set name
+        # in Qt.UserRole for the apply step.
         self._line_order_rsets_list: QListWidget | None = None
         self._line_order_wells_list: QListWidget | None = None
-        if self._is_line_fig():
-            grid.addWidget(QLabel("Replicate Set Order"), row, 0, 1, 2)
-            row += 1
-            rs_list = QListWidget(body)
-            rs_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self._line_order_rsets_section: QWidget | None = None
+        self._line_order_wells_section: QWidget | None = None
+        if self._supports_well_order():
+            rs_section = QWidget(body)
+            rs_layout = QVBoxLayout(rs_section)
+            rs_layout.setContentsMargins(0, 0, 0, 0)
+            rs_layout.addWidget(QLabel("Replicate Set Order"))
+            rs_list = QListWidget(rs_section)
             rs_list.setSelectionMode(QAbstractItemView.SingleSelection)
             rs_list.setMaximumHeight(120)
-            rs_list.model().rowsMoved.connect(
-                lambda *_: self._on_line_order_rsets_changed()
-            )
-            grid.addWidget(rs_list, row, 0, 1, 2)
+            rs_layout.addWidget(rs_list)
+            rs_btns = QWidget(rs_section)
+            rs_btn_l = QHBoxLayout(rs_btns)
+            rs_btn_l.setContentsMargins(0, 0, 0, 0)
+            up_rs = QPushButton("▲ Up", rs_btns)
+            up_rs.setProperty("variant", "secondary")
+            up_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, -1))
+            rs_btn_l.addWidget(up_rs)
+            down_rs = QPushButton("▼ Down", rs_btns)
+            down_rs.setProperty("variant", "secondary")
+            down_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, +1))
+            rs_btn_l.addWidget(down_rs)
+            apply_rs = QPushButton("Apply", rs_btns)
+            apply_rs.setProperty("variant", "primary")
+            apply_rs.clicked.connect(lambda _=False: self._apply_line_order())
+            rs_btn_l.addWidget(apply_rs)
+            rs_btn_l.addStretch(1)
+            rs_layout.addWidget(rs_btns)
+            grid.addWidget(rs_section, row, 0, 1, 2)
             self._line_order_rsets_list = rs_list
+            self._line_order_rsets_section = rs_section
             row += 1
 
-            grid.addWidget(QLabel("Well Order"), row, 0, 1, 2)
-            row += 1
-            w_list = QListWidget(body)
-            w_list.setDragDropMode(QAbstractItemView.InternalMove)
+            w_section = QWidget(body)
+            w_layout = QVBoxLayout(w_section)
+            w_layout.setContentsMargins(0, 0, 0, 0)
+            w_layout.addWidget(QLabel("Well Order"))
+            w_list = QListWidget(w_section)
             w_list.setSelectionMode(QAbstractItemView.SingleSelection)
             w_list.setMaximumHeight(120)
-            w_list.model().rowsMoved.connect(
-                lambda *_: self._on_line_order_wells_changed()
-            )
-            grid.addWidget(w_list, row, 0, 1, 2)
+            w_layout.addWidget(w_list)
+            w_btns = QWidget(w_section)
+            w_btn_l = QHBoxLayout(w_btns)
+            w_btn_l.setContentsMargins(0, 0, 0, 0)
+            up_w = QPushButton("▲ Up", w_btns)
+            up_w.setProperty("variant", "secondary")
+            up_w.clicked.connect(lambda _=False: self._move_list_item(w_list, -1))
+            w_btn_l.addWidget(up_w)
+            down_w = QPushButton("▼ Down", w_btns)
+            down_w.setProperty("variant", "secondary")
+            down_w.clicked.connect(lambda _=False: self._move_list_item(w_list, +1))
+            w_btn_l.addWidget(down_w)
+            apply_w = QPushButton("Apply", w_btns)
+            apply_w.setProperty("variant", "primary")
+            apply_w.clicked.connect(lambda _=False: self._apply_line_order())
+            w_btn_l.addWidget(apply_w)
+            w_btn_l.addStretch(1)
+            w_layout.addWidget(w_btns)
+            grid.addWidget(w_section, row, 0, 1, 2)
             self._line_order_wells_list = w_list
+            self._line_order_wells_section = w_section
             row += 1
             self._refresh_line_order_lists()
 
@@ -480,70 +524,160 @@ class ExportStyleSidebar(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Copy SVG failed", str(exc))
 
-    # ── Line-plot reorder ────────────────────────────────────────────────────
+    # ── Reorder ──────────────────────────────────────────────────────────────
 
     def _is_line_fig(self) -> bool:
         return getattr(self._app, "_line_fig", None) is self._fig
 
-    def _refresh_line_order_lists(self) -> None:
-        """Repopulate the rep-set / well order lists from current app state."""
+    def _supports_well_order(self) -> bool:
+        """Return True for plot figs whose color order can be reorderable."""
         app = self._app
-        if self._line_order_rsets_list is not None:
+        for attr in ("_line_fig", "_bar_fig", "_scatter_fig", "_scatter_agg_fig"):
+            if getattr(app, attr, None) is self._fig:
+                return True
+        return False
+
+    def _move_list_item(self, list_widget: QListWidget, delta: int) -> None:
+        """Shift the selected row up (delta=-1) or down (delta=+1)."""
+        if list_widget is None:
+            return
+        row = list_widget.currentRow()
+        if row < 0:
+            return
+        new_row = row + int(delta)
+        if not (0 <= new_row < list_widget.count()):
+            return
+        item = list_widget.takeItem(row)
+        list_widget.insertItem(new_row, item)
+        list_widget.setCurrentRow(new_row)
+
+    def _apply_line_order(self) -> None:
+        """Commit the visible list's order to app state and redraw the figure.
+
+        Only the section that's actually visible (rep-set OR well) gets
+        written so a stale list doesn't clobber the active mode's order.
+        """
+        app = self._app
+
+        def _ids(list_widget: QListWidget | None) -> list[str]:
+            if list_widget is None:
+                return []
+            out: list[str] = []
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                tok = item.data(Qt.UserRole)
+                out.append(str(tok) if tok else item.text())
+            return out
+
+        if (self._line_order_rsets_section is not None
+                and self._line_order_rsets_section.isVisible()):
+            app._line_order_rsets = _ids(self._line_order_rsets_list)
+        if (self._line_order_wells_section is not None
+                and self._line_order_wells_section.isVisible()):
+            app._line_order_wells = _ids(self._line_order_wells_list)
+        if hasattr(app, "_line_order_schedule_save"):
+            try:
+                app._line_order_schedule_save()
+            except Exception:
+                pass
+        self._redraw_bound_figure()
+
+    def _redraw_bound_figure(self) -> None:
+        """Trigger the redraw entry point that matches the bound figure."""
+        app = self._app
+        try:
+            if getattr(app, "_line_fig", None) is self._fig and hasattr(app, "_redraw"):
+                app._redraw()
+                return
+            if getattr(app, "_bar_fig", None) is self._fig and hasattr(app, "_redraw_bars"):
+                app._redraw_bars()
+                return
+            if getattr(app, "_scatter_fig", None) is self._fig and hasattr(app, "_redraw_scatter"):
+                app._redraw_scatter()
+                return
+            if getattr(app, "_scatter_agg_fig", None) is self._fig and hasattr(app, "_redraw_scatter_agg"):
+                app._redraw_scatter_agg()
+                return
+            if hasattr(app, "_redraw"):
+                app._redraw()
+        except Exception:
+            pass
+
+    def _refresh_line_order_lists(self) -> None:
+        """Repopulate the rep-set / well order lists from current app state.
+
+        Only one section is shown at a time, matching the renderer's branch
+        on whether replicate sets are active. Items display sample-definition
+        labels (well_labels / replicate display labels) and stash the
+        underlying token / rep-set name in ``Qt.UserRole`` so the apply step
+        can recover the canonical value.
+        """
+        app = self._app
+        try:
+            active_rsets = list(app._rep_sets_active() or [])
+        except Exception:
+            active_rsets = []
+        rs_active = bool(active_rsets)
+
+        if self._line_order_rsets_section is not None:
+            self._line_order_rsets_section.setVisible(rs_active)
+        if self._line_order_wells_section is not None:
+            self._line_order_wells_section.setVisible(not rs_active)
+
+        if rs_active and self._line_order_rsets_list is not None:
             self._line_order_rsets_list.blockSignals(True)
             self._line_order_rsets_list.clear()
-            try:
-                active = app._rep_sets_active() or []
-            except Exception:
-                active = []
-            names = [getattr(rs, "name", "") for rs in active if getattr(rs, "name", "")]
+            names = [getattr(rs, "name", "") for rs in active_rsets if getattr(rs, "name", "")]
             saved = list(getattr(app, "_line_order_rsets", []) or [])
-            ordered = [n for n in saved if n in names] + [n for n in names if n not in saved]
-            for n in ordered:
-                self._line_order_rsets_list.addItem(n)
+            ordered_names = [n for n in saved if n in names] + [n for n in names if n not in saved]
+            display_fn = getattr(app, "_replicate_display_label", None)
+            by_name = {getattr(rs, "name", ""): rs for rs in active_rsets}
+            for n in ordered_names:
+                rs = by_name.get(n)
+                if rs is not None and callable(display_fn):
+                    try:
+                        text = str(display_fn(rs)) or n
+                    except Exception:
+                        text = n
+                else:
+                    text = n
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, n)
+                self._line_order_rsets_list.addItem(item)
             self._line_order_rsets_list.blockSignals(False)
 
-        if self._line_order_wells_list is not None:
+        if (not rs_active) and self._line_order_wells_list is not None:
             self._line_order_wells_list.blockSignals(True)
             self._line_order_wells_list.clear()
+            # Per-well code paths in line/bar/scatter all derive from
+            # ``app._selected_wells`` sorted by ``_parse_rc``; mirror that
+            # exactly so the order list matches the plot.
             try:
-                selected = list(app._selected_labels() or [])
+                raw = getattr(app, "_selected_wells", set()) or set()
+                parse_rc = getattr(app, "_parse_rc", None)
+                if callable(parse_rc):
+                    selected = sorted(raw, key=parse_rc)
+                else:
+                    selected = sorted(raw)
             except Exception:
                 selected = []
             saved = list(getattr(app, "_line_order_wells", []) or [])
             ordered = [w for w in saved if w in selected] + [w for w in selected if w not in saved]
+            label_fn = getattr(app, "_well_display_label", None)
             for w in ordered:
-                self._line_order_wells_list.addItem(w)
+                if callable(label_fn):
+                    try:
+                        disp = str(label_fn(w))
+                    except Exception:
+                        disp = w
+                else:
+                    disp = w
+                text = w if disp == w else f"{w} — {disp}"
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, w)
+                self._line_order_wells_list.addItem(item)
             self._line_order_wells_list.blockSignals(False)
 
-    def _on_line_order_rsets_changed(self) -> None:
-        if self._line_order_rsets_list is None:
-            return
-        order = [
-            self._line_order_rsets_list.item(i).text()
-            for i in range(self._line_order_rsets_list.count())
-        ]
-        self._app._line_order_rsets = order
-        if hasattr(self._app, "_line_order_schedule_save"):
-            self._app._line_order_schedule_save()
-        try:
-            self._app._redraw()
-        except Exception:
-            pass
-
-    def _on_line_order_wells_changed(self) -> None:
-        if self._line_order_wells_list is None:
-            return
-        order = [
-            self._line_order_wells_list.item(i).text()
-            for i in range(self._line_order_wells_list.count())
-        ]
-        self._app._line_order_wells = order
-        if hasattr(self._app, "_line_order_schedule_save"):
-            self._app._line_order_schedule_save()
-        try:
-            self._app._redraw()
-        except Exception:
-            pass
 
 
 

@@ -61,6 +61,7 @@ def build_sample_definitions(
     bar_groups: Iterable[BarGroup],
     *,
     extract_well_token,
+    notes: str = "",
 ) -> Dict[str, Any]:
     """Snapshot the current sample-definition state as a JSON-friendly dict."""
     groups_dict = bar_groups_to_dict(
@@ -74,6 +75,7 @@ def build_sample_definitions(
         },
         "rep_sets": list(groups_dict.get("rep_sets", [])),
         "groups": list(groups_dict.get("groups", [])),
+        "notes": str(notes or ""),
     }
 
 
@@ -138,6 +140,14 @@ def parse_groups_block(
         "groups": list(block.get("groups", []) or []),
     }
     return bar_groups_from_data(payload, tok_to_label=tok_to_label)
+
+
+def parse_notes(block: Dict[str, Any]) -> str:
+    """Return the freeform notes string from a sample_definitions block."""
+    raw = block.get("notes", "")
+    if isinstance(raw, str):
+        return raw
+    return ""
 
 
 def parse_well_labels(
