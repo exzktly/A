@@ -285,6 +285,10 @@ def build_centre(app, parent: QWidget) -> None:
         """Create the nested QTabWidget and wire the five plot sub-tabs."""
         plotting_nb = QTabWidget(plotting_container)
         plotting_nb.setObjectName("PlottingSubTabs")
+        plotting_nb.setElideMode(Qt.ElideNone)
+        plotting_nb.setUsesScrollButtons(True)
+        plotting_nb.tabBar().setExpanding(False)
+        plotting_nb.tabBar().setElideMode(Qt.ElideNone)
         plotting_container.layout().addWidget(plotting_nb, 1)
         app._plotting_notebook = plotting_nb
 
