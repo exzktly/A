@@ -377,6 +377,8 @@ def redraw_heatmap(app) -> None:
     ax.xaxis.tick_top()
     ax.set_yticks(range(layout.rows))
     ax.set_yticklabels(row_labels[: layout.rows], fontsize=8)
+    setattr(ax, "_categorical_xaxis", True)
+    setattr(ax, "_categorical_yaxis", True)
     for spine in ax.spines.values():
         spine.set_visible(False)
     ax.tick_params(length=0)
