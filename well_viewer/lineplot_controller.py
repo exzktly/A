@@ -110,7 +110,7 @@ def redraw_line_plots(
             fluor_gates = app._get_all_fluor_gates()
             for lbl in valid_wells:
                 rows = app._get_rows(lbl)
-                for t, *_ in aggregate_with_threshold(rows, threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)):
+                for t, *_ in app._aggregate_well(lbl, threshold=threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates):
                     all_tps.add(t)
                 all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
             agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
@@ -150,7 +150,7 @@ def redraw_line_plots(
             color = well_colors[i % len(well_colors)]
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
-            pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread, ratios=getattr(app, "_ratio_index", None))
+            pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
             if pts:
                 times, means, spreads, fracs, *_ = zip(*pts)
                 vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]

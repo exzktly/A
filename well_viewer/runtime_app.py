@@ -544,11 +544,13 @@ from well_viewer.data_loading import (
     _beeswarm_jitter,
     _ordinal_timepoints,
     aggregate_with_threshold,
+    aggregate_with_threshold_df,
     detect_fluor_channels,
     detect_nuclear_channel_token,
     detect_review_image_channels,
     detect_smfish_channels,
     load_well_csv,
+    rows_to_df,
     merge_fluor_channels,
     normalize_channel_tokens,
     parse_timepoint_hours,
@@ -3909,6 +3911,72 @@ class WellViewerApp(QWidget):
             self._cache[label] = load_well_csv(self._well_paths[label])
         return self._cache[label]
 
+    def _aggregate_well(
+        self,
+        label: str,
+        threshold: float,
+        use_sem: bool,
+        val_col: str,
+        cell_area_threshold: float,
+        fluor_gates: Optional[Dict[str, float]] = None,
+        per_fov_spread: bool = False,
+        tp_col: str = "timepoint_hours",
+    ):
+        """Aggregate a single well via the vectorized DataFrame path.
+
+        The DataFrame is built from ``_get_rows(label)`` on every call;
+        consumers that hammer this in tight loops trade a small DataFrame
+        construction cost for the vectorized inner loop.
+        """
+        return aggregate_with_threshold_df(
+            rows_to_df(self._get_rows(label)),
+            threshold=threshold,
+            use_sem=use_sem,
+            tp_col=tp_col,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates or {},
+            per_fov_spread=per_fov_spread,
+            ratios=self._ratio_index,
+        )
+
+    def _aggregate_group(
+        self,
+        wells: List[str],
+        threshold: float,
+        use_sem: bool,
+        val_col: str,
+        cell_area_threshold: float,
+        fluor_gates: Optional[Dict[str, float]] = None,
+        per_fov_spread: bool = False,
+        tp_col: str = "timepoint_hours",
+    ):
+        """Aggregate a list of wells via the vectorized path (concatenated when len>1)."""
+        valid = [w for w in wells if w in self._well_paths]
+        if not valid:
+            return []
+        if len(valid) == 1:
+            return self._aggregate_well(
+                valid[0], threshold=threshold, use_sem=use_sem,
+                val_col=val_col, cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates, per_fov_spread=per_fov_spread,
+                tp_col=tp_col,
+            )
+        import pandas as pd
+        df = pd.concat([rows_to_df(self._get_rows(w)) for w in valid],
+                       ignore_index=True)
+        return aggregate_with_threshold_df(
+            df,
+            threshold=threshold,
+            use_sem=use_sem,
+            tp_col=tp_col,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates or {},
+            per_fov_spread=per_fov_spread,
+            ratios=self._ratio_index,
+        )
+
     # ── Preview panel ─────────────────────────────────────────────────────────
 
     def _update_preview(self, well_label: Optional[str]) -> None:
@@ -5473,14 +5541,12 @@ class WellViewerApp(QWidget):
         n = len(wells)
         bar_w = min(0.6, 5.0 / max(n, 1))
         for i, lbl in enumerate(wells):
-            rows = self._get_rows(lbl)
-            pts = aggregate_with_threshold(
-                rows, threshold, use_sem=use_sem,
+            pts = self._aggregate_well(
+                lbl, threshold=threshold, use_sem=use_sem,
                 val_col=self._active_val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
                 per_fov_spread=per_fov_spread,
-                ratios=getattr(self, "_ratio_index", None),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
@@ -5611,12 +5677,12 @@ class WellViewerApp(QWidget):
         for lbl in rset.wells:
             if lbl not in self._well_paths:
                 continue
-            rows = self._get_rows(lbl)
-            pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
-                                            val_col=self._active_val_col,
-                                            cell_area_threshold=cell_area_threshold,
-                                            fluor_gates=fluor_gates,
-                                            ratios=getattr(self, "_ratio_index", None))
+            pts = self._aggregate_well(
+                lbl, threshold=threshold, use_sem=False,
+                val_col=self._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             if matched:
                 _, m, _sd, f, *_ = matched[0]
@@ -5666,13 +5732,11 @@ class WellViewerApp(QWidget):
         for lbl in rset.wells:
             if lbl not in self._well_paths:
                 continue
-            rows = self._get_rows(lbl)
-            pts = aggregate_with_threshold(
-                rows, threshold, use_sem=False,
+            pts = self._aggregate_well(
+                lbl, threshold=threshold, use_sem=False,
                 val_col=self._active_val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
-                ratios=getattr(self, "_ratio_index", None),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             if matched:
@@ -5736,12 +5800,12 @@ class WellViewerApp(QWidget):
             for lbl in rset:
                 if lbl not in self._well_paths:
                     continue
-                rows = self._get_rows(lbl)
-                pts  = aggregate_with_threshold(rows, threshold, use_sem=False,
-                                                val_col=self._active_val_col,
-                                                cell_area_threshold=cell_area_threshold,
-                                                fluor_gates=fluor_gates,
-                                                ratios=getattr(self, "_ratio_index", None))
+                pts = self._aggregate_well(
+                    lbl, threshold=threshold, use_sem=False,
+                    val_col=self._active_val_col,
+                    cell_area_threshold=cell_area_threshold,
+                    fluor_gates=fluor_gates,
+                )
                 matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
                 if matched:
                     _, m, _sd, f, *_ = matched[0]

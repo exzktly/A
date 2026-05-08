@@ -85,32 +85,27 @@ def _cell_value(
     ratios: Optional[Dict] = None,
 ) -> float:
     """Compute the heatmap cell value by pooling rows across *wells*."""
-    pooled_rows: List[dict] = []
-    for w in wells:
-        if w in app._well_paths:
-            pooled_rows.extend(app._get_rows(w))
-    if not pooled_rows:
+    valid_wells = [w for w in wells if w in app._well_paths]
+    if not valid_wells:
         return float("nan")
 
     if metric == METRIC_COUNT:
         # Use aggregate to apply gate logic consistently, then read n_total.
-        pts = aggregate_with_threshold(
-            pooled_rows, threshold, use_sem=False,
+        pts = app._aggregate_group(
+            valid_wells, threshold=threshold, use_sem=False,
             val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
-            ratios=ratios,
         )
         matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
         return float(matched[0][5]) if matched else 0.0
 
     if metric == METRIC_FRACTION:
-        pts = aggregate_with_threshold(
-            pooled_rows, threshold, use_sem=False,
+        pts = app._aggregate_group(
+            valid_wells, threshold=threshold, use_sem=False,
             val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
-            ratios=ratios,
         )
         matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
         if not matched:
@@ -118,9 +113,14 @@ def _cell_value(
         return float(matched[0][3])
 
     if metric == METRIC_RATIO:
-        # Pool ratio values across cells at the target timepoint.
+        # Pool ratio values across cells at the target timepoint. The legacy
+        # _all_fluor_values_filtered helper still expects a list of dicts;
+        # rebuild it on demand only for this branch.
         if not is_ratio_key(val_col):
             return float("nan")
+        pooled_rows: List[dict] = []
+        for w in valid_wells:
+            pooled_rows.extend(app._get_rows(w))
         vals = _all_fluor_values_filtered(
             pooled_rows, val_col=val_col,
             cell_area_threshold=cell_area_threshold,
@@ -133,12 +133,11 @@ def _cell_value(
         return float(sum(vals) / len(vals))
 
     # METRIC_MEAN (and fallback)
-    pts = aggregate_with_threshold(
-        pooled_rows, threshold, use_sem=False,
+    pts = app._aggregate_group(
+        valid_wells, threshold=threshold, use_sem=False,
         val_col=val_col,
         cell_area_threshold=cell_area_threshold,
         fluor_gates=fluor_gates,
-        ratios=ratios,
     )
     matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
     if not matched:
