@@ -53,6 +53,14 @@ imagecodecs==2023.9.18
 # so it resolves cleanly against the env's numpy>=1.24,<1.25 pin.
 pandas==2.2.3
 
+# ── Test environment guard ───────────────────────────────────────────────────
+# exceptiongroup is a transitive dep of pytest on py<3.11. Versions >=1.3
+# add `typing-extensions>=4.6.0`, which conflicts with the
+# `typing-extensions<4.6.0,>=3.6.6` pin from tensorflow-macos 2.13.0 and
+# silently upgrades typing-extensions, breaking TF imports. Pinning
+# below 1.3 keeps pytest installable without disturbing TF.
+exceptiongroup<1.3
+
 # ── GUI toolkit (Qt for Python) ──────────────────────────────────────────────
 # Replaces tkinter. Pulls in shiboken6 transitively at the matching version.
 # On Windows, prefer `mamba install -c conda-forge pyside6` so the MSVC
