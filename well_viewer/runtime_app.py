@@ -4585,7 +4585,10 @@ class WellViewerApp(QWidget):
         if not nids:
             self._set_status("Box selection: no cells inside rectangle.")
             return
-        fov = self._preview_fov_cb.currentText().strip()
+        fov_cb = getattr(self, "_preview_fov_cb", None)
+        if fov_cb is None:
+            return
+        fov = fov_cb.currentText().strip()
         tp_cb = getattr(self, "_review_image_tp_cb", None)
         tp = tp_cb.currentText().strip() if tp_cb is not None else ""
         self._set_review_cells_included_batch(
