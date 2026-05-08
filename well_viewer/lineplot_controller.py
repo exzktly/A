@@ -87,6 +87,7 @@ def redraw_line_plots(
         return
 
     any_ts = any_cdf = False
+    rep_per_fov = app._use_fov_spread_active() if active_rsets else False
     if active_rsets:
         all_rsets = list(getattr(app, "_rep_sets", []))
         ordered_rsets = _apply_order(
@@ -114,7 +115,10 @@ def redraw_line_plots(
                 all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
             agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
             for t in sorted(all_tps):
-                gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
+                if rep_per_fov:
+                    gm, gerr, gf, _, _, _ = app._compute_rep_per_fov_stats(rset, t, threshold, use_sem)
+                else:
+                    gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
                 if not math.isnan(gm):
                     agg_times.append(t)
                     agg_means.append(gm)

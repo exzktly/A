@@ -257,13 +257,21 @@ def draw_grouped_bar_mode(
             r.name: WELL_COLORS[all_set_idx.get(r.name, i) % len(WELL_COLORS)]
             for i, r in enumerate(active_rsets)
         }
+        per_fov_spread = app._use_fov_spread_active()
         ordered = []
         for key in app._bar_current_keys():
             rset = by_key.get(key)
             if not rset:
                 continue
-            gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-            n_above = app._compute_rep_n_above(rset, target_t)
+            if per_fov_spread:
+                gm, g_err_m, gf, g_err_f, n_above_mean, n_above_spread = (
+                    app._compute_rep_per_fov_stats(rset, target_t, threshold, use_sem)
+                )
+                trailing = (float(n_above_mean), float(n_above_spread))
+            else:
+                gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
+                n_above = app._compute_rep_n_above(rset, target_t)
+                trailing = (int(n_above), 0.0)
             base_lbl = app._replicate_display_label(rset)
             display = base_lbl
             ordered.append(
@@ -276,8 +284,8 @@ def draw_grouped_bar_mode(
                     g_err_f,
                     not math.isnan(gm),
                     color_by_key.get(rset.name, WELL_COLORS[0]),
-                    int(n_above),
-                    0.0,
+                    trailing[0],
+                    trailing[1],
                 )
             )
         xlabels = [display for _, display, *_ in ordered]

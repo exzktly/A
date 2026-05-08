@@ -95,17 +95,23 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
             key=lambda r: getattr(r, "name", ""),
         )
         items: list = []
+        per_fov_spread = app._use_fov_spread_active()
         for idx, rset in enumerate(active_rsets):
             color = well_colors[idx % len(well_colors)]
-            gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-            n_above = app._compute_rep_n_above(rset, target_t)
             label = app._replicate_display_label(rset)
-            # Trailing (n_above, n_above_spread) drives the events panel.
-            # Replicate-set mode never combines with the per-FOV toggle (the
-            # toggle is auto-disabled when rep sets are active), so the
-            # spread is always 0 here. The trailing 0.0 keeps the rep-set
-            # tuple shape stable across FOV-on / FOV-off plot cycles.
-            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color, int(n_above), 0.0))
+            if per_fov_spread:
+                # Pool every FOV across all wells in the rep set; SD/SEM is
+                # across that pooled set of per-FOV means/fractions/counts.
+                gm, g_err_m, gf, g_err_f, n_above_pf_mean, n_above_pf_spread = (
+                    app._compute_rep_per_fov_stats(rset, target_t, threshold, use_sem)
+                )
+                items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color,
+                              float(n_above_pf_mean), float(n_above_pf_spread)))
+            else:
+                gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
+                n_above = app._compute_rep_n_above(rset, target_t)
+                items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color,
+                              int(n_above), 0.0))
         return True, items, band_lbl
 
     from well_viewer.lineplot_controller import _apply_order as _apply_well_order
