@@ -489,6 +489,15 @@ def _cell_at_event(app, event) -> Optional[Tuple[int, int]]:
 
 
 def on_heatmap_click(app, event) -> None:
+    # If the press landed on a row/col tick label, the label-drag handler
+    # owns this gesture (rename / reorder). Don't also treat it as a cell
+    # click — that would steal the selection from under a drag.
+    try:
+        from well_viewer.tabs.heatmap_tab_view import _hit_test_tick_label
+        if _hit_test_tick_label(app, event) is not None:
+            return
+    except Exception:
+        pass
     rc = _cell_at_event(app, event)
     if rc is None:
         return

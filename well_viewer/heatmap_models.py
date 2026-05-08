@@ -65,6 +65,47 @@ class HeatmapLayout:
         self.rows, self.cols = int(self.cols), int(self.rows)
         self.row_labels, self.col_labels = self.col_labels, self.row_labels
 
+    def reorder_row(self, src: int, dst: int) -> None:
+        """Move row *src* to position *dst*, shifting the other rows."""
+        if src == dst or not (0 <= src < self.rows) or not (0 <= dst < self.rows):
+            return
+        order = list(range(self.rows))
+        order.insert(dst, order.pop(src))
+        # ``order[new] = old`` — new row N pulls its content from order[N].
+        new_to_old = {new: old for new, old in enumerate(order)}
+        old_to_new = {old: new for new, old in new_to_old.items()}
+        self.cells = {
+            (old_to_new[r], c): list(wells)
+            for (r, c), wells in self.cells.items()
+            if r in old_to_new
+        }
+        if self.row_labels:
+            labels = list(self.row_labels)
+            # Pad missing labels with positional defaults so the reorder is
+            # well-defined when the list was shorter than ``rows``.
+            while len(labels) < self.rows:
+                labels.append(str(len(labels) + 1))
+            self.row_labels = [labels[new_to_old[i]] for i in range(self.rows)]
+
+    def reorder_col(self, src: int, dst: int) -> None:
+        """Move column *src* to position *dst*, shifting the other columns."""
+        if src == dst or not (0 <= src < self.cols) or not (0 <= dst < self.cols):
+            return
+        order = list(range(self.cols))
+        order.insert(dst, order.pop(src))
+        new_to_old = {new: old for new, old in enumerate(order)}
+        old_to_new = {old: new for new, old in new_to_old.items()}
+        self.cells = {
+            (r, old_to_new[c]): list(wells)
+            for (r, c), wells in self.cells.items()
+            if c in old_to_new
+        }
+        if self.col_labels:
+            labels = list(self.col_labels)
+            while len(labels) < self.cols:
+                labels.append(str(len(labels) + 1))
+            self.col_labels = [labels[new_to_old[i]] for i in range(self.cols)]
+
     # ── serialization ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:

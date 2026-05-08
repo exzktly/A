@@ -184,6 +184,19 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
         "button_press_event",
         lambda evt: _on_label_double_click(app, evt),
     )
+    # Click-and-drag a row/col label onto another → reorder the grid.
+    app._heatmap_canvas.mpl_connect(
+        "button_press_event",
+        lambda evt: _on_label_press(app, evt),
+    )
+    app._heatmap_canvas.mpl_connect(
+        "motion_notify_event",
+        lambda evt: _on_label_drag_motion(app, evt),
+    )
+    app._heatmap_canvas.mpl_connect(
+        "button_release_event",
+        lambda evt: _on_label_release(app, evt),
+    )
 
     refresh_heatmap_timepoints(app)
 
@@ -329,36 +342,40 @@ def _persist_settings(app) -> None:
             pass
 
 
-def _on_label_double_click(app, evt) -> None:
-    """Edit a row/col tick label inline when double-clicked."""
-    if not getattr(evt, "dblclick", False):
-        return
+def _hit_test_tick_label(app, evt):
+    """Return ("row"|"col", index) for the tick label under *evt*, or None."""
     ax = getattr(app, "_heatmap_ax", None)
-    if ax is None:
-        return
-    # Collect tick labels to hit-test against pixel positions.
     canvas = getattr(app, "_heatmap_canvas", None)
-    if canvas is None:
-        return
-    renderer = canvas.get_renderer()
-    target = None  # ("row", index) or ("col", index)
+    if ax is None or canvas is None:
+        return None
+    if evt.x is None or evt.y is None:
+        return None
+    try:
+        renderer = canvas.get_renderer()
+    except Exception:
+        return None
     for i, lbl in enumerate(ax.get_xticklabels()):
         try:
             bb = lbl.get_window_extent(renderer=renderer)
         except Exception:
             continue
         if bb.contains(evt.x, evt.y):
-            target = ("col", i)
-            break
-    if target is None:
-        for i, lbl in enumerate(ax.get_yticklabels()):
-            try:
-                bb = lbl.get_window_extent(renderer=renderer)
-            except Exception:
-                continue
-            if bb.contains(evt.x, evt.y):
-                target = ("row", i)
-                break
+            return ("col", i)
+    for i, lbl in enumerate(ax.get_yticklabels()):
+        try:
+            bb = lbl.get_window_extent(renderer=renderer)
+        except Exception:
+            continue
+        if bb.contains(evt.x, evt.y):
+            return ("row", i)
+    return None
+
+
+def _on_label_double_click(app, evt) -> None:
+    """Edit a row/col tick label inline when double-clicked."""
+    if not getattr(evt, "dblclick", False):
+        return
+    target = _hit_test_tick_label(app, evt)
     if target is None:
         return
     from well_viewer.views.heatmap_layout_sidebar_view import (
@@ -398,6 +415,106 @@ def _on_label_double_click(app, evt) -> None:
             layout.col_labels.append(str(len(layout.col_labels) + 1))
         layout.col_labels[idx] = new_text or str(idx + 1)
     _persist_and_redraw(app)
+
+
+_LABEL_DRAG_THRESHOLD_PX = 4
+
+
+def _on_label_press(app, evt) -> None:
+    """Begin a potential label-drag: stash the source label being clicked.
+
+    The drag is only confirmed once the cursor moves more than the
+    threshold; until then we let other handlers (rename, cell click) win.
+    """
+    if getattr(evt, "dblclick", False):
+        return
+    if getattr(evt, "button", None) != 1:
+        return
+    target = _hit_test_tick_label(app, evt)
+    if target is None:
+        app._heatmap_label_drag = None
+        return
+    app._heatmap_label_drag = {
+        "kind": target[0],
+        "src": target[1],
+        "x0": evt.x,
+        "y0": evt.y,
+        "active": False,
+    }
+
+
+def _on_label_drag_motion(app, evt) -> None:
+    """Promote a press to an active drag once the cursor crosses the threshold."""
+    state = getattr(app, "_heatmap_label_drag", None)
+    if not state or state.get("active"):
+        return
+    if evt.x is None or evt.y is None:
+        return
+    dx = abs(evt.x - state["x0"])
+    dy = abs(evt.y - state["y0"])
+    if max(dx, dy) >= _LABEL_DRAG_THRESHOLD_PX:
+        state["active"] = True
+        canvas = getattr(app, "_heatmap_canvas", None)
+        if canvas is not None:
+            try:
+                from PySide6.QtCore import Qt as _Qt
+                canvas.setCursor(_Qt.ClosedHandCursor)
+            except Exception:
+                pass
+
+
+def _on_label_release(app, evt) -> None:
+    """Finish a label-drag: figure out the target row/column and reorder."""
+    state = getattr(app, "_heatmap_label_drag", None)
+    app._heatmap_label_drag = None
+    canvas = getattr(app, "_heatmap_canvas", None)
+    if canvas is not None:
+        try:
+            canvas.unsetCursor()
+        except Exception:
+            pass
+    if not state or not state.get("active"):
+        return
+    kind = state["kind"]
+    src = int(state["src"])
+    dst = _drop_target_index(app, evt, kind)
+    if dst is None or dst == src:
+        return
+    from well_viewer.views.heatmap_layout_sidebar_view import (
+        _ensure_sidebar_layout, _persist_and_redraw, refresh_heatmap_layout_sidebar,
+    )
+    layout = _ensure_sidebar_layout(app)
+    if kind == "row":
+        layout.reorder_row(src, dst)
+    else:
+        layout.reorder_col(src, dst)
+    _persist_and_redraw(app)
+    refresh_heatmap_layout_sidebar(app)
+
+
+def _drop_target_index(app, evt, kind: str):
+    """Map the release position to a row/column index along *kind*'s axis.
+
+    Tries the tick-label hit-test first, then falls back to data-coords on
+    the heatmap so the user can drop directly onto a grid row/column.
+    """
+    target = _hit_test_tick_label(app, evt)
+    if target is not None and target[0] == kind:
+        return int(target[1])
+    layout = getattr(app, "_heatmap_layout_active", None)
+    if layout is None or evt.inaxes is None:
+        return None
+    if evt.xdata is None or evt.ydata is None:
+        return None
+    if kind == "row":
+        idx = int(round(float(evt.ydata)))
+        if 0 <= idx < layout.rows:
+            return idx
+    else:
+        idx = int(round(float(evt.xdata)))
+        if 0 <= idx < layout.cols:
+            return idx
+    return None
 
 
 def _on_canvas_click(app, evt) -> None:
