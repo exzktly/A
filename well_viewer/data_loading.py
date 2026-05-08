@@ -13,9 +13,12 @@ import re
 import statistics
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from .ratio_models import RatioMetric, is_ratio_key
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 # ── Timepoint parser ─────────────────────────────────────────────────────────
@@ -100,6 +103,33 @@ def load_well_csv(path: Path) -> List[dict]:
                         coerced[k] = v
             rows.append(coerced)
     return rows
+
+
+def rows_to_df(rows: List[dict]) -> "pd.DataFrame":
+    """Build a DataFrame matching ``load_well_csv`` semantics.
+
+    String columns stay as object dtype; numeric ones are coerced via
+    ``pd.to_numeric`` with ``errors="coerce"``. An empty input yields an empty
+    DataFrame (no columns) — callers that need a specific schema must add
+    columns themselves.
+    """
+    import pandas as pd
+
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    if "Included" not in df.columns:
+        df["Included"] = 1
+    for col in df.columns:
+        if str(col).strip().lower() in _STRING_COLS:
+            continue
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def load_well_csv_df(path: Path) -> "pd.DataFrame":
+    """DataFrame variant of :func:`load_well_csv`. Same normalization rules."""
+    return rows_to_df(load_well_csv(path))
 
 
 def detect_fluor_channels(rows: List[dict]) -> List[str]:
@@ -406,6 +436,218 @@ def aggregate_with_threshold(
                        n_above / n_total if n_total else float("nan"),
                        n_above, n_total, frac_spread,
                        n_above_per_fov_mean, n_above_per_fov_spread))
+    return result
+
+
+def _ordinal_timepoints_df(df: "pd.DataFrame", tp_col: str = "timepoint_hours") -> Dict[str, float]:
+    """Vectorized counterpart to :func:`_ordinal_timepoints` operating on a DataFrame."""
+    import numpy as np
+    import pandas as pd
+
+    if len(df) == 0 or "timepoint" not in df.columns:
+        return {}
+    if tp_col in df.columns:
+        tp_num = pd.to_numeric(df[tp_col], errors="coerce").to_numpy()
+    else:
+        tp_num = np.full(len(df), np.nan)
+    tp_str = df["timepoint"].fillna("").astype(str).to_numpy()
+    not_finite = ~np.isfinite(tp_num)
+    raw_strings: set[str] = set()
+    for s in tp_str[not_finite]:
+        s_str = str(s)
+        if s_str and parse_timepoint_hours(s_str) is None:
+            raw_strings.add(s_str)
+    return {s: float(i) for i, s in enumerate(sorted(raw_strings))}
+
+
+def aggregate_with_threshold_df(
+    df: "pd.DataFrame",
+    threshold: float,
+    use_sem: bool = False,
+    tp_col: str = "timepoint_hours",
+    val_col: str = "gfp_mean_intensity",
+    cell_area_threshold: float = 0.0,
+    fluor_gates: Optional[Dict[str, float]] = None,
+    per_fov_spread: bool = False,
+    ratios: Optional[Dict[str, RatioMetric]] = None,
+) -> List[AggPoint]:
+    """Vectorized counterpart to :func:`aggregate_with_threshold`.
+
+    Returns a list with the same shape and semantics as the scalar version.
+    Match is intended to be exact up to floating-point rounding (the parity
+    test in ``tests/test_aggregate_parity.py`` enforces this).
+    """
+    import numpy as np
+    import pandas as pd
+
+    if df is None or len(df) == 0:
+        return []
+    if fluor_gates is None:
+        fluor_gates = {}
+
+    n = len(df)
+
+    if "Included" in df.columns:
+        incl = pd.to_numeric(df["Included"], errors="coerce").to_numpy()
+        mask = incl == 1
+    else:
+        mask = np.ones(n, dtype=bool)
+
+    if "area_px" in df.columns:
+        area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
+        # Scalar uses ``if area <= threshold: continue`` which silently keeps
+        # NaN areas (NaN comparisons are always False). Match that exactly via
+        # ``~(area <= threshold)`` rather than ``area > threshold``, since
+        # the latter drops NaN.
+        with np.errstate(invalid="ignore"):
+            mask &= ~(area <= cell_area_threshold)
+    elif 0.0 <= cell_area_threshold:
+        # Scalar: row.get("area_px", 0) → 0 → 0 <= threshold → skip.
+        return []
+
+    for channel, gate in fluor_gates.items():
+        col = f"{channel}_mean_intensity"
+        if col not in df.columns:
+            # Scalar treats missing column as NaN → gate fails → skip all rows.
+            return []
+        v = pd.to_numeric(df[col], errors="coerce").to_numpy()
+        mask &= np.isfinite(v) & (v > gate)
+
+    if not mask.any():
+        return []
+
+    ord_map = _ordinal_timepoints_df(df, tp_col)
+
+    if tp_col in df.columns:
+        tp_num = pd.to_numeric(df[tp_col], errors="coerce").to_numpy().astype(float)
+    else:
+        tp_num = np.full(n, np.nan)
+
+    if "timepoint" in df.columns:
+        tp_str = df["timepoint"].fillna("").astype(str).str.strip().to_numpy()
+    else:
+        tp_str = np.array([""] * n, dtype=object)
+
+    need = ~np.isfinite(tp_num)
+    if need.any():
+        cache: Dict[str, float] = {}
+        for s in np.unique(tp_str[need]):
+            s_str = str(s)
+            if s_str == "":
+                cache[s_str] = 0.0
+            else:
+                v = parse_timepoint_hours(s_str)
+                if v is None:
+                    v = ord_map.get(s_str)
+                cache[s_str] = float(v) if v is not None else float("nan")
+        for i in np.flatnonzero(need):
+            tp_num[i] = cache[str(tp_str[i])]
+
+    if is_ratio_key(val_col):
+        if not ratios or val_col not in ratios:
+            return []
+        r = ratios[val_col]
+        ncol, dcol = r.numerator_col(), r.denominator_col()
+        if ncol not in df.columns or dcol not in df.columns:
+            return []
+        num = pd.to_numeric(df[ncol], errors="coerce").to_numpy()
+        den = pd.to_numeric(df[dcol], errors="coerce").to_numpy()
+        finite = np.isfinite(num) & np.isfinite(den)
+        denom = den + r.epsilon
+        nz = denom != 0.0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            val = np.where(finite & nz, num / np.where(nz, denom, 1.0), np.nan)
+    else:
+        if val_col not in df.columns:
+            return []
+        v = pd.to_numeric(df[val_col], errors="coerce").to_numpy()
+        val = np.where(np.isfinite(v), v, np.nan)
+
+    final = mask & np.isfinite(tp_num) & np.isfinite(val)
+    if not final.any():
+        return []
+
+    tp_arr = tp_num[final]
+    val_arr = val[final]
+
+    if per_fov_spread:
+        if "fov" in df.columns:
+            fov_series = (df["fov"].fillna("1").astype(str).str.strip()
+                          .replace("", "1"))
+        else:
+            fov_series = pd.Series(["1"] * n, index=df.index)
+        fov_arr = fov_series.to_numpy()[final]
+    else:
+        fov_arr = None
+
+    return _aggregate_arrays(tp_arr, val_arr, fov_arr, threshold, use_sem,
+                             per_fov_spread)
+
+
+def _aggregate_arrays(
+    tp_arr,
+    val_arr,
+    fov_arr,
+    threshold: float,
+    use_sem: bool,
+    per_fov_spread: bool,
+) -> List[AggPoint]:
+    import numpy as np
+
+    result: List[AggPoint] = []
+    for t in np.unique(tp_arr):
+        idx = tp_arr == t
+        v = val_arr[idx]
+        n_total = int(v.size)
+        above_mask = v > threshold
+        above = v[above_mask]
+        n_above = int(above.size)
+        mean = float(above.sum() / n_above) if n_above else float("nan")
+
+        spread = 0.0
+        frac_spread = 0.0
+        n_above_per_fov_mean = 0.0
+        n_above_per_fov_spread = 0.0
+
+        if per_fov_spread:
+            f = fov_arr[idx]
+            fov_total: Dict[str, int] = {}
+            fov_above: Dict[str, List[float]] = {}
+            for vi, fi in zip(v.tolist(), f.tolist()):
+                fov_total[fi] = fov_total.get(fi, 0) + 1
+                if vi > threshold:
+                    fov_above.setdefault(fi, []).append(vi)
+
+            fov_means = [statistics.mean(vs) for vs in fov_above.values() if vs]
+            if len(fov_means) > 1:
+                sd = statistics.pstdev(fov_means)
+                spread = sd / math.sqrt(len(fov_means)) if use_sem else sd
+
+            fov_fracs = [len(fov_above.get(fov, ())) / total
+                         for fov, total in fov_total.items() if total > 0]
+            if len(fov_fracs) > 1:
+                fsd = statistics.pstdev(fov_fracs)
+                frac_spread = fsd / math.sqrt(len(fov_fracs)) if use_sem else fsd
+
+            fov_n_above = [len(fov_above.get(fov, ()))
+                           for fov, total in fov_total.items() if total > 0]
+            if len(fov_n_above) >= 1:
+                n_above_per_fov_mean = sum(fov_n_above) / len(fov_n_above)
+            if len(fov_n_above) > 1:
+                nsd = statistics.pstdev(fov_n_above)
+                n_above_per_fov_spread = (nsd / math.sqrt(len(fov_n_above))
+                                          if use_sem else nsd)
+        else:
+            if n_above > 1:
+                m = above.sum() / n_above
+                sd = float(np.sqrt(((above - m) ** 2).sum() / n_above))
+                spread = sd / math.sqrt(n_above) if use_sem else sd
+
+        result.append((float(t), mean, float(spread),
+                       n_above / n_total if n_total else float("nan"),
+                       int(n_above), int(n_total), float(frac_spread),
+                       float(n_above_per_fov_mean),
+                       float(n_above_per_fov_spread)))
     return result
 
 

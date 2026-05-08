@@ -440,13 +440,11 @@ def collect_scatter_agg_data(
         for well_label in wells:
             if well_label not in app._well_paths:
                 continue
-            rows = app._get_rows(well_label)
-            pts = aggregate_with_threshold(
-                rows, threshold, use_sem=False,
+            pts = app._aggregate_well(
+                well_label, threshold=threshold, use_sem=False,
                 val_col=val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
-                ratios=ratios,
             )
             matched = [(m, f) for t, m, _s, f, *_ in pts if abs(t - tp) < 1e-6]
             if matched:
