@@ -111,8 +111,7 @@ def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_co
     fluor_gates = app._get_all_fluor_gates()
     per_fov_spread = app._use_fov_spread_active()
     for label in bar_selected:
-        rows = app._get_rows(label)
-        pts = aggregate_with_threshold(rows, threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread, ratios=getattr(app, "_ratio_index", None))
+        pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
         # AggPoint: (t, mean, mean_spread, frac, n_above, n_total, frac_spread,
         #            n_above_per_fov_mean, n_above_per_fov_spread).
         # When the Aggregate FOVs toggle is on, the events panel reports
