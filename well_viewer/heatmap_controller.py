@@ -17,7 +17,6 @@ from matplotlib import colormaps as mpl_colormaps
 
 from well_viewer.data_loading import (
     _all_fluor_values_filtered,
-    aggregate_with_threshold,
     parse_well_token,
     resolve_value,
 )

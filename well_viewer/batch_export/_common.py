@@ -9,7 +9,6 @@ from well_viewer.batch_models import BarGroup
 from well_viewer.barplot_controller import render_bar_items as _bar_render_items
 from well_viewer.data_loading import (
     _all_fluor_values,
-    aggregate_with_threshold,
     extract_well_token as _extract_well_token,
 )
 from well_viewer.plate_layout import (
@@ -41,7 +40,7 @@ _CLR_WHITE = "#ffffff"
 __all__ = [
     "PLOT_BG", "PLOT_SPN", "WARN", "get_color",
     "BarGroup", "_bar_render_items",
-    "_all_fluor_values", "aggregate_with_threshold", "_extract_well_token",
+    "_all_fluor_values", "_extract_well_token",
     "_PLATE_COLS", "_PLATE_ROWS", "WELL_COLORS",
     "apply_ax_style",
     "ask_name_dialog", "btn_card", "btn_danger", "btn_primary", "btn_secondary",

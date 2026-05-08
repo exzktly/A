@@ -42,7 +42,6 @@ from well_viewer.batch_export._common import (
     BarGroup,
     _bar_render_items,
     _all_fluor_values,
-    aggregate_with_threshold,
     _extract_well_token,
     _PLATE_COLS,
     _PLATE_ROWS,
@@ -167,12 +166,10 @@ class BarBatchExportPanel(BatchExportPanel):
                     valid = [w for w in rset.wells if w in self._app._well_paths]
                     if not valid:
                         continue
-                    combined: List[dict] = []
-                    for w in valid:
-                        combined.extend(self._app._get_rows(w))
-                    pts = aggregate_with_threshold(
-                        combined, threshold, use_sem=use_sem,
-                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                    pts = self._app._aggregate_group(
+                        valid, threshold=threshold, use_sem=use_sem,
+                        val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
                     matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
@@ -192,9 +189,10 @@ class BarBatchExportPanel(BatchExportPanel):
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
                         continue
-                    pts = aggregate_with_threshold(
-                        self._app._get_rows(w), threshold, use_sem=use_sem,
-                        val_col=_val_col, cell_area_threshold=_cell_area_threshold,
+                    pts = self._app._aggregate_well(
+                        w, threshold=threshold, use_sem=use_sem,
+                        val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
                     matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
@@ -267,14 +265,11 @@ class BarBatchExportPanel(BatchExportPanel):
             valid = [w for w in rset.wells if w in self._app._well_paths]
             if not valid:
                 continue
-            combined: List[dict] = []
-            for w in valid:
-                combined.extend(self._app._get_rows(w))
-            members.append((self._app._replicate_display_label(rset), combined))
+            members.append((self._app._replicate_display_label(rset), valid))
         for w in grp.solo_wells:
             if w not in self._app._well_paths:
                 continue
-            members.append((w, self._app._get_rows(w)))
+            members.append((w, [w]))
 
         if not members:
             return fig
@@ -283,11 +278,13 @@ class BarBatchExportPanel(BatchExportPanel):
         _fluor_gates = self._app._get_all_fluor_gates()
         draw_items: List[tuple] = []
         xlabels: List[str] = []
-        for i, (name, rows) in enumerate(members):
+        for i, (name, wells) in enumerate(members):
             color = WELL_COLORS[i % len(WELL_COLORS)]
-            pts = aggregate_with_threshold(
-                rows, threshold, use_sem=use_sem,
-                cell_area_threshold=_cell_area_threshold, fluor_gates=_fluor_gates,
+            pts = self._app._aggregate_group(
+                wells, threshold=threshold, use_sem=use_sem,
+                val_col=self._app._active_val_col,
+                cell_area_threshold=_cell_area_threshold,
+                fluor_gates=_fluor_gates,
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             xlabels.append(name)

@@ -31,7 +31,6 @@ from well_viewer.barplot_controller import (
 )
 from well_viewer.data_loading import (
     _beeswarm_jitter,
-    aggregate_with_threshold,
     extract_well_token as _extract_well_token,
     parse_timepoint_hours,
     resolve_value,

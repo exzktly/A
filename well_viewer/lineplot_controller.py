@@ -46,7 +46,6 @@ def redraw_line_plots(
     app,
     *,
     apply_ax_style,
-    aggregate_with_threshold,
     all_fluor_values,
     all_fluor_values_filtered,
     plot_bg: str,

@@ -26,7 +26,6 @@ def redraw(
     *,
     lineplot_redraw,
     apply_ax_style,
-    aggregate_with_threshold,
     all_fluor_values,
     all_fluor_values_filtered,
     plot_bg,
@@ -41,7 +40,6 @@ def redraw(
     lineplot_redraw(
         app,
         apply_ax_style=apply_ax_style,
-        aggregate_with_threshold=aggregate_with_threshold,
         all_fluor_values=all_fluor_values,
         all_fluor_values_filtered=all_fluor_values_filtered,
         plot_bg=plot_bg,

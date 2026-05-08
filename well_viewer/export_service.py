@@ -28,8 +28,6 @@ def _error(app, title: str, msg: str) -> None:
 
 
 def export_plot_data(app) -> None:
-    from well_viewer import runtime_app as rt
-
     selected = app._selected_labels()
     if not selected:
         _warn(app, "Export", "No wells selected.")
@@ -41,12 +39,13 @@ def export_plot_data(app) -> None:
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
     for label in selected:
-        pts = rt.aggregate_with_threshold(
-            app._get_rows(label), threshold,
-            use_sem=False, val_col=app._active_val_col,
-            cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates,
+        pts = app._aggregate_well(
+            label, threshold=threshold, use_sem=False,
+            val_col=app._active_val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
         )
-        for t, mean, sd, frac, n_above, n_total in pts:
+        for t, mean, sd, frac, n_above, n_total, *_ in pts:
             rows_out.append({
                 "well": label,
                 "time_h": f"{t:.4f}",
@@ -402,7 +401,6 @@ def export_scatter_agg_data(app) -> None:
     scatter_data = _scatter_collect_agg_data(
         app, stat_x, stat_y, selected_timepoints,
         well_colors=[],
-        aggregate_with_threshold=rt.aggregate_with_threshold,
     )
 
     rows_out = []

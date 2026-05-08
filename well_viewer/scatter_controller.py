@@ -327,7 +327,6 @@ def collect_scatter_agg_data(
     timepoints_h: List[float],
     *,
     well_colors: List[str],
-    aggregate_with_threshold,
 ) -> Dict[str, Dict[str, Any]]:
     """Collect aggregate scatter plot data by computing statistics for each replicate/well.
 
@@ -337,7 +336,6 @@ def collect_scatter_agg_data(
         stat_y: Y-axis statistic (e.g., "Mean Fluorescence mCherry" or "Fraction On mCherry")
         timepoints_h: List of target timepoints in hours
         well_colors: List of color strings for coloring replicates/wells
-        aggregate_with_threshold: Function to compute aggregate statistics
 
     Returns:
         Dict mapping "label_tp{timepoint}" → {
@@ -496,7 +494,6 @@ def redraw_scatter_agg(
     timepoints_h: List[float],
     *,
     well_colors: List[str],
-    aggregate_with_threshold,
 ) -> None:
     """Redraw aggregate scatter plot with statistics for multiple timepoints.
 
@@ -506,7 +503,6 @@ def redraw_scatter_agg(
         stat_y: Y-axis statistic (e.g., "Fraction On GFP")
         timepoints_h: List of timepoints in hours
         well_colors: List of colors for replicates/wells
-        aggregate_with_threshold: Function to compute statistics
     """
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
@@ -536,7 +532,6 @@ def redraw_scatter_agg(
         stat_y,
         timepoints_h,
         well_colors=well_colors,
-        aggregate_with_threshold=aggregate_with_threshold,
     )
 
     if not scatter_data:
