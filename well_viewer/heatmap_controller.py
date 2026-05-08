@@ -72,6 +72,53 @@ def _selected_tp(app) -> Optional[float]:
     return tps[idx]
 
 
+def _expand_repset_wells(app, wells: Iterable[str]) -> List[str]:
+    """If the rep-set average toggle is on, expand each input well to every
+    well in the rep-set it belongs to. Otherwise return wells as-is.
+    """
+    src = list(wells)
+    if not bool(getattr(app, "_heatmap_repset_avg", False)):
+        return src
+    rep_sets = list(getattr(app, "_rep_sets", []) or [])
+    if not rep_sets:
+        return src
+    out: List[str] = []
+    seen: set = set()
+    for w in src:
+        chosen: Optional[List[str]] = None
+        for rs in rep_sets:
+            members = list(getattr(rs, "wells", []) or [])
+            if w in members:
+                chosen = members
+                break
+        if chosen is None:
+            if w not in seen:
+                seen.add(w)
+                out.append(w)
+        else:
+            for m in chosen:
+                if m not in seen:
+                    seen.add(m)
+                    out.append(m)
+    return out
+
+
+def _repset_name_for_wells(app, wells: Iterable[str]) -> Optional[str]:
+    """Return the name of the first rep-set that contains any of *wells*, or None."""
+    if not bool(getattr(app, "_heatmap_repset_avg", False)):
+        return None
+    rep_sets = list(getattr(app, "_rep_sets", []) or [])
+    if not rep_sets:
+        return None
+    src = list(wells)
+    for w in src:
+        for rs in rep_sets:
+            members = list(getattr(rs, "wells", []) or [])
+            if w in members:
+                return str(getattr(rs, "name", "") or "")
+    return None
+
+
 def _cell_value(
     app,
     wells: Iterable[str],
@@ -84,7 +131,8 @@ def _cell_value(
     ratios: Optional[Dict] = None,
 ) -> float:
     """Compute the heatmap cell value by pooling rows across *wells*."""
-    valid_wells = [w for w in wells if w in app._well_paths]
+    expanded = _expand_repset_wells(app, wells)
+    valid_wells = [w for w in expanded if w in app._well_paths]
     if not valid_wells:
         return float("nan")
 
@@ -202,6 +250,8 @@ def _compute_global_range(
         tuple(sorted((fluor_gates or {}).items())),
         id(ratios),
         tuple(tps),
+        bool(getattr(app, "_heatmap_repset_avg", False)),
+        bool(getattr(app, "_heatmap_log_scale", False)),
     )
     cached = getattr(app, "_heatmap_global_range_cache", None)
     if cached is not None and cached.get("key") == cache_key:
@@ -294,9 +344,31 @@ def redraw_heatmap(app) -> None:
 
     masked = np.ma.masked_invalid(arr)
 
+    # Log-scale toggle: route values through a LogNorm so the colorbar
+    # spans orders of magnitude. Values ≤ 0 become invalid (masked).
+    norm = None
+    log_scale = bool(getattr(app, "_heatmap_log_scale", False))
+    if log_scale:
+        from matplotlib.colors import LogNorm
+        positive = masked.filled(np.nan)
+        positive = positive[np.isfinite(positive) & (positive > 0)]
+        log_vmin = float(np.min(positive)) if positive.size else None
+        log_vmax = float(np.max(positive)) if positive.size else None
+        # User-fixed vmin/vmax win when they're positive.
+        if (vmin is not None and vmin > 0) and (vmax is not None and vmax > vmin):
+            log_vmin, log_vmax = float(vmin), float(vmax)
+        if log_vmin is not None and log_vmax is not None and log_vmax > log_vmin > 0:
+            norm = LogNorm(vmin=log_vmin, vmax=log_vmax)
+            # Mask non-positive entries so LogNorm doesn't choke.
+            masked = np.ma.masked_where(~np.isfinite(masked.filled(np.nan)) | (masked.filled(np.nan) <= 0), masked)
+
     ax.clear()
-    im = ax.imshow(masked, aspect="equal", cmap=cmap, vmin=vmin, vmax=vmax,
-                   origin="upper", interpolation="nearest")
+    if norm is not None:
+        im = ax.imshow(masked, aspect="equal", cmap=cmap, norm=norm,
+                       origin="upper", interpolation="nearest")
+    else:
+        im = ax.imshow(masked, aspect="equal", cmap=cmap, vmin=vmin, vmax=vmax,
+                       origin="upper", interpolation="nearest")
 
     row_labels = layout.row_labels or [str(i + 1) for i in range(layout.rows)]
     col_labels = layout.col_labels or [str(i + 1) for i in range(layout.cols)]
@@ -314,7 +386,10 @@ def redraw_heatmap(app) -> None:
         v = arr[r, c]
         if not math.isfinite(v):
             continue
-        if len(wells) == 1:
+        rs_name = _repset_name_for_wells(app, wells)
+        if rs_name:
+            text = rs_name
+        elif len(wells) == 1:
             text = wells[0]
         else:
             text = f"{wells[0]}+{len(wells) - 1}"

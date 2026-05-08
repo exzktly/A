@@ -852,6 +852,8 @@ class WellViewerApp(QWidget):
         self._line_order_rsets: list[str] = []
         self._line_order_wells: list[str] = []
         self._line_order_save_pending: bool = False
+        self._notes_text: str = ""
+        self._notes_save_pending: bool = False
         # When True, the Review Image tab loads the unprocessed fluorescence
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
@@ -1396,6 +1398,7 @@ class WellViewerApp(QWidget):
         from PySide6.QtWidgets import (
             QFrame as _QFrame,
             QHBoxLayout as _QHBoxLayout,
+            QPlainTextEdit as _QPlainTextEdit,
             QTabWidget as _QTabWidget,
             QVBoxLayout as _QVBoxLayout,
             QWidget as _QWidget,
@@ -1475,6 +1478,18 @@ class WellViewerApp(QWidget):
         sub_tabs.addTab(cell_gating_tab, "Cell Gating")
         self._cell_gating_subtab_frame = cell_gating_tab
         self._cell_gating_subtab_built = False
+
+        # Sub-tab 4: Notes — freeform per-project text, persisted via
+        # sample_definitions.json's "notes" field.
+        notes_tab = _QWidget(sub_tabs)
+        nl = _QVBoxLayout(notes_tab)
+        nl.setContentsMargins(6, 6, 6, 6)
+        self._notes_edit = _QPlainTextEdit(notes_tab)
+        self._notes_edit.setPlaceholderText("Project notes…")
+        self._notes_edit.setPlainText(getattr(self, "_notes_text", "") or "")
+        self._notes_edit.textChanged.connect(self._notes_schedule_save)
+        nl.addWidget(self._notes_edit, 1)
+        sub_tabs.addTab(notes_tab, "Notes")
 
         sub_tabs.currentChanged.connect(
             lambda idx: self._build_cell_gating_subtab()
@@ -2266,6 +2281,27 @@ class WellViewerApp(QWidget):
     def _line_order_schedule_save(self) -> None:
         from well_viewer.persistence import line_order as _lo
         _lo.schedule_save(self)
+
+    def _notes_schedule_save(self) -> None:
+        """Debounced save for the Notes sub-tab (sample_definitions JSON)."""
+        edit = getattr(self, "_notes_edit", None)
+        if edit is not None:
+            self._notes_text = edit.toPlainText()
+        if getattr(self, "_notes_save_pending", False):
+            return
+        self._notes_save_pending = True
+        QTimer.singleShot(500, lambda: self._notes_flush_save())
+
+    def _notes_flush_save(self) -> None:
+        self._notes_save_pending = False
+        try:
+            from well_viewer.persistence import sample_definitions as _sd
+            _sd.save_to_pipeline_info(self)
+        except FileNotFoundError:
+            # No pipeline_info yet — nothing to merge into; keep text in memory.
+            pass
+        except Exception:
+            _logger.exception("Notes auto-save failed")
 
     # ── Sample Definitions + Cell Gating persistence ─────────────────────────
     # Implementations live in ``well_viewer.persistence.{sample_definitions,cell_gating}``.

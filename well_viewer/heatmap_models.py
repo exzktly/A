@@ -59,6 +59,12 @@ class HeatmapLayout:
         self.cells = new_cells
         return dropped
 
+    def transpose(self) -> None:
+        """Swap rows ↔ columns in place: cells, dimensions, and labels."""
+        self.cells = {(c, r): list(wells) for (r, c), wells in self.cells.items()}
+        self.rows, self.cols = int(self.cols), int(self.rows)
+        self.row_labels, self.col_labels = self.col_labels, self.row_labels
+
     # ── serialization ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:

@@ -252,34 +252,63 @@ class ExportStyleSidebar(QWidget):
         grid.addWidget(lay_row, row, 1)
         row += 1
 
-        # ── Line plot reorder panel (only when bound to the line-plot figure)
+        # ── Reorder panel — replicate-set + well draw order with Apply.
+        # Available for every plot tab whose colors come from rep-set / well
+        # ordering (line / bar / scatter). The heatmap fig is bound to the
+        # editor too but its colors are positional; the panel is harmless
+        # there because Apply only writes the order list and triggers a
+        # redraw — no-op for the heatmap renderer.
         self._line_order_rsets_list: QListWidget | None = None
         self._line_order_wells_list: QListWidget | None = None
-        if self._is_line_fig():
+        if self._supports_well_order():
             grid.addWidget(QLabel("Replicate Set Order"), row, 0, 1, 2)
             row += 1
             rs_list = QListWidget(body)
-            rs_list.setDragDropMode(QAbstractItemView.InternalMove)
             rs_list.setSelectionMode(QAbstractItemView.SingleSelection)
             rs_list.setMaximumHeight(120)
-            rs_list.model().rowsMoved.connect(
-                lambda *_: self._on_line_order_rsets_changed()
-            )
             grid.addWidget(rs_list, row, 0, 1, 2)
             self._line_order_rsets_list = rs_list
+            row += 1
+            rs_btns = QWidget(body)
+            rs_btn_l = QHBoxLayout(rs_btns)
+            rs_btn_l.setContentsMargins(0, 0, 0, 0)
+            up_rs = QPushButton("▲ Up", rs_btns)
+            up_rs.setProperty("variant", "secondary")
+            up_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, -1))
+            rs_btn_l.addWidget(up_rs)
+            down_rs = QPushButton("▼ Down", rs_btns)
+            down_rs.setProperty("variant", "secondary")
+            down_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, +1))
+            rs_btn_l.addWidget(down_rs)
+            rs_btn_l.addStretch(1)
+            grid.addWidget(rs_btns, row, 0, 1, 2)
             row += 1
 
             grid.addWidget(QLabel("Well Order"), row, 0, 1, 2)
             row += 1
             w_list = QListWidget(body)
-            w_list.setDragDropMode(QAbstractItemView.InternalMove)
             w_list.setSelectionMode(QAbstractItemView.SingleSelection)
             w_list.setMaximumHeight(120)
-            w_list.model().rowsMoved.connect(
-                lambda *_: self._on_line_order_wells_changed()
-            )
             grid.addWidget(w_list, row, 0, 1, 2)
             self._line_order_wells_list = w_list
+            row += 1
+            w_btns = QWidget(body)
+            w_btn_l = QHBoxLayout(w_btns)
+            w_btn_l.setContentsMargins(0, 0, 0, 0)
+            up_w = QPushButton("▲ Up", w_btns)
+            up_w.setProperty("variant", "secondary")
+            up_w.clicked.connect(lambda _=False: self._move_list_item(w_list, -1))
+            w_btn_l.addWidget(up_w)
+            down_w = QPushButton("▼ Down", w_btns)
+            down_w.setProperty("variant", "secondary")
+            down_w.clicked.connect(lambda _=False: self._move_list_item(w_list, +1))
+            w_btn_l.addWidget(down_w)
+            apply_btn = QPushButton("Apply", w_btns)
+            apply_btn.setProperty("variant", "primary")
+            apply_btn.clicked.connect(lambda _=False: self._apply_line_order())
+            w_btn_l.addWidget(apply_btn)
+            w_btn_l.addStretch(1)
+            grid.addWidget(w_btns, row, 0, 1, 2)
             row += 1
             self._refresh_line_order_lists()
 
@@ -480,10 +509,73 @@ class ExportStyleSidebar(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Copy SVG failed", str(exc))
 
-    # ── Line-plot reorder ────────────────────────────────────────────────────
+    # ── Reorder ──────────────────────────────────────────────────────────────
 
     def _is_line_fig(self) -> bool:
         return getattr(self._app, "_line_fig", None) is self._fig
+
+    def _supports_well_order(self) -> bool:
+        """Return True for plot figs whose color order can be reorderable."""
+        app = self._app
+        for attr in ("_line_fig", "_bar_fig", "_scatter_fig", "_scatter_agg_fig"):
+            if getattr(app, attr, None) is self._fig:
+                return True
+        return False
+
+    def _move_list_item(self, list_widget: QListWidget, delta: int) -> None:
+        """Shift the selected row up (delta=-1) or down (delta=+1)."""
+        if list_widget is None:
+            return
+        row = list_widget.currentRow()
+        if row < 0:
+            return
+        new_row = row + int(delta)
+        if not (0 <= new_row < list_widget.count()):
+            return
+        item = list_widget.takeItem(row)
+        list_widget.insertItem(new_row, item)
+        list_widget.setCurrentRow(new_row)
+
+    def _apply_line_order(self) -> None:
+        """Commit the rep-set + well lists to app state and redraw the figure."""
+        app = self._app
+        if self._line_order_rsets_list is not None:
+            app._line_order_rsets = [
+                self._line_order_rsets_list.item(i).text()
+                for i in range(self._line_order_rsets_list.count())
+            ]
+        if self._line_order_wells_list is not None:
+            app._line_order_wells = [
+                self._line_order_wells_list.item(i).text()
+                for i in range(self._line_order_wells_list.count())
+            ]
+        if hasattr(app, "_line_order_schedule_save"):
+            try:
+                app._line_order_schedule_save()
+            except Exception:
+                pass
+        self._redraw_bound_figure()
+
+    def _redraw_bound_figure(self) -> None:
+        """Trigger the redraw entry point that matches the bound figure."""
+        app = self._app
+        try:
+            if getattr(app, "_line_fig", None) is self._fig and hasattr(app, "_redraw"):
+                app._redraw()
+                return
+            if getattr(app, "_bar_fig", None) is self._fig and hasattr(app, "_redraw_bars"):
+                app._redraw_bars()
+                return
+            if getattr(app, "_scatter_fig", None) is self._fig and hasattr(app, "_redraw_scatter"):
+                app._redraw_scatter()
+                return
+            if getattr(app, "_scatter_agg_fig", None) is self._fig and hasattr(app, "_redraw_scatter_agg"):
+                app._redraw_scatter_agg()
+                return
+            if hasattr(app, "_redraw"):
+                app._redraw()
+        except Exception:
+            pass
 
     def _refresh_line_order_lists(self) -> None:
         """Repopulate the rep-set / well order lists from current app state."""
@@ -505,45 +597,30 @@ class ExportStyleSidebar(QWidget):
         if self._line_order_wells_list is not None:
             self._line_order_wells_list.blockSignals(True)
             self._line_order_wells_list.clear()
-            try:
-                selected = list(app._selected_labels() or [])
-            except Exception:
-                selected = []
+            selected: list[str] = []
+            # Line plot uses _selected_labels() (ratio-aware); other plots use
+            # the raw selected wells set.
+            if getattr(app, "_line_fig", None) is self._fig:
+                try:
+                    selected = list(app._selected_labels() or [])
+                except Exception:
+                    selected = []
+            else:
+                try:
+                    raw = getattr(app, "_selected_wells", set()) or set()
+                    parse_rc = getattr(app, "_parse_rc", None)
+                    if callable(parse_rc):
+                        selected = sorted(raw, key=parse_rc)
+                    else:
+                        selected = sorted(raw)
+                except Exception:
+                    selected = []
             saved = list(getattr(app, "_line_order_wells", []) or [])
             ordered = [w for w in saved if w in selected] + [w for w in selected if w not in saved]
             for w in ordered:
                 self._line_order_wells_list.addItem(w)
             self._line_order_wells_list.blockSignals(False)
 
-    def _on_line_order_rsets_changed(self) -> None:
-        if self._line_order_rsets_list is None:
-            return
-        order = [
-            self._line_order_rsets_list.item(i).text()
-            for i in range(self._line_order_rsets_list.count())
-        ]
-        self._app._line_order_rsets = order
-        if hasattr(self._app, "_line_order_schedule_save"):
-            self._app._line_order_schedule_save()
-        try:
-            self._app._redraw()
-        except Exception:
-            pass
-
-    def _on_line_order_wells_changed(self) -> None:
-        if self._line_order_wells_list is None:
-            return
-        order = [
-            self._line_order_wells_list.item(i).text()
-            for i in range(self._line_order_wells_list.count())
-        ]
-        self._app._line_order_wells = order
-        if hasattr(self._app, "_line_order_schedule_save"):
-            self._app._line_order_schedule_save()
-        try:
-            self._app._redraw()
-        except Exception:
-            pass
 
 
 

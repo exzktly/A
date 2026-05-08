@@ -144,23 +144,40 @@ def _norm_token(value: object) -> str:
         return raw
 
 
-def _numeric_token(value: object) -> Optional[int]:
-    """Extract the first run of digits from *value* and return it as int.
+def _numeric_token(value: object) -> Optional[float]:
+    """Reduce a timepoint/FOV string to a numeric key for cache-key matching.
 
-    Lets us match dropdown values like ``"1"`` against cache keys like
-    ``"T01"`` (both → ``1``). Returns ``None`` when no digits are present.
+    Tries (in order):
+      1. ``parse_timepoint_hours`` — handles ``"01d02h30m"``, ``"48h"``,
+         ``"2d"``, ``"30m"``, ``"T01"``, plain numbers, etc.
+      2. First contiguous digit run as int (legacy fallback for ``"T01"`` →
+         ``1`` when ``parse_timepoint_hours`` returns None).
+
+    Returns ``None`` when nothing parsable is found.
     """
-    import re as _re
+    from well_viewer.data_loading import parse_timepoint_hours
     s = str(value or "").strip()
     if not s:
         return None
+    parsed = parse_timepoint_hours(s)
+    if parsed is not None:
+        return float(parsed)
+    import re as _re
     m = _re.search(r"\d+", s)
     if not m:
         return None
     try:
-        return int(m.group(0))
+        return float(int(m.group(0)))
     except ValueError:
         return None
+
+
+def _tp_sort_key(tp: str):
+    """Sort key for timepoint strings; uses parse_timepoint_hours so
+    ``01d02h30m``-style values order chronologically."""
+    from well_viewer.data_loading import parse_timepoint_hours
+    h = parse_timepoint_hours(str(tp))
+    return (h is None, h if h is not None else 0.0, str(tp))
 
 
 def _timepoint_options(app) -> List[str]:
@@ -170,7 +187,17 @@ def _timepoint_options(app) -> List[str]:
         tok = _norm_token(tp)
         if tok and tok not in seen:
             seen.append(tok)
-    return seen
+    if seen:
+        return sorted(seen, key=_tp_sort_key)
+    # Fallback: derive timepoints from loaded CSV rows when pipeline_info
+    # doesn't list them (older runs, custom schemas, etc.).
+    cache = getattr(app, "_cache", None) or {}
+    for rows in cache.values():
+        for row in rows:
+            tok = _norm_token(row.get("timepoint", ""))
+            if tok and tok not in seen:
+                seen.append(tok)
+    return sorted(seen, key=_tp_sort_key)
 
 
 def _fov_options(app) -> List[str]:
@@ -180,6 +207,14 @@ def _fov_options(app) -> List[str]:
         tok = _norm_token(fv)
         if tok and tok not in seen:
             seen.append(tok)
+    if seen:
+        return seen
+    cache = getattr(app, "_cache", None) or {}
+    for rows in cache.values():
+        for row in rows:
+            tok = _norm_token(row.get("fov", ""))
+            if tok and tok not in seen:
+                seen.append(tok)
     return seen
 
 
@@ -633,11 +668,15 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str,
         # prefix (or vice versa).
         target_fov_n = _numeric_token(fov)
         target_tp_n = _numeric_token(tp)
+
+        def _close(a, b) -> bool:
+            return a is not None and b is not None and abs(a - b) < 1e-6
+
         for (cache_fov, cache_tp), val in fluor.items():
             tp_n = _numeric_token(cache_tp)
             fov_n = _numeric_token(cache_fov)
-            tp_match = target_tp_n is None or tp_n == target_tp_n
-            fov_match = target_fov_n is None or fov_n == target_fov_n
+            tp_match = target_tp_n is None or _close(tp_n, target_tp_n)
+            fov_match = target_fov_n is None or _close(fov_n, target_fov_n)
             if tp_match and fov_match:
                 ref = val
                 break

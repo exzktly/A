@@ -10,8 +10,8 @@ from typing import List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider,
-    QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
 from well_viewer.ui_helpers import attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock
@@ -84,7 +84,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl2.addWidget(QLabel("Color map:", ctrl2))
     app._heatmap_cmap_cb = QComboBox(ctrl2)
     app._heatmap_cmap_cb.addItems(_CMAP_OPTIONS)
-    app._heatmap_cmap_cb.currentIndexChanged.connect(lambda _i: _redraw(app))
+    app._heatmap_cmap_cb.currentIndexChanged.connect(lambda _i: _on_cmap_changed(app))
     cl2.addWidget(app._heatmap_cmap_cb)
 
     cl2.addWidget(QLabel("Scale:", ctrl2))
@@ -105,6 +105,29 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     app._heatmap_vmax_edit.setFixedWidth(70)
     app._heatmap_vmax_edit.editingFinished.connect(lambda: _on_vminmax_changed(app))
     cl2.addWidget(app._heatmap_vmax_edit)
+
+    transpose_btn = QPushButton("⇄ Transpose", ctrl2)
+    transpose_btn.setProperty("variant", "secondary")
+    transpose_btn.setToolTip("Swap rows and columns of the heatmap layout")
+    transpose_btn.clicked.connect(lambda _=False: _on_transpose(app))
+    cl2.addWidget(transpose_btn)
+
+    app._heatmap_repset_avg_cb = QCheckBox("Rep-set avg", ctrl2)
+    app._heatmap_repset_avg_cb.setToolTip(
+        "When checked, cells whose well belongs to a rep-set show the "
+        "average of the whole rep-set instead of the single well."
+    )
+    app._heatmap_repset_avg_cb.toggled.connect(lambda _v: _on_repset_avg_changed(app))
+    cl2.addWidget(app._heatmap_repset_avg_cb)
+    app._heatmap_repset_avg = False
+
+    app._heatmap_log_scale_cb = QCheckBox("Log scale", ctrl2)
+    app._heatmap_log_scale_cb.setToolTip(
+        "Color the heatmap on a log scale (values ≤ 0 are masked)."
+    )
+    app._heatmap_log_scale_cb.toggled.connect(lambda _v: _on_log_scale_changed(app))
+    cl2.addWidget(app._heatmap_log_scale_cb)
+    app._heatmap_log_scale = False
 
     cl2.addStretch(1)
 
@@ -156,8 +179,21 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
                                      lambda evt: _on_canvas_click(app, evt))
     app._heatmap_canvas.mpl_connect("motion_notify_event",
                                      lambda evt: _on_canvas_motion(app, evt))
+    # Double-click on a row/col tick label → rename it.
+    app._heatmap_canvas.mpl_connect(
+        "button_press_event",
+        lambda evt: _on_label_double_click(app, evt),
+    )
 
     refresh_heatmap_timepoints(app)
+
+    # Push any settings loaded from heatmap_layouts.json into the widgets.
+    try:
+        from well_viewer.persistence.heatmap_layouts import apply_persisted_settings
+        apply_persisted_settings(app)
+    except Exception:
+        pass
+    _redraw(app)
 
 
 # ── helpers attached or referenced from runtime_app ─────────────────────────
@@ -201,13 +237,31 @@ def _on_tp_changed(app) -> None:
 
 
 def _on_scale_changed(app) -> None:
+    import math as _math
     cb = getattr(app, "_heatmap_scale_cb", None)
     if cb is not None:
         app._heatmap_scale_mode = str(cb.currentText() or "Auto")
+    # When the user picks Fixed but the vmin/vmax fields are blank, seed them
+    # with the current global range so they have concrete numbers to tweak.
+    if app._heatmap_scale_mode == "Fixed":
+        vmin_edit = getattr(app, "_heatmap_vmin_edit", None)
+        vmax_edit = getattr(app, "_heatmap_vmax_edit", None)
+        g_vmin = getattr(app, "_heatmap_global_vmin", None)
+        g_vmax = getattr(app, "_heatmap_global_vmax", None)
+        if vmin_edit is not None and not (vmin_edit.text() or "").strip():
+            if g_vmin is not None and _math.isfinite(g_vmin):
+                vmin_edit.setText(f"{g_vmin:g}")
+                app._heatmap_vmin = float(g_vmin)
+        if vmax_edit is not None and not (vmax_edit.text() or "").strip():
+            if g_vmax is not None and _math.isfinite(g_vmax):
+                vmax_edit.setText(f"{g_vmax:g}")
+                app._heatmap_vmax = float(g_vmax)
+    _persist_settings(app)
     _redraw(app)
 
 
 def _on_vminmax_changed(app) -> None:
+    import math as _math
     try:
         app._heatmap_vmin = float(app._heatmap_vmin_edit.text() or "nan")
     except (TypeError, ValueError):
@@ -216,7 +270,134 @@ def _on_vminmax_changed(app) -> None:
         app._heatmap_vmax = float(app._heatmap_vmax_edit.text() or "nan")
     except (TypeError, ValueError):
         app._heatmap_vmax = float("nan")
+    # If the user typed a usable number, force scale mode to Fixed so the
+    # value actually takes effect — otherwise the heatmap silently ignores
+    # vmin/vmax while Scale stays on Auto.
+    if _math.isfinite(app._heatmap_vmin) or _math.isfinite(app._heatmap_vmax):
+        app._heatmap_scale_mode = "Fixed"
+        cb = getattr(app, "_heatmap_scale_cb", None)
+        if cb is not None and cb.currentText() != "Fixed":
+            blocked = cb.blockSignals(True)
+            try:
+                cb.setCurrentText("Fixed")
+            finally:
+                cb.blockSignals(blocked)
+    _persist_settings(app)
     _redraw(app)
+
+
+def _on_transpose(app) -> None:
+    from well_viewer.views.heatmap_layout_sidebar_view import (
+        _ensure_sidebar_layout, _persist_and_redraw, refresh_heatmap_layout_sidebar,
+    )
+    layout = _ensure_sidebar_layout(app)
+    layout.transpose()
+    _persist_and_redraw(app)
+    refresh_heatmap_layout_sidebar(app)
+
+
+def _on_repset_avg_changed(app) -> None:
+    cb = getattr(app, "_heatmap_repset_avg_cb", None)
+    if cb is not None:
+        app._heatmap_repset_avg = bool(cb.isChecked())
+    _persist_settings(app)
+    _redraw(app)
+
+
+def _on_log_scale_changed(app) -> None:
+    cb = getattr(app, "_heatmap_log_scale_cb", None)
+    if cb is not None:
+        app._heatmap_log_scale = bool(cb.isChecked())
+    _persist_settings(app)
+    _redraw(app)
+
+
+def _on_cmap_changed(app) -> None:
+    cb = getattr(app, "_heatmap_cmap_cb", None)
+    if cb is not None:
+        app._heatmap_cmap_name = str(cb.currentText() or "")
+    _persist_settings(app)
+    _redraw(app)
+
+
+def _persist_settings(app) -> None:
+    """Save heatmap visual settings to disk (debounced via existing JSON write)."""
+    if hasattr(app, "_heatmap_layouts_save_to_data_dir"):
+        try:
+            app._heatmap_layouts_save_to_data_dir()
+        except Exception:
+            pass
+
+
+def _on_label_double_click(app, evt) -> None:
+    """Edit a row/col tick label inline when double-clicked."""
+    if not getattr(evt, "dblclick", False):
+        return
+    ax = getattr(app, "_heatmap_ax", None)
+    if ax is None:
+        return
+    # Collect tick labels to hit-test against pixel positions.
+    canvas = getattr(app, "_heatmap_canvas", None)
+    if canvas is None:
+        return
+    renderer = canvas.get_renderer()
+    target = None  # ("row", index) or ("col", index)
+    for i, lbl in enumerate(ax.get_xticklabels()):
+        try:
+            bb = lbl.get_window_extent(renderer=renderer)
+        except Exception:
+            continue
+        if bb.contains(evt.x, evt.y):
+            target = ("col", i)
+            break
+    if target is None:
+        for i, lbl in enumerate(ax.get_yticklabels()):
+            try:
+                bb = lbl.get_window_extent(renderer=renderer)
+            except Exception:
+                continue
+            if bb.contains(evt.x, evt.y):
+                target = ("row", i)
+                break
+    if target is None:
+        return
+    from well_viewer.views.heatmap_layout_sidebar_view import (
+        _ensure_sidebar_layout, _persist_and_redraw,
+    )
+    layout = _ensure_sidebar_layout(app)
+    kind, idx = target
+    current = ""
+    if kind == "row":
+        labels = list(layout.row_labels or [str(i + 1) for i in range(layout.rows)])
+        if 0 <= idx < len(labels):
+            current = labels[idx]
+        prompt = f"Row {idx + 1} label:"
+    else:
+        labels = list(layout.col_labels or [str(i + 1) for i in range(layout.cols)])
+        if 0 <= idx < len(labels):
+            current = labels[idx]
+        prompt = f"Column {idx + 1} label:"
+    new_text, ok = QInputDialog.getText(
+        app if isinstance(app, QWidget) else None,
+        "Edit label", prompt, text=current,
+    )
+    if not ok:
+        return
+    new_text = new_text.strip()
+    if kind == "row":
+        if not layout.row_labels:
+            layout.row_labels = [str(i + 1) for i in range(layout.rows)]
+        # Pad if shorter than rows.
+        while len(layout.row_labels) < layout.rows:
+            layout.row_labels.append(str(len(layout.row_labels) + 1))
+        layout.row_labels[idx] = new_text or str(idx + 1)
+    else:
+        if not layout.col_labels:
+            layout.col_labels = [str(i + 1) for i in range(layout.cols)]
+        while len(layout.col_labels) < layout.cols:
+            layout.col_labels.append(str(len(layout.col_labels) + 1))
+        layout.col_labels[idx] = new_text or str(idx + 1)
+    _persist_and_redraw(app)
 
 
 def _on_canvas_click(app, evt) -> None:

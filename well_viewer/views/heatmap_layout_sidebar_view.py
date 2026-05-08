@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -159,6 +160,16 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
     size_layout.addWidget(cols_spin)
     size_layout.addStretch(1)
     outer_layout.addWidget(size_row)
+
+    # Auto-populate button
+    autopop_btn = QPushButton("Auto-populate from selection", outer)
+    autopop_btn.setProperty("variant", "secondary")
+    autopop_btn.setToolTip(
+        "Place the currently selected wells into this grid in plate order. "
+        "Grid will grow if needed to fit all selected wells."
+    )
+    autopop_btn.clicked.connect(lambda _=False: _on_autopopulate(app))
+    outer_layout.addWidget(autopop_btn)
 
     # Hint label
     hint = QLabel(
@@ -315,6 +326,49 @@ def _clear_cell(app, r: int, c: int) -> None:
         layout.assign(r, c, [])
         _persist_and_redraw(app)
         refresh_heatmap_layout_sidebar(app)
+
+
+def _on_autopopulate(app) -> None:
+    """Lay the currently selected wells into the grid in plate order.
+
+    Grows the grid (capped at 32×32, the spinbox limit) when the selection
+    has more wells than the current grid can hold.
+    """
+    layout = _ensure_sidebar_layout(app)
+    selected = list(getattr(app, "_selected_wells", set()) or [])
+    if not selected:
+        return
+    parse_rc = getattr(app, "_parse_rc", None)
+    if callable(parse_rc):
+        try:
+            wells = sorted(selected, key=parse_rc)
+        except Exception:
+            wells = sorted(selected)
+    else:
+        wells = sorted(selected)
+
+    rows, cols = layout.rows, layout.cols
+    capacity = rows * cols
+    needed = len(wells)
+    if needed > capacity:
+        # Grow rows so capacity ≥ needed; cap at 32 to match the spinbox.
+        new_rows = min(32, max(rows, -(-needed // max(1, cols))))
+        if new_rows * cols < needed:
+            # Still not enough; grow cols too.
+            new_cols = min(32, max(cols, -(-needed // max(1, new_rows))))
+            layout.resize(new_rows, new_cols)
+        else:
+            layout.resize(new_rows, cols)
+        rows, cols = layout.rows, layout.cols
+
+    layout.cells.clear()
+    for i, w in enumerate(wells[: rows * cols]):
+        r = i // cols
+        c = i % cols
+        layout.assign(r, c, [w])
+
+    _persist_and_redraw(app)
+    refresh_heatmap_layout_sidebar(app)
 
 
 def _persist_and_redraw(app) -> None:
