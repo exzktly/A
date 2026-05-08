@@ -4173,6 +4173,18 @@ class WellViewerApp(QWidget):
                 continue
             incl = self._review_effective_included(well, row).strip()
             include_by_nid[nid] = (incl != "0")
+        # Apply overrides for cells present in the mask but without a CSV row
+        # (e.g. when no pipeline results are loaded yet). Without this, drag/
+        # click deletions have no visual effect until analysis is run.
+        for (ovr_well, ovr_fov, ovr_tp, ovr_nid), val in self._review_included_overrides.items():
+            if ovr_well != well or ovr_fov != fov or ovr_tp != tp:
+                continue
+            try:
+                nid = int(float(ovr_nid))
+            except Exception:
+                continue
+            if nid in include_by_nid:
+                include_by_nid[nid] = (val.strip() != "0")
         return include_by_nid
 
     def _review_build_threshold_map(
@@ -4585,7 +4597,7 @@ class WellViewerApp(QWidget):
         if not nids:
             self._set_status("Box selection: no cells inside rectangle.")
             return
-        fov_cb = getattr(self, "_preview_fov_cb", None)
+        fov_cb = getattr(self, "_review_image_fov_menu", None) or getattr(self, "_preview_fov_cb", None)
         if fov_cb is None:
             return
         fov = fov_cb.currentText().strip()
