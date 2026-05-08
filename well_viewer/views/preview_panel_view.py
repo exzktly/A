@@ -241,11 +241,22 @@ def build_review_image_panel(self, parent: QWidget) -> None:
     self._review_image_tp_cb = self._review_image_tp_menu  # alias for review_image_controller
     cl.addStretch(1)
 
-    cl.addWidget(btn_secondary(ctrl, "Delete Cell",
-                               self._toggle_selected_review_cell))
+    from PySide6.QtWidgets import QPushButton
+    self._review_image_delete_btn = QPushButton("Delete Cell", ctrl)
+    self._review_image_delete_btn.setProperty("variant", "toggle")
+    self._review_image_delete_btn.setCheckable(True)
+    self._review_image_delete_btn.setChecked(False)
+    self._review_image_delete_btn.setToolTip(
+        "Enter drag-delete mode.\n"
+        "• Click a cell to mark it Included=0.\n"
+        "• Drag a rectangle to bulk-delete all cells inside."
+    )
+    self._review_image_delete_btn.clicked.connect(
+        lambda _=False: self._toggle_selected_review_cell()
+    )
+    cl.addWidget(self._review_image_delete_btn)
 
     # Raw vs top-hat fluorescence source toggle. Defaults to top-hat.
-    from PySide6.QtWidgets import QPushButton
     self._review_image_raw_btn = QPushButton("Top-hat", ctrl)
     self._review_image_raw_btn.setProperty("variant", "toggle")
     self._review_image_raw_btn.setCheckable(True)
