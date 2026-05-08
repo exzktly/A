@@ -28,8 +28,14 @@ def on_review_image_click(app, event, logger) -> None:
     if mask_arr is None:
         return
     scale = float(getattr(app, "_review_image_scale", 1.0) or 1.0)
-    x = int(event.position().x() / scale)
-    y = int(event.position().y() / scale)
+    label = app._review_image_label
+    off_x, off_y = 0, 0
+    pm = label.pixmap()
+    if pm is not None and not pm.isNull():
+        off_x = max(0, (label.width() - pm.width()) // 2)
+        off_y = max(0, (label.height() - pm.height()) // 2)
+    x = int((event.position().x() - off_x) / scale)
+    y = int((event.position().y() - off_y) / scale)
     if y < 0 or x < 0 or y >= mask_arr.shape[0] or x >= mask_arr.shape[1]:
         return
     nid = int(mask_arr[y, x])
