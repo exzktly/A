@@ -280,15 +280,9 @@ class BarBatchExportPanel(BatchExportPanel):
         xlabels: List[str] = []
         for i, (name, wells) in enumerate(members):
             color = WELL_COLORS[i % len(WELL_COLORS)]
-            # NOTE: this call site historically did not pass val_col, so the
-            # scalar aggregator fell back to the "gfp_mean_intensity" default
-            # — meaning the bar-figure export was always against gfp regardless
-            # of the active channel, while the CSV export at the top of this
-            # file uses _active_val_col. Pinning the gfp behavior here preserves
-            # parity; fixing the inconsistency is a separate decision.
             pts = self._app._aggregate_group(
                 wells, threshold=threshold, use_sem=use_sem,
-                val_col="gfp_mean_intensity",
+                val_col=self._app._active_val_col,
                 cell_area_threshold=_cell_area_threshold,
                 fluor_gates=_fluor_gates,
             )
