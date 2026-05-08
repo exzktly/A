@@ -542,7 +542,6 @@ from well_viewer.data_loading import (
     _all_fluor_values,
     _all_fluor_values_filtered,
     _beeswarm_jitter,
-    _ordinal_timepoints,
     aggregate_with_threshold_df,
     detect_fluor_channels,
     detect_nuclear_channel_token,
@@ -923,7 +922,7 @@ class WellViewerApp(QWidget):
         """Get FluorGating thresholds for all loaded channels.
 
         Returns a dict mapping channel name -> gate threshold, e.g., {"gfp": 10.0, "mcherry": 20.0}.
-        Used by aggregate_with_threshold to apply consistent gating across all channels.
+        Used by aggregate_with_threshold_df to apply consistent gating across all channels.
         """
         gates = {}
         for channel in self._fluor_channels:

@@ -11,7 +11,6 @@ import csv
 import math
 import re
 import statistics
-from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
@@ -279,168 +278,8 @@ def resolve_value(
 AggPoint = Tuple[float, float, float, float, int, int, float, float, float]
 
 
-def _ordinal_timepoints(rows: List[dict], tp_col: str = "timepoint_hours") -> Dict[str, float]:
-    """
-    Build a string->ordinal mapping for rows whose numeric timepoint is NaN/missing.
-    """
-    raw_strings: set = set()
-    for row in rows:
-        raw = row.get(tp_col)
-        numeric_ok = isinstance(raw, float) and not math.isnan(raw)
-        if not numeric_ok:
-            tp_str = str(row.get("timepoint", ""))
-            if tp_str and parse_timepoint_hours(tp_str) is None:
-                raw_strings.add(tp_str)
-    return {s: float(i) for i, s in enumerate(sorted(raw_strings))}
-
-
-def aggregate_with_threshold(
-    rows: List[dict],
-    threshold: float,
-    use_sem: bool = False,
-    tp_col: str = "timepoint_hours",
-    val_col: str = "gfp_mean_intensity",
-    cell_area_threshold: float = 0.0,
-    fluor_gates: Optional[Dict[str, float]] = None,
-    per_fov_spread: bool = False,
-    ratios: Optional[Dict[str, RatioMetric]] = None,
-) -> List[AggPoint]:
-    """Group rows by timepoint; compute stats for cells above threshold.
-
-    Applies consistent gating criteria across all channels upfront, then computes
-    statistics on the filtered cell population. This ensures that "Fraction On"
-    and other metrics are computed on the same set of cells regardless of which
-    channel or metric is being plotted.
-
-    When ``per_fov_spread`` is True, the spread on the mean (third tuple field)
-    is the SD/SEM **across per-FOV mean intensities** at each timepoint instead
-    of the SD/SEM across individual cells. The trailing ``frac_spread`` field
-    is also populated as the SD/SEM across per-FOV ``n_above/n_total`` ratios
-    so the bar plot can draw an error bar on the fraction. Mean, fraction, and
-    counts themselves are unaffected. Use this in single-well mode to treat
-    FOVs as technical replicates within the well.
-
-    Returns:
-        List of AggPoint tuples: (timepoint, mean, spread, fraction_above, n_above, n_total, frac_spread)
-    """
-    if fluor_gates is None:
-        fluor_gates = {}
-
-    all_v:   Dict[float, List[float]] = defaultdict(list)
-    above_v: Dict[float, List[float]] = defaultdict(list)
-    fov_above: Dict[float, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
-    fov_total: Dict[float, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
-
-    ordinals = _ordinal_timepoints(rows, tp_col)
-
-    for row in rows:
-        if not row_is_included(row):
-            continue
-        try:
-            area = float(row.get("area_px", 0))
-            if area <= cell_area_threshold:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        gates_passed = True
-        for channel, gate_threshold in fluor_gates.items():
-            col = f"{channel}_mean_intensity"
-            try:
-                fluor = float(row.get(col, float('nan')))
-                if fluor != fluor or fluor <= gate_threshold:  # NaN or below gate
-                    gates_passed = False
-                    break
-            except (ValueError, TypeError):
-                gates_passed = False
-                break
-
-        if not gates_passed:
-            continue
-
-        raw = row.get(tp_col)
-        if isinstance(raw, float) and not math.isnan(raw):
-            t: Optional[float] = raw
-        else:
-            tp_str = str(row.get("timepoint", ""))
-            t = parse_timepoint_hours(tp_str)
-            if t is None:
-                t = ordinals.get(tp_str)
-            if t is None and not tp_str:
-                t = 0.0
-        if t is None:
-            continue
-
-        val = resolve_value(row, val_col, ratios)
-        if not math.isfinite(val):
-            continue
-
-        all_v[t].append(val)
-        if per_fov_spread:
-            fov = str(row.get("fov", "1") or "1").strip() or "1"
-            fov_total[t][fov] += 1
-        if val > threshold:
-            above_v[t].append(val)
-            if per_fov_spread:
-                fov_above[t][fov].append(val)
-
-    result: List[AggPoint] = []
-    for t in sorted(all_v):
-        above   = above_v.get(t, [])
-        n_total = len(all_v[t])
-        n_above = len(above)
-        mean    = sum(above) / n_above if n_above else float("nan")
-        spread  = 0.0
-        frac_spread = 0.0
-        n_above_per_fov_mean = 0.0
-        n_above_per_fov_spread = 0.0
-        if per_fov_spread:
-            fov_above_t = fov_above.get(t, {})
-            fov_total_t = fov_total.get(t, {})
-            fov_means = [sum(vs) / len(vs) for vs in fov_above_t.values() if vs]
-            n_fov_means = len(fov_means)
-            if n_fov_means > 1:
-                sd = statistics.pstdev(fov_means)
-                spread = sd / math.sqrt(n_fov_means) if use_sem else sd
-            # Fraction-above SD/SEM across FOVs that contributed any cell to
-            # the gated population at this timepoint (an FOV with zero gated
-            # cells has no defined fraction and is excluded).
-            fov_fracs = [
-                len(fov_above_t.get(fov, ())) / total
-                for fov, total in fov_total_t.items() if total > 0
-            ]
-            n_fov_fracs = len(fov_fracs)
-            if n_fov_fracs > 1:
-                fsd = statistics.pstdev(fov_fracs)
-                frac_spread = fsd / math.sqrt(n_fov_fracs) if use_sem else fsd
-            # Per-FOV count of events above threshold. Include every FOV that
-            # contributed any gated cell, so an FOV with zero above-threshold
-            # cells correctly counts as a 0 (not as missing data) when
-            # averaging — that's the difference between "no FOVs imaged" and
-            # "FOVs imaged but no events".
-            fov_n_above = [
-                len(fov_above_t.get(fov, ()))
-                for fov, total in fov_total_t.items() if total > 0
-            ]
-            n_fov_above = len(fov_n_above)
-            if n_fov_above >= 1:
-                n_above_per_fov_mean = sum(fov_n_above) / n_fov_above
-            if n_fov_above > 1:
-                nsd = statistics.pstdev(fov_n_above)
-                n_above_per_fov_spread = nsd / math.sqrt(n_fov_above) if use_sem else nsd
-        else:
-            if n_above > 1:
-                sd     = statistics.pstdev(above)
-                spread = sd / math.sqrt(n_above) if use_sem else sd
-        result.append((t, mean, spread,
-                       n_above / n_total if n_total else float("nan"),
-                       n_above, n_total, frac_spread,
-                       n_above_per_fov_mean, n_above_per_fov_spread))
-    return result
-
-
 def _ordinal_timepoints_df(df: "pd.DataFrame", tp_col: str = "timepoint_hours") -> Dict[str, float]:
-    """Vectorized counterpart to :func:`_ordinal_timepoints` operating on a DataFrame."""
+    """Build a string→ordinal mapping for rows whose numeric timepoint is NaN/missing."""
     import numpy as np
     import pandas as pd
 
@@ -471,11 +310,21 @@ def aggregate_with_threshold_df(
     per_fov_spread: bool = False,
     ratios: Optional[Dict[str, RatioMetric]] = None,
 ) -> List[AggPoint]:
-    """Vectorized counterpart to :func:`aggregate_with_threshold`.
+    """Group rows by timepoint; compute stats for cells above threshold.
 
-    Returns a list with the same shape and semantics as the scalar version.
-    Match is intended to be exact up to floating-point rounding (the parity
-    test in ``tests/test_aggregate_parity.py`` enforces this).
+    Applies consistent gating (Included flag, cell-area threshold, per-channel
+    fluorescence gates) across all rows up front, then computes statistics on
+    the filtered cell population. This ensures that "Fraction On" and other
+    metrics are computed on the same set of cells regardless of which channel
+    or metric is being plotted.
+
+    When ``per_fov_spread`` is True, the spread on the mean (third tuple
+    field) is the SD/SEM **across per-FOV mean intensities** at each timepoint
+    instead of the SD/SEM across individual cells. The trailing ``frac_spread``
+    field is also populated as the SD/SEM across per-FOV ``n_above/n_total``
+    ratios so the bar plot can draw an error bar on the fraction. Mean,
+    fraction, and counts themselves are unaffected. Use this in single-well
+    mode to treat FOVs as technical replicates within the well.
     """
     import numpy as np
     import pandas as pd
