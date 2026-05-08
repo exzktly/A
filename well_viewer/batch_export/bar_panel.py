@@ -285,6 +285,7 @@ class BarBatchExportPanel(BatchExportPanel):
                 val_col=self._app._active_val_col,
                 cell_area_threshold=_cell_area_threshold,
                 fluor_gates=_fluor_gates,
+                per_fov_spread=self._app._use_fov_spread_active(),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
             xlabels.append(name)

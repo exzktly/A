@@ -3883,19 +3883,16 @@ class WellViewerApp(QWidget):
     # ── Per-FOV-replicates toggle ────────────────────────────────────────────
 
     def _fov_replicates_available(self) -> bool:
-        """Per-FOV spread is only meaningful when no replicate sets are active."""
-        return not self._rep_sets_active()
+        """Per-FOV spread is always available; with replicate sets active it
+        pools FOVs across all wells in each set instead of computing within a
+        single well."""
+        return True
 
     def _use_fov_spread_active(self) -> bool:
         """Effective state of the per-FOV-replicates toggle for plotting."""
-        return bool(self._use_fov_replicates.get()) and self._fov_replicates_available()
+        return bool(self._use_fov_replicates.get())
 
     def _toggle_fov_replicates(self) -> None:
-        if not self._fov_replicates_available():
-            # Pressing the button when replicate sets exist is a no-op; just
-            # re-sync the visual state in case it got out of sync.
-            self._refresh_fov_btn_state()
-            return
         self._use_fov_replicates.set(not self._use_fov_replicates.get())
         self._invalidate_stats_cache()
         self._refresh_fov_btn_state()
@@ -3904,20 +3901,17 @@ class WellViewerApp(QWidget):
             self._redraw_bars()
 
     def _refresh_fov_btn_state(self) -> None:
-        """Sync every per-FOV toggle button's enabled/text/variant state."""
-        available = self._fov_replicates_available()
-        is_on = bool(self._use_fov_replicates.get()) and available
+        """Sync every per-FOV toggle button's text/variant state."""
+        is_on = bool(self._use_fov_replicates.get())
         text = "FOV ✓" if is_on else "FOV"
-        variant = "toggle_active" if is_on else ("toggle" if available else "toggle_muted")
+        variant = "toggle_active" if is_on else "toggle"
         tooltip = (
-            "Compute error bands across per-FOV means within each well.\n"
-            "Disabled while replicate sets are active."
-            if not available else
-            "Compute error bands across per-FOV means within each well\n"
-            "instead of across individual cells. Pairs with the SEM/SD toggle."
+            "Compute error bands across per-FOV means.\n"
+            "With replicate sets active, FOVs are pooled across all wells in each set;\n"
+            "otherwise FOVs are pooled within each well. Pairs with the SEM/SD toggle."
         )
         for btn in list(getattr(self, "_fov_btns", []) or []):
-            btn.setEnabled(available)
+            btn.setEnabled(True)
             btn.setText(text)
             btn.setToolTip(tooltip)
             btn.setProperty("variant", variant)
@@ -3997,8 +3991,20 @@ class WellViewerApp(QWidget):
                 tp_col=tp_col,
             )
         import pandas as pd
-        df = pd.concat([rows_to_df(self._get_rows(w)) for w in valid],
-                       ignore_index=True)
+        frames = []
+        for w in valid:
+            sub = rows_to_df(self._get_rows(w))
+            if per_fov_spread and len(sub) > 0:
+                # Prefix FOV ids with the well label so identical FOV numbers
+                # across replicate wells stay distinct when pooled.
+                if "fov" in sub.columns:
+                    fov_str = (sub["fov"].fillna("1").astype(str)
+                               .str.strip().replace("", "1"))
+                else:
+                    fov_str = pd.Series(["1"] * len(sub), index=sub.index)
+                sub = sub.assign(fov=(w + "::" + fov_str).to_numpy())
+            frames.append(sub)
+        df = pd.concat(frames, ignore_index=True)
         return aggregate_with_threshold_df(
             df,
             threshold=threshold,
@@ -5739,6 +5745,79 @@ class WellViewerApp(QWidget):
             gf, ferr = float("nan"), 0.0
 
         result = (gm, gerr, gf, ferr)
+        self._stats_cache[cache_key] = result
+        return result
+
+    def _compute_rep_per_fov_stats(
+        self,
+        rset: "ReplicateSet",
+        target_t: float,
+        threshold: float,
+        use_sem: bool,
+    ) -> tuple:
+        """Pool every FOV across all loaded wells of *rset* and compute stats.
+
+        Returns ``(mean, mean_err, frac, frac_err, n_above_pf_mean,
+        n_above_pf_spread)`` where the error fields are the SD/SEM across the
+        pooled per-FOV means/fractions/counts. FOV identifiers are
+        disambiguated by prefixing with the source well label so identical FOV
+        numbers in different wells stay distinct.
+        """
+        import pandas as pd
+        if not hasattr(self, "_stats_cache"):
+            self._stats_cache = {}
+        cell_area_threshold = self._get_cell_area_threshold()
+        fluor_gates = self._get_all_fluor_gates()
+        cache_key = ("rep_pf", rset.name, tuple(rset.wells), target_t, threshold,
+                     use_sem, self._active_val_col, cell_area_threshold,
+                     tuple(sorted(fluor_gates.items())))
+        if cache_key in self._stats_cache:
+            return self._stats_cache[cache_key]
+
+        frames = []
+        for lbl in rset.wells:
+            if lbl not in self._well_paths:
+                continue
+            df = rows_to_df(self._get_rows(lbl))
+            if len(df) == 0:
+                continue
+            if "fov" in df.columns:
+                fov_str = (df["fov"].fillna("1").astype(str)
+                           .str.strip().replace("", "1"))
+            else:
+                fov_str = pd.Series(["1"] * len(df), index=df.index)
+            df = df.assign(fov=(lbl + "::" + fov_str).to_numpy())
+            frames.append(df)
+
+        if not frames:
+            result = (float("nan"), 0.0, float("nan"), 0.0, 0.0, 0.0)
+            self._stats_cache[cache_key] = result
+            return result
+
+        pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+        pts = aggregate_with_threshold_df(
+            pooled,
+            threshold=threshold,
+            use_sem=use_sem,
+            val_col=self._active_val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            per_fov_spread=True,
+            ratios=self._ratio_index,
+        )
+        matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+        if matched:
+            pt = matched[0]
+            result = (
+                float(pt[1]),
+                float(pt[2]),
+                float(pt[3]),
+                float(pt[6]) if len(pt) >= 7 else 0.0,
+                float(pt[7]) if len(pt) >= 8 else 0.0,
+                float(pt[8]) if len(pt) >= 9 else 0.0,
+            )
+        else:
+            result = (float("nan"), 0.0, float("nan"), 0.0, 0.0, 0.0)
         self._stats_cache[cache_key] = result
         return result
 
