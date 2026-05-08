@@ -190,6 +190,19 @@ def build_centre(app, parent: QWidget) -> None:
     pending: Dict[str, Callable[[], None]] = {}
     app._centre_pending_builders = pending
 
+    # Defined early so builder functions (including _build_plotting, which is
+    # called eagerly as the first tab) can call it before the groups loop ends.
+    def _build_pending(title: str) -> None:
+        builder = pending.pop(title, None)
+        if builder is None:
+            return
+        try:
+            builder()
+        except Exception:
+            _logger.exception("Deferred build for %r failed", title)
+
+    app._centre_build_pending = _build_pending
+
     # Tabs whose construction we never want to run from the background
     # drain — they only build on first user access (tab click). The tabs
     # listed here pull in the heaviest dependencies (matplotlib QtAgg,
@@ -384,17 +397,6 @@ def build_centre(app, parent: QWidget) -> None:
         custom_tabbar.set_first_group_label(groups[0][0])
 
     app._notebook.setCurrentIndex(0)
-
-    def _build_pending(title: str) -> None:
-        builder = pending.pop(title, None)
-        if builder is None:
-            return
-        try:
-            builder()
-        except Exception:
-            _logger.exception("Deferred build for %r failed", title)
-
-    app._centre_build_pending = _build_pending
 
     def _on_tab_change(_i: int = 0) -> None:
         # Force-build the tab the user just switched to if it hasn't been
