@@ -42,7 +42,6 @@ from well_viewer.batch_export._common import (
     BarGroup,
     _bar_render_items,
     _all_fluor_values,
-    aggregate_with_threshold,
     _extract_well_token,
     _PLATE_COLS,
     _PLATE_ROWS,
@@ -337,7 +336,6 @@ class ScatterBatchExportPanel(BatchExportPanel):
             scatter_data = _collect_scatter_agg_data(
                 self._app, stat_x, stat_y, [tp_h],
                 well_colors=WELL_COLORS,
-                aggregate_with_threshold=aggregate_with_threshold,
             )
         finally:
             self._app._rep_sets = old_rep_sets
@@ -463,7 +461,6 @@ class ScatterBatchExportPanel(BatchExportPanel):
             scatter_data = _collect_scatter_agg_data(
                 self._app, stat_x, stat_y, sorted(timepoints),
                 well_colors=WELL_COLORS,
-                aggregate_with_threshold=aggregate_with_threshold,
             )
         finally:
             self._app._rep_sets = old_rep_sets

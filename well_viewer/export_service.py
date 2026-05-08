@@ -402,7 +402,6 @@ def export_scatter_agg_data(app) -> None:
     scatter_data = _scatter_collect_agg_data(
         app, stat_x, stat_y, selected_timepoints,
         well_colors=[],
-        aggregate_with_threshold=rt.aggregate_with_threshold,
     )
 
     rows_out = []

@@ -80,7 +80,7 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
     return rep_sets, bar_groups
 
 
-def collect_bar_items(app, target_t: float, *, aggregate_with_threshold, well_colors) -> tuple:
+def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
     """Compute bar items for the active bar-plot mode (rep-set or per-well)."""
     use_sem = app._use_sem.get()
     band_lbl = "SEM" if use_sem else "SD"

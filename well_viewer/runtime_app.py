@@ -543,7 +543,6 @@ from well_viewer.data_loading import (
     _all_fluor_values_filtered,
     _beeswarm_jitter,
     _ordinal_timepoints,
-    aggregate_with_threshold,
     aggregate_with_threshold_df,
     detect_fluor_channels,
     detect_nuclear_channel_token,
@@ -4753,7 +4752,6 @@ class WellViewerApp(QWidget):
             self,
             lineplot_redraw=_lineplot_redraw,
             apply_ax_style=apply_ax_style,
-            aggregate_with_threshold=aggregate_with_threshold,
             all_fluor_values=_all_fluor_values,
             all_fluor_values_filtered=_all_fluor_values_filtered,
             plot_bg=PLOT_BG,
@@ -5854,7 +5852,6 @@ class WellViewerApp(QWidget):
         return _bar_collect_items(
             self,
             target_t,
-            aggregate_with_threshold=aggregate_with_threshold,
             well_colors=WELL_COLORS,
         )
 
@@ -6314,7 +6311,6 @@ class WellViewerApp(QWidget):
             stat_y,
             selected_timepoints,
             well_colors=WELL_COLORS,
-            aggregate_with_threshold=aggregate_with_threshold,
         )
         from well_viewer.figure_export_editor import apply_export_style_to_current
 
