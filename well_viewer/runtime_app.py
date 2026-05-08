@@ -4420,8 +4420,15 @@ class WellViewerApp(QWidget):
                 self._on_review_image_click(event)
                 return
             scale = float(getattr(self, "_review_image_scale", 1.0) or 1.0)
-            mx0, mx1 = int(ax / scale), int(rx / scale)
-            my0, my1 = int(ay / scale), int(ry / scale)
+            label = getattr(self, "_review_image_label", None)
+            off_x, off_y = 0, 0
+            if label is not None:
+                pm = label.pixmap()
+                if pm is not None and not pm.isNull():
+                    off_x = max(0, (label.width() - pm.width()) // 2)
+                    off_y = max(0, (label.height() - pm.height()) // 2)
+            mx0, mx1 = int((ax - off_x) / scale), int((rx - off_x) / scale)
+            my0, my1 = int((ay - off_y) / scale), int((ry - off_y) / scale)
             self._apply_box_delete(mx0, my0, mx1, my1)
             return
         was_dragging = getattr(self, "_review_image_dragging", False)
