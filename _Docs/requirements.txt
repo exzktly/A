@@ -48,6 +48,11 @@ llvmlite==0.40.1
 tifffile==2023.9.26
 imagecodecs==2023.9.18
 
+# ── Data analysis (well_viewer aggregation) ──────────────────────────────────
+# pandas 2.2.3 requires numpy>=1.22.4 on py3.10 with no upper bound,
+# so it resolves cleanly against the env's numpy>=1.24,<1.25 pin.
+pandas==2.2.3
+
 # ── GUI toolkit (Qt for Python) ──────────────────────────────────────────────
 # Replaces tkinter. Pulls in shiboken6 transitively at the matching version.
 # On Windows, prefer `mamba install -c conda-forge pyside6` so the MSVC
