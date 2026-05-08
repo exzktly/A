@@ -65,6 +65,42 @@ class HeatmapLayout:
         self.rows, self.cols = int(self.cols), int(self.rows)
         self.row_labels, self.col_labels = self.col_labels, self.row_labels
 
+    def reorder_rows(self, src: int, dst: int) -> None:
+        """Move row *src* to position *dst* (insert-at semantics)."""
+        if src == dst or not (0 <= src < self.rows and 0 <= dst < self.rows):
+            return
+        order = list(range(self.rows))
+        order.pop(src)
+        order.insert(dst, src)
+        new_cells: Dict[Tuple[int, int], List[str]] = {}
+        for new_r, old_r in enumerate(order):
+            for c in range(self.cols):
+                if (old_r, c) in self.cells:
+                    new_cells[(new_r, c)] = list(self.cells[(old_r, c)])
+        self.cells = new_cells
+        if self.row_labels:
+            while len(self.row_labels) < self.rows:
+                self.row_labels.append(str(len(self.row_labels) + 1))
+            self.row_labels = [self.row_labels[old_r] for old_r in order]
+
+    def reorder_cols(self, src: int, dst: int) -> None:
+        """Move column *src* to position *dst* (insert-at semantics)."""
+        if src == dst or not (0 <= src < self.cols and 0 <= dst < self.cols):
+            return
+        order = list(range(self.cols))
+        order.pop(src)
+        order.insert(dst, src)
+        new_cells: Dict[Tuple[int, int], List[str]] = {}
+        for r in range(self.rows):
+            for new_c, old_c in enumerate(order):
+                if (r, old_c) in self.cells:
+                    new_cells[(r, new_c)] = list(self.cells[(r, old_c)])
+        self.cells = new_cells
+        if self.col_labels:
+            while len(self.col_labels) < self.cols:
+                self.col_labels.append(str(len(self.col_labels) + 1))
+            self.col_labels = [self.col_labels[old_c] for old_c in order]
+
     # ── serialization ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
