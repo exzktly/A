@@ -568,7 +568,11 @@ def on_heatmap_motion(app, event) -> None:
 # ── Row/col label drag-to-reorder ────────────────────────────────────────────
 
 def _label_at_event(app, event) -> Optional[Tuple[str, int]]:
-    """Return ("row", i) or ("col", i) if *event* is over a tick label, else None."""
+    """Return ("row", i) or ("col", i) if *event* is near a tick label, else None.
+
+    Used only for the initial press that starts a drag, so the threshold is
+    generous (12 px) but still requires the cursor to be close to a label.
+    """
     ax = getattr(app, "_heatmap_ax", None)
     canvas = getattr(app, "_heatmap_canvas", None)
     if ax is None or canvas is None or event.x is None or event.y is None:
@@ -577,7 +581,7 @@ def _label_at_event(app, event) -> Optional[Tuple[str, int]]:
         renderer = canvas.get_renderer()
     except Exception:
         return None
-    pad = 4  # extra pixels so small labels are easier to grab
+    pad = 12
     for i, lbl in enumerate(ax.get_xticklabels()):
         try:
             bb = lbl.get_window_extent(renderer=renderer)
@@ -595,6 +599,56 @@ def _label_at_event(app, event) -> Optional[Tuple[str, int]]:
         except Exception:
             continue
     return None
+
+
+def _nearest_label_in_drag(app, event, kind: str) -> Optional[int]:
+    """Flexibly find the target row/col index during a drag.
+
+    Prefers the data coordinate (when the cursor is inside the axes) so the
+    user can release anywhere along a column strip or row strip.  Falls back
+    to nearest-label-by-pixel when the cursor is outside the axes (e.g. over
+    the label gutter itself).
+    """
+    ax = getattr(app, "_heatmap_ax", None)
+    canvas = getattr(app, "_heatmap_canvas", None)
+    if ax is None or canvas is None or event.x is None or event.y is None:
+        return None
+
+    layout = getattr(app, "_heatmap_layout_active", None)
+    if layout is None:
+        layout = active_layout(app)
+
+    # Inside the axes: data coords give us the exact row/col directly.
+    if event.inaxes is ax:
+        if kind == "col" and event.xdata is not None:
+            col = int(round(event.xdata))
+            if 0 <= col < layout.cols:
+                return col
+        if kind == "row" and event.ydata is not None:
+            row = int(round(event.ydata))
+            if 0 <= row < layout.rows:
+                return row
+
+    # Outside axes (e.g. label gutter): snap to nearest label by pixel centre.
+    try:
+        renderer = canvas.get_renderer()
+    except Exception:
+        return None
+    labels = ax.get_xticklabels() if kind == "col" else ax.get_yticklabels()
+    best: Optional[int] = None
+    best_dist = float("inf")
+    for i, lbl in enumerate(labels):
+        try:
+            bb = lbl.get_window_extent(renderer=renderer)
+            cx = (bb.x0 + bb.x1) / 2
+            cy = (bb.y0 + bb.y1) / 2
+            dist = abs(event.x - cx) if kind == "col" else abs(event.y - cy)
+            if dist < best_dist:
+                best_dist = dist
+                best = i
+        except Exception:
+            continue
+    return best
 
 
 def _update_drag_label_colors(app) -> None:
@@ -675,11 +729,8 @@ def on_heatmap_label_drag_motion(app, event) -> None:
         except Exception:
             pass
         return
-    target = _label_at_event(app, event)
-    if target is not None and target[0] == drag["kind"]:
-        drag["over"] = target[1]
-    else:
-        drag["over"] = None
+    # Use the flexible finder so the highlight tracks the cursor everywhere.
+    drag["over"] = _nearest_label_in_drag(app, event, drag["kind"])
     _update_drag_label_colors(app)
 
 
@@ -689,8 +740,11 @@ def on_heatmap_label_drag_release(app, event) -> None:
     if drag is None:
         return
     src = drag["src"]
-    over = drag.get("over")
     kind = drag["kind"]
+    # Recompute target at the release position (motion may not have fired last).
+    over = _nearest_label_in_drag(app, event, kind)
+    if over is None:
+        over = drag.get("over")
     app._heatmap_label_drag = None
     _set_canvas_cursor(app, None)
     if over is not None and over != src:
