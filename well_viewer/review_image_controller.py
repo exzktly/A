@@ -35,7 +35,8 @@ def on_review_image_click(app, event, logger) -> None:
     nid = int(mask_arr[y, x])
     if nid <= 0:
         return
-    fov = app._preview_fov_cb.currentText().strip()
+    fov_menu = getattr(app, "_review_image_fov_menu", None) or getattr(app, "_preview_fov_cb", None)
+    fov = fov_menu.currentText().strip() if fov_menu is not None else ""
     tp_cb = getattr(app, "_review_image_tp_cb", None)
     tp = tp_cb.currentText().strip() if tp_cb is not None else ""
     if getattr(app, "_review_image_include_edit_mode", False):
