@@ -31,10 +31,48 @@
 #
 #   python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 #   # Expected: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+#
+# ── ENVIRONMENT SETUP (Windows, native CPU) ──────────────────────────────────
+#
+# Native Windows TF has been CPU-only since 2.11 (TF 2.10 was the last release
+# with native Windows GPU). We pin tensorflow==2.13.0 to keep the
+# keras/protobuf/StarDist stack identical across platforms. For GPU on
+# Windows, use WSL2 (out of scope here).
+#
+# Use Miniforge so `mamba` is available on Windows. From the "Miniforge Prompt":
+#
+#   mamba create -n allwell python=3.10.14 setuptools=69.5.1 \
+#       "numpy>=1.24,<1.25" scipy scikit-image matplotlib pillow imageio h5py \
+#       pyside6 -c conda-forge -y
+#   mamba activate allwell
+#   pip install --no-build-isolation -r requirements.txt
+#
+# Notes:
+#   - Install pyside6 from conda-forge (brings vc/vs2015_runtime; avoids
+#     needing admin rights to install vcredist).
+#   - numba/llvmlite Windows wheels bundle the LLVM runtime; no separate
+#     MSVC install needed for them.
+#   - The same setuptools<70 / pkg_resources rationale documented above
+#     applies on Windows.
+#
+# ── VERIFY CPU AFTER INSTALL (Windows) ───────────────────────────────────────
+#
+#   python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+#   # Expected: []
+#   python -c "import tensorflow as tf; print(tf.config.list_physical_devices('CPU'))"
+#   # Expected: [PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU')]
 
-# ── TensorFlow (Apple Silicon native) ────────────────────────────────────────
-tensorflow-macos==2.13.0
-tensorflow-metal==1.1.0
+# ── TensorFlow (Apple Silicon, GPU via Metal) ────────────────────────────────
+tensorflow-macos==2.13.0 ; sys_platform == "darwin" and platform_machine == "arm64"
+tensorflow-metal==1.1.0  ; sys_platform == "darwin" and platform_machine == "arm64"
+
+# ── TensorFlow (Windows, CPU-only) ───────────────────────────────────────────
+# Native Windows TF has been CPU-only since 2.11 (TF 2.10 was the last
+# release with native Windows GPU). Pinning 2.13.0 keeps keras / protobuf /
+# StarDist identical across platforms. Intel macOS is not supported.
+tensorflow==2.13.0 ; sys_platform == "win32"
+
+# Shared by both TF lines (cross-platform pins)
 keras==2.13.1
 protobuf==3.20.3
 
