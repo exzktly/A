@@ -336,3 +336,115 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, ax_n=None) -> None:
         hi = frac_hi if frac_hi is not None else cur_hi
         if hi > lo:
             ax_frac.set_ylim(lo, hi)
+
+
+# ── Drag-and-drop reordering ─────────────────────────────────────────────────
+#
+# Lightweight helpers that drive the bar drag interaction. The view (matplotlib
+# canvas + axes) is owned by ``WellViewerApp``; these helpers only mutate
+# ``app._bar_drag_state`` / ``app._bar_order`` and trigger a redraw.
+
+def bar_event_xdata(app, event) -> Optional[float]:
+    """Return data-x for a matplotlib MouseEvent over any bar axis."""
+    ax = getattr(event, "inaxes", None)
+    if ax is not app._ax_bar_mean and ax is not app._ax_bar_frac and ax is not getattr(app, "_ax_bar_n", None):
+        return None
+    xdata = getattr(event, "xdata", None)
+    if xdata is None:
+        return None
+    return float(xdata)
+
+
+def bar_idx_at_x(xdata: float, n: int) -> int:
+    """Return the bar index nearest to *xdata*, clamped to [0, n-1]."""
+    return max(0, min(n - 1, int(round(xdata))))
+
+
+def bar_reset_order(app) -> None:
+    app._bar_order = None
+    app._bar_reset_order_btn.setProperty("variant", "toggle_muted")
+    app._bar_reset_order_btn.style().unpolish(app._bar_reset_order_btn)
+    app._bar_reset_order_btn.style().polish(app._bar_reset_order_btn)
+    app._redraw_bars()
+
+
+def on_bar_drag_press(app, event) -> None:
+    """Begin drag — record which bar was pressed."""
+    if getattr(event, "button", None) != 1:
+        return
+    xdata = bar_event_xdata(app, event)
+    if xdata is None:
+        return
+    keys = app._bar_current_keys()
+    n = len(keys)
+    if n < 2:
+        return
+    idx = bar_idx_at_x(xdata, n)
+    app._bar_drag_state.update(active=True, src_idx=idx, cur_idx=idx)
+
+
+def on_bar_drag_motion(app, event, *, accent_color: str) -> None:
+    """Update drop-target indicator while dragging."""
+    ds = app._bar_drag_state
+    if not ds["active"]:
+        return
+    xdata = bar_event_xdata(app, event)
+    if xdata is None:
+        return
+    keys = app._bar_current_keys()
+    n = len(keys)
+    if n < 2:
+        return
+    tgt = bar_idx_at_x(xdata, n)
+    if tgt == ds["cur_idx"]:
+        return
+    ds["cur_idx"] = tgt
+
+    for ax in (app._ax_bar_mean, app._ax_bar_frac, getattr(app, "_ax_bar_n", None)):
+        if ax is None:
+            continue
+        for ln in list(ax.lines):
+            if getattr(ln, "_bar_drag_guide", False):
+                ln.remove()
+        if tgt > ds["src_idx"]:
+            guide_x = min(tgt + 0.5, n - 0.5)
+        else:
+            guide_x = max(tgt - 0.5, -0.5)
+        ln = ax.axvline(guide_x, color=accent_color, lw=1.5, ls="--",
+                        alpha=0.8, zorder=10)
+        ln._bar_drag_guide = True
+    app._bar_canvas.draw_idle()
+
+
+def on_bar_drag_release(app, event) -> None:
+    """Finalise drop — reorder and redraw."""
+    ds = app._bar_drag_state
+    if not ds["active"]:
+        return
+    ds["active"] = False
+
+    for ax in (app._ax_bar_mean, app._ax_bar_frac, getattr(app, "_ax_bar_n", None)):
+        if ax is None:
+            continue
+        for ln in list(ax.lines):
+            if getattr(ln, "_bar_drag_guide", False):
+                ln.remove()
+
+    src = ds["src_idx"]
+    tgt = ds["cur_idx"]
+    if src == tgt:
+        app._bar_canvas.draw_idle()
+        return
+
+    keys = app._bar_current_keys()
+    if not (0 <= src < len(keys) and 0 <= tgt < len(keys)):
+        app._bar_canvas.draw_idle()
+        return
+
+    item = keys.pop(src)
+    keys.insert(tgt, item)
+    app._bar_order = keys
+    app._bar_reset_order_btn.setProperty("variant", "toggle_accent")
+    app._bar_reset_order_btn.style().unpolish(app._bar_reset_order_btn)
+    app._bar_reset_order_btn.style().polish(app._bar_reset_order_btn)
+    app._redraw_bars()

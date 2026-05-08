@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import queue
 import re as _re_well
-import subprocess
 import sys as _sys
-import threading
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -29,11 +27,12 @@ from PySide6.QtWidgets import (
 )
 
 from services.input_resolution_service import resolve_input_output, tif_files_in
-from services.pipeline_service import (
-    build_pipeline_args,
-    find_pipeline_script,
-    spawn_pipeline,
+from services.pipeline_runner import (
+    PipelineRunner,
+    ProgressTracker,
+    classify_log_line,
 )
+from services.pipeline_service import find_pipeline_script
 from ui.theme import (
     CLR_DANGER, CLR_SUCCESS, TXT_MUT, TXT_PRI, WARN,
 )
@@ -111,18 +110,28 @@ class AnalyzeTab(QWidget):
         on_pipeline_complete: Callable[[Path], None] | None = None,
     ) -> None:
         super().__init__(parent)
-        self._proc: Optional[subprocess.Popen] = None
-        self._log_q: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._runner = PipelineRunner()
+        self._log_q: queue.Queue[tuple[str, object]] = self._runner.log_q
+        self._progress_tracker = ProgressTracker()
         self._running = False
         self._well_total = 0
         self._well_done  = 0
+        self._zipper_done = 0
         self._on_pipeline_complete = on_pipeline_complete
-        self._last_output_dir: Path | None = None
         self._fluor_rows: list[tuple[QLineEdit, QCheckBox, QPushButton]] = []
         self._schema_cbs: list[QComboBox] = []
 
         self._build_ui()
         self._poll_log()
+
+    @property
+    def _proc(self):
+        # Back-compat shim for code that still inspects the running subprocess.
+        return self._runner._proc
+
+    @property
+    def _last_output_dir(self) -> Path | None:
+        return self._runner.last_output_dir
 
     # ------------------------------------------------------------------
     # Top-level layout
@@ -749,7 +758,7 @@ class AnalyzeTab(QWidget):
             return
         self._set_running_ui_state()
         opts = self._collect_run_options()
-        threading.Thread(target=self._run_pipeline_thread, args=(pipeline, opts), daemon=True).start()
+        self._runner.start(pipeline, opts, resolve_dirs=self._resolve_run_dirs_for_runner)
 
     def _validate_run_request(self) -> Optional[Path]:
         if not self._input_edit.text().strip():
@@ -777,7 +786,7 @@ class AnalyzeTab(QWidget):
         self._running = True
         self._well_total = 0
         self._well_done  = 0
-        self._zip_mode_warning_logged = False
+        self._progress_tracker.reset()
         self._progress.setValue(0)
         self._prog_lbl.setText("Preparing…")
         self._run_btn.setEnabled(False)
@@ -840,64 +849,30 @@ class AnalyzeTab(QWidget):
                 wells.add(token.upper())
         return len(wells) or len(tifs) or 1
 
-    def _resolve_run_dirs(self, opts: dict):
+    def _resolve_run_dirs_for_runner(self, opts: dict, log_q: queue.Queue):
+        """Adapter passed to ``PipelineRunner.start``.
+
+        Lives on the tab because expected-well-count + grouping progress are
+        UI-side helpers that depend on Analyze form state.
+        """
         try:
-            self._log_q.put(("zipper_start", self._expected_well_count(opts)))
+            log_q.put(("zipper_start", self._expected_well_count(opts)))
             input_dir, output_dir = resolve_input_output(
                 opts["raw"],
-                log_fn=lambda msg: self._log_q.put(("line", msg)),
-                progress_fn=lambda tok: self._log_q.put(("zipper_well", tok)),
+                log_fn=lambda msg: log_q.put(("line", msg)),
+                progress_fn=lambda tok: log_q.put(("zipper_well", tok)),
                 filename_schema=opts["filename_schema"],
                 filename_sep=opts["filename_sep"],
             )
-            self._log_q.put(("zipper_done", None))
+            log_q.put(("zipper_done", None))
             return input_dir, output_dir
         except (ValueError, RuntimeError) as exc:
-            self._log_q.put(("error", f"Input error: {exc}\n"))
+            log_q.put(("error", f"Input error: {exc}\n"))
             return None
 
-    def _run_pipeline_subprocess(self, args: list[str]) -> None:
-        try:
-            self._proc = spawn_pipeline(args)
-            assert self._proc.stdout is not None
-            for line in self._proc.stdout:
-                self._log_q.put(("line", line))
-            self._proc.wait()
-            rc = self._proc.returncode
-            if rc == 0:
-                self._log_q.put(("done", "Pipeline completed successfully.\n"))
-            else:
-                self._log_q.put(("error", f"Pipeline exited with code {rc}.\n"))
-        except Exception as exc:
-            self._log_q.put(("error", f"Failed to start pipeline: {exc}\n"))
-
-    def _run_pipeline_thread(self, pipeline: Path, opts: dict) -> None:
-        try:
-            resolved = self._resolve_run_dirs(opts)
-            if resolved is None:
-                return
-            input_dir, output_dir = resolved
-            if any(input_dir.glob("*.zip")):
-                self._log_q.put(("line", "[warn] Zip mode detected; folder-mode compression options do not apply.\n"))
-            try:
-                output_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                self._log_q.put(("error", f"Cannot create output dir: {exc}\n"))
-                return
-            self._last_output_dir = output_dir
-            # The pipeline subprocess writes ``pipeline_info.json`` itself —
-            # see ``process_microscopy_v2.write_pipeline_info``.
-            args = build_pipeline_args(pipeline, input_dir, output_dir, opts)
-            self._log_q.put(("line", f"$ {' '.join(args)}\n"))
-            self._log_q.put(("line", f"Input  : {input_dir}\nOutput : {output_dir}\n"
-                             f"Schema : {opts['filename_schema']}  sep={opts['filename_sep']!r}\n\n"))
-            self._run_pipeline_subprocess(args)
-        finally:
-            self._log_q.put(("finished", None))
-
     def _stop(self) -> None:
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
+        if self._runner.is_running:
+            self._runner.stop()
             self._log_line("\n[User stopped the pipeline]\n", "WARNING")
 
     # ------------------------------------------------------------------
@@ -915,49 +890,36 @@ class AnalyzeTab(QWidget):
     def _clear_log(self) -> None:
         self._log.clear()
 
-    def _classify_line(self, line: str) -> str:
-        ll = line.lower()
-        if "error" in ll or "traceback" in ll or "exception" in ll:
-            return "ERROR"
-        if "warning" in ll or "warn" in ll or "skipping" in ll:
-            return "WARNING"
-        return "INFO"
-
-    def _parse_progress(self, line: str) -> None:
-        import re as _re
-        if line.startswith("[zipper]"):
-            return
-        if ("Zip mode:" in line or "Zip mode complete" in line) and not getattr(self, "_zip_mode_warning_logged", False):
-            self._zip_mode_warning_logged = True
-            self._log_q.put(("line", "[warn] Zip mode detected; folder-mode compression options do not apply.\n"))
-        m = _re.search(r"TF threads/worker\s*:\s*\d+\s+\(workers:\s*(\d+)\s+x", line)
-        if m:
-            self._log_q.put(("workers", int(m.group(1))))
-        if not self._well_total:
-            m = _re.search(r"(?:Zip mode|Flat mode|Folder mode):\s+(\d+)\s+well", line)
-            if m:
-                self._well_total = int(m.group(1))
-                self._progress.setRange(0, self._well_total)
-                self._progress.setValue(0)
-                self._prog_lbl.setText(f"Pipeline: 0 / {self._well_total} wells")
-                return
-        if self._well_total:
-            completed = "temporary directories removed" in line or bool(
-                _re.search(r"Well\s+\S+\s+->\s+\S+\.csv\s+\(\d+\s+rows?\)", line)
+    def _apply_progress_event(self, kind: str, payload: object) -> None:
+        """Render a progress event from :class:`ProgressTracker` to the UI."""
+        if kind == "well_total":
+            total = int(payload)  # type: ignore[arg-type]
+            self._well_total = total
+            self._progress.setRange(0, total)
+            self._progress.setValue(0)
+            self._prog_lbl.setText(f"Pipeline: 0 / {total} wells")
+        elif kind == "well_done":
+            done, total = payload  # type: ignore[misc]
+            self._well_done = int(done)
+            self._progress.setValue(self._well_done)
+            pct = int(self._well_done / max(1, total) * 100)
+            self._prog_lbl.setText(
+                f"Pipeline: {self._well_done} / {total} wells  ({pct}%)"
             )
-            if completed:
-                self._well_done += 1
-                self._progress.setValue(self._well_done)
-                pct = int(self._well_done / self._well_total * 100)
-                self._prog_lbl.setText(f"Pipeline: {self._well_done} / {self._well_total} wells  ({pct}%)")
 
     def _poll_log(self) -> None:
         try:
             while True:
                 kind, payload = self._log_q.get_nowait()
                 if kind == "line":
-                    self._parse_progress(payload)
-                    self._log_line(payload, self._classify_line(payload))
+                    for ev_kind, ev_payload in self._progress_tracker.parse(payload):
+                        if ev_kind == "line":
+                            self._log_q.put((ev_kind, ev_payload))
+                        elif ev_kind == "workers":
+                            self._log_q.put((ev_kind, ev_payload))
+                        else:
+                            self._apply_progress_event(ev_kind, ev_payload)
+                    self._log_line(payload, classify_log_line(payload))
                 elif kind == "zipper_start":
                     n = payload or 96
                     self._zipper_done = 0
@@ -1001,14 +963,13 @@ class AnalyzeTab(QWidget):
                     self._run_btn.setEnabled(True)
                     self._stop_btn.setEnabled(False)
                     self._status_lbl.setText("Idle")
-                    self._proc = None
         except queue.Empty:
             pass
         QTimer.singleShot(80, self._poll_log)
 
     def closeEvent(self, event) -> None:
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
+        if self._runner.is_running:
+            self._runner.stop()
         super().closeEvent(event)
 
 

@@ -321,3 +321,164 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         app._stats_fig_frame.setVisible(True)
     else:
         app._stats_fig_frame.setVisible(False)
+
+
+# ── Stats tab group-editor helpers (extracted from runtime_app) ──────────────
+
+import copy as _copy
+
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+
+from well_viewer.batch_models import BarGroup
+from well_viewer.plate_layout import WELL_COLORS
+from well_viewer.ui_helpers import ask_name_dialog as _ask_name_dialog, clear_layout as _clear_layout
+
+
+def stats_active_group(app):
+    if 0 <= app._stats_active_grp < len(app._stats_groups):
+        return app._stats_groups[app._stats_active_grp]
+    return None
+
+
+def stats_apply_drag(app, tok: str) -> None:
+    if tok in app._stats_drag_visited:
+        return
+    app._stats_drag_visited.add(tok)
+    grp = stats_active_group(app)
+    if grp is None or tok not in app._well_paths:
+        return
+    rset = next((r for r in app._rep_sets if tok in r.wells), None)
+    if rset is not None:
+        if app._stats_drag_adding:
+            if rset not in grp.members:
+                grp.members.append(rset)
+        else:
+            if rset in grp.members:
+                grp.members.remove(rset)
+    else:
+        if app._stats_drag_adding:
+            if tok not in grp.solo_wells:
+                grp.solo_wells.append(tok)
+        else:
+            if tok in grp.solo_wells:
+                grp.solo_wells.remove(tok)
+    stats_refresh_map(app)
+
+
+def stats_refresh_map(app) -> None:
+    bg, fg, fg_disabled = app._plate_theme_colors()
+    avail = set(app._well_paths.keys())
+    tok_color: dict = {}
+    for gi, grp in enumerate(app._stats_groups):
+        c = WELL_COLORS[gi % len(WELL_COLORS)]
+        for w in grp.wells:
+            tok_color.setdefault(w, c)
+    grp = stats_active_group(app)
+    active_wells: set = set(grp.wells) if grp else set()
+    for tok, btn in app._stats_map_btns.items():
+        if tok not in avail:
+            app._plate_apply_disabled(btn, bg, fg, fg_disabled)
+        elif tok in tok_color:
+            app._plate_apply_colored(
+                btn, tok_color[tok],
+                active=tok in active_wells, fg_disabled=fg_disabled,
+            )
+        else:
+            app._plate_apply_neutral(btn, bg, fg, fg_disabled)
+
+
+def stats_refresh_group_list(app) -> None:
+    container = app._stats_grp_inner
+    layout = container.layout()
+    if layout is None:
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+    _clear_layout(layout)
+    if not app._stats_groups:
+        lbl = QLabel("No groups.  Click + Add to create one.")
+        lbl.setObjectName("Muted")
+        layout.addWidget(lbl)
+        stats_refresh_map(app)
+        return
+    for gi, grp in enumerate(app._stats_groups):
+        is_sel = (gi == app._stats_active_grp)
+        color = WELL_COLORS[gi % len(WELL_COLORS)]
+        card = QFrame()
+        card.setObjectName("StatsGroupCard")
+        if is_sel:
+            card.setProperty("state", "selected")
+        hl = QHBoxLayout(card)
+        hl.setContentsMargins(6, 4, 6, 4)
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {color};")
+        hl.addWidget(dot)
+        hl.addWidget(QLabel(grp.name))
+        n_mem = len(grp.members)
+        n_sol = len(grp.solo_wells)
+        parts = []
+        if n_mem: parts.append(f"{n_mem} set{'s' if n_mem!=1 else ''}")
+        if n_sol: parts.append(f"{n_sol} solo well{'s' if n_sol!=1 else ''}")
+        if not parts: parts = ["empty"]
+        meta = QLabel(f"  ({', '.join(parts)})")
+        meta.setObjectName("Muted")
+        hl.addWidget(meta)
+        hl.addStretch(1)
+        idx = gi
+        ren_btn = QPushButton("✎")
+        ren_btn.setFlat(True)
+        ren_btn.clicked.connect(lambda _=False, i=idx: stats_grp_rename(app, i))
+        hl.addWidget(ren_btn)
+        del_btn = QPushButton("✕")
+        del_btn.setFlat(True)
+        del_btn.clicked.connect(lambda _=False, i=idx: stats_grp_delete(app, i))
+        hl.addWidget(del_btn)
+
+        def _click_select(ev, i=idx):
+            stats_select_grp(app, i)
+        card.mousePressEvent = _click_select
+        layout.addWidget(card)
+    layout.addStretch(1)
+    stats_refresh_map(app)
+
+
+def stats_select_grp(app, idx: int) -> None:
+    app._stats_active_grp = idx
+    stats_refresh_group_list(app)
+
+
+def stats_grp_add(app) -> None:
+    n = len(app._stats_groups) + 1
+    app._stats_groups.append(BarGroup(f"Group {n}"))
+    app._stats_active_grp = len(app._stats_groups) - 1
+    stats_refresh_group_list(app)
+
+
+def stats_grp_delete(app, idx: int) -> None:
+    if 0 <= idx < len(app._stats_groups):
+        app._stats_groups.pop(idx)
+        app._stats_active_grp = max(0, min(
+            app._stats_active_grp, len(app._stats_groups) - 1))
+        stats_refresh_group_list(app)
+
+
+def stats_grp_rename(app, idx: int) -> None:
+    if not (0 <= idx < len(app._stats_groups)):
+        return
+    old = app._stats_groups[idx].name
+    name = _ask_name_dialog(app, title="Rename group", default=old)
+    if name:
+        app._stats_groups[idx].name = name
+        stats_refresh_group_list(app)
+
+
+def stats_grp_clear_all(app) -> None:
+    app._stats_groups.clear()
+    app._stats_active_grp = -1
+    stats_refresh_group_list(app)
+
+
+def stats_sync_from_app(app) -> None:
+    app._stats_groups = _copy.deepcopy(app._groups_from_rep_sets())
+    app._stats_active_grp = 0 if app._stats_groups else -1
+    stats_refresh_group_list(app)
