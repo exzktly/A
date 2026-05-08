@@ -4455,7 +4455,7 @@ class WellViewerApp(QWidget):
         back to the arrow over scrollbar gutters or padding.
         """
         enabled = bool(getattr(self, "_review_image_include_edit_mode", False))
-        cursor = Qt.ForbiddenCursor if enabled else Qt.PointingHandCursor
+        cursor = Qt.CrossCursor if enabled else Qt.PointingHandCursor
         if hasattr(self, "_review_image_label"):
             self._review_image_label.setCursor(cursor)
         canvas = getattr(self, "_review_image_canvas", None)
@@ -4471,10 +4471,15 @@ class WellViewerApp(QWidget):
     def _set_review_image_include_mode(self, enabled: bool) -> None:
         self._review_image_include_edit_mode = bool(enabled)
         self._apply_review_image_cursor()
+        btn = getattr(self, "_review_image_delete_btn", None)
+        if btn is not None:
+            btn.setChecked(bool(enabled))
         if enabled:
-            self._set_status("Review Image Include edit mode ON: click a cell to set Included=0.")
+            self._set_status(
+                "Delete mode ON — click a cell to exclude it, or drag a rectangle to bulk-exclude."
+            )
         else:
-            self._set_status("Review Image Include edit mode OFF.")
+            self._set_status("Delete mode OFF.")
 
     def _toggle_selected_review_cell(self) -> None:
         self._set_review_image_include_mode(not getattr(self, "_review_image_include_edit_mode", False))
@@ -4580,7 +4585,10 @@ class WellViewerApp(QWidget):
         if not nids:
             self._set_status("Box selection: no cells inside rectangle.")
             return
-        fov = self._preview_fov_cb.currentText().strip()
+        fov_cb = getattr(self, "_preview_fov_cb", None)
+        if fov_cb is None:
+            return
+        fov = fov_cb.currentText().strip()
         tp_cb = getattr(self, "_review_image_tp_cb", None)
         tp = tp_cb.currentText().strip() if tp_cb is not None else ""
         self._set_review_cells_included_batch(
