@@ -15,6 +15,7 @@ controls that don't apply to the other mode aren't shown.
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget,
 )
@@ -38,6 +39,11 @@ def build_scatter_tab(app, parent: QWidget) -> None:
 
     tab_widget = QTabWidget(parent)
     tab_widget.setObjectName("ScatterSubTabs")
+    tab_widget.setUsesScrollButtons(False)
+    tab_widget.setElideMode(Qt.ElideNone)
+    tab_widget.tabBar().setUsesScrollButtons(False)
+    tab_widget.tabBar().setElideMode(Qt.ElideNone)
+    tab_widget.tabBar().setExpanding(False)
     layout.addWidget(tab_widget, 1)
 
     cells_page = QWidget()
