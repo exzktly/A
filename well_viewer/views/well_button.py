@@ -213,6 +213,28 @@ class WellButton(QPushButton):
         painter.end()
 
 
+class _HeaderClickLabel(QLabel):
+    """QLabel that fires *on_click* when left-clicked.
+
+    Used for plate-map row/column headers so the letter/number itself acts
+    as the row-or-column quick-select control.
+    """
+
+    def __init__(self, text: str, parent, on_click: Callable[[], None]) -> None:
+        super().__init__(text, parent)
+        self._on_click = on_click
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, ev):  # noqa: N802 - Qt override
+        if ev.button() == Qt.LeftButton:
+            try:
+                self._on_click()
+            finally:
+                ev.accept()
+                return
+        super().mousePressEvent(ev)
+
+
 def build_plate_grid(
     parent: QWidget,
     btn_store: Dict[str, WellButton],
@@ -220,6 +242,8 @@ def build_plate_grid(
     row_start: int = 1,
     col_header_row: int = 0,
     on_click: Optional[Callable[[str], None]] = None,
+    on_row_click: Optional[Callable[[str], None]] = None,
+    on_col_click: Optional[Callable[[str], None]] = None,
 ) -> QGridLayout:
     """Populate *parent* with an 8×12 header + well-button grid.
 
@@ -242,14 +266,21 @@ def build_plate_grid(
     layout.addWidget(QLabel("", parent), col_header_row, 0)
     # column headers
     for ci, col in enumerate(_PLATE_COLS):
-        lbl = QLabel(str(int(col)), parent)
+        text = str(int(col))
+        if on_col_click is not None:
+            lbl = _HeaderClickLabel(text, parent, lambda c=col: on_col_click(c))
+        else:
+            lbl = QLabel(text, parent)
         lbl.setObjectName("Muted")
         lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl, col_header_row, ci + 1)
 
     # row headers + wells
     for ri, row_ltr in enumerate(_PLATE_ROWS):
-        rl = QLabel(row_ltr, parent)
+        if on_row_click is not None:
+            rl = _HeaderClickLabel(row_ltr, parent, lambda r=row_ltr: on_row_click(r))
+        else:
+            rl = QLabel(row_ltr, parent)
         rl.setObjectName("Muted")
         rl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(rl, ri + row_start, 0)

@@ -4894,8 +4894,6 @@ class WellViewerApp(QWidget):
         elif tab == "Batch Export":
             # Batch Export uses the standard sidebar well picker.
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.setVisible(True)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
@@ -4905,8 +4903,6 @@ class WellViewerApp(QWidget):
 
         elif tab == "Review CSV":
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.setVisible(True)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
@@ -4914,8 +4910,6 @@ class WellViewerApp(QWidget):
 
         elif tab == "smFISH":
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.setVisible(False)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(False)
             if len(self._selected_wells) > 1:
@@ -4927,8 +4921,6 @@ class WellViewerApp(QWidget):
 
         elif tab == "Cell Gating":
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.setVisible(True)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
@@ -4938,8 +4930,6 @@ class WellViewerApp(QWidget):
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_rc_frame"):
-                self._sidebar_rc_frame.setVisible(True)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
