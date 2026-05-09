@@ -100,27 +100,47 @@ def image_table_clear_active(app) -> None:
 def _channel_options(app) -> List[str]:
     """All channel tokens available for selection (uppercase for display).
 
-    Adds the virtual ``NUC+SEG`` token at the end when the pipeline produced
-    a nuclear channel — that's where the pre-rendered segmentation overlay
+    Sourced from the canonical ``app._fluor_channels`` /
+    ``app._smfish_channels`` lists (built by ``_recalculate_threshold`` from
+    pipeline_info.json + CSV detection — same lists every other tab uses).
+    Falls back to the raw ``app._pipeline_info`` dict for the rare case
+    where the tab is repopulated before the first ``_recalculate_threshold``
+    pass. Adds the virtual ``NUC+SEG`` token at the end when a nuclear
+    channel is known — that's where the pre-rendered segmentation overlay
     images live, and they're how the Image Table replaces the old Movie
     Montage tab.
     """
     info = getattr(app, "_pipeline_info", None) or {}
     chans: List[str] = []
-    nuclear = (info.get("nuclear_token") or "").strip()
-    if nuclear:
-        chans.append(nuclear)
-    for tok in info.get("fluor_tokens", []) or []:
-        tok = str(tok).strip()
+
+    fluor = list(getattr(app, "_fluor_channels", None) or [])
+    if not fluor:
+        nuclear_pi = (info.get("nuclear_token") or "").strip().lower()
+        if nuclear_pi:
+            fluor.append(nuclear_pi)
+        for tok in info.get("fluor_tokens", []) or []:
+            tok = str(tok).strip().lower()
+            if tok and tok not in fluor:
+                fluor.append(tok)
+    for tok in fluor:
+        tok = str(tok).strip().lower()
         if tok and tok not in chans:
             chans.append(tok)
-    for tok in info.get("smfish_tokens", []) or []:
-        tok = str(tok).strip()
+
+    smfish = getattr(app, "_smfish_channels", None) or []
+    for tok in smfish:
+        tok = str(tok).strip().lower()
         if tok and tok not in chans:
             chans.append(tok)
+
     options = [c.upper() for c in chans]
-    if nuclear:
+
+    seg_tok = (getattr(app, "_seg_channel_token", "") or "").strip()
+    if not seg_tok:
+        seg_tok = (info.get("nuclear_token") or "").strip()
+    if seg_tok:
         options.append(NUC_SEG_TOKEN)
+
     return options
 
 
