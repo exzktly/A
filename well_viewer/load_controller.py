@@ -106,6 +106,12 @@ def load_directory(app, d: Path, label=None) -> None:
         app._preview_selected_well = None
     if hasattr(app, "_sidebar_preview_btns"):
         app._refresh_preview_picker()
+    if hasattr(app, "_image_table_refresh_picker"):
+        try:
+            app._image_table_repopulate_dropdowns()
+            app._image_table_refresh_picker()
+        except Exception:
+            pass
     app._label_panel_refresh()
     # Refresh the Sample Definitions tab so any newly loaded labels / groups
     # appear without requiring a tab switch.
