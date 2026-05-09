@@ -360,3 +360,38 @@ QTabWidget#ScatterSubTabs::pane {
     border: 1px solid ${TAB_BORDER};
     top: -1px;
 }
+
+/* ── Plotting sub-tabs ────────────────────────────────────────────────── */
+QTabWidget#PlottingSubTabs > QTabBar {
+    background: ${BG_SIDE};
+}
+QTabWidget#PlottingSubTabs > QTabBar::tab {
+    background: ${BG_SIDE};
+    color: ${TAB_FG};
+    border: 1px solid ${TAB_BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: 5px 14px;
+    font-size: 9pt;
+    font-weight: normal;
+    margin-right: 2px;
+}
+QTabWidget#PlottingSubTabs > QTabBar::tab:selected {
+    background: ${BG_APP};
+    color: ${ACCENT};
+    border-bottom: 1px solid ${BG_APP};
+    margin-bottom: -1px;
+    font-weight: bold;
+}
+QTabWidget#PlottingSubTabs > QTabBar::tab:hover:!selected {
+    background: ${BG_HOVER};
+    color: ${TAB_FG_ACTIVE};
+}
+QTabWidget#PlottingSubTabs::pane {
+    background: ${BG_APP};
+    border: 1px solid ${TAB_BORDER};
+    top: -1px;
+}

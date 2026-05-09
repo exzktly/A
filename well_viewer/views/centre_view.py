@@ -3,16 +3,15 @@
 ``build_centre`` is the entry point. Replaces the tk-based ``CustomNotebook``
 hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
 
-Tabs are organised into four logical groups separated by a small visual
+Tabs are organised into three logical groups separated by a small visual
 gap drawn by ``_GroupedTabBar``:
 
-* **Plots** — Line Graphs, Bar Plots, Scatter Plot (per-cell or per-well
-  aggregate via the segmented toggle), Distribution, Heat Map.
-* **Images** — Movie Montage, Image Table, Review Image.
-* **Analysis** — Cell Gating, smFISH, Statistics.
+* **Analysis** — Plotting (sub-tabs: Line Graphs, Bar Plots, Scatter Plot,
+  Distribution, Heat Map), smFISH, Statistics.
+* **Images** — Image Table, Segmentation.
 * **Data** — Review CSV, Sample Definitions, Batch Export.
 
-Tabs are also built lazily: only the initially active "Line Graphs" tab
+Tabs are also built lazily: only the initially active "Plotting" tab
 and the sidebar panels that other code touches at startup are constructed
 eagerly. The remaining tab bodies build on a per-event-loop-tick timer so
 the window paints quickly and stays responsive while heavy widget trees
@@ -191,6 +190,19 @@ def build_centre(app, parent: QWidget) -> None:
     pending: Dict[str, Callable[[], None]] = {}
     app._centre_pending_builders = pending
 
+    # Defined early so builder functions (including _build_plotting, which is
+    # called eagerly as the first tab) can call it before the groups loop ends.
+    def _build_pending(title: str) -> None:
+        builder = pending.pop(title, None)
+        if builder is None:
+            return
+        try:
+            builder()
+        except Exception:
+            _logger.exception("Deferred build for %r failed", title)
+
+    app._centre_build_pending = _build_pending
+
     # Tabs whose construction we never want to run from the background
     # drain — they only build on first user access (tab click). The tabs
     # listed here pull in the heaviest dependencies (matplotlib QtAgg,
@@ -205,12 +217,35 @@ def build_centre(app, parent: QWidget) -> None:
     # ``addTab`` call further down.
     tab_groups = QWidget(app._notebook)
     QVBoxLayout(tab_groups).setContentsMargins(0, 0, 0, 0)
+
+    # "Plotting" is a top-level tab whose body is a nested QTabWidget
+    # containing the five plot sub-tabs.  We pre-allocate both the outer
+    # container and the five sub-tab frames so builder closures (and the
+    # drain) can reference them before the nested QTabWidget exists.
+    plotting_container = QWidget(app._notebook)
+    QVBoxLayout(plotting_container).setContentsMargins(0, 0, 0, 0)
+
+    _PLOT_SUBTABS = [
+        "Line Graphs", "Bar Plots", "Scatter Plot", "Distribution", "Heat Map",
+    ]
+
     # Sidebars referenced by data-load + tab-switch logic must exist
     # immediately even though the centre tab bodies that depend on them
     # are deferred.
     app._build_replicate_panel(app._sidebar_sample_frame)
     app._build_bar_group_panel(app._sidebar_groups_frame)
     app._build_preview_picker(app._sidebar_preview_frame)
+
+    # Stable name -> tab QWidget map for builder closures to reach into.
+    # Populated in two phases: plot sub-tab frames are inserted here before
+    # the groups loop so the builder closures can close over them, even
+    # though those frames end up inside the nested "Plotting" QTabWidget
+    # rather than directly in app._notebook.
+    tab_frames: Dict[str, QWidget] = {}
+    for _t in _PLOT_SUBTABS:
+        _f = QWidget()
+        QVBoxLayout(_f).setContentsMargins(0, 0, 0, 0)
+        tab_frames[_t] = _f
 
     # Group definitions: ordered list of (title, builder, eager_flag).
     # ``eager_flag`` means build the tab body immediately; otherwise the
@@ -236,8 +271,40 @@ def build_centre(app, parent: QWidget) -> None:
         from well_viewer.tabs.heatmap_tab_view import build_heatmap_tab
         build_heatmap_tab(app, tab_frames["Heat Map"])
 
-    def _build_movie_montage() -> None:
-        app._build_right_panel(tab_frames["Movie Montage"])
+    # Register plot sub-tab builders in pending now so the background drain
+    # can populate their frames while the app is starting up.  _build_plotting
+    # (below) calls _build_pending("Line Graphs") eagerly and the drain
+    # handles the rest.
+    pending["Line Graphs"] = _line_graphs_eager
+    pending["Bar Plots"] = _build_bar
+    pending["Scatter Plot"] = _build_scatter
+    pending["Distribution"] = _build_distribution
+    pending["Heat Map"] = _build_heatmap
+
+    def _build_plotting() -> None:
+        """Create the nested QTabWidget and wire the five plot sub-tabs."""
+        plotting_nb = QTabWidget(plotting_container)
+        plotting_nb.setObjectName("PlottingSubTabs")
+        plotting_nb.setElideMode(Qt.ElideNone)
+        plotting_nb.setUsesScrollButtons(True)
+        plotting_nb.tabBar().setExpanding(False)
+        plotting_nb.tabBar().setElideMode(Qt.ElideNone)
+        plotting_container.layout().addWidget(plotting_nb, 1)
+        app._plotting_notebook = plotting_nb
+
+        for title in _PLOT_SUBTABS:
+            plotting_nb.addTab(tab_frames[title], title)
+
+        # Build the first sub-tab immediately so the user sees content.
+        _build_pending("Line Graphs")
+
+        def _on_plotting_subtab(_i: int = 0) -> None:
+            sub_title = plotting_nb.tabText(plotting_nb.currentIndex())
+            if sub_title in pending:
+                _build_pending(sub_title)
+            app._on_tab_change(None)
+
+        plotting_nb.currentChanged.connect(_on_plotting_subtab)
 
     def _build_image_table() -> None:
         from well_viewer.tabs.image_table_tab_view import build_image_table_tab
@@ -269,14 +336,14 @@ def build_centre(app, parent: QWidget) -> None:
         build_batch_export_tab(app, tab_frames["Batch Export"])
 
     groups: List[Tuple[str, List[Tuple[str, Callable[[], None]]]]] = [
-        ("Plots", [
-            ("Line Graphs", _line_graphs_eager),
-            ("Bar Plots", _build_bar),
-            # Cells + Aggregate scatter are folded into one tab with a
-            # segmented-button toggle (Per-cell points / Per-well aggregate).
-            ("Scatter Plot", _build_scatter),
-            ("Distribution", _build_distribution),
-            ("Heat Map", _build_heatmap),
+        ("Analysis", [
+            # "Plotting" is a single top-level tab that contains Line Graphs,
+            # Bar Plots, Scatter Plot, Distribution, and Heat Map as sub-tabs.
+            ("Plotting", _build_plotting),
+            # Cell Gating moved into the Sample Definitions tab (Cell Gating
+            # sub-tab) — that's the new home for global per-cell config.
+            ("smFISH", _build_smfish),
+            ("Statistics", _build_stats),
         ]),
         ("Images", [
             # Movie Montage was folded into Image Table — pick a well, set
@@ -285,12 +352,6 @@ def build_centre(app, parent: QWidget) -> None:
             ("Image Table", _build_image_table),
             ("Segmentation", _build_review_image),
         ]),
-        ("Analysis", [
-            # Cell Gating moved into the Sample Definitions tab (Cell Gating
-            # sub-tab) — that's the new home for global per-cell config.
-            ("smFISH", _build_smfish),
-            ("Statistics", _build_stats),
-        ]),
         ("Data", [
             ("Review CSV", _build_review_csv),
             ("Sample Definitions", _build_sample_definitions),
@@ -298,15 +359,16 @@ def build_centre(app, parent: QWidget) -> None:
         ]),
     ]
 
-    # Stable name -> tab QWidget map for builder closures to reach into.
-    tab_frames: Dict[str, QWidget] = {}
-
     def _new_tab(title: str) -> QWidget:
         if title == "Sample Definitions":
             # Sample Definitions uses the pre-allocated tab_groups widget so
             # the deferred body builder closure (_build_sample_definitions)
             # can reference it before the tab is added to the QTabWidget.
             frame = tab_groups
+        elif title == "Plotting":
+            # "Plotting" uses the pre-allocated container so the nested
+            # QTabWidget can be inserted into it by _build_plotting.
+            frame = plotting_container
         else:
             frame = QWidget(app._notebook)
             QVBoxLayout(frame).setContentsMargins(0, 0, 0, 0)
@@ -339,17 +401,6 @@ def build_centre(app, parent: QWidget) -> None:
         custom_tabbar.set_first_group_label(groups[0][0])
 
     app._notebook.setCurrentIndex(0)
-
-    def _build_pending(title: str) -> None:
-        builder = pending.pop(title, None)
-        if builder is None:
-            return
-        try:
-            builder()
-        except Exception:
-            _logger.exception("Deferred build for %r failed", title)
-
-    app._centre_build_pending = _build_pending
 
     def _on_tab_change(_i: int = 0) -> None:
         # Force-build the tab the user just switched to if it hasn't been

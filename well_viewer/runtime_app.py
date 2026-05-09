@@ -1878,11 +1878,7 @@ class WellViewerApp(QWidget):
         self._redraw_bars()
         self._redraw()
         if hasattr(self, "_notebook"):
-            try:
-                tab = self._notebook.tabText(self._notebook.currentIndex())
-            except Exception:
-                tab = ""
-            if tab == "Line Graphs":
+            if self._current_centre_tab() == "Line Graphs":
                 self._show_line_sidebar()
 
     def _bar_rebuild_groups(self) -> None:
@@ -1898,11 +1894,7 @@ class WellViewerApp(QWidget):
         self._groups_centre_refresh()
         self._redraw()
         if hasattr(self, "_notebook"):
-            try:
-                tab = self._notebook.tabText(self._notebook.currentIndex())
-            except Exception:
-                tab = ""
-            if tab == "Line Graphs":
+            if self._current_centre_tab() == "Line Graphs":
                 self._show_line_sidebar()
 
     # ── Group management ──────────────────────────────────────────────────────
@@ -3892,12 +3884,7 @@ class WellViewerApp(QWidget):
 
         # Back-compat sync: follow the active tab's selector instead of forcing plot labels.
         if hasattr(self, "_chan_var"):
-            tab_label = ""
-            if hasattr(self, "_notebook"):
-                try:
-                    tab_label = self._notebook.tabText(self._notebook.currentIndex())
-                except Exception:
-                    tab_label = ""
+            tab_label = self._current_centre_tab()
             if tab_label == "Movie Montage":
                 self._chan_var.set(montage_label)
             elif tab_label == "Segmentation":
@@ -3917,9 +3904,8 @@ class WellViewerApp(QWidget):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
         self._redraw()
-        if hasattr(self, "_notebook"):
-            if self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
-                self._redraw_bars()
+        if self._current_centre_tab() == "Bar Plots":
+            self._redraw_bars()
 
     # ── Per-FOV-replicates toggle ────────────────────────────────────────────
 
@@ -3938,7 +3924,7 @@ class WellViewerApp(QWidget):
         self._invalidate_stats_cache()
         self._refresh_fov_btn_state()
         self._redraw()
-        if hasattr(self, "_notebook") and self._notebook.tabText(self._notebook.currentIndex()) == "Bar Plots":
+        if self._current_centre_tab() == "Bar Plots":
             self._redraw_bars()
 
     def _refresh_fov_btn_state(self) -> None:
@@ -4874,11 +4860,35 @@ class WellViewerApp(QWidget):
 
     # ── Bar plot tab ──────────────────────────────────────────────────────────
 
+    def _current_centre_tab(self) -> str:
+        """Return the effective current tab name.
+
+        When the "Plotting" top-level tab is active the real content lives in
+        a nested QTabWidget (``app._plotting_notebook``).  This helper
+        resolves that one level of indirection so callers can always compare
+        against leaf tab names like "Bar Plots" or "Heat Map".
+        """
+        nb = getattr(self, "_notebook", None)
+        if nb is None:
+            return ""
+        try:
+            tab = nb.tabText(nb.currentIndex())
+        except Exception:
+            return ""
+        if tab == "Plotting":
+            plotting_nb = getattr(self, "_plotting_notebook", None)
+            if plotting_nb is not None and plotting_nb.count() > 0:
+                try:
+                    return plotting_nb.tabText(plotting_nb.currentIndex())
+                except Exception:
+                    pass
+        return tab
+
     def _on_tab_change(self, _e=None) -> None:
         """Show/hide the sidebar and refresh whichever tab is now active."""
         if not hasattr(self, "_line_ax_mean"):
             return
-        tab = self._notebook.tabText(self._notebook.currentIndex())
+        tab = self._current_centre_tab()
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))
 
