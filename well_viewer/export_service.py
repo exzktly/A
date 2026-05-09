@@ -12,6 +12,54 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 _CSV_FILTER = "CSV files (*.csv);;All files (*.*)"
 
 
+def _well_labels_map(app) -> dict:
+    """Snapshot of the Sample Definitions well-label map (token → name)."""
+    return dict(getattr(app, "_well_labels", None) or {})
+
+
+def _well_paths_keys(app) -> set:
+    """Set of valid well tokens for the loaded project."""
+    paths = getattr(app, "_well_paths", None) or {}
+    return set(paths)
+
+
+def well_name_for(token, well_labels: dict, *, well_paths: set | None = None,
+                  strict: bool = False) -> str:
+    """Look up the Sample Definitions display name for a well token.
+
+    Falls back to the token itself when no custom name is set, matching
+    the editor convention "blank = use well token". When ``strict`` is
+    True the lookup returns "" for tokens not present in ``well_paths``,
+    so columns that mix well tokens with non-well identifiers (group
+    names, replicate-set names) leave non-well rows blank.
+    """
+    if token is None:
+        return ""
+    s = str(token).strip()
+    if not s:
+        return ""
+    if strict and well_paths is not None and s not in well_paths and s not in well_labels:
+        return ""
+    return well_labels.get(s, s)
+
+
+def well_names_joined(tokens, well_labels: dict, *,
+                      well_paths: set | None = None,
+                      sep: str = ";", strict: bool = False) -> str:
+    """Map a separator-joined string of well tokens to display names."""
+    if tokens is None:
+        return ""
+    text = str(tokens).strip()
+    if not text:
+        return ""
+    parts = [p.strip() for p in text.split(sep)]
+    names = [well_name_for(p, well_labels, well_paths=well_paths, strict=strict)
+             for p in parts]
+    if strict and not any(names):
+        return ""
+    return sep.join(names)
+
+
 def _ask_save_csv(app, title: str, default_name: str) -> str:
     initial_dir = str(app._data_dir) if app._data_dir else ""
     initial_path = str(Path(initial_dir) / default_name) if initial_dir else default_name
@@ -38,6 +86,7 @@ def export_plot_data(app) -> None:
     rows_out = []
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
+    well_labels = _well_labels_map(app)
     for label in selected:
         pts = app._aggregate_well(
             label, threshold=threshold, use_sem=False,
@@ -48,6 +97,7 @@ def export_plot_data(app) -> None:
         for t, mean, sd, frac, n_above, n_total, *_ in pts:
             rows_out.append({
                 "well": label,
+                "well_name": well_name_for(label, well_labels),
                 "time_h": f"{t:.4f}",
                 f"mean_{ch}_{metric}": f"{mean:.6f}" if not math.isnan(mean) else "",
                 f"sd_{ch}_{metric}": f"{sd:.6f}",
@@ -63,7 +113,7 @@ def export_plot_data(app) -> None:
     out_path = _ask_save_csv(app, "Export plot data", f"{ch}_{metric}_plot_export.csv")
     if not out_path:
         return
-    fieldnames = ["well", "time_h", f"mean_{ch}_{metric}", f"sd_{ch}_{metric}", "n_above_threshold", "fraction_above", "n_total", "threshold", "metric"]
+    fieldnames = ["well", "well_name", "time_h", f"mean_{ch}_{metric}", f"sd_{ch}_{metric}", "n_above_threshold", "fraction_above", "n_total", "threshold", "metric"]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -87,6 +137,8 @@ def export_bar_plot_data(app) -> None:
     ch = app._active_channel
     metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
+    well_labels = _well_labels_map(app)
+    well_paths = _well_paths_keys(app)
     rows_out = []
     if use_groups:
         for item in items:
@@ -96,6 +148,8 @@ def export_bar_plot_data(app) -> None:
             n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
             rows_out.append({
                 "name": name,
+                "well_name": well_name_for(name, well_labels,
+                                           well_paths=well_paths, strict=True),
                 "timepoint_h": tp_str,
                 f"mean_{ch}_{metric}": f"{gm:.6f}" if has else "",
                 f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
@@ -130,6 +184,7 @@ def export_bar_plot_data(app) -> None:
                 n_above_spread = 0.0
             rows_out.append({
                 "well": label,
+                "well_name": well_name_for(label, well_labels),
                 "timepoint_h": tp_str,
                 f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not math.isnan(mean) else "",
                 f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
@@ -165,11 +220,13 @@ def export_raw_data_csv(app) -> None:
         return
 
     rows_out = []
-    fieldnames = {"well"}
+    fieldnames = {"well", "well_name"}
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gate_threshold = app._get_fluor_gate(app._active_channel)
+    well_labels = _well_labels_map(app)
 
     for label in sorted(app._well_paths):
+        well_name = well_name_for(label, well_labels)
         for row in app._get_rows(label):
             if not app._row_is_included(row):
                 continue
@@ -190,8 +247,12 @@ def export_raw_data_csv(app) -> None:
             if (fluor != fluor) or fluor <= fluor_gate_threshold:
                 continue
 
-            out_row = {"well": label}
+            out_row = {"well": label, "well_name": well_name}
             out_row.update(row)
+            # Restore canonical well/well_name in case the source row carries
+            # its own "well" column from upstream pipeline output.
+            out_row["well"] = label
+            out_row["well_name"] = well_name
             rows_out.append(out_row)
             fieldnames.update(out_row.keys())
 
@@ -199,7 +260,7 @@ def export_raw_data_csv(app) -> None:
         _warn(app, "Export", "No raw rows available to export.")
         return
 
-    ordered_fields = ["well"] + [k for k in sorted(fieldnames) if k != "well"]
+    ordered_fields = ["well", "well_name"] + [k for k in sorted(fieldnames) if k not in ("well", "well_name")]
     out_path = _ask_save_csv(app, "Export raw data", "raw_data_export.csv")
     if not out_path:
         return
@@ -337,13 +398,18 @@ def export_scatter_data(app) -> None:
         fluor_gate_y=fluor_gate_y,
     )
 
+    well_labels = _well_labels_map(app)
+    well_paths = _well_paths_keys(app)
     rows_out = []
     for label, data in scatter_data.items():
         x_vals = data['x']
         y_vals = data['y']
+        well_name = well_name_for(label, well_labels,
+                                  well_paths=well_paths, strict=True)
         for x, y in zip(x_vals, y_vals):
             rows_out.append({
                 "group_well": label,
+                "well_name": well_name,
                 f"{col_x}": f"{x:.6f}",
                 f"{col_y}": f"{y:.6f}",
                 "timepoint_h": f"{timepoint_h:.4f}",
@@ -362,7 +428,7 @@ def export_scatter_data(app) -> None:
 
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=["group_well", f"{col_x}", f"{col_y}", "timepoint_h"])
+            writer = csv.DictWriter(fh, fieldnames=["group_well", "well_name", f"{col_x}", f"{col_y}", "timepoint_h"])
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} datapoint(s) → {Path(out_path).name}")
@@ -403,6 +469,8 @@ def export_scatter_agg_data(app) -> None:
         well_colors=[],
     )
 
+    well_labels = _well_labels_map(app)
+    well_paths = _well_paths_keys(app)
     rows_out = []
     for label, data in scatter_data.items():
         x_val = data['x'][0]
@@ -410,9 +478,12 @@ def export_scatter_agg_data(app) -> None:
         x_err = data['x_err'][0]
         y_err = data['y_err'][0]
         tp = data['timepoint']
+        rep_well = label.split("_tp")[0]
 
         rows_out.append({
-            "replicate_well": label.split("_tp")[0],
+            "replicate_well": rep_well,
+            "well_name": well_name_for(rep_well, well_labels,
+                                       well_paths=well_paths, strict=True),
             "timepoint_h": f"{tp:.4f}",
             stat_x: f"{x_val:.6f}",
             f"{stat_x}_error": f"{x_err:.6f}",
@@ -437,7 +508,7 @@ def export_scatter_agg_data(app) -> None:
 
     try:
         with open(out_path, "w", newline="") as fh:
-            fieldnames = ["replicate_well", "timepoint_h", stat_x, f"{stat_x}_error", stat_y, f"{stat_y}_error"]
+            fieldnames = ["replicate_well", "well_name", "timepoint_h", stat_x, f"{stat_x}_error", stat_y, f"{stat_y}_error"]
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows_out)
@@ -465,15 +536,18 @@ def export_heatmap_data(app) -> None:
     metric_cb = getattr(app, "_heatmap_metric_cb", None)
     metric = str(metric_cb.currentText()) if metric_cb else "metric"
     col_name = f"{ch}_{metric.lower().replace(' ', '_')}"
+    well_labels = _well_labels_map(app)
     rows_out = []
     for r in range(layout.rows):
         for c in range(layout.cols):
             val = float(arr[r, c]) if not _math.isnan(arr[r, c]) else ""
-            wells = (cell_index or {}).get((r, c), [])
+            wells = sorted((cell_index or {}).get((r, c), []))
+            wells_str = ";".join(wells)
             rows_out.append({
                 "row": r + 1,
                 "col": c + 1,
-                "wells": ";".join(sorted(wells)),
+                "wells": wells_str,
+                "well_names": well_names_joined(wells_str, well_labels),
                 "timepoint_h": f"{tp:g}" if tp is not None else "",
                 col_name: f"{val:.6f}" if val != "" else "",
             })
@@ -487,7 +561,7 @@ def export_heatmap_data(app) -> None:
     )
     if not out_path:
         return
-    fieldnames = ["row", "col", "wells", "timepoint_h", col_name]
+    fieldnames = ["row", "col", "wells", "well_names", "timepoint_h", col_name]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -517,6 +591,8 @@ def export_distribution_data(app) -> None:
     tp_filter = tp_h if _math.isfinite(tp_h) else None
 
     ch = getattr(app, "_active_channel", "channel")
+    well_labels = _well_labels_map(app)
+    well_paths = _well_paths_keys(app)
     rows_out = []
     for name, _color, rows in iter_plot_groups(app):
         vals = _all_fluor_values_filtered(
@@ -526,9 +602,12 @@ def export_distribution_data(app) -> None:
             ratios=ratios,
             tp_filter=tp_filter,
         )
+        well_name = well_name_for(name, well_labels,
+                                  well_paths=well_paths, strict=True)
         for v in vals:
             rows_out.append({
                 "group": name,
+                "well_name": well_name,
                 "timepoint_h": f"{tp_h:g}" if _math.isfinite(tp_h) else "",
                 val_col: f"{v:.6f}",
             })
@@ -544,7 +623,7 @@ def export_distribution_data(app) -> None:
     )
     if not out_path:
         return
-    fieldnames = ["group", "timepoint_h", val_col]
+    fieldnames = ["group", "well_name", "timepoint_h", val_col]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)

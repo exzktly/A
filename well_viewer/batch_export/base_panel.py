@@ -970,11 +970,19 @@ class BatchExportPanel(QWidget):
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
+                    from well_viewer.export_service import (
+                        _well_labels_map, well_names_joined,
+                    )
+                    _well_labels = _well_labels_map(self._app)
+                    wells_str = ";".join(valid_wells)
+                    well_names_str = well_names_joined(wells_str, _well_labels)
                     for t, mean, sd, frac, n_above, n_total, *_ in pts:
                         rows_out.append({
                             "group": grp.name, "member": rset.name,
                             "member_type": "replicate_set",
-                            "wells": ";".join(valid_wells), "n_wells": len(valid_wells),
+                            "wells": wells_str,
+                            "well_names": well_names_str,
+                            "n_wells": len(valid_wells),
                             "time_h": f"{t:.4f}",
                             f"mean_{_ch}": f"{mean:.6f}" if not math.isnan(mean) else "",
                             f"{'sem' if use_sem else 'sd'}_{_ch}": f"{sd:.6f}",
@@ -994,10 +1002,17 @@ class BatchExportPanel(QWidget):
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
+                    from well_viewer.export_service import (
+                        _well_labels_map, well_name_for,
+                    )
+                    _well_labels = _well_labels_map(self._app)
+                    _well_name = well_name_for(w, _well_labels)
                     for t, mean, sd, frac, n_above, n_total, *_ in pts:
                         rows_out.append({
                             "group": grp.name, "member": w, "member_type": "solo_well",
-                            "wells": w, "n_wells": 1, "time_h": f"{t:.4f}",
+                            "wells": w,
+                            "well_names": _well_name,
+                            "n_wells": 1, "time_h": f"{t:.4f}",
                             f"mean_{_ch}": f"{mean:.6f}" if not math.isnan(mean) else "",
                             f"{'sem' if use_sem else 'sd'}_{_ch}": f"{sd:.6f}",
                             "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
@@ -1005,7 +1020,8 @@ class BatchExportPanel(QWidget):
                         })
                 if rows_out:
                     _ch = self._app._active_channel
-                    fieldnames = ["group", "member", "member_type", "wells", "n_wells",
+                    fieldnames = ["group", "member", "member_type",
+                                  "wells", "well_names", "n_wells",
                                   "time_h", f"mean_{_ch}",
                                   f"{'sem' if use_sem else 'sd'}_{_ch}",
                                   "fraction_above", "threshold"]

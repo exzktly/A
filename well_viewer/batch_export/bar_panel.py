@@ -157,8 +157,12 @@ class BarBatchExportPanel(BatchExportPanel):
             base = out_dir / f"bar_{safe_grp}_t{safe_tp}"
 
             try:
+                from well_viewer.export_service import (
+                    _well_labels_map, well_name_for, well_names_joined,
+                )
                 _val_col = self._app._active_val_col
                 _ch = self._app._active_channel
+                _well_labels = _well_labels_map(self._app)
                 rows_csv: List[dict] = []
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
@@ -175,10 +179,13 @@ class BarBatchExportPanel(BatchExportPanel):
                     matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
                     if matched:
                         _, m, s, f, *_ = matched[0]
+                        wells_str = ";".join(valid)
                         rows_csv.append({
                             "group": grp.name,
                             "member": rset.name,
                             "member_type": "replicate_set",
+                            "wells": wells_str,
+                            "well_names": well_names_joined(wells_str, _well_labels),
                             "n_wells": len(valid),
                             "timepoint_h": tp_str,
                             f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
@@ -202,6 +209,8 @@ class BarBatchExportPanel(BatchExportPanel):
                             "group": grp.name,
                             "member": w,
                             "member_type": "solo_well",
+                            "wells": w,
+                            "well_names": well_name_for(w, _well_labels),
                             "n_wells": 1,
                             "timepoint_h": tp_str,
                             f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",

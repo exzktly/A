@@ -290,18 +290,22 @@ class ScatterBatchExportPanel(BatchExportPanel):
         if not scatter_data:
             return f"{grp.name}: no scatter-cells data at t={tp_h:.1f}h"
         try:
+            from well_viewer.export_service import _well_labels_map, well_name_for
+            _well_labels = _well_labels_map(self._app)
             rows: List[dict] = []
             for label, data in scatter_data.items():
                 for x, y, meta in zip(data["x"], data["y"], data["metadata"]):
                     well, filename, nuclear_id, _row_idx = meta
                     rows.append({
-                        "group": grp.name, "member": label, "well": well,
+                        "group": grp.name, "member": label,
+                        "well": well,
+                        "well_name": well_name_for(well, _well_labels),
                         "timepoint_h": f"{tp_h:.4f}",
                         "x": f"{x:.8g}", "y": f"{y:.8g}",
                         "filename": filename, "nucleus_id": nuclear_id,
                     })
             with open(csv_path, "w", newline="") as fh:
-                fieldnames = ["group", "member", "well", "timepoint_h", "x", "y", "filename", "nucleus_id"]
+                fieldnames = ["group", "member", "well", "well_name", "timepoint_h", "x", "y", "filename", "nucleus_id"]
                 writer = csv.DictWriter(fh, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
@@ -343,11 +347,21 @@ class ScatterBatchExportPanel(BatchExportPanel):
         if not scatter_data:
             return f"{grp.name}: no scatter-aggregate data at t={tp_h:.1f}h"
         try:
+            from well_viewer.export_service import (
+                _well_labels_map, _well_paths_keys, well_name_for,
+            )
+            _well_labels = _well_labels_map(self._app)
+            _well_paths = _well_paths_keys(self._app)
             rows: List[dict] = []
             for data in scatter_data.values():
+                lbl = data.get("label", "")
                 rows.append({
                     "group": grp.name,
-                    "label": data.get("label", ""),
+                    "label": lbl,
+                    "well_name": well_name_for(
+                        str(lbl).split("_tp")[0], _well_labels,
+                        well_paths=_well_paths, strict=True,
+                    ),
                     "timepoint_h": f"{float(data.get('timepoint', tp_h)):.4f}",
                     "x": f"{float(data['x'][0]):.8g}",
                     "y": f"{float(data['y'][0]):.8g}",
@@ -355,7 +369,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
                     "y_err": f"{float(data['y_err'][0]):.8g}",
                 })
             with open(csv_path, "w", newline="") as fh:
-                fieldnames = ["group", "label", "timepoint_h", "x", "y", "x_err", "y_err"]
+                fieldnames = ["group", "label", "well_name", "timepoint_h", "x", "y", "x_err", "y_err"]
                 writer = csv.DictWriter(fh, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
@@ -408,6 +422,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
             finally:
                 self._app._rep_sets = old_rep_sets
                 self._app._selected_wells = old_selected
+            from well_viewer.export_service import _well_labels_map, well_name_for
+            _well_labels = _well_labels_map(self._app)
             for label, data in scatter_data.items():
                 combined_series.append((tp_h, label, data))
                 for x, y, meta in zip(data["x"], data["y"], data["metadata"]):
@@ -415,7 +431,9 @@ class ScatterBatchExportPanel(BatchExportPanel):
                     combined_rows.append({
                         "group": grp.name,
                         "timepoint_h": f"{tp_h:.4f}",
-                        "member": label, "well": well,
+                        "member": label,
+                        "well": well,
+                        "well_name": well_name_for(well, _well_labels),
                         "x": f"{x:.8g}", "y": f"{y:.8g}",
                         "filename": filename, "nucleus_id": nuclear_id,
                     })
@@ -423,7 +441,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
             return f"{grp.name}: no scatter-cells data for selected timepoints"
         try:
             with open(csv_path, "w", newline="") as fh:
-                fieldnames = ["group", "timepoint_h", "member", "well", "x", "y", "filename", "nucleus_id"]
+                fieldnames = ["group", "timepoint_h", "member", "well", "well_name", "x", "y", "filename", "nucleus_id"]
                 writer = csv.DictWriter(fh, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(combined_rows)
@@ -468,11 +486,21 @@ class ScatterBatchExportPanel(BatchExportPanel):
         if not scatter_data:
             return f"{grp.name}: no scatter-aggregate data for selected timepoints"
         try:
+            from well_viewer.export_service import (
+                _well_labels_map, _well_paths_keys, well_name_for,
+            )
+            _well_labels = _well_labels_map(self._app)
+            _well_paths = _well_paths_keys(self._app)
             rows: List[dict] = []
             for data in scatter_data.values():
+                lbl = data.get("label", "")
                 rows.append({
                     "group": grp.name,
-                    "label": data.get("label", ""),
+                    "label": lbl,
+                    "well_name": well_name_for(
+                        str(lbl).split("_tp")[0], _well_labels,
+                        well_paths=_well_paths, strict=True,
+                    ),
                     "timepoint_h": f"{float(data.get('timepoint', float('nan'))):.4f}",
                     "x": f"{float(data['x'][0]):.8g}",
                     "y": f"{float(data['y'][0]):.8g}",
@@ -480,7 +508,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
                     "y_err": f"{float(data['y_err'][0]):.8g}",
                 })
             with open(csv_path, "w", newline="") as fh:
-                fieldnames = ["group", "label", "timepoint_h", "x", "y", "x_err", "y_err"]
+                fieldnames = ["group", "label", "well_name", "timepoint_h", "x", "y", "x_err", "y_err"]
                 writer = csv.DictWriter(fh, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)

@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget,
 )
 
+from well_viewer.ui_helpers import btn_secondary
+
 
 def build_label_editor(app, parent: QWidget) -> None:
     """Centre panel of Sample Definitions tab: assign custom labels."""
@@ -73,6 +75,21 @@ def label_panel_refresh(app) -> None:
     lbl_hdr = QLabel("Display label (blank = use well token)", hdr_row)
     lbl_hdr.setProperty("role", "section")
     hr_l.addWidget(lbl_hdr, 1)
+
+    prefix_btn = btn_secondary(hdr_row, "Add Prefix", app._labels_add_prefix)
+    prefix_btn.setToolTip(
+        "Prepend text to the custom label of every well selected in the "
+        "sidebar well picker."
+    )
+    hr_l.addWidget(prefix_btn)
+
+    suffix_btn = btn_secondary(hdr_row, "Add Suffix", app._labels_add_suffix)
+    suffix_btn.setToolTip(
+        "Append text to the custom label of every well selected in the "
+        "sidebar well picker."
+    )
+    hr_l.addWidget(suffix_btn)
+
     inner_layout.addWidget(hdr_row)
 
     sep = QFrame(inner)
