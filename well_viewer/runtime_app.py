@@ -1759,6 +1759,47 @@ class WellViewerApp(QWidget):
             self._label_panel_refresh()
             self._invalidate_stats_cache()
 
+    def _labels_apply_affix(self, *, where: str) -> None:
+        """Prompt for text and prepend/append it to the labels of every
+        well currently selected in the sidebar well picker."""
+        from well_viewer.ui_helpers import ask_name_dialog
+
+        selected = sorted(self._selected_wells, key=self._parse_rc)
+        if not selected:
+            self._set_status(
+                f"Add {where.title()}: no wells selected in the picker."
+            )
+            return
+
+        title = "Add Prefix" if where == "prefix" else "Add Suffix"
+        verb = "prepend to" if where == "prefix" else "append to"
+        plural = "s" if len(selected) != 1 else ""
+        prompt = (f"Text to {verb} the custom label of {len(selected)} "
+                  f"selected well{plural}:")
+        text = ask_name_dialog(self, title=title, prompt=prompt, default="")
+        if not text:
+            return
+
+        for tok in selected:
+            current = self._well_labels.get(tok, "")
+            new = (text + current) if where == "prefix" else (current + text)
+            if new:
+                self._well_labels[tok] = new
+            else:
+                self._well_labels.pop(tok, None)
+
+        self._invalidate_stats_cache()
+        self._label_panel_refresh()
+        self._set_status(
+            f"Added {where} '{text}' to {len(selected)} well label{plural}."
+        )
+
+    def _labels_add_prefix(self) -> None:
+        self._labels_apply_affix(where="prefix")
+
+    def _labels_add_suffix(self) -> None:
+        self._labels_apply_affix(where="suffix")
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
