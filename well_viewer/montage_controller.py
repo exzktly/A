@@ -123,16 +123,13 @@ def on_montage_fluor_motion(app, event) -> None:
         app,
         event=event,
         channel_label=f"{getattr(app, '_active_image_channel', '')}".upper() or "IMAGE",
+        label=getattr(app, "_montage_fluor_lbl", None),
     )
 
 
-def _show_image_pixel_tooltip(app, event, channel_label: str, label=None) -> None:
-    """Show x/y/value tooltip for a QLabel carrying `_raw_arr`, `_sz_w`, `_sz_h`.
-
-    ``label`` is the QLabel the mouse is hovering; when omitted the Movie
-    Montage fluorescence label is used (back-compat).
-    """
-    lbl = label or getattr(app, "_montage_fluor_lbl", None)
+def _show_image_pixel_tooltip(app, event, channel_label: str, label) -> None:
+    """Show x/y/value tooltip for a QLabel carrying `_raw_arr`, `_sz_w`, `_sz_h`."""
+    lbl = label
     arr = getattr(lbl, "_raw_arr", None)
     if arr is None or not app._NP_AVAILABLE:
         QToolTip.hideText()

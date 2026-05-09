@@ -58,8 +58,7 @@ def make_classifier(
             mask_re=mask_re,
             overlay_re=overlay_re,
             tophat_fluor_re=tophat_re,
-            fov_tp_extractor=fov_tp_extractor,
-            legacy_extractor=_legacy,
+            fov_tp_extractor=fov_tp_extractor or _legacy,
         )
 
     return _classify

@@ -287,7 +287,6 @@ def main() -> None:
     _debug_flags.ANALYZE_TAB_DEBUG = ANALYZE_TAB_DEBUG
     _debug_flags.REVIEW_BAR_DEBUG = REVIEW_BAR_DEBUG
     _debug_flags.REVIEW_SCATTER_DEBUG = REVIEW_SCATTER_DEBUG
-    _debug_flags.BAR_DEBUG = REVIEW_BAR_DEBUG
 
     ap = argparse.ArgumentParser(
         description="All-Well: pipeline runner + well viewer",

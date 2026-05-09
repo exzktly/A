@@ -20,9 +20,6 @@ from ui.theme import (
     WARN,
 )
 
-# CLR_MUTED_DISABLED is the disabled-well border on placeholder bars (legacy
-# name kept for parity with WellViewerApp).
-CLR_DISABLED_WELL = CLR_MUTED_DISABLED
 from well_viewer.barplot_controller import (
     apply_bar_ylims as _apply_bar_ylims,
     collect_bar_items as _collect_bar_items,
@@ -308,7 +305,7 @@ def draw_grouped_bar_mode(
         warn_color=WARN,
         border_color=BORDER,
         placeholder_color=CLR_PLACEHOLDER,
-        disabled_well_color=CLR_DISABLED_WELL,
+        disabled_well_color=CLR_MUTED_DISABLED,
         err_bar_color=CLR_ERR_BAR,
     )
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
@@ -349,7 +346,7 @@ def redraw_bars(app) -> None:
     if ax_n is not None:
         ax_n.cla()
 
-    use_sem = app._use_sem.get()
+    use_sem = app._use_sem
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
 

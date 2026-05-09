@@ -386,24 +386,7 @@ def resolve_filename_candidates(
         suffixes = output_suffixes_for_kind(output_kind, target_channel=resolved_channel)
         expanded: list[str] = []
 
-        # Backwards compatibility: old output naming dropped channel/nuclear tokens.
-        legacy_stems: list[str] = []
-        if fields:
-            channel_dropped = dict(fields)
-            channel_dropped.pop("channel", None)
-            dropped_schema_stem = compose_stem_from_schema(channel_dropped, pipeline_info)
-            if dropped_schema_stem:
-                legacy_stems.append(dropped_schema_stem)
-
-        nuclear_token = str((pipeline_info or {}).get("nuclear_token", "")).strip()
-        for name in list(out):
-            stem_name = Path(name).stem
-            if nuclear_token and nuclear_token in stem_name:
-                stripped = stem_name.replace(nuclear_token, "")
-                if stripped:
-                    legacy_stems.append(stripped)
-
-        for stem_name in [Path(name).stem for name in out] + legacy_stems:
+        for stem_name in [Path(name).stem for name in out]:
             if output_kind == "fluor_raw":
                 expanded.append(f"{stem_name}{p.suffix}" if p.suffix else stem_name)
             else:

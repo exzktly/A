@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -9,15 +11,8 @@ from PySide6.QtWidgets import (
 )
 
 
-class _QEvent:
-    """Minimal shim mirroring the legacy tk drag event shape."""
-    __slots__ = ("tok", "pos", "x", "y")
-
-    def __init__(self, tok, pos):
-        self.tok = tok
-        self.pos = pos
-        self.x = pos.x()
-        self.y = pos.y()
+def _drag_info(tok, pos):
+    return SimpleNamespace(tok=tok, pos=pos, x=pos.x(), y=pos.y())
 
 
 def build_sidebar(app, parent: QWidget) -> None:
@@ -138,7 +133,7 @@ def build_sidebar(app, parent: QWidget) -> None:
             if event.button() != Qt.LeftButton:
                 return
             pos = event.position().toPoint()
-            app._sb_press(_QEvent(tok, pos))
+            app._sb_press(_drag_info(tok, pos))
 
         def _move(event):
             if getattr(btn, "_drag_mime", None):
@@ -150,7 +145,7 @@ def build_sidebar(app, parent: QWidget) -> None:
             other_tok = _tok_under_cursor(global_pos)
             if other_tok is None:
                 return
-            app._sb_drag(_QEvent(other_tok, event.position().toPoint()))
+            app._sb_drag(_drag_info(other_tok, event.position().toPoint()))
 
         def _release(event):
             if getattr(btn, "_drag_mime", None):

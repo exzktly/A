@@ -60,7 +60,7 @@ def redraw_line_plots(
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
         ax.cla()
 
-    use_sem = app._use_sem.get()
+    use_sem = app._use_sem
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, make_plot_with_right_dock,
 )
 
 
@@ -56,7 +56,7 @@ def build_distribution_tab(app, parent: QWidget) -> None:
         lambda _i: _on_changed(app)
     )
     cl.addWidget(app._distribution_tp_cb)
-    app._distribution_tp_var = ComboVar(app._distribution_tp_cb)
+    app._distribution_tp_var = app._distribution_tp_cb
 
     # Mode
     cl.addWidget(QLabel("Mode:", ctrl))
@@ -67,7 +67,7 @@ def build_distribution_tab(app, parent: QWidget) -> None:
         lambda _i: _on_changed(app)
     )
     cl.addWidget(app._distribution_mode_cb)
-    app._distribution_mode_var = ComboVar(app._distribution_mode_cb)
+    app._distribution_mode_var = app._distribution_mode_cb
 
     # Bins
     cl.addWidget(QLabel("Bins:", ctrl))

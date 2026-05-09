@@ -208,19 +208,6 @@ class CellGatingTab(QWidget):
         self._status_label.setObjectName("Muted")
         root.addWidget(self._status_label)
 
-    # Back-compat accessors for code that reads ``.get()`` on a StringVar.
-    @property
-    def _cell_area_threshold(self):
-        return _StringHolder(self._cell_area_edit)
-
-    @property
-    def _fluor_gates(self):
-        return {ch: _StringHolder(edit) for ch, edit in self._fluor_gate_edits.items()}
-
-    @property
-    def _thresh_frac_on(self):
-        return {ch: _StringHolder(edit) for ch, edit in self._thresh_frac_edits.items()}
-
     def _build_channel_controls(self) -> None:
         inner_layout = self._gating_inner.layout()
         while inner_layout.count():
@@ -550,15 +537,3 @@ class CellGatingTab(QWidget):
             self._plot_cdf()
 
 
-class _StringHolder:
-    """``get()``/``set()`` shim that reads/writes a ``QLineEdit``'s text."""
-    __slots__ = ("_edit",)
-
-    def __init__(self, edit: QLineEdit) -> None:
-        self._edit = edit
-
-    def get(self) -> str:
-        return self._edit.text()
-
-    def set(self, value) -> None:
-        self._edit.setText(str(value))

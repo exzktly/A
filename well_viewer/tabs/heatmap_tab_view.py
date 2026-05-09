@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock
+from well_viewer.ui_helpers import attach_plot_toolbar, btn_primary, make_plot_with_right_dock
 
 
 _CMAP_OPTIONS = ["viridis", "magma", "coolwarm", "RdYlBu_r", "Greys"]

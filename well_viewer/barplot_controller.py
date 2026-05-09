@@ -49,40 +49,29 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
     rep_sets: List[ReplicateSet] = []
     bar_groups: List[BarGroup] = []
 
-    if isinstance(data, dict):
-        for item in data.get("rep_sets", []):
-            wells = [t for t in (_valid_tok(x) for x in item.get("wells", [])) if t is not None]
-            rep_sets.append(ReplicateSet(item.get("name", "R"), wells))
-        rep_by_name = {r.name: r for r in rep_sets}
-        for item in data.get("groups", []):
-            grp = BarGroup(item.get("name", "Group"), hidden=bool(item.get("hidden", False)))
-            for rname in item.get("members", []):
-                if rname in rep_by_name:
-                    grp.members.append(rep_by_name[rname])
-            for raw_tok in item.get("solo_wells", []):
-                n = _valid_tok(raw_tok)
-                if n:
-                    grp.solo_wells.append(n)
-            bar_groups.append(grp)
-    else:
-        for item in (data if isinstance(data, list) else []):
-            name = str(item.get("name", "Group"))
-            hidden = bool(item.get("hidden", False))
-            grp = BarGroup(name, hidden=hidden)
-            for rdata in item.get("replicates", []):
-                rname = rdata.get("name", "R")
-                rwells = [t for t in (_valid_tok(x) for x in rdata.get("wells", [])) if t is not None]
-                rset = ReplicateSet(rname, rwells)
-                rep_sets.append(rset)
-                grp.members.append(rset)
-            bar_groups.append(grp)
+    if not isinstance(data, dict):
+        return rep_sets, bar_groups
+    for item in data.get("rep_sets", []):
+        wells = [t for t in (_valid_tok(x) for x in item.get("wells", [])) if t is not None]
+        rep_sets.append(ReplicateSet(item.get("name", "R"), wells))
+    rep_by_name = {r.name: r for r in rep_sets}
+    for item in data.get("groups", []):
+        grp = BarGroup(item.get("name", "Group"), hidden=bool(item.get("hidden", False)))
+        for rname in item.get("members", []):
+            if rname in rep_by_name:
+                grp.members.append(rep_by_name[rname])
+        for raw_tok in item.get("solo_wells", []):
+            n = _valid_tok(raw_tok)
+            if n:
+                grp.solo_wells.append(n)
+        bar_groups.append(grp)
 
     return rep_sets, bar_groups
 
 
 def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
     """Compute bar items for the active bar-plot mode (rep-set or per-well)."""
-    use_sem = app._use_sem.get()
+    use_sem = app._use_sem
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     active_rsets = app._rep_sets_active()

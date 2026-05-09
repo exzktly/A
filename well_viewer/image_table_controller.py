@@ -615,7 +615,7 @@ def _load_well_channel(
     tophat dict also fall back to raw at lookup time (handled in
     ``_load_array``).
     """
-    from well_viewer.runtime_app import find_well_images_and_masks
+    from well_viewer.image_discovery import find_well_images_and_masks
 
     is_overlay = chan_lower == NUC_SEG_TOKEN.lower()
     variant = "tophat" if (use_tophat and not is_overlay) else "raw"
@@ -711,7 +711,7 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str,
     if ref is None:
         return None
     try:
-        from well_viewer.runtime_app import open_imgref_as_array
+        from well_viewer.image_discovery import open_imgref_as_array
         # Overlay PNGs are RGB — load them in colour so the segmentation
         # outline survives. Fluor channels load greyscale as before.
         greyscale = not _is_nuc_seg(chan_upper)

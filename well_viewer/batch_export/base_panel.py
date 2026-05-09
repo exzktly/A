@@ -942,7 +942,7 @@ class BatchExportPanel(QWidget):
             return
 
         threshold = self._app._get_thresh_frac_on(self._app._active_channel)
-        use_sem = self._app._use_sem.get()
+        use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
 

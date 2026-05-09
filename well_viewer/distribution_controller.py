@@ -83,14 +83,14 @@ def redraw_distribution(app) -> None:
     fluor_gates = app._get_all_fluor_gates()
     ratios = getattr(app, "_ratio_index", None)
 
-    tp_str = (getattr(app, "_distribution_tp_var", None).get()
+    tp_str = (getattr(app, "_distribution_tp_var", None).currentText()
               if getattr(app, "_distribution_tp_var", None) is not None else "")
     try:
         tp_h: float = float(tp_str) if tp_str not in ("", "—", None) else float("nan")
     except (ValueError, TypeError):
         tp_h = float("nan")
 
-    mode = (getattr(app, "_distribution_mode_var", None).get()
+    mode = (getattr(app, "_distribution_mode_var", None).currentText()
             if getattr(app, "_distribution_mode_var", None) is not None
             else "Histogram + KDE")
     bins = int(getattr(app, "_distribution_bins", 40) or 40)

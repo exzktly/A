@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from well_viewer.batch_export_dialog import (
+from well_viewer.batch_export import (
     BatchExportPanel,
     BarBatchExportPanel,
     ScatterBatchExportPanel,

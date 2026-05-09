@@ -12,10 +12,6 @@ SCHEMA_FIELDS   = ("experiment", "channel", "well", "fov", "timepoint", "ignore"
 DEFAULT_SCHEMA  = "experiment:channel:well:fov:timepoint"
 DEFAULT_SEP     = "_"
 
-# Fallback regex used when no schema is provided (legacy behaviour).
-# Matches _A01_ or _A1_ (case-insensitive) anywhere in the filename.
-_LEGACY_WELL_RE = re.compile(r"_([A-H])(0?\d)_", re.IGNORECASE)
-
 
 def parse_schema(schema_str: str) -> List[str]:
     """Parse a colon-delimited schema string into a list of field names."""
@@ -71,24 +67,16 @@ def _extract_well_from_filename(
 
     Returns the normalised well label (e.g. "A01") if the filename contains a
     valid 96-well plate position at the schema's "well" slot, otherwise None.
-    Falls back to the legacy _A01_ regex pattern when the schema has no "well"
-    slot.
     """
     stem = os.path.splitext(fname)[0]
     well_idx = _well_index_from_schema(schema)
+    if well_idx is None:
+        return None
 
-    if well_idx is not None:
-        # Schema-based extraction: split on sep and read the well slot.
-        parts = stem.split(sep)
-        if well_idx >= len(parts):
-            return None
-        token = parts[well_idx]
-    else:
-        # Legacy fallback: find _A01_ or _A1_ anywhere in the stem.
-        m = _LEGACY_WELL_RE.search(fname)
-        if not m:
-            return None
-        token = m.group(0).strip("_")
+    parts = stem.split(sep)
+    if well_idx >= len(parts):
+        return None
+    token = parts[well_idx]
 
     # Validate and normalise: must match A-H, 01-12.
     m = re.fullmatch(r"([A-Ha-h])(\d{1,2})", token)

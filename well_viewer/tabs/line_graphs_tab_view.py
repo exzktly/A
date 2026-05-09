@@ -8,8 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, btn_secondary, ComboVar,
-    install_canvas_wheel_scroll, make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, btn_secondary, install_canvas_wheel_scroll, make_plot_with_right_dock,
 )
 
 
@@ -40,7 +39,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     )
     cl.addWidget(app._chan_cb_line)
     if not hasattr(app, "_plot_chan_var"):
-        app._plot_chan_var = ComboVar(app._chan_cb_line)
+        app._plot_chan_var = app._chan_cb_line
         app._chan_var = app._plot_chan_var
 
     app._metric_selector_frame = QWidget(line_ctrl)
@@ -53,7 +52,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
         lambda _i: app._on_metric_selected()
     )
     mfl.addWidget(app._metric_cb)
-    app._metric_var = ComboVar(app._metric_cb)
+    app._metric_var = app._metric_cb
     cl.addWidget(app._metric_selector_frame)
     app._metric_selector_frame.hide()
 

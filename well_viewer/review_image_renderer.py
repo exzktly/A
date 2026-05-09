@@ -36,11 +36,8 @@ def update_preview(app, well_label: Optional[str]) -> None:
     """Load images for *well_label* and render the inline montage."""
     # Local imports keep this module standalone-importable without paying
     # the cost of dragging in runtime_app at module load time.
-    from well_viewer.runtime_app import (
-        _clear_layout,
-        _set_combo_values,
-        find_well_images_and_masks,
-    )
+    from well_viewer.image_discovery import find_well_images_and_masks
+    from well_viewer.runtime_app import _clear_layout, _set_combo_values
 
     channel_switch_debug = _debug_flags.review_image_channel_switch_debug_enabled()
     if well_label is None:
@@ -50,12 +47,12 @@ def update_preview(app, well_label: Optional[str]) -> None:
             app._review_image_well_lbl.setText("No well selected")
         if hasattr(app, "_fov_menu"):
             _set_combo_values(app._fov_menu, ["—"])
-            app._preview_fov_var.set("—")
+            app._preview_fov_var.setCurrentText("—")
         if hasattr(app, "_review_image_fov_menu"):
             _set_combo_values(app._review_image_fov_menu, ["—"])
         if hasattr(app, "_review_image_tp_menu"):
             _set_combo_values(app._review_image_tp_menu, ["—"])
-            app._review_image_tp_var.set("—")
+            app._review_image_tp_var.setCurrentText("—")
         app._preview_fluor = app._preview_overlay = app._preview_mask = {}
         if hasattr(app, "_montage_inner"):
             _clear_layout(app._montage_inner.layout())
@@ -135,13 +132,13 @@ def update_preview(app, well_label: Optional[str]) -> None:
         _logger.debug(
             "[RI-CHSW step 4] update_preview candidate_fovs=%s selected_fov_before=%r",
             all_fovs,
-            app._preview_fov_var.get() if hasattr(app, "_preview_fov_var") else "—",
+            app._preview_fov_var.currentText() if hasattr(app, "_preview_fov_var") else "—",
         )
 
     if not (fluor or overlay or mask or tophat_fluor):
         if hasattr(app, "_fov_menu"):
             _set_combo_values(app._fov_menu, ["—"])
-            app._preview_fov_var.set("—")
+            app._preview_fov_var.setCurrentText("—")
         tok = _extract_well_token(well_label) or well_label
         dirs = f"in={app._in_dir}  out={app._data_dir}"
         msg = f"No images found for {tok}. Searched: {dirs}"
@@ -152,18 +149,18 @@ def update_preview(app, well_label: Optional[str]) -> None:
 
     if hasattr(app, "_fov_menu"):
         _set_combo_values(app._fov_menu, all_fovs)
-        cur = app._preview_fov_var.get()
+        cur = app._preview_fov_var.currentText()
         if all_fovs:
-            app._preview_fov_var.set(cur if cur in all_fovs else all_fovs[0])
+            app._preview_fov_var.setCurrentText(cur if cur in all_fovs else all_fovs[0])
         else:
-            app._preview_fov_var.set("—")
+            app._preview_fov_var.setCurrentText("—")
     if hasattr(app, "_review_image_fov_menu"):
         _set_combo_values(app._review_image_fov_menu, all_fovs or ["—"])
 
     if hasattr(app, "_preview_fov_var"):
-        cur = app._preview_fov_var.get()
+        cur = app._preview_fov_var.currentText()
         if all_fovs and cur not in all_fovs:
-            app._preview_fov_var.set(all_fovs[0])
+            app._preview_fov_var.setCurrentText(all_fovs[0])
 
     if hasattr(app, "_refresh_preview_montage"):
         try:
@@ -177,7 +174,8 @@ def update_preview(app, well_label: Optional[str]) -> None:
 
 def refresh_review_image(app) -> None:
     """Reload the Review Image canvas for the active well/FOV/timepoint."""
-    from well_viewer.runtime_app import _set_combo_values, open_imgref_as_array
+    from well_viewer.image_discovery import open_imgref_as_array
+    from well_viewer.runtime_app import _set_combo_values
 
     if not hasattr(app, "_review_image_label"):
         return
@@ -193,7 +191,7 @@ def refresh_review_image(app) -> None:
     if hasattr(app, "_review_image_fov_menu"):
         fov_raw = str(app._review_image_fov_menu.currentText() or "").strip()
     if not fov_raw and hasattr(app, "_preview_fov_var"):
-        fov_raw = str(app._preview_fov_var.get() or "").strip()
+        fov_raw = str(app._preview_fov_var.currentText() or "").strip()
     fov = app._review_norm_fov(fov_raw)
     if not fov_raw or fov_raw == "—" or not fov:
         app._review_image_status.setText("No FOV selected.")
@@ -211,9 +209,9 @@ def refresh_review_image(app) -> None:
             well, fov_raw, fov, getattr(app, "_active_image_channel", ""),
         )
     _set_combo_values(app._review_image_tp_menu, tp_values or ["—"])
-    if tp_values and app._review_image_tp_var.get() not in tp_values:
-        app._review_image_tp_var.set(tp_values[0])
-    tp_raw = str(app._review_image_tp_var.get() or "").strip()
+    if tp_values and app._review_image_tp_var.currentText() not in tp_values:
+        app._review_image_tp_var.setCurrentText(tp_values[0])
+    tp_raw = str(app._review_image_tp_var.currentText() or "").strip()
     tp = app._norm_timepoint(tp_raw)
     if not tp_raw or tp_raw == "—" or not tp:
         app._review_image_status.setText("No timepoint selected.")
