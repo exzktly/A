@@ -169,11 +169,11 @@ def build_centre(app, parent: QWidget) -> None:
     app._notebook.setObjectName("CentreTabs")
     app._notebook.setMovable(False)
     app._notebook.setUsesScrollButtons(False)
-    app._notebook.setElideMode(Qt.ElideRight)
+    app._notebook.setElideMode(Qt.ElideNone)
     custom_tabbar = _GroupedTabBar(app._notebook)
     custom_tabbar.setUsesScrollButtons(False)
     custom_tabbar.setExpanding(False)
-    custom_tabbar.setElideMode(Qt.ElideRight)
+    custom_tabbar.setElideMode(Qt.ElideNone)
     app._notebook.setTabBar(custom_tabbar)
     layout.addWidget(app._notebook, 1)
 
