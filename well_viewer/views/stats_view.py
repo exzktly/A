@@ -44,14 +44,6 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     layout.addWidget(hdr)
     layout.addWidget(build_hline_separator(parent))
 
-    help_lbl = QLabel(
-        "Drag wells to assign them to a group. Select a group card first.",
-        parent,
-    )
-    help_lbl.setObjectName("Muted")
-    help_lbl.setWordWrap(True)
-    layout.addWidget(help_lbl)
-
     # Plate map — padding is set uniformly inside build_plate_grid.
     map_frame = QWidget(parent)
     layout.addWidget(map_frame)
@@ -120,6 +112,14 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     layout.addWidget(sa, 1)
     app._stats_grp_canvas = sa
     app._stats_grp_inner = inner
+
+    help_lbl = QLabel(
+        "Drag wells to assign them to a group. Select a group card first.",
+        parent,
+    )
+    help_lbl.setObjectName("Muted")
+    help_lbl.setWordWrap(True)
+    layout.addWidget(help_lbl)
 
     app._stats_refresh_map()
     app._stats_refresh_group_list()

@@ -32,14 +32,6 @@ def build_image_table_picker(app, parent: QWidget) -> None:
     title.setProperty("role", "section")
     layout.addWidget(title)
 
-    help_lbl = QLabel(
-        "Click wells to mark active. Use 'Distribute Wells' to assign "
-        "them row-wise to table cells.", parent,
-    )
-    help_lbl.setObjectName("Muted")
-    help_lbl.setWordWrap(True)
-    layout.addWidget(help_lbl)
-
     sep = QFrame(parent)
     sep.setObjectName("Separator")
     sep.setFrameShape(QFrame.HLine)
@@ -49,10 +41,30 @@ def build_image_table_picker(app, parent: QWidget) -> None:
     map_f = QWidget(parent)
     layout.addWidget(map_f)
     app._sidebar_image_table_btns = {}
+
+    def _toggle_active(wells: list[str]) -> None:
+        wells = [w for w in wells if w in app._well_paths]
+        if not wells:
+            return
+        active = app._image_table_active_wells
+        if any(w not in active for w in wells):
+            active.update(wells)
+        else:
+            active.difference_update(wells)
+        app._image_table_refresh_picker()
+
+    def _on_row_click(row: str) -> None:
+        _toggle_active([w for w in app._well_paths if app._parse_rc(w)[0] == row])
+
+    def _on_col_click(col: str) -> None:
+        _toggle_active([w for w in app._well_paths if app._parse_rc(w)[1] == col])
+
     build_plate_grid(
         map_f,
         app._sidebar_image_table_btns,
         on_click=lambda t: app._image_table_pick_well(t),
+        on_row_click=_on_row_click,
+        on_col_click=_on_col_click,
     )
 
     btn_row = QWidget(parent)
@@ -78,3 +90,11 @@ def build_image_table_picker(app, parent: QWidget) -> None:
     layout.addWidget(app._image_table_count_lbl)
 
     layout.addStretch(1)
+
+    help_lbl = QLabel(
+        "Click wells to mark active. Use 'Distribute Wells' to assign "
+        "them row-wise to table cells.", parent,
+    )
+    help_lbl.setObjectName("Muted")
+    help_lbl.setWordWrap(True)
+    layout.addWidget(help_lbl)

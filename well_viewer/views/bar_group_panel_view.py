@@ -44,15 +44,6 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     layout.addWidget(hdr1)
     layout.addWidget(build_hline_separator(parent))
 
-    help_lbl = QLabel(
-        "Left-drag: add wells to active replicate set  ·  "
-        "Right-click/drag: toggle group bar-plot visibility",
-        parent,
-    )
-    help_lbl.setObjectName("Muted")
-    help_lbl.setWordWrap(True)
-    layout.addWidget(help_lbl)
-
     app._bar_map_frame = QWidget(parent)
     layout.addWidget(app._bar_map_frame)
 
@@ -131,6 +122,15 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     app._bar_grp_count_lbl = QLabel("No groups defined", parent)
     app._bar_grp_count_lbl.setObjectName("Muted")
     layout.addWidget(app._bar_grp_count_lbl)
+
+    help_lbl = QLabel(
+        "Left-drag: add wells to active replicate set  ·  "
+        "Right-click/drag: toggle group bar-plot visibility",
+        parent,
+    )
+    help_lbl.setObjectName("Muted")
+    help_lbl.setWordWrap(True)
+    layout.addWidget(help_lbl)
 
 
 def build_bar_perwell_strip(app, parent: QWidget) -> None:

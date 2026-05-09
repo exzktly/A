@@ -75,15 +75,6 @@ def build_replicate_panel(app, parent: QWidget) -> None:
                                     app._rep_quick_pairs_from_dropdowns))
     btn_row_l.addStretch(1)
 
-    hint = QLabel(
-        "Select a replicate set or a group, then drag wells on the map to "
-        "add/remove. Groups add wells as solo members.",
-        parent,
-    )
-    hint.setObjectName("Muted")
-    hint.setWordWrap(True)
-    layout.addWidget(hint)
-
     # Plate map
     rep_map_outer = QWidget(parent)
     layout.addWidget(rep_map_outer)
@@ -141,3 +132,12 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     layout.addWidget(sf, 1)
     app._rep_canvas, app._rep_inner = make_scrollable_canvas(sf)
     sf_l.addWidget(app._rep_canvas)
+
+    hint = QLabel(
+        "Select a replicate set or a group, then drag wells on the map to "
+        "add/remove. Groups add wells as solo members.",
+        parent,
+    )
+    hint.setObjectName("Muted")
+    hint.setWordWrap(True)
+    layout.addWidget(hint)
