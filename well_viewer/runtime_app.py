@@ -2553,14 +2553,14 @@ class WellViewerApp(QWidget):
         except ValueError:
             hi = None
 
-        ov_lmin_var = getattr(self, "_mon_ov_lmin_var", None)
-        ov_lmax_var = getattr(self, "_mon_ov_lmax_var", None)
+        ov_lmin_edit = getattr(self, "_mon_ov_lmin_entry", None)
+        ov_lmax_edit = getattr(self, "_mon_ov_lmax_entry", None)
         try:
-            ov_lo = float(ov_lmin_var.get()) if ov_lmin_var is not None else None
+            ov_lo = float(ov_lmin_edit.text()) if ov_lmin_edit is not None else None
         except (ValueError, AttributeError):
             ov_lo = None
         try:
-            ov_hi = float(ov_lmax_var.get()) if ov_lmax_var is not None else None
+            ov_hi = float(ov_lmax_edit.text()) if ov_lmax_edit is not None else None
         except (ValueError, AttributeError):
             ov_hi = None
 
@@ -3778,8 +3778,8 @@ class WellViewerApp(QWidget):
         # data load doesn't blow up the channel-selector refresh.
         montage_var = getattr(self, "_montage_chan_var", None)
         if montage_var is not None:
-            montage_label = _pick_valid(montage_var.get(), montage_labels, active_image_label)
-            montage_var.set(montage_label)
+            montage_label = _pick_valid(montage_var.currentText(), montage_labels, active_image_label)
+            montage_var.setCurrentText(montage_label)
         else:
             montage_label = "—"
         review_label = _pick_valid(self._review_image_chan_var.currentText(), review_labels, active_image_label)
@@ -3807,11 +3807,11 @@ class WellViewerApp(QWidget):
                 except Exception:
                     tab_label = ""
             if tab_label == "Movie Montage":
-                self._chan_var.set(montage_label)
+                self._chan_var.setCurrentText(montage_label)
             elif tab_label == "Segmentation":
-                self._chan_var.set(review_label)
+                self._chan_var.setCurrentText(review_label)
             else:
-                self._chan_var.set(plot_label)
+                self._chan_var.setCurrentText(plot_label)
 
     def _toggle_sem(self) -> None:
         self._invalidate_stats_cache()

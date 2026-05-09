@@ -509,7 +509,7 @@ def export_distribution_data(app) -> None:
     ratios = getattr(app, "_ratio_index", None)
 
     tp_var = getattr(app, "_distribution_tp_var", None)
-    tp_str = tp_var.get() if tp_var is not None else ""
+    tp_str = tp_var.currentText() if tp_var is not None else ""
     try:
         tp_h = float(tp_str) if tp_str not in ("", "—", None) else float("nan")
     except (ValueError, TypeError):
