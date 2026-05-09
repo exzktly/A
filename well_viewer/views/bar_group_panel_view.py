@@ -31,6 +31,16 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
+    # Plate map first — nothing should appear above the well picker.
+    app._bar_map_frame = QWidget(parent)
+    layout.addWidget(app._bar_map_frame)
+
+    app._bar_map_btns: dict = {}
+    app._bar_drag_adding = True
+    app._bar_drag_visited: set = set()
+    build_plate_grid(app._bar_map_frame, app._bar_map_btns)
+
+    layout.addWidget(build_hline_separator(parent))
     hdr1 = build_section_header(
         parent,
         "PLATE MAP",
@@ -42,15 +52,6 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
         ),
     )
     layout.addWidget(hdr1)
-    layout.addWidget(build_hline_separator(parent))
-
-    app._bar_map_frame = QWidget(parent)
-    layout.addWidget(app._bar_map_frame)
-
-    app._bar_map_btns: dict = {}
-    app._bar_drag_adding = True
-    app._bar_drag_visited: set = set()
-    build_plate_grid(app._bar_map_frame, app._bar_map_btns)
 
     # Left/right drag state machine — we dispatch on button modifiers.
     # Enabled QPushButtons consume mouse events instead of bubbling them to

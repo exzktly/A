@@ -47,16 +47,6 @@ def build_sidebar(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-    hdr = QLabel("WELLS", parent)
-    hdr.setObjectName("SidebarHeader")
-    hdr.setProperty("role", "header")
-    layout.addWidget(hdr)
-
-    sep = QFrame(parent)
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
-
     # Plate map grid — padding is set uniformly inside build_plate_grid.
     # The row letters / column numbers in the grid headers double as the
     # row-or-column quick-select buttons via the ``on_row_click`` /

@@ -33,6 +33,13 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
+    # Plate map first — nothing should appear above the well picker.
+    map_frame = QWidget(parent)
+    layout.addWidget(map_frame)
+    app._stats_map_btns = {}
+    build_plate_grid(map_frame, app._stats_map_btns)
+
+    layout.addWidget(build_hline_separator(parent))
     hdr = build_section_header(
         parent,
         "COMPARISON GROUPS",
@@ -42,13 +49,6 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
         ),
     )
     layout.addWidget(hdr)
-    layout.addWidget(build_hline_separator(parent))
-
-    # Plate map — padding is set uniformly inside build_plate_grid.
-    map_frame = QWidget(parent)
-    layout.addWidget(map_frame)
-    app._stats_map_btns = {}
-    build_plate_grid(map_frame, app._stats_map_btns)
 
     app._stats_drag_adding = True
     app._stats_drag_visited = set()

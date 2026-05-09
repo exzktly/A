@@ -19,16 +19,6 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(2)
 
-    title = QLabel("PREVIEW WELL", parent)
-    title.setProperty("role", "section")
-    layout.addWidget(title)
-
-    sep = QFrame(parent)
-    sep.setObjectName("Separator")
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
-
     map_f = QWidget(parent)
     layout.addWidget(map_f)
     app._sidebar_preview_btns = {}
