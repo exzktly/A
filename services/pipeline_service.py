@@ -91,6 +91,14 @@ def build_pipeline_args(
 
 
 def spawn_pipeline(args: list[str]) -> subprocess.Popen:
+    # Run the pipeline in its own process group / session so the runner can
+    # signal the entire tree (the script itself plus any multiprocessing
+    # workers it spawns) when the user clicks Stop.
+    kwargs: dict = {}
+    if os.name == "posix":
+        kwargs["start_new_session"] = True
+    else:
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     return subprocess.Popen(
         args,
         stdout=subprocess.PIPE,
@@ -98,4 +106,5 @@ def spawn_pipeline(args: list[str]) -> subprocess.Popen:
         text=True,
         bufsize=1,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        **kwargs,
     )
