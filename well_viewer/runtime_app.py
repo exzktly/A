@@ -3251,8 +3251,13 @@ class WellViewerApp(QWidget):
 
     def _plate_theme_colors(self) -> tuple:
         from ui.theme import get_color
+        # Use the canonical "available well" colour so unselected wells in
+        # every plate-map (line/bar/stats sidebar) match the QSS-driven
+        # WellButton[state="available"] swatch used by the preview and
+        # image-table pickers — they were diverging on the dark theme,
+        # where button_bg differs from CLR_AVAIL_WELL.
         return (
-            get_color("button_bg"),
+            get_color("CLR_AVAIL_WELL"),
             get_color("button_text"),
             get_color("button_text_disabled"),
         )
