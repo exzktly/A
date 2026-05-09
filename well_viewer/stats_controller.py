@@ -466,7 +466,7 @@ def stats_grp_rename(app, idx: int) -> None:
     if not (0 <= idx < len(app._stats_groups)):
         return
     old = app._stats_groups[idx].name
-    name = _ask_name_dialog(app, title="Rename group", default=old)
+    name = _ask_name_dialog(app, title="Rename group", prompt="Group name:", default=old)
     if name:
         app._stats_groups[idx].name = name
         stats_refresh_group_list(app)
