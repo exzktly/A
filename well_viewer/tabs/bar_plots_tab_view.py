@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
     QSlider, QVBoxLayout, QWidget,
 )
 
@@ -129,36 +129,6 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     right_l.addWidget(app._bar_scroll_canvas, 1)
 
     attach_plot_toolbar(right_l, app._bar_canvas, bar_right, app, with_fov=True)
-
-    # Y-axis limit controls
-    ylim_row = QWidget(bar_right)
-    ylim_row.setObjectName("TabCtrl")
-    yl = QHBoxLayout(ylim_row)
-    yl.setContentsMargins(8, 4, 8, 4)
-
-    app._bar_ylim_chan_lbl = QLabel(f"{app._active_channel.upper()} y:", ylim_row)
-    yl.addWidget(app._bar_ylim_chan_lbl)
-    app._bar_ylim_mean_lo_edit = QLineEdit(ylim_row)
-    app._bar_ylim_mean_lo_edit.setFixedWidth(60)
-    app._bar_ylim_mean_lo_edit.editingFinished.connect(app._redraw_bars)
-    yl.addWidget(app._bar_ylim_mean_lo_edit)
-    app._bar_ylim_mean_hi_edit = QLineEdit(ylim_row)
-    app._bar_ylim_mean_hi_edit.setFixedWidth(60)
-    app._bar_ylim_mean_hi_edit.editingFinished.connect(app._redraw_bars)
-    yl.addWidget(app._bar_ylim_mean_hi_edit)
-
-    yl.addSpacing(20)
-    yl.addWidget(QLabel("Frac y:", ylim_row))
-    app._bar_ylim_frac_lo_edit = QLineEdit(ylim_row)
-    app._bar_ylim_frac_lo_edit.setFixedWidth(60)
-    app._bar_ylim_frac_lo_edit.editingFinished.connect(app._redraw_bars)
-    yl.addWidget(app._bar_ylim_frac_lo_edit)
-    app._bar_ylim_frac_hi_edit = QLineEdit(ylim_row)
-    app._bar_ylim_frac_hi_edit.setFixedWidth(60)
-    app._bar_ylim_frac_hi_edit.editingFinished.connect(app._redraw_bars)
-    yl.addWidget(app._bar_ylim_frac_hi_edit)
-    yl.addStretch(1)
-    right_l.addWidget(ylim_row)
 
     # Drag-to-reorder bar state
     app._bar_drag_state = {"active": False, "src_idx": -1, "cur_idx": -1}
