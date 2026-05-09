@@ -3459,7 +3459,12 @@ class WellViewerApp(QWidget):
         Real channels return their lowercase token; ratios return their
         ``ratio:<name>`` key.
         """
-        return self._label_to_channel_key[label]
+        mapping = getattr(self, "_label_to_channel_key", None) or {}
+        if label in mapping:
+            return mapping[label]
+        # Fallback when the dropdown was populated before the mapping was
+        # built — assume real channel and lowercase the label.
+        return str(label or "").lower()
 
     def _active_channel_label(self) -> str:
         """Return the dropdown label corresponding to the active channel."""
@@ -3477,7 +3482,7 @@ class WellViewerApp(QWidget):
         # If the active val_col references a deleted ratio, fall back to the
         # first real fluorescence channel so plots stay valid.
         if is_ratio_key(self._active_val_col) and self._active_val_col not in self._ratio_index:
-            fallback = self._fluor_channels[0]
+            fallback = (self._fluor_channels or ["gfp"])[0]
             self._active_channel = fallback
             self._active_val_col = f"{fallback}_{self._active_metric}"
         if hasattr(self, "_update_channel_selector"):
