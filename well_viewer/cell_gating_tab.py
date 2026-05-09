@@ -347,10 +347,16 @@ class CellGatingTab(QWidget):
                         ordered.append(well)
             return sorted(ordered, key=self._app._parse_rc)
 
-        return sorted(
-            (label for label in self._app._selected_wells if label in self._app._well_paths),
-            key=self._app._parse_rc,
-        )
+        selected = [
+            label for label in self._app._selected_wells
+            if label in self._app._well_paths
+        ]
+        # Fall back to every loaded well so the CDFs render on the first open
+        # after a data load (before the user has made an explicit selection).
+        # Once they pick wells in the sidebar, that selection scopes the plot.
+        if not selected:
+            selected = list(self._app._well_paths)
+        return sorted(selected, key=self._app._parse_rc)
 
     def _plot_cdf(self) -> None:
         if not self._cell_areas and not self._fluor_data:
