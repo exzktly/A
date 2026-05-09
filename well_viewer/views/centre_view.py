@@ -45,7 +45,7 @@ class _GroupedTabBar(QTabBar):
     tab in that group.
     """
 
-    GAP_PX = 10
+    GAP_PX = 4
     HEADER_PX = 0
 
     def __init__(self, parent=None) -> None:

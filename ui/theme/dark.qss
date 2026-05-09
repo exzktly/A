@@ -188,6 +188,9 @@ QTabBar::tab:selected {
 }
 QTabBar::tab:hover    { background: ${BG_HOVER}; color: ${TAB_FG_ACTIVE}; }
 
+/* Centre notebook: tighter padding so all tabs fit without scroll buttons. */
+QTabWidget#CentreTabs > QTabBar::tab { padding: 5px 8px; margin-right: 1px; }
+
 /* ── Lists / tables / trees ───────────────────────────────────────────── */
 QListWidget, QListView,
 QTableWidget, QTableView,
