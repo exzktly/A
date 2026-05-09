@@ -953,6 +953,10 @@ class WellViewerApp(QWidget):
         """Get ThreshFracOn threshold. Uses active channel if not specified."""
         if channel is None:
             channel = self._active_channel
+        # _redraw can fire before the cell-gating tab is built (e.g. from
+        # sidebar releases during early load); fall back to the default.
+        if getattr(self, "_cell_gating_tab", None) is None:
+            return self._threshold
         return self._cell_gating_tab.get_thresh_frac_on(channel)
 
     # ── UI ────────────────────────────────────────────────────────────────────
