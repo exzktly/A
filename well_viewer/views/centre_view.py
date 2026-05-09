@@ -45,7 +45,7 @@ class _GroupedTabBar(QTabBar):
     tab in that group.
     """
 
-    GAP_PX = 10
+    GAP_PX = 4
     HEADER_PX = 0
 
     def __init__(self, parent=None) -> None:
@@ -168,10 +168,10 @@ def build_centre(app, parent: QWidget) -> None:
     app._notebook = QTabWidget(parent)
     app._notebook.setObjectName("CentreTabs")
     app._notebook.setMovable(False)
-    app._notebook.setUsesScrollButtons(True)
+    app._notebook.setUsesScrollButtons(False)
     app._notebook.setElideMode(Qt.ElideNone)
     custom_tabbar = _GroupedTabBar(app._notebook)
-    custom_tabbar.setUsesScrollButtons(True)
+    custom_tabbar.setUsesScrollButtons(False)
     custom_tabbar.setExpanding(False)
     custom_tabbar.setElideMode(Qt.ElideNone)
     app._notebook.setTabBar(custom_tabbar)

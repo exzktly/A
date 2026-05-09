@@ -123,10 +123,34 @@ class ExportStyleSidebar(QWidget):
         fmt_cb.setCurrentText(str(self._prefs["format"]))
         add_row("Format", fmt_cb, "format")
 
+        # Per-axis overrides for xlim/ylim/log scale so each axis keeps its
+        # own values when the user flips the Axis # dropdown. The flat
+        # ``_prefs`` keys reflect whatever axis is currently selected.
+        self._axis_keys = (
+            "x_lim_min", "x_lim_max", "y_lim_min", "y_lim_max",
+            "x_log", "y_log",
+        )
+        self._axis_buckets: dict[str, dict] = dict(
+            self._prefs.get("axis_buckets") or {}
+        )
+        self._current_axis = str(self._prefs.get("axis_target", "All"))
+        self._axis_buckets.setdefault(
+            self._current_axis,
+            {k: self._prefs.get(k) for k in self._axis_keys},
+        )
+
         axis_cb = QComboBox(body)
         axis_cb.addItems(["All", *[str(i + 1) for i in range(len(self._fig.axes))]])
-        axis_cb.setCurrentText(str(self._prefs.get("axis_target", "All")))
-        add_row("Axis #", axis_cb, "axis_target")
+        axis_cb.setCurrentText(self._current_axis)
+        # NOTE: bind for getter/setter only — the apply chain is handled by
+        # the dedicated handler below so a dropdown switch doesn't push the
+        # currently displayed limits onto the newly selected axis.
+        grid.addWidget(QLabel("Axis #"), row, 0)
+        grid.addWidget(axis_cb, row, 1)
+        self._getters["axis_target"] = axis_cb.currentText
+        self._setters["axis_target"] = lambda v, w=axis_cb: w.setCurrentText(str(v))
+        axis_cb.currentTextChanged.connect(lambda t: self._on_axis_target_changed(t))
+        row += 1
 
         for key, label, lo, hi in [
             ("axis_label_size", "Axis", 1, 96),
@@ -385,6 +409,40 @@ class ExportStyleSidebar(QWidget):
     def _persist(self) -> None:
         for k, getter in self._getters.items():
             self._prefs[k] = getter()
+        # Mirror the axis-specific keys into the bucket for the currently
+        # selected axis so each axis retains its own xlim/ylim/scale.
+        self._current_axis = str(self._prefs.get("axis_target", "All"))
+        bucket = self._axis_buckets.setdefault(self._current_axis, {})
+        for k in self._axis_keys:
+            bucket[k] = self._prefs.get(k)
+        self._prefs["axis_buckets"] = self._axis_buckets
+
+    def _on_axis_target_changed(self, new_axis: str) -> None:
+        if self._updating:
+            return
+        # Snapshot widget values into the previous axis's bucket before
+        # loading the new axis's stored values.
+        prev_bucket = self._axis_buckets.setdefault(self._current_axis, {})
+        for k in self._axis_keys:
+            getter = self._getters.get(k)
+            if getter is not None:
+                prev_bucket[k] = getter()
+        self._current_axis = str(new_axis)
+        new_bucket = self._axis_buckets.setdefault(self._current_axis, {})
+        self._updating = True
+        try:
+            for k in self._axis_keys:
+                if k not in new_bucket:
+                    continue
+                setter = self._setters.get(k)
+                if setter is not None and new_bucket[k] is not None:
+                    setter(new_bucket[k])
+        finally:
+            self._updating = False
+        # Persist the new axis_target selection without re-applying the
+        # previously displayed settings to the newly selected axis.
+        self._prefs["axis_target"] = self._current_axis
+        self._prefs["axis_buckets"] = self._axis_buckets
 
     def _on_fields_changed(self) -> None:
         if self._updating:

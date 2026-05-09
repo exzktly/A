@@ -28,6 +28,12 @@ def build_replicate_panel(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+    # Plate map first — nothing should appear above it.
+    rep_map_outer = QWidget(parent)
+    layout.addWidget(rep_map_outer)
+    app._rep_map_btns: dict = {}
+    build_plate_grid(rep_map_outer, app._rep_map_btns)
+
     top_sep = QFrame(parent)
     top_sep.setFrameShape(QFrame.HLine)
     top_sep.setFixedHeight(1)
@@ -44,7 +50,7 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     hdr_l.addWidget(btn_secondary(hdr, "Clear All", app._rep_clear_all))
     hdr_l.addWidget(btn_primary(hdr, "+ Add", app._rep_add))
 
-    # Second row: Quick Replicates dropdowns
+    # Quick Replicates dropdowns
     hdr2r = QWidget(parent)
     hdr2r_l = QHBoxLayout(hdr2r)
     hdr2r_l.setContentsMargins(8, 4, 8, 4)
@@ -74,21 +80,6 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     btn_row_l.addWidget(btn_primary(btn_row, "Apply Quick Replicates",
                                     app._rep_quick_pairs_from_dropdowns))
     btn_row_l.addStretch(1)
-
-    hint = QLabel(
-        "Select a replicate set or a group, then drag wells on the map to "
-        "add/remove. Groups add wells as solo members.",
-        parent,
-    )
-    hint.setObjectName("Muted")
-    hint.setWordWrap(True)
-    layout.addWidget(hint)
-
-    # Plate map
-    rep_map_outer = QWidget(parent)
-    layout.addWidget(rep_map_outer)
-    app._rep_map_btns: dict = {}
-    build_plate_grid(rep_map_outer, app._rep_map_btns)
 
     # Per-button mouse handlers: enabled buttons consume events instead of
     # bubbling to a parent-level handler, so we install press/move/release
@@ -141,3 +132,12 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     layout.addWidget(sf, 1)
     app._rep_canvas, app._rep_inner = make_scrollable_canvas(sf)
     sf_l.addWidget(app._rep_canvas)
+
+    hint = QLabel(
+        "Select a replicate set or a group, then drag wells on the map to "
+        "add/remove. Groups add wells as solo members.",
+        parent,
+    )
+    hint.setObjectName("Muted")
+    hint.setWordWrap(True)
+    layout.addWidget(hint)

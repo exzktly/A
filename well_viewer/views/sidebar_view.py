@@ -5,14 +5,25 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 
 def _drag_info(tok, pos):
     return SimpleNamespace(tok=tok, pos=pos, x=pos.x(), y=pos.y())
+
+
+def _row_col_select_disabled(app) -> bool:
+    """Tabs that don't support multi-well selection (smFISH) suppress the
+    row/column header click handlers."""
+    nb = getattr(app, "_notebook", None)
+    if nb is None:
+        return False
+    try:
+        return nb.tabText(nb.currentIndex()) == "smFISH"
+    except Exception:
+        return False
 
 
 def build_sidebar(app, parent: QWidget) -> None:
@@ -36,64 +47,10 @@ def build_sidebar(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-    hdr = QLabel("WELLS", parent)
-    hdr.setObjectName("SidebarHeader")
-    hdr.setProperty("role", "header")
-    layout.addWidget(hdr)
-
-    # Row / Col quick-select
-    rc_frame = QWidget(parent)
-    rc_layout = QVBoxLayout(rc_frame)
-    rc_layout.setContentsMargins(4, 0, 4, 2)
-    rc_layout.setSpacing(2)
-    layout.addWidget(rc_frame)
-    app._sidebar_rc_frame = rc_frame
-
-    row_frame = QWidget(rc_frame)
-    row_grid = QGridLayout(row_frame)
-    row_grid.setContentsMargins(0, 0, 0, 0)
-    row_grid.setSpacing(1)
-    row_lbl = QLabel("Row:", row_frame)
-    row_lbl.setObjectName("Muted")
-    row_grid.addWidget(row_lbl, 0, 0)
-    for ci, r in enumerate(_PLATE_ROWS):
-        b = QPushButton(r, row_frame)
-        b.setProperty("variant", "quickselect")
-        b.setFixedHeight(18)
-        b.setCursor(Qt.PointingHandCursor)
-        b.clicked.connect(lambda _=False, row=r: app._select_row(row))
-        row_grid.addWidget(b, 0, ci + 1)
-    for ci in range(1, len(_PLATE_ROWS) + 1):
-        row_grid.setColumnStretch(ci, 1)
-    rc_layout.addWidget(row_frame)
-
-    col_frame = QWidget(rc_frame)
-    col_grid = QGridLayout(col_frame)
-    col_grid.setContentsMargins(0, 0, 0, 0)
-    col_grid.setSpacing(1)
-    col_lbl = QLabel("Col:", col_frame)
-    col_lbl.setObjectName("Muted")
-    col_grid.addWidget(col_lbl, 0, 0)
-    _col_font = QFont()
-    _col_font.setPointSize(7)
-    for ci, c in enumerate(_PLATE_COLS):
-        b = QPushButton(c.lstrip("0") or "0", col_frame)
-        b.setProperty("variant", "quickselect")
-        b.setFixedHeight(18)
-        b.setFont(_col_font)
-        b.setCursor(Qt.PointingHandCursor)
-        b.clicked.connect(lambda _=False, col=c: app._select_col(col))
-        col_grid.addWidget(b, 0, ci + 1)
-    for ci in range(1, len(_PLATE_COLS) + 1):
-        col_grid.setColumnStretch(ci, 1)
-    rc_layout.addWidget(col_frame)
-
-    sep = QFrame(parent)
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
-
     # Plate map grid — padding is set uniformly inside build_plate_grid.
+    # The row letters / column numbers in the grid headers double as the
+    # row-or-column quick-select buttons via the ``on_row_click`` /
+    # ``on_col_click`` callbacks below.
     map_outer = QWidget(parent)
     layout.addWidget(map_outer)
 
@@ -102,7 +59,23 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._sidebar_drag_visited = set()
     app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     app._bg_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
-    build_plate_grid(map_outer, app._sidebar_btns)
+
+    def _on_row_click(row: str) -> None:
+        if _row_col_select_disabled(app):
+            return
+        app._select_row(row)
+
+    def _on_col_click(col: str) -> None:
+        if _row_col_select_disabled(app):
+            return
+        app._select_col(col)
+
+    build_plate_grid(
+        map_outer,
+        app._sidebar_btns,
+        on_row_click=_on_row_click,
+        on_col_click=_on_col_click,
+    )
     app._sidebar_map_outer = map_outer
 
     def _tok_under_cursor(global_pos):

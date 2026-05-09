@@ -135,7 +135,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     # Raw ↔ Tophat toggle. Checkable so the button doubles as an indicator
     # of the current source (pressed = tophat, released = raw).
     tophat_btn = QPushButton("Tophat", actions)
-    tophat_btn.setProperty("variant", "secondary")
+    tophat_btn.setProperty("variant", "toggle")
     tophat_btn.setCheckable(True)
     tophat_btn.setChecked(bool(app._image_table_use_tophat))
     tophat_btn.setToolTip(

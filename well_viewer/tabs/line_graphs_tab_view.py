@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
     QVBoxLayout, QWidget,
 )
 
@@ -86,32 +86,6 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     layout.addWidget(app._line_scroll_canvas, 1)
 
     attach_plot_toolbar(layout, app._line_canvas, parent, app, with_fov=True)
-
-    sep = QFrame(parent)
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
-
-    cdf_ctrl = QWidget(parent)
-    cdf_ctrl.setObjectName("TabCtrl")
-    cc = QHBoxLayout(cdf_ctrl)
-    cc.setContentsMargins(8, 3, 8, 3)
-    cc.addWidget(QLabel("CDF x:", cdf_ctrl))
-    app._cdf_xmin_edit = QLineEdit(cdf_ctrl)
-    app._cdf_xmin_edit.setFixedWidth(70)
-    app._cdf_xmin_edit.editingFinished.connect(app._redraw)
-    cc.addWidget(app._cdf_xmin_edit)
-    app._cdf_xmax_edit = QLineEdit(cdf_ctrl)
-    app._cdf_xmax_edit.setFixedWidth(70)
-    app._cdf_xmax_edit.editingFinished.connect(app._redraw)
-    cc.addWidget(app._cdf_xmax_edit)
-    app._cdf_chan_lbl = QLabel(
-        f"({app._active_channel.upper()} x range)", cdf_ctrl,
-    )
-    app._cdf_chan_lbl.setObjectName("Muted")
-    cc.addWidget(app._cdf_chan_lbl)
-    cc.addStretch(1)
-    layout.addWidget(cdf_ctrl)
 
     app._line_canvas.mpl_connect("button_press_event", app._on_fig_click)
     app._line_canvas.mpl_connect("motion_notify_event", app._on_cdf_motion)

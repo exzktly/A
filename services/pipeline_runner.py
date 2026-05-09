@@ -17,8 +17,10 @@ Event protocol (queue payloads are ``(kind, payload)`` tuples):
 
 from __future__ import annotations
 
+import os
 import queue
 import re
+import signal
 import subprocess
 import threading
 from pathlib import Path
@@ -138,8 +140,33 @@ class PipelineRunner:
         self._thread.start()
 
     def stop(self) -> None:
-        if self._proc is not None and self._proc.poll() is None:
-            self._proc.terminate()
+        proc = self._proc
+        if proc is None or proc.poll() is not None:
+            return
+        # Signal the whole process group / session so multiprocessing
+        # workers spawned by the pipeline get torn down too — terminating
+        # only the parent leaves the workers running and the parent
+        # waiting on them, so the GUI's Stop button appears to do nothing.
+        try:
+            if os.name == "posix":
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            else:
+                proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+        except (ProcessLookupError, OSError, AttributeError):
+            proc.terminate()
+
+        def _force_kill_if_alive() -> None:
+            if proc.poll() is not None:
+                return
+            try:
+                if os.name == "posix":
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
+
+        threading.Timer(5.0, _force_kill_if_alive).start()
 
     def _run_pipeline_thread(
         self,

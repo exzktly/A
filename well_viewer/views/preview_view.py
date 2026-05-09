@@ -19,20 +19,6 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(2)
 
-    title = QLabel("PREVIEW WELL", parent)
-    title.setProperty("role", "section")
-    layout.addWidget(title)
-
-    help_lbl = QLabel("Click one well to load its images", parent)
-    help_lbl.setObjectName("Muted")
-    layout.addWidget(help_lbl)
-
-    sep = QFrame(parent)
-    sep.setObjectName("Separator")
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
-
     map_f = QWidget(parent)
     layout.addWidget(map_f)
     app._sidebar_preview_btns = {}
@@ -50,6 +36,11 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     # Absorb leftover vertical space so the well picker stays pinned to the
     # top of the sidebar even when the sidebar is taller than its contents.
     layout.addStretch(1)
+
+    help_lbl = QLabel("Click one well to load its images", parent)
+    help_lbl.setObjectName("Muted")
+    help_lbl.setWordWrap(True)
+    layout.addWidget(help_lbl)
 
 
 def preview_pick_well(app, tok: str) -> None:
