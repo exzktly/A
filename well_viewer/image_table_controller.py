@@ -332,6 +332,17 @@ def image_table_rebuild_grid(app) -> None:
     app._image_table_row_lut_color_cbs = row_lut_color_cbs
     app._image_table_row_well_cbs = row_well_cbs
 
+    # Refresh the per-channel LUT row whenever any cell's channel changes
+    # so unused channels disappear and newly assigned ones get an editor.
+    for row in cells:
+        for cell in row:
+            cb = cell.get("chan_cb")
+            if cb is None:
+                continue
+            cb.currentIndexChanged.connect(
+                lambda _i, a=app: image_table_rebuild_lut_row(a)
+            )
+
     image_table_rebuild_lut_row(app)
 
 
@@ -438,6 +449,7 @@ def image_table_apply_row_channel(app, row_idx: int) -> None:
         if cb.findText(value) >= 0:
             cb.setCurrentText(value)
         cb.blockSignals(False)
+    image_table_rebuild_lut_row(app)
 
 
 def image_table_distribute_timepoints(app) -> None:
@@ -486,6 +498,7 @@ def image_table_distribute_timepoints(app) -> None:
             _set(cell["tp_cb"], tps[c])
             assignments += 1
 
+    image_table_rebuild_lut_row(app)
     app._set_status(
         f"Image Table: distributed {min(len(tps), len(cells[0]) if cells else 0)} "
         f"timepoint(s) across {len(cells)} row(s) ({assignments} cells filled)."
@@ -561,13 +574,36 @@ def image_table_distribute_wells(app) -> None:
 # ── LUT row ──────────────────────────────────────────────────────────────────
 
 
+def _assigned_channels(app) -> List[str]:
+    """Channels currently selected in any cell of the image-table grid.
+
+    Order follows ``_channel_options`` so the LUT row stays stable as the
+    user edits assignments. Empty when no grid has been built yet.
+    """
+    cells = getattr(app, "_image_table_cells", None) or []
+    used: set[str] = set()
+    for row in cells:
+        for cell in row:
+            cb = cell.get("chan_cb")
+            if cb is None:
+                continue
+            text = (cb.currentText() or "").strip().upper()
+            if text:
+                used.add(text)
+    return [c for c in _channel_options(app) if c in used]
+
+
 def image_table_rebuild_lut_row(app) -> None:
-    """Rebuild the per-channel LUT editors (one min/max pair per channel)."""
+    """Rebuild the per-channel LUT editors (one min/max pair per channel).
+
+    Only the channels currently assigned to a cell in the grid get a LUT
+    box; unused channels are hidden.
+    """
     from well_viewer.views.image_table_grid_view import build_lut_row
 
     build_lut_row(
         app,
-        chan_opts=_channel_options(app),
+        chan_opts=_assigned_channels(app),
         on_generate=image_table_generate,
         on_auto_lut=image_table_auto_lut,
     )
