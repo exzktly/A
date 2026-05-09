@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
@@ -11,6 +13,10 @@ from well_viewer.ui_helpers import (
     btn_card, btn_danger, btn_primary, btn_secondary,
     build_hline_separator, build_section_header,
 )
+
+
+def _drag_info(tok, pos):
+    return SimpleNamespace(tok=tok, pos=pos, x=pos.x(), y=pos.y())
 
 
 def build_bar_group_panel(app, parent: QWidget) -> None:
@@ -72,9 +78,9 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
         def _press(event):
             pos = event.position().toPoint()
             if event.button() == Qt.RightButton:
-                app._bg_vis_press(_QEvent(tok, pos))
+                app._bg_vis_press(_drag_info(tok, pos))
             else:
-                app._bg_press(_QEvent(tok, pos))
+                app._bg_press(_drag_info(tok, pos))
         return _press
 
     def _move_for(tok):
@@ -86,9 +92,9 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
                 return
             pos = event.position().toPoint()
             if buttons & Qt.RightButton:
-                app._bg_vis_drag(_QEvent(other, pos))
+                app._bg_vis_drag(_drag_info(other, pos))
             elif buttons & Qt.LeftButton:
-                app._bg_drag(_QEvent(other, pos))
+                app._bg_drag(_drag_info(other, pos))
         return _move
 
     def _release_for(tok):
@@ -97,9 +103,9 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
             other = _tok_under_cursor(gp) or tok
             pos = event.position().toPoint()
             if event.button() == Qt.RightButton:
-                app._bg_vis_release(_QEvent(other, pos))
+                app._bg_vis_release(_drag_info(other, pos))
             else:
-                app._bg_release(_QEvent(other, pos))
+                app._bg_release(_drag_info(other, pos))
         return _release
 
     for _tok, _btn in app._bar_map_btns.items():
@@ -125,17 +131,6 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     app._bar_grp_count_lbl = QLabel("No groups defined", parent)
     app._bar_grp_count_lbl.setObjectName("Muted")
     layout.addWidget(app._bar_grp_count_lbl)
-
-
-class _QEvent:
-    """Minimal shim that looks like the legacy tk drag event used by bar_group handlers."""
-    __slots__ = ("tok", "pos", "x", "y")
-
-    def __init__(self, tok, pos):
-        self.tok = tok
-        self.pos = pos
-        self.x = pos.x()
-        self.y = pos.y()
 
 
 def build_bar_perwell_strip(app, parent: QWidget) -> None:

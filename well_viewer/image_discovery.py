@@ -136,8 +136,8 @@ def open_imgref_as_array(ref: ImgRef, greyscale: bool = False):
     )
 
 
-def legacy_extractor(stem: str) -> Tuple[str, str]:
-    """Fallback extractor that uses the classic 5-field regex."""
+def _default_fov_tp_extractor(stem: str) -> Tuple[str, str]:
+    """5-field-regex fallback used when callers don't provide a schema extractor."""
     m = _FNAME_RE.match(stem)
     if m:
         return m.group("fov"), m.group("tp")
@@ -176,8 +176,7 @@ def classify_member(
         mask_re=_MASK_RE,
         overlay_re=_OVERLAY_RE,
         tophat_fluor_re=_TOPHAT_FLUOR_RE,
-        fov_tp_extractor=_fov_tp_extractor,
-        legacy_extractor=legacy_extractor,
+        fov_tp_extractor=_fov_tp_extractor or _default_fov_tp_extractor,
         pipeline_fields_extractor=lambda stem: extract_pipeline_fields(stem, _pipeline_info),
     )
     if _debug_flags.review_image_channel_switch_debug_enabled():

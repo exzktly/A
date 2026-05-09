@@ -27,11 +27,6 @@ if TYPE_CHECKING:
     from .runtime_app import WellViewerApp
 
 
-def _lookup_filename_from_row_value(filename: str) -> str:
-    """Backwards alias kept for existing tests and call sites."""
-    return normalize_row_filename(filename)
-
-
 class ScatterCellViewer(QDialog):
     """Modal dialog for viewing a single cell's fluorescence images.
 
@@ -55,7 +50,7 @@ class ScatterCellViewer(QDialog):
 
         self.app = app
         self.well_label = well_label
-        self.filename = _lookup_filename_from_row_value(filename)
+        self.filename = normalize_row_filename(filename)
         self.nuclear_id = nuclear_id
         self.row_idx = row_idx
 
@@ -217,12 +212,13 @@ class ScatterCellViewer(QDialog):
         try:
             import zipfile
             from pathlib import Path as _Path
-            from well_viewer.runtime_app import (
-                open_imgref_as_array, _ImgRef,
-                _extract_well_token,
-                _find_out_well_zips_in_dir,
-                _find_plain_well_zips_in_dir,
-                _find_well_zips_in_dir,
+            from well_viewer.data_loading import extract_well_token
+            from well_viewer.image_discovery import (
+                ImgRef,
+                find_out_well_zips_in_dir,
+                find_plain_well_zips_in_dir,
+                find_well_zips_in_dir,
+                open_imgref_as_array,
             )
 
             pipeline_info = getattr(self.app, "_pipeline_info", None)
@@ -238,7 +234,7 @@ class ScatterCellViewer(QDialog):
                 f"output lookup type={image_type}, source={self.filename!r}, candidates={candidates!r}"
             )
 
-            well_token = _extract_well_token(self.well_label)
+            well_token = extract_well_token(self.well_label)
             if well_token is None:
                 return None, f"could not extract well_token from {self.well_label!r}"
 
@@ -246,10 +242,10 @@ class ScatterCellViewer(QDialog):
             in_dir = self.app._in_dir
             zips: list = []
             if data_dir and data_dir.is_dir():
-                zips = _find_out_well_zips_in_dir(data_dir, well_token)
-                zips += _find_plain_well_zips_in_dir(data_dir, well_token)
+                zips = find_out_well_zips_in_dir(data_dir, well_token)
+                zips += find_plain_well_zips_in_dir(data_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
-                zips = _find_well_zips_in_dir(data_dir, well_token)
+                zips = find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"output zip search well_token={well_token!r}, zips={[str(z) for z in zips]!r}")
 
             candidate_lowers = [c.lower() for c in candidates]
@@ -258,7 +254,7 @@ class ScatterCellViewer(QDialog):
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.namelist():
                         if _Path(member).name.lower() in candidate_lowers:
-                            ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            ref = ImgRef(zip_path=zip_path, zip_member=member)
                             arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
                             self._debug(f"loaded {image_type} from zip: {zip_path}::{member}")
                             return arr, f"{zip_path}::{member}"
@@ -268,7 +264,7 @@ class ScatterCellViewer(QDialog):
             for d in search_dirs:
                 for candidate in candidates:
                     for img_path in d.rglob(candidate):
-                        ref = _ImgRef(disk_path=img_path)
+                        ref = ImgRef(disk_path=img_path)
                         arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
                         self._debug(f"loaded {image_type} from disk: {img_path}")
                         return arr, str(img_path)
@@ -399,18 +395,19 @@ class ScatterCellViewer(QDialog):
         try:
             import zipfile
             from pathlib import Path as _Path
-            from well_viewer.runtime_app import (
-                open_imgref_as_array, _ImgRef,
-                _extract_well_token,
-                _find_plain_well_zips_in_dir,
-                _find_well_zips_in_dir,
+            from well_viewer.data_loading import extract_well_token
+            from well_viewer.image_discovery import (
+                ImgRef,
+                find_plain_well_zips_in_dir,
+                find_well_zips_in_dir,
+                open_imgref_as_array,
             )
 
             if not self._cell_bounds:
                 self._debug("skip nuclear image load: no cell bounds.")
                 return None
 
-            well_token = _extract_well_token(self.well_label)
+            well_token = extract_well_token(self.well_label)
             if well_token is None:
                 self._debug(f"could not parse well token from {self.well_label!r} for nuclear image load")
                 return None
@@ -420,9 +417,9 @@ class ScatterCellViewer(QDialog):
 
             zips: list = []
             if in_dir and in_dir.is_dir():
-                zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+                zips = find_plain_well_zips_in_dir(in_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
-                zips = _find_well_zips_in_dir(data_dir, well_token)
+                zips = find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"nuclear image zip search target={self.filename!r}, zips={[str(z) for z in zips]!r}")
 
             pipeline_info = getattr(self.app, "_pipeline_info", None)
@@ -438,7 +435,7 @@ class ScatterCellViewer(QDialog):
                     for member in zf.namelist():
                         if _Path(member).name.lower() in target_lowers:
                             arr = open_imgref_as_array(
-                                ref=_ImgRef(zip_path=zip_path, zip_member=member),
+                                ref=ImgRef(zip_path=zip_path, zip_member=member),
                                 greyscale=True,
                             )
                             if arr is not None:
@@ -451,7 +448,7 @@ class ScatterCellViewer(QDialog):
             for d in search_dirs:
                 for target_name in target_names:
                     for img_path in d.rglob(target_name):
-                        arr = open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+                        arr = open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
                         if arr is not None:
                             self._debug(f"loaded nuclear image from disk: {img_path}")
                             y_min, x_min, y_max, x_max = self._cell_bounds
@@ -468,11 +465,12 @@ class ScatterCellViewer(QDialog):
         try:
             import zipfile
             from pathlib import Path as _Path
-            from well_viewer.runtime_app import (
-                open_imgref_as_array, _ImgRef,
-                _extract_well_token,
-                _find_plain_well_zips_in_dir,
-                _find_well_zips_in_dir,
+            from well_viewer.data_loading import extract_well_token
+            from well_viewer.image_discovery import (
+                ImgRef,
+                find_plain_well_zips_in_dir,
+                find_well_zips_in_dir,
+                open_imgref_as_array,
             )
 
             pipeline_info = getattr(self.app, "_pipeline_info", None)
@@ -486,7 +484,7 @@ class ScatterCellViewer(QDialog):
             if not target_names:
                 return None
 
-            well_token = _extract_well_token(self.well_label)
+            well_token = extract_well_token(self.well_label)
             if well_token is None:
                 self._debug(f"channel={channel_token}: could not parse well token from {self.well_label!r}")
                 return None
@@ -496,9 +494,9 @@ class ScatterCellViewer(QDialog):
 
             zips: list = []
             if in_dir and in_dir.is_dir():
-                zips = _find_plain_well_zips_in_dir(in_dir, well_token)
+                zips = find_plain_well_zips_in_dir(in_dir, well_token)
             if not zips and data_dir and data_dir.is_dir():
-                zips = _find_well_zips_in_dir(data_dir, well_token)
+                zips = find_well_zips_in_dir(data_dir, well_token)
             self._debug(f"channel={channel_token}: zip search zips={[str(z) for z in zips]!r}")
 
             target_lowers = {name.lower() for name in target_names}
@@ -506,7 +504,7 @@ class ScatterCellViewer(QDialog):
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     for member in zf.namelist():
                         if _Path(member).name.lower() in target_lowers:
-                            ref = _ImgRef(zip_path=zip_path, zip_member=member)
+                            ref = ImgRef(zip_path=zip_path, zip_member=member)
                             self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{member}")
                             return open_imgref_as_array(ref=ref, greyscale=True)
 
@@ -516,7 +514,7 @@ class ScatterCellViewer(QDialog):
                 for candidate_name in target_names:
                     for img_path in d.rglob(candidate_name):
                         self._debug(f"channel={channel_token}: loaded from disk {img_path}")
-                        return open_imgref_as_array(ref=_ImgRef(disk_path=img_path), greyscale=True)
+                        return open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
 
             self._debug(f"channel={channel_token}: not found candidates={target_names!r}")
             return None
@@ -642,7 +640,7 @@ class ScatterCellViewer(QDialog):
 
     def update_cell(self, well_label: str, filename: str, nuclear_id: str, row_idx: int) -> None:
         self.well_label = well_label
-        self.filename = _lookup_filename_from_row_value(filename)
+        self.filename = normalize_row_filename(filename)
         self.nuclear_id = nuclear_id
         self.row_idx = row_idx
         self.setWindowTitle(f"Cell Viewer - Scatter Plot: {well_label}")

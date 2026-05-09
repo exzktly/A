@@ -125,11 +125,6 @@ class AnalyzeTab(QWidget):
         self._poll_log()
 
     @property
-    def _proc(self):
-        # Back-compat shim for code that still inspects the running subprocess.
-        return self._runner._proc
-
-    @property
     def _last_output_dir(self) -> Path | None:
         return self._runner.last_output_dir
 
@@ -577,7 +572,7 @@ class AnalyzeTab(QWidget):
                 )
         else:
             self._segmentation_hint_lbl.setText(
-                "Default mode: StarDist nuclei segmentation (backward compatible)."
+                "Default mode: StarDist nuclei segmentation."
             )
 
     # ------------------------------------------------------------------

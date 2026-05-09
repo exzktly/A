@@ -27,11 +27,6 @@ MOVIE_MONTAGE_LOAD_DEBUG: bool = False
 # Cell Gating tab debug switch (covers GatingWorker progress/start/finish logs).
 CELL_GATING_DEBUG: bool = True
 
-# Backward-compatible alias used by older call sites.
-# Keep this until all imports are migrated.
-BAR_DEBUG: bool = REVIEW_BAR_DEBUG
-
-
 def review_bar_debug_enabled() -> bool:
     """Return whether Review tab bar-plot debug output is enabled."""
     return REVIEW_TAB_DEBUG or REVIEW_BAR_DEBUG

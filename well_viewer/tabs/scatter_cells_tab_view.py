@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, make_plot_with_right_dock,
 )
 
 
@@ -36,7 +36,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter()
     )
     cl.addWidget(app._scatter_ch_x_cb)
-    app._scatter_ch_x_var = ComboVar(app._scatter_ch_x_cb)
+    app._scatter_ch_x_var = app._scatter_ch_x_cb
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
     app._scatter_ch_y_cb = QComboBox(ctrl)
@@ -45,7 +45,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter()
     )
     cl.addWidget(app._scatter_ch_y_cb)
-    app._scatter_ch_y_var = ComboVar(app._scatter_ch_y_cb)
+    app._scatter_ch_y_var = app._scatter_ch_y_cb
 
     cl.addWidget(QLabel("Timepoint:", ctrl))
     app._scatter_tp_cb = QComboBox(ctrl)
@@ -54,7 +54,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter()
     )
     cl.addWidget(app._scatter_tp_cb)
-    app._scatter_tp_var = ComboVar(app._scatter_tp_cb)
+    app._scatter_tp_var = app._scatter_tp_cb
     cl.addStretch(1)
 
     style_btn = QPushButton("▸", ctrl)

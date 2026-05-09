@@ -10,46 +10,11 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, ComboVar, make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, make_plot_with_right_dock,
 )
 
 
-class BoolHolder:
-    """Tiny tk-compatible shim with ``get()``/``set()`` around a bool flag.
-
-    Cross-module callers (runtime_app, export_service, plot_orchestrator) treat
-    ``_scatter_agg_tp_selections`` values as tk.BooleanVars; this keeps them
-    happy during the Qt port without changing those call sites yet.
-    """
-
-    __slots__ = ("_v", "_cb")
-
-    def __init__(self, value: bool = False) -> None:
-        self._v = bool(value)
-        self._cb = None
-
-    def get(self) -> bool:
-        return self._v
-
-    def set(self, value: bool) -> None:
-        self._v = bool(value)
-        if self._cb is not None:
-            try:
-                self._cb.blockSignals(True)
-                self._cb.setChecked(self._v)
-            finally:
-                self._cb.blockSignals(False)
-
-    def bind_checkbox(self, cb: QCheckBox) -> None:
-        self._cb = cb
-        cb.setChecked(self._v)
-        cb.toggled.connect(lambda checked: setattr(self, "_v", bool(checked)))
-
-
 def build_scatter_agg_tab(app, parent: QWidget) -> None:
-    # ``BoolHolder`` is imported by other modules at startup; keep matplotlib
-    # imports inside the build function so unrelated importers don't pay
-    # the QtAgg backend load cost.
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.figure import Figure
     layout = parent.layout()
@@ -73,7 +38,7 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter_agg()
     )
     cl.addWidget(app._scatter_agg_stat_x_cb)
-    app._scatter_agg_stat_x_var = ComboVar(app._scatter_agg_stat_x_cb)
+    app._scatter_agg_stat_x_var = app._scatter_agg_stat_x_cb
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
     app._scatter_agg_stat_y_cb = QComboBox(ctrl)
@@ -82,7 +47,7 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_scatter_agg()
     )
     cl.addWidget(app._scatter_agg_stat_y_cb)
-    app._scatter_agg_stat_y_var = ComboVar(app._scatter_agg_stat_y_cb)
+    app._scatter_agg_stat_y_var = app._scatter_agg_stat_y_cb
 
     cl.addWidget(QLabel("Timepoints:", ctrl))
 
@@ -123,16 +88,20 @@ def _open_timepoint_selector(app) -> None:
     """Pop up a QMenu of checkboxes below the Timepoints button."""
     menu = QMenu(app._scatter_agg_tp_button)
 
+    checkboxes: dict[str, QCheckBox] = {}
     for tp_str in sorted(app._scatter_agg_tp_selections.keys(), key=float):
-        holder = app._scatter_agg_tp_selections[tp_str]
         cb = QCheckBox(tp_str, menu)
-        holder.bind_checkbox(cb)
+        cb.setChecked(bool(app._scatter_agg_tp_selections[tp_str]))
+        checkboxes[tp_str] = cb
 
-        def on_toggled(_checked: bool) -> None:
-            app._update_tp_selection_display()
-            app._redraw_scatter_agg()
+        def _make_handler(tp=tp_str, checkbox=cb):
+            def on_toggled(checked: bool) -> None:
+                app._scatter_agg_tp_selections[tp] = bool(checked)
+                app._update_tp_selection_display()
+                app._redraw_scatter_agg()
+            return on_toggled
 
-        cb.toggled.connect(on_toggled)
+        cb.toggled.connect(_make_handler())
         wa = QWidgetAction(menu)
         wa.setDefaultWidget(cb)
         menu.addAction(wa)
@@ -140,8 +109,13 @@ def _open_timepoint_selector(app) -> None:
     menu.addSeparator()
 
     def _set_all(value: bool) -> None:
-        for h in app._scatter_agg_tp_selections.values():
-            h.set(value)
+        for tp_str, cb in checkboxes.items():
+            cb.blockSignals(True)
+            try:
+                cb.setChecked(value)
+            finally:
+                cb.blockSignals(False)
+            app._scatter_agg_tp_selections[tp_str] = value
         app._update_tp_selection_display()
         app._redraw_scatter_agg()
 

@@ -19,8 +19,7 @@ def classify_member(
     mask_re,
     overlay_re,
     tophat_fluor_re,
-    fov_tp_extractor,
-    legacy_extractor: Callable[[str], Tuple[str, str]],
+    fov_tp_extractor: Callable[[str], Tuple[str, str]],
     pipeline_fields_extractor: Callable[[str], dict[str, str]] | None = None,
 ) -> Tuple[str, str, str]:
     kind, stem = classify_filename_kind(name, fluor_token=fluor_lower)
@@ -32,8 +31,7 @@ def classify_member(
         stem = Path(name).stem
 
     parsed_fields = pipeline_fields_extractor(stem) if pipeline_fields_extractor else {}
-    extractor = fov_tp_extractor if fov_tp_extractor is not None else legacy_extractor
-    fov, tp = extractor(stem)
+    fov, tp = fov_tp_extractor(stem)
     channel_field = str(parsed_fields.get("channel", "")).strip().lower()
 
     if is_mask:

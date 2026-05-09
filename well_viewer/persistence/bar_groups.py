@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import List
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -18,7 +17,7 @@ from well_viewer.data_loading import extract_well_token
 _logger = logging.getLogger("well_viewer")
 
 
-def to_dict(rep_sets, bar_groups) -> List[dict]:
+def to_dict(rep_sets, bar_groups) -> dict:
     """Serialise ``(rep_sets, bar_groups)`` to a JSON-friendly structure."""
     return bar_groups_to_dict(
         rep_sets, bar_groups, extract_well_token=extract_well_token,
@@ -26,7 +25,7 @@ def to_dict(rep_sets, bar_groups) -> List[dict]:
 
 
 def from_dict(app, data) -> None:
-    """Restore groups state on *app* from a saved dict (new) or list (legacy)."""
+    """Restore groups state on *app* from a saved dict."""
     app._rep_sets.clear()
     app._bar_groups.clear()
     app._bar_active_grp = -1
@@ -79,8 +78,8 @@ def load_via_dialog(app) -> None:
     try:
         with open(path_str, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        if not isinstance(data, list):
-            raise ValueError("Expected a JSON array at the top level.")
+        if not isinstance(data, dict):
+            raise ValueError("Expected a JSON object at the top level.")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         QMessageBox.critical(
             app, "Load failed",

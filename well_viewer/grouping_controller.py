@@ -170,33 +170,6 @@ def bg_on_well_change(app) -> None:
     app._redraw_bars()
 
 
-def bg_apply_legacy(app, tok: str) -> None:
-    if tok in app._bar_drag_visited:
-        return
-    app._bar_drag_visited.add(tok)
-    if tok not in app._well_paths:
-        return
-    in_group_mode = 0 <= app._bar_active_grp < len(app._bar_groups)
-    if in_group_mode:
-        grp = app._bar_groups[app._bar_active_grp]
-        for rset in grp.replicates:
-            if tok in rset.wells:
-                if not app._bar_drag_adding:
-                    rset.wells.remove(tok)
-                return
-        if app._bar_drag_adding:
-            if 0 <= app._bar_active_rep < len(grp.replicates):
-                grp.replicates[app._bar_active_rep].wells.append(tok)
-            else:
-                grp.replicates.append(ReplicateSet(tok, [tok]))
-    else:
-        if app._bar_drag_adding:
-            app._selected_wells.add(tok)
-        else:
-            app._selected_wells.discard(tok)
-    app._bar_refresh_single_btn(tok)
-
-
 # ── Quick-group helpers (extracted from runtime_app) ──────────────────────────
 #
 # Bulk replicate-set / bar-group constructors driven by the "Quick Replicates"

@@ -389,7 +389,7 @@ def collect_scatter_agg_data(
 
     ch_x, metric_x = parse_statistic(stat_x)
     ch_y, metric_y = parse_statistic(stat_y)
-    use_sem = app._use_sem.get()
+    use_sem = app._use_sem
     # Per-channel cell-gating thresholds don't apply to ratios — use 0 so
     # every cell with a defined ratio contributes to the well-level mean.
     threshold_x = 0.0 if metric_x == "ratio" else app._get_thresh_frac_on(ch_x)

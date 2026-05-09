@@ -1,9 +1,7 @@
 """Heatmap layout persistence (``<data_dir>/heatmap_layouts.json``).
 
-The JSON used to be a bare list of layout dicts. Newer files are wrapped in
-an object so we can persist visual settings (cmap, scale mode, vmin/vmax,
-rep-set average toggle) alongside the layouts. The loader accepts both
-forms.
+The JSON wraps the layouts in an object so visual settings (cmap, scale mode,
+vmin/vmax, rep-set average toggle) can be persisted alongside.
 """
 
 from __future__ import annotations
@@ -66,13 +64,13 @@ def load_from_data_dir(app) -> None:
         _logger.warning("Failed to load heatmap layouts from %s: %s", path, exc)
         return
     from well_viewer.heatmap_models import layouts_from_dict
-    if isinstance(data, dict):
-        app._heatmap_layouts = layouts_from_dict(data.get("layouts", []) or [])
-        settings = data.get("settings", {}) or {}
-        if isinstance(settings, dict):
-            app._heatmap_persisted_settings = settings
-    else:
-        app._heatmap_layouts = layouts_from_dict(data)
+    if not isinstance(data, dict):
+        _logger.warning("Heatmap layouts file %s is not a JSON object; ignoring.", path)
+        return
+    app._heatmap_layouts = layouts_from_dict(data.get("layouts", []) or [])
+    settings = data.get("settings", {}) or {}
+    if isinstance(settings, dict):
+        app._heatmap_persisted_settings = settings
     if hasattr(app, "_heatmap_sidebar_table"):
         try:
             from well_viewer.views.heatmap_layout_sidebar_view import (

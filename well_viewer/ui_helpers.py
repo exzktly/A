@@ -194,67 +194,6 @@ def ask_name_dialog(parent: QWidget, *, title: str, prompt: str, default: str,
     return text or None
 
 
-class ComboVar:
-    """``tk.StringVar``-shaped shim over a ``QComboBox``.
-
-    Legacy callers expect ``.get()``/``.set(value)`` semantics; this wraps the
-    current text of a combo so those call sites keep working while tabs migrate
-    to reading the widget directly.
-    """
-    __slots__ = ("_cb",)
-
-    def __init__(self, cb) -> None:
-        self._cb = cb
-
-    def get(self) -> str:
-        return self._cb.currentText()
-
-    def set(self, value: str) -> None:
-        self._cb.setCurrentText(str(value))
-
-
-class LineEditVar:
-    """tk.StringVar-shaped shim over a ``QLineEdit``."""
-    __slots__ = ("_le",)
-
-    def __init__(self, le) -> None:
-        self._le = le
-
-    def get(self) -> str:
-        return self._le.text()
-
-    def set(self, value: str) -> None:
-        self._le.setText(str(value))
-
-
-class CheckBoxVar:
-    """tk.BooleanVar-shaped shim over a ``QCheckBox``."""
-    __slots__ = ("_cb",)
-
-    def __init__(self, cb) -> None:
-        self._cb = cb
-
-    def get(self) -> bool:
-        return self._cb.isChecked()
-
-    def set(self, value: bool) -> None:
-        self._cb.setChecked(bool(value))
-
-
-class BoolVar:
-    """Plain boolean holder with tk.BooleanVar ``.get()``/``.set()`` semantics."""
-    __slots__ = ("_v",)
-
-    def __init__(self, initial: bool = False) -> None:
-        self._v = bool(initial)
-
-    def get(self) -> bool:
-        return self._v
-
-    def set(self, value: bool) -> None:
-        self._v = bool(value)
-
-
 _THEMED_NAV_CLS = None
 
 
@@ -335,7 +274,7 @@ def attach_plot_toolbar(
         eb_lbl = QLabel(" Error Band ", toolbar)
         eb_lbl.setObjectName("Muted")
         toolbar.addWidget(eb_lbl)
-        initial = bool(getattr(app, "_use_sem", None) and app._use_sem.get())
+        initial = bool(getattr(app, "_use_sem", False))
         sem_btn = QPushButton("SEM" if initial else "SD", toolbar)
         sem_btn.setProperty("variant", "sem" if initial else "sem_warn")
         sem_btn.clicked.connect(lambda _=False: app._toggle_sem())

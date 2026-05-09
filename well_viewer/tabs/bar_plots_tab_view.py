@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, btn_secondary, BoolVar, ComboVar,
-    install_canvas_wheel_scroll, make_plot_with_right_dock,
+    attach_plot_toolbar, btn_primary, btn_secondary, install_canvas_wheel_scroll, make_plot_with_right_dock,
 )
 
 
@@ -65,7 +64,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
         lambda _i: app._redraw_bars()
     )
     cl.addWidget(app._bar_tp_cb)
-    app._bar_tp_var = ComboVar(app._bar_tp_cb)
+    app._bar_tp_var = app._bar_tp_cb
 
     cl.addStretch(1)
 
@@ -75,14 +74,14 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._swarm_btn.setCheckable(True)
     app._swarm_btn.clicked.connect(lambda _=False: app._toggle_swarm())
     cl.addWidget(app._swarm_btn)
-    app._bar_swarm = BoolVar(False)
+    app._bar_swarm = False
 
     app._violin_btn = QPushButton("Violin", bar_ctrl)
     app._violin_btn.setProperty("variant", "toggle")
     app._violin_btn.setCheckable(True)
     app._violin_btn.clicked.connect(lambda _=False: app._toggle_violin())
     cl.addWidget(app._violin_btn)
-    app._bar_violin = BoolVar(False)
+    app._bar_violin = False
 
     cl.addWidget(QLabel("Smooth:", bar_ctrl))
     app._violin_slider = QSlider(Qt.Horizontal, bar_ctrl)
@@ -90,7 +89,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._violin_slider.setValue(100)
     app._violin_slider.setFixedWidth(80)
     app._violin_slider.valueChanged.connect(
-        lambda _v: (app._redraw_bars() if app._bar_violin.get() else None)
+        lambda _v: (app._redraw_bars() if app._bar_violin else None)
     )
     app._violin_slider.setEnabled(False)
     cl.addWidget(app._violin_slider)
