@@ -648,6 +648,7 @@ def iter_plot_groups(app) -> Iterator[Tuple[str, str, List[dict]]]:
     back to a neutral palette otherwise.
     """
     rep_sets = list(getattr(app, "_rep_sets", []) or [])
+    rep_hidden = set(getattr(app, "_rep_hidden", set()) or set())
     well_paths = getattr(app, "_well_paths", {}) or {}
     selected = set(getattr(app, "_selected_wells", set()) or set())
     color_for_label = getattr(app, "_color_for_label", None)
@@ -677,6 +678,8 @@ def iter_plot_groups(app) -> Iterator[Tuple[str, str, List[dict]]]:
 
     if rep_sets:
         for idx, rset in enumerate(rep_sets):
+            if idx in rep_hidden:
+                continue
             wells = [w for w in rset.wells if w in well_paths]
             if not wells:
                 continue
