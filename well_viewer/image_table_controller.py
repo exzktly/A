@@ -279,6 +279,14 @@ def image_table_repopulate_dropdowns(app) -> None:
             _reset_combo(cell["tp_cb"], tp_opts)
             _reset_combo(cell["fov_cb"], fov_opts)
 
+    # The LUT row is built once at tab-construction time, when the canonical
+    # channel lists may still be empty. Rebuild it now so the per-channel
+    # min/max entry boxes appear once channels are known. ``build_lut_row``
+    # preserves any previously-entered values keyed by channel.
+    existing = set((getattr(app, "_image_table_lut", None) or {}).keys())
+    if set(chan_opts) != existing:
+        image_table_rebuild_lut_row(app)
+
 
 # ── Selector-grid build / rebuild ────────────────────────────────────────────
 

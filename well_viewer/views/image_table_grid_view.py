@@ -177,6 +177,14 @@ def build_lut_row(
     if container is None:
         return
     layout = container.layout()
+
+    prev_values: Dict[str, Tuple[str, str]] = {}
+    for chan, entry in (getattr(app, "_image_table_lut", None) or {}).items():
+        try:
+            prev_values[chan] = (entry["min"].text(), entry["max"].text())
+        except Exception:
+            continue
+
     clear_layout(layout)
 
     app._image_table_lut = {}
@@ -186,14 +194,16 @@ def build_lut_row(
         cb_l.setContentsMargins(6, 8, 6, 4)
         cb_l.setSpacing(4)
 
+        prev_min, prev_max = prev_values.get(chan, ("auto", "auto"))
+
         cb_l.addWidget(QLabel("min:", chan_box))
-        min_edit = QLineEdit("auto", chan_box)
+        min_edit = QLineEdit(prev_min, chan_box)
         min_edit.setFixedWidth(70)
         min_edit.editingFinished.connect(lambda: on_generate(app))
         cb_l.addWidget(min_edit)
 
         cb_l.addWidget(QLabel("max:", chan_box))
-        max_edit = QLineEdit("auto", chan_box)
+        max_edit = QLineEdit(prev_max, chan_box)
         max_edit.setFixedWidth(70)
         max_edit.editingFinished.connect(lambda: on_generate(app))
         cb_l.addWidget(max_edit)
