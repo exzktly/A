@@ -119,6 +119,16 @@ def rows_to_df(rows: List[dict]) -> "pd.DataFrame":
     df = pd.DataFrame(rows)
     if "Included" not in df.columns:
         df["Included"] = 1
+    # CSV headers occasionally arrive with non-canonical casing (e.g. "FOV"
+    # instead of "fov"); downstream consumers index df["fov"] etc., so rename
+    # known string columns to their canonical lowercase form here.
+    rename = {
+        col: str(col).strip().lower()
+        for col in df.columns
+        if str(col).strip().lower() in _STRING_COLS and col != str(col).strip().lower()
+    }
+    if rename:
+        df = df.rename(columns=rename)
     for col in df.columns:
         if str(col).strip().lower() in _STRING_COLS:
             continue
