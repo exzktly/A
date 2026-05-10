@@ -67,6 +67,143 @@ def _ask_save_csv(app, title: str, default_name: str) -> str:
     return out or ""
 
 
+# ── Shared metric-row builders ───────────────────────────────────────────────
+#
+# These helpers define the canonical CSV schema for line- and bar-plot
+# exports. Both the per-tab "Export CSV" buttons and the Batch Export tab
+# call these so the metric columns (mean / spread / fraction / counts /
+# threshold / metric) stay byte-identical across paths. Identifying columns
+# (well vs group/member/...) are added by the caller, since those legitimately
+# differ between per-tab and batch exports.
+
+def line_metric_fieldnames(ch: str, metric: str, band_lbl: str) -> list:
+    """CSV columns for a single line-plot timepoint row, in order."""
+    return [
+        "time_h",
+        f"mean_{ch}_{metric}",
+        f"{band_lbl.lower()}_{ch}_{metric}",
+        "n_above_threshold",
+        "fraction_above",
+        "n_total",
+        "threshold",
+        "metric",
+    ]
+
+
+def line_metric_row(pt, *, ch: str, metric: str, threshold: float, band_lbl: str) -> dict:
+    """Metric-column dict for one line-plot AggPoint.
+
+    *pt* is an aggregation tuple ``(t, mean, spread, frac, n_above, n_total, ...)``
+    as returned by ``_aggregate_well`` / ``_aggregate_group``. The ``spread``
+    field is SEM when the aggregator was called with ``use_sem=True``, SD
+    otherwise; *band_lbl* must be set accordingly so the column header
+    reflects what the data represents.
+    """
+    t, mean, spread, frac, n_above, n_total, *_ = pt
+    return {
+        "time_h": f"{t:.4f}",
+        f"mean_{ch}_{metric}": f"{mean:.6f}" if not math.isnan(mean) else "",
+        f"{band_lbl.lower()}_{ch}_{metric}": f"{spread:.6f}",
+        "n_above_threshold": n_above,
+        "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
+        "n_total": n_total,
+        "threshold": f"{threshold:.4f}",
+        "metric": metric,
+    }
+
+
+def bar_metric_fieldnames(ch: str, metric: str, band_lbl: str) -> list:
+    """CSV columns for a single bar-plot timepoint row, in order."""
+    return [
+        "timepoint_h",
+        f"mean_{ch}_{metric}",
+        f"err_{band_lbl}_{ch}_{metric}",
+        "fraction_above",
+        f"err_frac_{band_lbl}",
+        "n_above_threshold",
+        f"err_n_above_{band_lbl}",
+        "threshold",
+        "metric",
+    ]
+
+
+def bar_metric_row(
+    *,
+    mean: float,
+    spread: float,
+    frac: float,
+    frac_spread: float,
+    has: bool,
+    n_above: float,
+    n_above_spread: float,
+    ch: str,
+    metric: str,
+    tp_str: str,
+    threshold: float,
+    band_lbl: str,
+) -> dict:
+    """Metric-column dict for one bar-plot bar at a single timepoint.
+
+    The arguments mirror the per-bar values used by both ``_collect_bar_items``
+    (per-tab) and direct ``_aggregate_*`` calls (batch). ``n_above_spread > 0``
+    indicates per-FOV spread is in use, which switches *n_above* to a float
+    and exposes the per-FOV error column.
+    """
+    return {
+        "timepoint_h": tp_str,
+        f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not math.isnan(mean) else "",
+        f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
+        "fraction_above": f"{frac:.6f}" if has and not math.isnan(frac) else "",
+        f"err_frac_{band_lbl}": f"{frac_spread:.6f}" if has and not math.isnan(frac) else "",
+        "n_above_threshold": (
+            f"{n_above:.6f}" if n_above_spread > 0
+            else f"{int(n_above)}" if has else ""
+        ),
+        f"err_n_above_{band_lbl}": f"{n_above_spread:.6f}" if n_above_spread > 0 else "",
+        "threshold": f"{threshold:.4f}",
+        "metric": metric,
+    }
+
+
+def aggpoint_at(pts, target_t: float, tol: float = 1e-6):
+    """Return the AggPoint whose time matches *target_t* within tol, or None."""
+    for pt in pts or ():
+        if abs(pt[0] - target_t) < tol:
+            return pt
+    return None
+
+
+def aggpoint_bar_fields(pt, *, use_fov_spread: bool):
+    """Decompose an AggPoint into the per-bar fields used for bar exports.
+
+    Returns a dict with keys ``mean, spread, frac, frac_spread, has, n_above,
+    n_above_spread`` matching the kwargs of ``bar_metric_row``. Mirrors the
+    n_above selection logic used by the on-screen bar renderer: total
+    n_above by default, mean ± SD/SEM per FOV when the Aggregate-FOVs toggle
+    is on.
+    """
+    if pt is None:
+        return dict(mean=float("nan"), spread=0.0, frac=float("nan"),
+                    frac_spread=0.0, has=False, n_above=0.0, n_above_spread=0.0)
+    _t = pt[0]
+    mean = float(pt[1])
+    spread = float(pt[2])
+    frac = float(pt[3])
+    n_above_total = int(pt[4]) if len(pt) >= 5 else 0
+    frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
+    n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
+    n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
+    if use_fov_spread:
+        n_above = n_above_pf_mean
+        n_above_spread = n_above_pf_spread
+    else:
+        n_above = float(n_above_total)
+        n_above_spread = 0.0
+    has = not math.isnan(mean)
+    return dict(mean=mean, spread=spread, frac=frac, frac_spread=frac_spread,
+                has=has, n_above=n_above, n_above_spread=n_above_spread)
+
+
 def _warn(app, title: str, msg: str) -> None:
     QMessageBox.warning(app, title, msg)
 
@@ -83,37 +220,34 @@ def export_plot_data(app) -> None:
     ch = app._active_channel
     metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
-    rows_out = []
+    use_sem = bool(app._use_sem)
+    band_lbl = "SEM" if use_sem else "SD"
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
     well_labels = _well_labels_map(app)
+    rows_out = []
     for label in selected:
         pts = app._aggregate_well(
-            label, threshold=threshold, use_sem=False,
+            label, threshold=threshold, use_sem=use_sem,
             val_col=app._active_val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
         )
-        for t, mean, sd, frac, n_above, n_total, *_ in pts:
-            rows_out.append({
+        for pt in pts:
+            row = {
                 "well": label,
                 "well_name": well_name_for(label, well_labels),
-                "time_h": f"{t:.4f}",
-                f"mean_{ch}_{metric}": f"{mean:.6f}" if not math.isnan(mean) else "",
-                f"sd_{ch}_{metric}": f"{sd:.6f}",
-                "n_above_threshold": n_above,
-                "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
-                "n_total": n_total,
-                "threshold": f"{threshold:.4f}",
-                "metric": metric,
-            })
+            }
+            row.update(line_metric_row(pt, ch=ch, metric=metric,
+                                       threshold=threshold, band_lbl=band_lbl))
+            rows_out.append(row)
     if not rows_out:
         _warn(app, "Export", "No data to export for the current selection.")
         return
     out_path = _ask_save_csv(app, "Export plot data", f"{ch}_{metric}_plot_export.csv")
     if not out_path:
         return
-    fieldnames = ["well", "well_name", "time_h", f"mean_{ch}_{metric}", f"sd_{ch}_{metric}", "n_above_threshold", "fraction_above", "n_total", "threshold", "metric"]
+    fieldnames = ["well", "well_name"] + line_metric_fieldnames(ch, metric, band_lbl)
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -141,26 +275,26 @@ def export_bar_plot_data(app) -> None:
     well_paths = _well_paths_keys(app)
     rows_out = []
     if use_groups:
+        id_cols = ["name", "well_name"]
         for item in items:
             # Rep-set items are (name, gm, g_err_m, gf, g_err_f, has, color[, n_above[, n_above_spread]]).
             name, gm, g_err_m, gf, g_err_f, has, _color = item[:7]
             n_above = float(item[7]) if len(item) >= 8 else 0.0
             n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
-            rows_out.append({
+            row = {
                 "name": name,
                 "well_name": well_name_for(name, well_labels,
                                            well_paths=well_paths, strict=True),
-                "timepoint_h": tp_str,
-                f"mean_{ch}_{metric}": f"{gm:.6f}" if has else "",
-                f"err_mean_{band_lbl}_{ch}_{metric}": f"{g_err_m:.6f}" if has else "",
-                "fraction_above": f"{gf:.6f}" if not math.isnan(gf) else "",
-                f"err_frac_{band_lbl}": f"{g_err_f:.6f}" if not math.isnan(gf) else "",
-                "n_above_threshold": f"{n_above:.6f}" if n_above_spread > 0 else f"{int(n_above)}",
-                f"err_n_above_{band_lbl}": f"{n_above_spread:.6f}" if n_above_spread > 0 else "",
-                "threshold": f"{threshold:.4f}",
-                "metric": metric,
-            })
+            }
+            row.update(bar_metric_row(
+                mean=gm, spread=g_err_m, frac=gf, frac_spread=g_err_f,
+                has=has, n_above=n_above, n_above_spread=n_above_spread,
+                ch=ch, metric=metric, tp_str=tp_str,
+                threshold=threshold, band_lbl=band_lbl,
+            ))
+            rows_out.append(row)
     else:
+        id_cols = ["well", "well_name"]
         for item in items:
             # Per-well items are (label, mean, spread, frac, frac_spread, has[, n_above[, n_above_spread]]);
             # tolerate older 5-/6-/7-tuple shapes that predated the trailing
@@ -182,31 +316,27 @@ def export_bar_plot_data(app) -> None:
                 frac_spread = 0.0
                 n_above = 0.0
                 n_above_spread = 0.0
-            rows_out.append({
+            row = {
                 "well": label,
                 "well_name": well_name_for(label, well_labels),
-                "timepoint_h": tp_str,
-                f"mean_{ch}_{metric}": f"{mean:.6f}" if has and not math.isnan(mean) else "",
-                f"err_{band_lbl}_{ch}_{metric}": f"{spread:.6f}" if has else "",
-                "fraction_above": f"{frac:.6f}" if has and not math.isnan(frac) else "",
-                f"err_frac_{band_lbl}": f"{frac_spread:.6f}" if has and not math.isnan(frac) else "",
-                "n_above_threshold": (
-                    f"{n_above:.6f}" if n_above_spread > 0
-                    else f"{int(n_above)}" if has else ""
-                ),
-                f"err_n_above_{band_lbl}": f"{n_above_spread:.6f}" if n_above_spread > 0 else "",
-                "threshold": f"{threshold:.4f}",
-                "metric": metric,
-            })
+            }
+            row.update(bar_metric_row(
+                mean=mean, spread=spread, frac=frac, frac_spread=frac_spread,
+                has=has, n_above=n_above, n_above_spread=n_above_spread,
+                ch=ch, metric=metric, tp_str=tp_str,
+                threshold=threshold, band_lbl=band_lbl,
+            ))
+            rows_out.append(row)
     if not rows_out:
         _warn(app, "Export", "No data to export.")
         return
     out_path = _ask_save_csv(app, "Export bar plot data", f"bar_t{tp_str}.csv")
     if not out_path:
         return
+    fieldnames = id_cols + bar_metric_fieldnames(ch, metric, band_lbl)
     try:
         with open(out_path, "w", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows_out)
         app._set_status(f"Exported {len(rows_out)} row(s) → {Path(out_path).name}")

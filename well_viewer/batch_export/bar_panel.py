@@ -158,14 +158,18 @@ class BarBatchExportPanel(BatchExportPanel):
 
             try:
                 from well_viewer.export_service import (
-                    _well_labels_map, well_name_for, well_names_joined,
+                    _well_labels_map, aggpoint_at, aggpoint_bar_fields,
+                    bar_metric_fieldnames, bar_metric_row,
+                    well_name_for, well_names_joined,
                 )
                 _val_col = self._app._active_val_col
                 _ch = self._app._active_channel
+                _metric = self._app._active_metric
                 _well_labels = _well_labels_map(self._app)
-                rows_csv: List[dict] = []
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
+                _per_fov_spread = self._app._use_fov_spread_active()
+                rows_csv: List[dict] = []
                 for rset in grp.members:
                     valid = [w for w in rset.wells if w in self._app._well_paths]
                     if not valid:
@@ -175,24 +179,26 @@ class BarBatchExportPanel(BatchExportPanel):
                         val_col=_val_col,
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
+                        per_fov_spread=_per_fov_spread,
                     )
-                    matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-                    if matched:
-                        _, m, s, f, *_ = matched[0]
-                        wells_str = ";".join(valid)
-                        rows_csv.append({
-                            "group": grp.name,
-                            "member": rset.name,
-                            "member_type": "replicate_set",
-                            "wells": wells_str,
-                            "well_names": well_names_joined(wells_str, _well_labels),
-                            "n_wells": len(valid),
-                            "timepoint_h": tp_str,
-                            f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
-                            f"{band_lbl.lower()}_{_ch}": f"{s:.6f}",
-                            "fraction_above": f"{f:.6f}" if not math.isnan(f) else "",
-                            "threshold": f"{threshold:.4f}",
-                        })
+                    pt = aggpoint_at(pts, target_t)
+                    if pt is None:
+                        continue
+                    fields = aggpoint_bar_fields(pt, use_fov_spread=_per_fov_spread)
+                    wells_str = ";".join(valid)
+                    row = {
+                        "group": grp.name,
+                        "member": rset.name,
+                        "member_type": "replicate_set",
+                        "wells": wells_str,
+                        "well_names": well_names_joined(wells_str, _well_labels),
+                        "n_wells": len(valid),
+                    }
+                    row.update(bar_metric_row(
+                        ch=_ch, metric=_metric, tp_str=tp_str,
+                        threshold=threshold, band_lbl=band_lbl, **fields,
+                    ))
+                    rows_csv.append(row)
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
                         continue
@@ -201,25 +207,31 @@ class BarBatchExportPanel(BatchExportPanel):
                         val_col=_val_col,
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
+                        per_fov_spread=_per_fov_spread,
                     )
-                    matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-                    if matched:
-                        _, m, s, f, *_ = matched[0]
-                        rows_csv.append({
-                            "group": grp.name,
-                            "member": w,
-                            "member_type": "solo_well",
-                            "wells": w,
-                            "well_names": well_name_for(w, _well_labels),
-                            "n_wells": 1,
-                            "timepoint_h": tp_str,
-                            f"mean_{_ch}": f"{m:.6f}" if not math.isnan(m) else "",
-                            f"{band_lbl.lower()}_{_ch}": f"{s:.6f}",
-                            "fraction_above": f"{f:.6f}" if not math.isnan(f) else "",
-                            "threshold": f"{threshold:.4f}",
-                        })
+                    pt = aggpoint_at(pts, target_t)
+                    if pt is None:
+                        continue
+                    fields = aggpoint_bar_fields(pt, use_fov_spread=_per_fov_spread)
+                    row = {
+                        "group": grp.name,
+                        "member": w,
+                        "member_type": "solo_well",
+                        "wells": w,
+                        "well_names": well_name_for(w, _well_labels),
+                        "n_wells": 1,
+                    }
+                    row.update(bar_metric_row(
+                        ch=_ch, metric=_metric, tp_str=tp_str,
+                        threshold=threshold, band_lbl=band_lbl, **fields,
+                    ))
+                    rows_csv.append(row)
                 if rows_csv:
-                    fnames = list(rows_csv[0].keys())
+                    fnames = (
+                        ["group", "member", "member_type",
+                         "wells", "well_names", "n_wells"]
+                        + bar_metric_fieldnames(_ch, _metric, band_lbl)
+                    )
                     with open(str(base) + ".csv", "w", newline="") as fh:
                         wrt = csv.DictWriter(fh, fieldnames=fnames)
                         wrt.writeheader()
