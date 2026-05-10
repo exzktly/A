@@ -932,7 +932,7 @@ def image_table_generate(app) -> None:
             lo, hi = _parse_lut(app, chan)
             cell_widget = QWidget()
             cl = QVBoxLayout(cell_widget)
-            cl.setContentsMargins(4, 4, 4, 4)
+            cl.setContentsMargins(2, 2, 2, 2)
             cl.setSpacing(2)
 
             if well and chan and tp:
@@ -947,7 +947,9 @@ def image_table_generate(app) -> None:
 
             img_label = QLabel(cell_widget)
             img_label.setAlignment(Qt.AlignCenter)
-            img_label.setMinimumSize(220, 220)
+            # Pin to the rendered pixmap size so the surrounding QLabel doesn't
+            # expand and leave large gaps around the image.
+            img_label.setFixedSize(240, 240)
             if arr is not None:
                 # Apply the shared crop (no-op when not set) and render.
                 cropped = crop_tool.apply_to_array(arr) if crop_tool else arr
