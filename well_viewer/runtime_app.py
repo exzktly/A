@@ -1354,6 +1354,12 @@ class WellViewerApp(QWidget):
     def _image_table_export(self) -> None:
         _it_export(self)
 
+    def _image_table_open_export_settings(self) -> None:
+        from well_viewer.image_table_controller import (
+            image_table_open_export_settings as _it_open_export_settings,
+        )
+        _it_open_export_settings(self)
+
     # ── Bar-plot grouping panel ───────────────────────────────────────────────
 
     def _build_bar_group_panel(self, parent) -> None:

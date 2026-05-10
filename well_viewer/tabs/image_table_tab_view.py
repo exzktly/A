@@ -132,6 +132,17 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     al.addWidget(btn_primary(actions, "Generate", app._image_table_generate))
     al.addWidget(btn_secondary(actions, "Export", app._image_table_export))
 
+    export_settings_btn = QPushButton("⚙", actions)
+    export_settings_btn.setProperty("variant", "secondary")
+    export_settings_btn.setToolTip(
+        "Export settings — outer margin, cell gap, titles, DPI, transparent BG"
+    )
+    export_settings_btn.setFixedWidth(32)
+    export_settings_btn.clicked.connect(
+        lambda _=False: app._image_table_open_export_settings()
+    )
+    al.addWidget(export_settings_btn)
+
     # Raw ↔ Tophat toggle. Checkable so the button doubles as an indicator
     # of the current source (pressed = tophat, released = raw).
     tophat_btn = QPushButton("Tophat", actions)

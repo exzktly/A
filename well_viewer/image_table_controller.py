@@ -1028,6 +1028,98 @@ def image_table_auto_lut(app, channel: str) -> None:
 # ── Export (transparent background, labels above each image) ─────────────────
 
 
+def _export_opts(app) -> Dict[str, Any]:
+    """Return the image-table export option dict, seeding defaults on demand."""
+    opts = getattr(app, "_image_table_export_opts", None)
+    if not isinstance(opts, dict):
+        opts = {
+            "pad_inches": 0.10,    # outer margin around the saved figure
+            "cell_pad": 0.50,      # tight_layout w_pad / h_pad between cells
+            "show_titles": True,
+            "title_fontsize": 7,
+            "dpi": 300,
+            "transparent_bg": True,
+        }
+        app._image_table_export_opts = opts
+    return opts
+
+
+def image_table_open_export_settings(app) -> None:
+    """Pop a small modal dialog to edit the image-table export options."""
+    from PySide6.QtWidgets import (
+        QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
+        QSpinBox,
+    )
+
+    opts = _export_opts(app)
+    dlg = QDialog(app)
+    dlg.setWindowTitle("Image Table — Export settings")
+    form = QFormLayout(dlg)
+
+    pad_spin = QDoubleSpinBox(dlg)
+    pad_spin.setRange(0.0, 4.0)
+    pad_spin.setSingleStep(0.05)
+    pad_spin.setDecimals(2)
+    pad_spin.setSuffix(" in")
+    pad_spin.setValue(float(opts.get("pad_inches", 0.10)))
+    pad_spin.setToolTip("Outer margin around the saved figure (pad_inches).")
+    form.addRow("Outer margin:", pad_spin)
+
+    cell_spin = QDoubleSpinBox(dlg)
+    cell_spin.setRange(0.0, 4.0)
+    cell_spin.setSingleStep(0.05)
+    cell_spin.setDecimals(2)
+    cell_spin.setValue(float(opts.get("cell_pad", 0.50)))
+    cell_spin.setToolTip(
+        "Gap between adjacent cells (passed to tight_layout as w_pad / h_pad)."
+    )
+    form.addRow("Cell gap:", cell_spin)
+
+    titles_cb = QCheckBox(dlg)
+    titles_cb.setChecked(bool(opts.get("show_titles", True)))
+    titles_cb.setToolTip("Show the well/channel/timepoint label above each image.")
+    form.addRow("Show titles:", titles_cb)
+
+    title_size_spin = QSpinBox(dlg)
+    title_size_spin.setRange(4, 24)
+    title_size_spin.setValue(int(opts.get("title_fontsize", 7)))
+    form.addRow("Title font size:", title_size_spin)
+
+    dpi_spin = QSpinBox(dlg)
+    dpi_spin.setRange(72, 1200)
+    dpi_spin.setSingleStep(25)
+    dpi_spin.setValue(int(opts.get("dpi", 300)))
+    dpi_spin.setToolTip("Raster DPI used for PNG output.")
+    form.addRow("PNG DPI:", dpi_spin)
+
+    transparent_cb = QCheckBox(dlg)
+    transparent_cb.setChecked(bool(opts.get("transparent_bg", True)))
+    transparent_cb.setToolTip(
+        "Save with a transparent background. Disable for an opaque white BG."
+    )
+    form.addRow("Transparent bg:", transparent_cb)
+
+    btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    form.addRow(btns)
+
+    if dlg.exec() != QDialog.Accepted:
+        return
+
+    opts.update({
+        "pad_inches": float(pad_spin.value()),
+        "cell_pad": float(cell_spin.value()),
+        "show_titles": bool(titles_cb.isChecked()),
+        "title_fontsize": int(title_size_spin.value()),
+        "dpi": int(dpi_spin.value()),
+        "transparent_bg": bool(transparent_cb.isChecked()),
+    })
+
+
+# ── Export (transparent background, labels above each image) ─────────────────
+
+
 def image_table_export(app) -> None:
     """Export the current image table to PNG/PDF/SVG with no background."""
     cells = getattr(app, "_image_table_cells", None) or []
@@ -1045,6 +1137,14 @@ def image_table_export(app) -> None:
         QMessageBox.critical(app, "Export failed", f"numpy unavailable: {exc}")
         return
 
+    opts = _export_opts(app)
+    pad_inches = float(opts.get("pad_inches", 0.10))
+    cell_pad = float(opts.get("cell_pad", 0.50))
+    show_titles = bool(opts.get("show_titles", True))
+    title_fontsize = int(opts.get("title_fontsize", 7))
+    dpi = int(opts.get("dpi", 300))
+    transparent_bg = bool(opts.get("transparent_bg", True))
+
     rows = int(getattr(app, "_image_table_rows", len(cells)) or len(cells))
     cols = int(getattr(app, "_image_table_cols", len(cells[0])) or len(cells[0]))
 
@@ -1053,17 +1153,18 @@ def image_table_export(app) -> None:
     crop_tool = getattr(app, "_image_table_crop_tool", None)
     use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
 
+    bg_face = "none" if transparent_bg else "white"
     fig = Figure(
         figsize=(max(2.4, cols * 2.6), max(2.4, rows * 2.8)),
-        dpi=300,
-        facecolor="none",
+        dpi=dpi,
+        facecolor=bg_face,
     )
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(0.0 if transparent_bg else 1.0)
 
     for r, row in enumerate(cells):
         for c, cell in enumerate(row):
             ax = fig.add_subplot(rows, cols, r * cols + c + 1)
-            ax.set_facecolor("none")
+            ax.set_facecolor("none" if transparent_bg else "white")
             well = cell["well_cb"].currentText().strip()
             chan = cell["chan_cb"].currentText().strip()
             tp = cell["tp_cb"].currentText().strip()
@@ -1108,18 +1209,22 @@ def image_table_export(app) -> None:
                     ha="center", va="center", transform=ax.transAxes, fontsize=7,
                 )
 
-            if well and chan and tp:
-                title = f"{well}  {chan.upper()}  T:{tp}"
-                if fov:
-                    title += f"  FOV:{fov}"
-            else:
-                title = "(unset)"
-            ax.set_title(title, fontsize=7)
+            if show_titles:
+                if well and chan and tp:
+                    title = f"{well}  {chan.upper()}  T:{tp}"
+                    if fov:
+                        title += f"  FOV:{fov}"
+                else:
+                    title = "(unset)"
+                ax.set_title(title, fontsize=title_fontsize)
             ax.set_xticks([])
             ax.set_yticks([])
             for spine in ax.spines.values():
                 spine.set_visible(False)
-    fig.tight_layout()
+    try:
+        fig.tight_layout(w_pad=cell_pad, h_pad=cell_pad)
+    except Exception:
+        fig.tight_layout()
 
     initial_dir = str(app._data_dir) if getattr(app, "_data_dir", None) else ""
     initial = (
@@ -1134,10 +1239,11 @@ def image_table_export(app) -> None:
     fmt = Path(out).suffix.lstrip(".").lower() or "png"
     try:
         kw: Dict[str, Any] = dict(
-            format=fmt, bbox_inches="tight", facecolor="none", transparent=True,
+            format=fmt, bbox_inches="tight", pad_inches=pad_inches,
+            facecolor=bg_face, transparent=transparent_bg,
         )
         if fmt == "png":
-            kw["dpi"] = 300
+            kw["dpi"] = dpi
         fig.savefig(out, **kw)
         app._set_status(f"Image table saved → {Path(out).name}")
     except Exception as exc:
