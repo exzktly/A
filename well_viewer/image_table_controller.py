@@ -1214,12 +1214,43 @@ def _build_export_figure(app):
     use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
 
     bg_face = "none" if transparent_bg else "white"
-    # Row height carries extra inches when titles are drawn above each axes.
-    # Without titles, match column width so row-wise and column-wise spacing
-    # come out visually equal.
-    row_in = 2.8 if show_titles else 2.6
+    # Probe the first available cell to learn the image aspect ratio. With
+    # aspect="equal" axes, a non-square image shrinks the axes box inside
+    # its gridspec cell, which makes the visible inter-row gap differ from
+    # the inter-column gap. Sizing the cell to the actual image aspect
+    # keeps the axes filling the cell so row/column spacing match.
+    img_h: Optional[int] = None
+    img_w: Optional[int] = None
+    for r, row in enumerate(cells):
+        for c, cell in enumerate(row):
+            arr = rendered.get((r, c))
+            if arr is None:
+                well = cell["well_cb"].currentText().strip()
+                chan = cell["chan_cb"].currentText().strip()
+                tp = cell["tp_cb"].currentText().strip()
+                fov = cell["fov_cb"].currentText().strip()
+                if well and chan and tp:
+                    arr = _load_array(app, cache, well, chan, tp, fov, use_tophat=use_tophat)
+            if arr is not None and crop_tool is not None:
+                arr = crop_tool.apply_to_array(arr)
+            if arr is not None:
+                a = _np.asarray(arr)
+                if a.ndim >= 2 and a.shape[0] > 0 and a.shape[1] > 0:
+                    img_h, img_w = int(a.shape[0]), int(a.shape[1])
+                    break
+        if img_h is not None:
+            break
+
+    cell_w = 2.6
+    if img_h and img_w:
+        cell_h = cell_w * (img_h / img_w)
+    else:
+        cell_h = cell_w
+    # Reserve extra inches per row for the per-axes title when enabled.
+    if show_titles:
+        cell_h += 0.2
     fig = Figure(
-        figsize=(max(2.4, cols * 2.6), max(2.4, rows * row_in)),
+        figsize=(max(2.4, cols * cell_w), max(2.4, rows * cell_h)),
         dpi=dpi,
         facecolor=bg_face,
     )
