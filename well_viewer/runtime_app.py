@@ -1354,6 +1354,18 @@ class WellViewerApp(QWidget):
     def _image_table_export(self) -> None:
         _it_export(self)
 
+    def _image_table_copy_png(self) -> None:
+        from well_viewer.image_table_controller import (
+            image_table_copy_png as _it_copy_png,
+        )
+        _it_copy_png(self)
+
+    def _image_table_copy_svg(self) -> None:
+        from well_viewer.image_table_controller import (
+            image_table_copy_svg as _it_copy_svg,
+        )
+        _it_copy_svg(self)
+
     def _image_table_open_export_settings(self) -> None:
         from well_viewer.image_table_controller import (
             image_table_open_export_settings as _it_open_export_settings,

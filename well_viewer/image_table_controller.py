@@ -1120,22 +1120,28 @@ def image_table_open_export_settings(app) -> None:
 # ── Export (transparent background, labels above each image) ─────────────────
 
 
-def image_table_export(app) -> None:
-    """Export the current image table to PNG/PDF/SVG with no background."""
+def _build_export_figure(app):
+    """Render the current image-table contents to a matplotlib Figure.
+
+    Returns ``(fig, save_kwargs)`` where *save_kwargs* are the format-agnostic
+    keyword arguments to feed into ``fig.savefig`` (caller adds ``format`` and
+    optionally ``dpi`` for raster outputs). Returns ``(None, None)`` when there
+    is nothing to render (no cells, missing matplotlib/numpy).
+    """
     cells = getattr(app, "_image_table_cells", None) or []
     if not cells:
         app._set_status("Image Table: nothing to export.")
-        return
+        return None, None
     try:
         from matplotlib.figure import Figure
     except Exception as exc:
         QMessageBox.critical(app, "Export failed", f"matplotlib unavailable: {exc}")
-        return
+        return None, None
     try:
         import numpy as _np
     except Exception as exc:
         QMessageBox.critical(app, "Export failed", f"numpy unavailable: {exc}")
-        return
+        return None, None
 
     opts = _export_opts(app)
     pad_inches = float(opts.get("pad_inches", 0.10))
@@ -1226,6 +1232,20 @@ def image_table_export(app) -> None:
     except Exception:
         fig.tight_layout()
 
+    save_kwargs: Dict[str, Any] = dict(
+        bbox_inches="tight", pad_inches=pad_inches,
+        facecolor=bg_face, transparent=transparent_bg,
+    )
+    save_kwargs["_dpi"] = dpi  # caller decides whether to forward (raster only)
+    return fig, save_kwargs
+
+
+def image_table_export(app) -> None:
+    """Export the current image table to PNG/PDF/SVG with no background."""
+    fig, save_kwargs = _build_export_figure(app)
+    if fig is None:
+        return
+
     initial_dir = str(app._data_dir) if getattr(app, "_data_dir", None) else ""
     initial = (
         str(Path(initial_dir) / "image_table.png") if initial_dir else "image_table.png"
@@ -1237,14 +1257,65 @@ def image_table_export(app) -> None:
     if not out:
         return
     fmt = Path(out).suffix.lstrip(".").lower() or "png"
+    dpi = save_kwargs.pop("_dpi")
     try:
-        kw: Dict[str, Any] = dict(
-            format=fmt, bbox_inches="tight", pad_inches=pad_inches,
-            facecolor=bg_face, transparent=transparent_bg,
-        )
+        kw = dict(save_kwargs, format=fmt)
         if fmt == "png":
             kw["dpi"] = dpi
         fig.savefig(out, **kw)
         app._set_status(f"Image table saved → {Path(out).name}")
     except Exception as exc:
         QMessageBox.critical(app, "Export failed", str(exc))
+
+
+def image_table_copy_png(app) -> None:
+    """Render the image table and place a PNG of it on the system clipboard."""
+    import io
+    from PySide6.QtGui import QGuiApplication, QImage
+
+    fig, save_kwargs = _build_export_figure(app)
+    if fig is None:
+        return
+    dpi = save_kwargs.pop("_dpi")
+    buf = io.BytesIO()
+    try:
+        fig.savefig(buf, format="png", dpi=dpi, **save_kwargs)
+    except Exception as exc:
+        QMessageBox.critical(app, "Copy failed", str(exc))
+        return
+    img = QImage.fromData(buf.getvalue(), "PNG")
+    if img.isNull():
+        QMessageBox.critical(app, "Copy failed", "Could not decode rendered PNG.")
+        return
+    QGuiApplication.clipboard().setImage(img)
+    app._set_status("Image table copied to clipboard (PNG).")
+
+
+def image_table_copy_svg(app) -> None:
+    """Render the image table and place an SVG of it on the system clipboard.
+
+    Sets multiple MIME types so vector-aware editors (Illustrator, Inkscape,
+    Affinity, Figma) recognise it as SVG, while plain-text consumers still
+    get the raw markup.
+    """
+    import io
+    from PySide6.QtCore import QMimeData
+    from PySide6.QtGui import QGuiApplication
+
+    fig, save_kwargs = _build_export_figure(app)
+    if fig is None:
+        return
+    save_kwargs.pop("_dpi", None)
+    buf = io.BytesIO()
+    try:
+        fig.savefig(buf, format="svg", **save_kwargs)
+    except Exception as exc:
+        QMessageBox.critical(app, "Copy failed", str(exc))
+        return
+    svg_bytes = buf.getvalue()
+    md = QMimeData()
+    md.setData("image/svg+xml", svg_bytes)
+    md.setData("image/svg", svg_bytes)
+    md.setText(svg_bytes.decode("utf-8", errors="replace"))
+    QGuiApplication.clipboard().setMimeData(md)
+    app._set_status("Image table copied to clipboard (SVG).")
