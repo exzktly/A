@@ -756,6 +756,105 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str,
         return None
 
 
+# ── Per-cell mouse handling: hover pixel readout + crop drag ────────────────
+
+
+def _format_pixel_intensity(arr, y: int, x: int) -> str:
+    """Format the intensity of pixel ``(y, x)`` in ``arr`` for the hover label.
+
+    Greyscale arrays render as a single number; RGB / RGBA overlays render
+    as comma-separated channels. Integer-typed arrays print as ints, floats
+    as 4-significant-figure decimals so 16-bit microscopy data and 0..1
+    floats both stay readable.
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return ""
+    a = np.asarray(arr)
+    h, w = a.shape[:2]
+    if not (0 <= y < h and 0 <= x < w):
+        return ""
+    px = a[y, x]
+    is_int = np.issubdtype(a.dtype, np.integer)
+
+    def _fmt(v) -> str:
+        if is_int:
+            return str(int(v))
+        try:
+            return f"{float(v):.4g}"
+        except Exception:
+            return str(v)
+
+    if a.ndim == 2:
+        return _fmt(px)
+    return ",".join(_fmt(v) for v in np.atleast_1d(px).tolist())
+
+
+def _install_cell_events(
+    app, label, crop_tool, well: str, chan: str, tp: str, fov: str,
+) -> None:
+    """Wire press/move/release on a cell's image label.
+
+    Replaces ``CropTool.install_events`` so the same label can both serve
+    as the crop-tool's drag target and report the intensity of the pixel
+    under the cursor on every move.
+    """
+    label.setMouseTracking(True)
+    if crop_tool is not None:
+        from PySide6.QtCore import Qt as _Qt
+        label.setCursor(_Qt.CrossCursor)
+    hover_lbl = getattr(app, "_image_table_hover_lbl", None)
+
+    def _set_hover(text: str) -> None:
+        if hover_lbl is not None:
+            hover_lbl.setText(text)
+
+    def _press(ev, _ct=crop_tool, _lbl=label):
+        if _ct is not None:
+            _ct.begin_drag(_lbl, ev)
+
+    def _move(ev, _ct=crop_tool, _lbl=label,
+              _well=well, _chan=chan, _tp=tp, _fov=fov):
+        if _ct is not None:
+            _ct.update_drag(ev)
+        arr = getattr(_lbl, "_raw_arr", None)
+        if arr is None or _lbl.pixmap() is None:
+            _set_hover("")
+            return
+        pos = ev.position()
+        # CropTool exposes label→image coordinate conversion regardless of
+        # mode so the readout works whether or not crop mode is active.
+        if _ct is None:
+            _set_hover("")
+            return
+        yx = _ct.label_to_image_xy(_lbl, int(pos.x()), int(pos.y()))
+        if yx is None:
+            _set_hover("")
+            return
+        y, x = yx
+        intensity = _format_pixel_intensity(arr, y, x)
+        if not intensity:
+            _set_hover("")
+            return
+        prefix = f"{_well} {_chan.upper()} T:{_tp}"
+        if _fov:
+            prefix += f" FOV:{_fov}"
+        _set_hover(f"{prefix}  ({x}, {y}) = {intensity}")
+
+    def _release(ev, _ct=crop_tool):
+        if _ct is not None:
+            _ct.end_drag(ev)
+
+    def _leave(_ev):
+        _set_hover("")
+
+    label.mousePressEvent = _press
+    label.mouseMoveEvent = _move
+    label.mouseReleaseEvent = _release
+    label.leaveEvent = _leave
+
+
 # ── Generate (render image table below the selector) ─────────────────────────
 
 
@@ -824,8 +923,7 @@ def image_table_generate(app) -> None:
                 # works correctly even when the label already shows a crop.
                 img_label._raw_arr = arr  # type: ignore[attr-defined]
                 img_label._crop = crop_tool.crop if crop_tool else None  # type: ignore[attr-defined]
-                if crop_tool is not None:
-                    crop_tool.install_events(img_label)
+                _install_cell_events(app, img_label, crop_tool, well, chan, tp, fov)
                 if pix is not None:
                     img_label.setPixmap(pix)
                 else:
