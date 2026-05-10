@@ -124,6 +124,9 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     al.setContentsMargins(0, 0, 0, 0)
     al.setSpacing(6)
     al.addWidget(btn_secondary(
+        actions, "Load Heatmap Layout", app._image_table_load_heatmap_layout,
+    ))
+    al.addWidget(btn_secondary(
         actions, "Distribute Wells", app._image_table_distribute_wells,
     ))
     al.addWidget(btn_secondary(

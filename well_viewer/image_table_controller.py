@@ -522,6 +522,78 @@ def image_table_toggle_tophat(app) -> None:
     image_table_generate(app)
 
 
+def image_table_load_heatmap_layout(app) -> None:
+    """Adopt the Heat Map tab's well configuration (rows, cols, per-cell well).
+
+    Pulls the single sidebar layout maintained by the heat-map tab
+    (``views.heatmap_layout_sidebar_view``), resizes the Image Table's
+    selector grid to match, and writes each cell's well into the
+    corresponding per-cell well dropdown. Cells that the heatmap leaves
+    empty stay untouched on the Image Table side.
+    """
+    from well_viewer.views.heatmap_layout_sidebar_view import (
+        SIDEBAR_LAYOUT_NAME,
+    )
+
+    layouts = list(getattr(app, "_heatmap_layouts", []) or [])
+    layout = next((l for l in layouts if l.name == SIDEBAR_LAYOUT_NAME), None)
+    if layout is None:
+        app._set_status("Image Table: no Heat Map layout to load.")
+        return
+
+    rows_spin = getattr(app, "_image_table_rows_spin", None)
+    cols_spin = getattr(app, "_image_table_cols_spin", None)
+    if rows_spin is None or cols_spin is None:
+        return
+
+    target_rows = min(rows_spin.maximum(), max(rows_spin.minimum(), int(layout.rows)))
+    target_cols = min(cols_spin.maximum(), max(cols_spin.minimum(), int(layout.cols)))
+    clamped = (target_rows != int(layout.rows)) or (target_cols != int(layout.cols))
+
+    # Update spinners without triggering the rebuild twice; we call
+    # image_table_apply_dimensions explicitly below so rows/cols + grid
+    # land in sync regardless of whether the spinner values actually changed.
+    for spin, val in ((rows_spin, target_rows), (cols_spin, target_cols)):
+        blocked = spin.blockSignals(True)
+        try:
+            spin.setValue(val)
+        finally:
+            spin.blockSignals(blocked)
+    app._image_table_rows = target_rows
+    app._image_table_cols = target_cols
+    image_table_rebuild_grid(app)
+
+    cells = getattr(app, "_image_table_cells", None) or []
+    placed = 0
+    for (r, c), wells in layout.cells.items():
+        if not (0 <= r < len(cells)) or not (0 <= c < len(cells[r])):
+            continue
+        token = (wells[0] if wells else "").strip()
+        if not token:
+            continue
+        cb = cells[r][c].get("well_cb")
+        if cb is None:
+            continue
+        cb.blockSignals(True)
+        try:
+            if cb.findText(token) >= 0:
+                cb.setCurrentText(token)
+                placed += 1
+        finally:
+            cb.blockSignals(False)
+
+    msg = (
+        f"Image Table: loaded Heat Map layout ({target_rows}×{target_cols}, "
+        f"{placed} well(s) placed)."
+    )
+    if clamped:
+        msg += (
+            f" Clamped from {int(layout.rows)}×{int(layout.cols)} to fit "
+            f"the Image Table grid limits."
+        )
+    app._set_status(msg)
+
+
 def image_table_distribute_wells(app) -> None:
     """Walk active wells row-wise and assign one to each selector cell.
 
