@@ -12,6 +12,18 @@ def sidebar_tok_at(app, event) -> Optional[str]:
 
 
 def _active_tab(app) -> str:
+    # Plot tabs (Line Graphs / Bar Plots / Scatter Plot) live inside a nested
+    # "Plotting" QTabWidget. Use the app's centre-tab resolver so callers see
+    # the leaf tab name and dispatch correctly when the nested notebook is in
+    # play; fall back to the top-level notebook for older code paths.
+    resolver = getattr(app, "_current_centre_tab", None)
+    if callable(resolver):
+        try:
+            tab = resolver()
+            if tab:
+                return tab
+        except Exception:
+            pass
     if not hasattr(app, "_notebook"):
         return ""
     try:
