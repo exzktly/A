@@ -802,15 +802,25 @@ def _install_cell_events(
     """
     from PySide6.QtCore import QObject, QEvent
     from PySide6.QtCore import Qt as _Qt
+    from PySide6.QtWidgets import QToolTip
 
     label.setMouseTracking(True)
     if crop_tool is not None:
         label.setCursor(_Qt.CrossCursor)
-    hover_lbl = getattr(app, "_image_table_hover_lbl", None)
 
-    def _set_hover(text: str) -> None:
-        if hover_lbl is not None:
-            hover_lbl.setText(text)
+    def _show_tip(_lbl, ev, text: str) -> None:
+        if not text:
+            QToolTip.hideText()
+            return
+        try:
+            gp = ev.globalPosition().toPoint()
+        except Exception:
+            try:
+                gp = _lbl.mapToGlobal(ev.position().toPoint())
+            except Exception:
+                QToolTip.hideText()
+                return
+        QToolTip.showText(gp, text, _lbl)
 
     def _label_to_image_xy(_lbl, lx: int, ly: int):
         """Map label-local coords to source-image (x, y). Returns None when
@@ -855,24 +865,24 @@ def _install_cell_events(
         try:
             arr = getattr(_lbl, "_raw_arr", None)
             if arr is None:
-                _set_hover("")
+                _show_tip(_lbl, ev, "")
                 return
             pos = ev.position()
             xy = _label_to_image_xy(_lbl, int(pos.x()), int(pos.y()))
             if xy is None:
-                _set_hover("")
+                _show_tip(_lbl, ev, "")
                 return
             x, y = xy
             intensity = _format_pixel_intensity(arr, y, x)
             if not intensity:
-                _set_hover("")
+                _show_tip(_lbl, ev, "")
                 return
             prefix = f"{well} {chan.upper()} T:{tp}"
             if fov:
                 prefix += f" FOV:{fov}"
-            _set_hover(f"{prefix}  ({x}, {y}) = {intensity}")
+            _show_tip(_lbl, ev, f"{prefix}  ({x}, {y}) = {intensity}")
         except Exception:
-            _set_hover("")
+            QToolTip.hideText()
 
     class _CellEventFilter(QObject):
         def eventFilter(self, obj, ev):
@@ -888,7 +898,7 @@ def _install_cell_events(
                 if crop_tool is not None:
                     crop_tool.end_drag(ev)
             elif t == QEvent.Leave:
-                _set_hover("")
+                QToolTip.hideText()
             return False
 
     filt = _CellEventFilter(label)
