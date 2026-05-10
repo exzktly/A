@@ -800,9 +800,11 @@ def _install_cell_events(
     as the crop-tool's drag target and report the intensity of the pixel
     under the cursor on every move.
     """
+    from PySide6.QtCore import QObject, QEvent
+    from PySide6.QtCore import Qt as _Qt
+
     label.setMouseTracking(True)
     if crop_tool is not None:
-        from PySide6.QtCore import Qt as _Qt
         label.setCursor(_Qt.CrossCursor)
     hover_lbl = getattr(app, "_image_table_hover_lbl", None)
 
@@ -810,49 +812,89 @@ def _install_cell_events(
         if hover_lbl is not None:
             hover_lbl.setText(text)
 
-    def _press(ev, _ct=crop_tool, _lbl=label):
-        if _ct is not None:
-            _ct.begin_drag(_lbl, ev)
-
-    def _move(ev, _ct=crop_tool, _lbl=label,
-              _well=well, _chan=chan, _tp=tp, _fov=fov):
-        if _ct is not None:
-            _ct.update_drag(ev)
+    def _label_to_image_xy(_lbl, lx: int, ly: int):
+        """Map label-local coords to source-image (x, y). Returns None when
+        cursor is outside the rendered pixmap area."""
+        try:
+            import numpy as _np
+        except Exception:
+            return None
+        pm = _lbl.pixmap()
         arr = getattr(_lbl, "_raw_arr", None)
-        if arr is None or _lbl.pixmap() is None:
-            _set_hover("")
-            return
-        pos = ev.position()
-        # CropTool exposes label→image coordinate conversion regardless of
-        # mode so the readout works whether or not crop mode is active.
-        if _ct is None:
-            _set_hover("")
-            return
-        yx = _ct.label_to_image_xy(_lbl, int(pos.x()), int(pos.y()))
-        if yx is None:
-            _set_hover("")
-            return
-        y, x = yx
-        intensity = _format_pixel_intensity(arr, y, x)
-        if not intensity:
-            _set_hover("")
-            return
-        prefix = f"{_well} {_chan.upper()} T:{_tp}"
-        if _fov:
-            prefix += f" FOV:{_fov}"
-        _set_hover(f"{prefix}  ({x}, {y}) = {intensity}")
+        if arr is None or pm is None:
+            return None
+        if hasattr(pm, "isNull") and pm.isNull():
+            return None
+        pw, ph = pm.width(), pm.height()
+        if pw <= 0 or ph <= 0:
+            return None
+        a = _np.asarray(arr)
+        full_h, full_w = a.shape[:2]
+        crop = getattr(_lbl, "_crop", None)
+        if crop is not None:
+            y0, x0, y1, x1 = crop
+            view_h = max(1, int(y1) - int(y0))
+            view_w = max(1, int(x1) - int(x0))
+        else:
+            y0 = x0 = 0
+            view_h, view_w = full_h, full_w
+        lw, lh = _lbl.width(), _lbl.height()
+        offset_x = (lw - pw) // 2
+        offset_y = (lh - ph) // 2
+        if not (offset_x <= lx < offset_x + pw and offset_y <= ly < offset_y + ph):
+            return None
+        px = lx - offset_x
+        py = ly - offset_y
+        img_x = int(x0 + px * view_w / pw)
+        img_y = int(y0 + py * view_h / ph)
+        img_x = max(0, min(full_w - 1, img_x))
+        img_y = max(0, min(full_h - 1, img_y))
+        return (img_x, img_y)
 
-    def _release(ev, _ct=crop_tool):
-        if _ct is not None:
-            _ct.end_drag(ev)
+    def _update_hover(_lbl, ev) -> None:
+        try:
+            arr = getattr(_lbl, "_raw_arr", None)
+            if arr is None:
+                _set_hover("")
+                return
+            pos = ev.position()
+            xy = _label_to_image_xy(_lbl, int(pos.x()), int(pos.y()))
+            if xy is None:
+                _set_hover("")
+                return
+            x, y = xy
+            intensity = _format_pixel_intensity(arr, y, x)
+            if not intensity:
+                _set_hover("")
+                return
+            prefix = f"{well} {chan.upper()} T:{tp}"
+            if fov:
+                prefix += f" FOV:{fov}"
+            _set_hover(f"{prefix}  ({x}, {y}) = {intensity}")
+        except Exception:
+            _set_hover("")
 
-    def _leave(_ev):
-        _set_hover("")
+    class _CellEventFilter(QObject):
+        def eventFilter(self, obj, ev):
+            t = ev.type()
+            if t == QEvent.MouseMove:
+                _update_hover(obj, ev)
+                if crop_tool is not None:
+                    crop_tool.update_drag(ev)
+            elif t == QEvent.MouseButtonPress:
+                if crop_tool is not None:
+                    crop_tool.begin_drag(obj, ev)
+            elif t == QEvent.MouseButtonRelease:
+                if crop_tool is not None:
+                    crop_tool.end_drag(ev)
+            elif t == QEvent.Leave:
+                _set_hover("")
+            return False
 
-    label.mousePressEvent = _press
-    label.mouseMoveEvent = _move
-    label.mouseReleaseEvent = _release
-    label.leaveEvent = _leave
+    filt = _CellEventFilter(label)
+    label.installEventFilter(filt)
+    # Keep a reference so the filter isn't garbage-collected.
+    label._image_table_event_filter = filt  # type: ignore[attr-defined]
 
 
 # ── Generate (render image table below the selector) ─────────────────────────
@@ -890,7 +932,7 @@ def image_table_generate(app) -> None:
             lo, hi = _parse_lut(app, chan)
             cell_widget = QWidget()
             cl = QVBoxLayout(cell_widget)
-            cl.setContentsMargins(4, 4, 4, 4)
+            cl.setContentsMargins(2, 2, 2, 2)
             cl.setSpacing(2)
 
             if well and chan and tp:
@@ -905,7 +947,9 @@ def image_table_generate(app) -> None:
 
             img_label = QLabel(cell_widget)
             img_label.setAlignment(Qt.AlignCenter)
-            img_label.setMinimumSize(220, 220)
+            # Pin to the rendered pixmap size so the surrounding QLabel doesn't
+            # expand and leave large gaps around the image.
+            img_label.setFixedSize(240, 240)
             if arr is not None:
                 # Apply the shared crop (no-op when not set) and render.
                 cropped = crop_tool.apply_to_array(arr) if crop_tool else arr

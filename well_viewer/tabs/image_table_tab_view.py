@@ -253,7 +253,11 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     render_host = QWidget(inner)
     render_grid = QGridLayout(render_host)
     render_grid.setContentsMargins(0, 0, 0, 0)
-    render_grid.setSpacing(6)
+    render_grid.setSpacing(2)
+    # Pin cells to the top-left; otherwise QGridLayout distributes excess
+    # space across rows/columns and the per-cell pixmaps render with large
+    # gaps between them.
+    render_grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
     app._image_table_render_grid = render_grid
     il.addWidget(render_host)
 
