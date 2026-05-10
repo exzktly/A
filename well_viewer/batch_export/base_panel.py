@@ -955,76 +955,73 @@ class BatchExportPanel(QWidget):
             fig_path = out_dir / f"batch_{safe}.{fmt}"
 
             try:
+                from well_viewer.export_service import (
+                    _well_labels_map, line_metric_fieldnames, line_metric_row,
+                    well_name_for, well_names_joined,
+                )
+                _val_col = self._app._active_val_col
+                _ch = self._app._active_channel
+                _metric = self._app._active_metric
+                _cell_area_threshold = self._app._get_cell_area_threshold()
+                _fluor_gates = self._app._get_all_fluor_gates()
+                _well_labels = _well_labels_map(self._app)
                 rows_out: List[dict] = []
                 for rset in grp.members:
                     valid_wells = [w for w in rset.wells if w in self._app._well_paths]
                     if not valid_wells:
                         continue
-                    _val_col = self._app._active_val_col
-                    _ch = self._app._active_channel
-                    _cell_area_threshold = self._app._get_cell_area_threshold()
-                    _fluor_gates = self._app._get_all_fluor_gates()
                     pts = self._app._aggregate_group(
                         valid_wells, threshold=threshold, use_sem=use_sem,
                         val_col=_val_col,
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
-                    from well_viewer.export_service import (
-                        _well_labels_map, well_names_joined,
-                    )
-                    _well_labels = _well_labels_map(self._app)
                     wells_str = ";".join(valid_wells)
                     well_names_str = well_names_joined(wells_str, _well_labels)
-                    for t, mean, sd, frac, n_above, n_total, *_ in pts:
-                        rows_out.append({
-                            "group": grp.name, "member": rset.name,
+                    for pt in pts:
+                        row = {
+                            "group": grp.name,
+                            "member": rset.name,
                             "member_type": "replicate_set",
                             "wells": wells_str,
                             "well_names": well_names_str,
                             "n_wells": len(valid_wells),
-                            "time_h": f"{t:.4f}",
-                            f"mean_{_ch}": f"{mean:.6f}" if not math.isnan(mean) else "",
-                            f"{'sem' if use_sem else 'sd'}_{_ch}": f"{sd:.6f}",
-                            "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
-                            "threshold": f"{threshold:.4f}",
-                        })
+                        }
+                        row.update(line_metric_row(
+                            pt, ch=_ch, metric=_metric,
+                            threshold=threshold, band_lbl=band_lbl,
+                        ))
+                        rows_out.append(row)
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
                         continue
-                    _val_col = self._app._active_val_col
-                    _ch = self._app._active_channel
-                    _cell_area_threshold = self._app._get_cell_area_threshold()
-                    _fluor_gates = self._app._get_all_fluor_gates()
                     pts = self._app._aggregate_well(
                         w, threshold=threshold, use_sem=use_sem,
                         val_col=_val_col,
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
-                    from well_viewer.export_service import (
-                        _well_labels_map, well_name_for,
-                    )
-                    _well_labels = _well_labels_map(self._app)
                     _well_name = well_name_for(w, _well_labels)
-                    for t, mean, sd, frac, n_above, n_total, *_ in pts:
-                        rows_out.append({
-                            "group": grp.name, "member": w, "member_type": "solo_well",
+                    for pt in pts:
+                        row = {
+                            "group": grp.name,
+                            "member": w,
+                            "member_type": "solo_well",
                             "wells": w,
                             "well_names": _well_name,
-                            "n_wells": 1, "time_h": f"{t:.4f}",
-                            f"mean_{_ch}": f"{mean:.6f}" if not math.isnan(mean) else "",
-                            f"{'sem' if use_sem else 'sd'}_{_ch}": f"{sd:.6f}",
-                            "fraction_above": f"{frac:.6f}" if not math.isnan(frac) else "",
-                            "threshold": f"{threshold:.4f}",
-                        })
+                            "n_wells": 1,
+                        }
+                        row.update(line_metric_row(
+                            pt, ch=_ch, metric=_metric,
+                            threshold=threshold, band_lbl=band_lbl,
+                        ))
+                        rows_out.append(row)
                 if rows_out:
-                    _ch = self._app._active_channel
-                    fieldnames = ["group", "member", "member_type",
-                                  "wells", "well_names", "n_wells",
-                                  "time_h", f"mean_{_ch}",
-                                  f"{'sem' if use_sem else 'sd'}_{_ch}",
-                                  "fraction_above", "threshold"]
+                    fieldnames = (
+                        ["group", "member", "member_type",
+                         "wells", "well_names", "n_wells"]
+                        + line_metric_fieldnames(_ch, _metric, band_lbl)
+                    )
                     with open(csv_path, "w", newline="") as fh:
                         writer = csv.DictWriter(fh, fieldnames=fieldnames)
                         writer.writeheader()

@@ -131,6 +131,19 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     ))
     al.addWidget(btn_primary(actions, "Generate", app._image_table_generate))
     al.addWidget(btn_secondary(actions, "Export", app._image_table_export))
+    al.addWidget(btn_secondary(actions, "Copy PNG", app._image_table_copy_png))
+    al.addWidget(btn_secondary(actions, "Copy SVG", app._image_table_copy_svg))
+
+    export_settings_btn = QPushButton("⚙", actions)
+    export_settings_btn.setProperty("variant", "secondary")
+    export_settings_btn.setToolTip(
+        "Export settings — outer margin, cell gap, titles, DPI, transparent BG"
+    )
+    export_settings_btn.setFixedWidth(32)
+    export_settings_btn.clicked.connect(
+        lambda _=False: app._image_table_open_export_settings()
+    )
+    al.addWidget(export_settings_btn)
 
     # Raw ↔ Tophat toggle. Checkable so the button doubles as an indicator
     # of the current source (pressed = tophat, released = raw).
@@ -153,6 +166,17 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     al.addWidget(app._image_table_crop_tool.make_button(actions))
     al.addWidget(app._image_table_crop_tool.make_reset_button(actions))
     al.addWidget(app._image_table_crop_tool.make_status_label(actions))
+
+    hover_sep = QFrame(actions)
+    hover_sep.setFrameShape(QFrame.VLine)
+    hover_sep.setFixedWidth(1)
+    al.addWidget(hover_sep)
+    hover_lbl = QLabel("", actions)
+    hover_lbl.setObjectName("Muted")
+    hover_lbl.setMinimumWidth(220)
+    hover_lbl.setToolTip("Pixel under the cursor: (x, y) and intensity")
+    al.addWidget(hover_lbl)
+    app._image_table_hover_lbl = hover_lbl
 
     al.addStretch(1)
     il.addWidget(actions)
