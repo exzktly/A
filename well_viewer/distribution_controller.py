@@ -97,7 +97,7 @@ def redraw_distribution(app) -> None:
     log_x = bool(getattr(app, "_distribution_log_x", False))
 
     groups: List[Tuple[str, str, List[float]]] = []
-    for name, color, rows in iter_plot_groups(app):
+    for name, color, rows in iter_plot_groups(app, fallback_to_all=False):
         if not math.isfinite(tp_h):
             tp_filter = None
         else:

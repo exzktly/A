@@ -635,13 +635,17 @@ def parse_well_token(token: str) -> Optional[Tuple[int, int]]:
 
 # ── Plot-group iteration ─────────────────────────────────────────────────────
 
-def iter_plot_groups(app) -> Iterator[Tuple[str, str, List[dict]]]:
+def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, str, List[dict]]]:
     """Yield ``(name, color, rows)`` for each replicate set or selected well.
 
     Mirrors the loop used by the line and bar plot controllers:
       - if replicate sets are defined, iterate one per replicate set, pooling
         rows from all wells in the set;
       - otherwise iterate one per selected well.
+
+    When ``fallback_to_all`` is True (default) and no wells are selected, all
+    loaded wells are plotted. Pass False to suppress that fallback (yields
+    nothing when the selection is empty).
 
     The colour follows the existing well-colour palette from the theme via
     ``app._color_for_label`` / ``app._color_for_well`` when available, falling
@@ -690,6 +694,8 @@ def iter_plot_groups(app) -> Iterator[Tuple[str, str, List[dict]]]:
         return
 
     if not selected:
+        if not fallback_to_all:
+            return
         selected = set(well_paths.keys())
     for idx, w in enumerate(sorted(selected)):
         if w not in well_paths:
