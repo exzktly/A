@@ -1214,8 +1214,12 @@ def _build_export_figure(app):
     use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
 
     bg_face = "none" if transparent_bg else "white"
+    # Row height carries extra inches when titles are drawn above each axes.
+    # Without titles, match column width so row-wise and column-wise spacing
+    # come out visually equal.
+    row_in = 2.8 if show_titles else 2.6
     fig = Figure(
-        figsize=(max(2.4, cols * 2.6), max(2.4, rows * 2.8)),
+        figsize=(max(2.4, cols * 2.6), max(2.4, rows * row_in)),
         dpi=dpi,
         facecolor=bg_face,
     )
