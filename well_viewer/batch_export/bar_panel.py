@@ -41,7 +41,6 @@ from well_viewer.batch_export._common import (
     get_color,
     BarGroup,
     _bar_render_items,
-    _all_fluor_values,
     _extract_well_token,
     _PLATE_COLS,
     _PLATE_ROWS,

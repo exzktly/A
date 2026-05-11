@@ -6,6 +6,9 @@ import logging
 import time
 from typing import Optional
 
+import numpy as np
+import pandas as pd
+
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget,
@@ -73,40 +76,34 @@ class GatingWorker(QThread):
                     )
                 return
 
-            rows = self._app._get_rows(label)
-            well_included = 0
-            for row in rows:
-                include = 1
-                try:
-                    area = float(row.get("area_px", 0))
-                    if area <= cell_area_threshold:
-                        include = 0
-                except (ValueError, TypeError):
-                    include = 0
-
-                if include:
-                    for channel, gate_threshold in fluor_gates.items():
-                        col = f"{channel}_mean_intensity"
-                        try:
-                            fluor = float(row.get(col, float("nan")))
-                            if fluor != fluor or fluor <= gate_threshold:
-                                include = 0
-                                break
-                        except (ValueError, TypeError):
-                            include = 0
-                            break
-
-                row["Included"] = include
-                if include:
-                    well_included += 1
+            df = self._app._get_rows(label)
+            row_count = 0 if df is None else len(df)
+            if df is None or df.empty:
+                well_included = 0
+            else:
+                mask = pd.Series(True, index=df.index)
+                if "area_px" in df.columns:
+                    area = pd.to_numeric(df["area_px"], errors="coerce")
+                    mask &= area.notna() & (area > cell_area_threshold)
+                else:
+                    mask &= cell_area_threshold < 0
+                for channel, gate_threshold in fluor_gates.items():
+                    col = f"{channel}_mean_intensity"
+                    if col not in df.columns:
+                        mask = pd.Series(False, index=df.index)
+                        break
+                    v = pd.to_numeric(df[col], errors="coerce")
+                    mask &= v.notna() & (v > gate_threshold)
+                df["Included"] = mask.astype(int)
+                well_included = int(mask.sum())
 
             included_total += well_included
-            excluded_total += len(rows) - well_included
+            excluded_total += row_count - well_included
 
             if debug:
                 logger.info(
                     "GatingWorker progress %d/%d well=%s rows=%d included=%d",
-                    idx + 1, total, label, len(rows), well_included,
+                    idx + 1, total, label, row_count, well_included,
                 )
 
             self.progress.emit(idx + 1, total)
@@ -253,29 +250,29 @@ class CellGatingTab(QWidget):
         inner_layout.addStretch(1)
 
     def _load_cell_areas(self) -> None:
+        import numpy as np
         self._cell_areas = []
         self._fluor_data = {}
         labels = self._cdf_source_wells()
 
         for label in labels:
-            rows = self._app._get_rows(label)
-            frame_rows, _ = self._first_frame_rows(rows)
-            for row in frame_rows:
-                try:
-                    area = float(row.get("area_px", 0))
-                    if area > 0:
-                        self._cell_areas.append(area)
-                except (ValueError, TypeError):
-                    pass
-
-                for channel in self._app._fluor_channels:
-                    val_col = f"{channel}_mean_intensity"
-                    try:
-                        val = float(row.get(val_col, 0))
-                        if val > 0:
-                            self._fluor_data.setdefault(channel, []).append(val)
-                    except (ValueError, TypeError):
-                        pass
+            df = self._app._get_rows(label)
+            if df is None or df.empty:
+                continue
+            frame_df, _ = self._first_frame_rows(df)
+            if frame_df is None or frame_df.empty:
+                continue
+            if "area_px" in frame_df.columns:
+                area = pd.to_numeric(frame_df["area_px"], errors="coerce").to_numpy()
+                self._cell_areas.extend(float(a) for a in area[np.isfinite(area) & (area > 0)])
+            for channel in self._app._fluor_channels:
+                val_col = f"{channel}_mean_intensity"
+                if val_col not in frame_df.columns:
+                    continue
+                v = pd.to_numeric(frame_df[val_col], errors="coerce").to_numpy()
+                positive = v[np.isfinite(v) & (v > 0)]
+                if positive.size:
+                    self._fluor_data.setdefault(channel, []).extend(float(x) for x in positive)
 
         self._build_channel_controls()
 
@@ -288,49 +285,57 @@ class CellGatingTab(QWidget):
         else:
             self._status_label.setText("No cell data found")
 
-    def _first_frame_rows(self, rows: list[dict]) -> tuple[list[dict], str]:
-        if not rows:
-            return [], ""
+    def _first_frame_rows(self, df) -> tuple:
+        """Return (sub_df, description) for the first FOV's first timepoint."""
+        if df is None or df.empty:
+            return df, ""
 
-        def _fov_sort_key(row: dict):
-            raw = str(row.get("fov", "1")).strip() or "1"
+        fov_series = (df["fov"].fillna("1").astype(str).str.strip().replace("", "1")
+                      if "fov" in df.columns
+                      else pd.Series(["1"] * len(df), index=df.index))
+        fov_num = pd.to_numeric(fov_series, errors="coerce")
+
+        def _fov_token(token: str) -> tuple:
             try:
-                return (0, float(raw))
+                return (0, float(token))
             except ValueError:
-                return (1, raw.lower())
+                return (1, token.lower())
 
-        def _tp_sort_key(row: dict):
-            raw_h = row.get("timepoint_hours")
-            if raw_h not in (None, ""):
-                try:
-                    return (0, float(raw_h))
-                except (ValueError, TypeError):
-                    pass
-            raw_tp = str(row.get("timepoint", "")).strip()
-            if raw_tp:
-                try:
-                    return (1, float(raw_tp))
-                except ValueError:
-                    return (2, raw_tp.lower())
-            return (3, 0.0)
+        unique_fovs = sorted(fov_series.unique(), key=_fov_token)
+        first_fov = unique_fovs[0] if unique_fovs else "1"
+        same_fov = df.loc[fov_series == first_fov]
+        if same_fov.empty:
+            return same_fov, ""
 
-        first_fov = min(rows, key=_fov_sort_key).get("fov", "1")
-        same_fov_rows = [r for r in rows if str(r.get("fov", "1")) == str(first_fov)]
-        if not same_fov_rows:
-            return [], ""
+        tp_h = (pd.to_numeric(same_fov.get("timepoint_hours"), errors="coerce")
+                if "timepoint_hours" in same_fov.columns
+                else pd.Series(np.nan, index=same_fov.index, dtype=float))
+        tp_str = (same_fov.get("timepoint", pd.Series([""] * len(same_fov), index=same_fov.index))
+                  .fillna("").astype(str).str.strip())
+        tp_str_num = pd.to_numeric(tp_str, errors="coerce")
 
-        first_tp_row = min(same_fov_rows, key=_tp_sort_key)
-        first_tp_h = first_tp_row.get("timepoint_hours")
-        first_tp = first_tp_row.get("timepoint")
+        if tp_h.notna().any():
+            min_h = float(tp_h.min())
+            mask = (tp_h == min_h) | tp_h.isna()
+            mask = (tp_h == min_h)
+            frame_desc_tp = f"{min_h:g}"
+        elif tp_str_num.notna().any():
+            min_n = float(tp_str_num.min())
+            mask = tp_str_num == min_n
+            frame_desc_tp = f"{min_n:g}"
+        else:
+            non_empty = tp_str[tp_str != ""]
+            if non_empty.empty:
+                mask = pd.Series(True, index=same_fov.index)
+                frame_desc_tp = ""
+            else:
+                first = sorted(non_empty.unique(), key=str.lower)[0]
+                mask = tp_str == first
+                frame_desc_tp = first
 
-        def _tp_matches(row: dict) -> bool:
-            if first_tp_h not in (None, "") and row.get("timepoint_hours") == first_tp_h:
-                return True
-            return str(row.get("timepoint", "")) == str(first_tp)
-
-        frame_rows = [r for r in same_fov_rows if _tp_matches(r)]
-        frame_desc = f"fov={first_fov}, tp={first_tp if first_tp not in (None, '') else first_tp_h}"
-        return frame_rows, frame_desc
+        frame_df = same_fov.loc[mask]
+        frame_desc = f"fov={first_fov}, tp={frame_desc_tp}"
+        return frame_df, frame_desc
 
     def _cdf_source_wells(self) -> list[str]:
         active_rsets = []

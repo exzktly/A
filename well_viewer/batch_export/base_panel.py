@@ -1101,20 +1101,21 @@ class BatchExportPanel(QWidget):
             color = WELL_COLORS[mi % len(WELL_COLORS)]
             if member_type == "replicate":
                 rset = member_key
-                all_tps: set = set()
-                fluor_vals_raw: List[float] = []
+                fluor_chunks: list = []
+                pooled_pts = self._app._aggregate_group(
+                    valid_wells, threshold=threshold, use_sem=False,
+                    val_col=_val_col,
+                    cell_area_threshold=_cell_area_threshold,
+                    fluor_gates=_fluor_gates,
+                )
+                all_tps = sorted({t for t, *_ in pooled_pts})
                 for lbl in valid_wells:
-                    rows = self._app._get_rows(lbl)
-                    for t, *_ in self._app._aggregate_well(
-                        lbl, threshold=threshold, use_sem=False,
-                        val_col=_val_col,
-                        cell_area_threshold=_cell_area_threshold,
-                        fluor_gates=_fluor_gates,
-                    ):
-                        all_tps.add(t)
-                    fluor_vals_raw.extend(_all_fluor_values(rows, val_col=_val_col))
+                    df = self._app._get_rows(lbl)
+                    if df is None or df.empty:
+                        continue
+                    fluor_chunks.append(_all_fluor_values(df, val_col=_val_col))
                 agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
-                for t in sorted(all_tps):
+                for t in all_tps:
                     gm, gerr, gf, _ = self._app._compute_rep_stats(rset, t, threshold, use_sem)
                     if not math.isnan(gm):
                         agg_times.append(t); agg_means.append(gm)
@@ -1137,9 +1138,11 @@ class BatchExportPanel(QWidget):
                         ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                     any_ts = True
 
-                fluor_vals = sorted(fluor_vals_raw)
+                import numpy as _np
+                pooled = _np.concatenate(fluor_chunks) if fluor_chunks else _np.empty(0, dtype=float)
+                fluor_vals = _np.sort(pooled)
             else:
-                rows = self._app._get_rows(member_key)
+                df = self._app._get_rows(member_key)
                 pts = self._app._aggregate_well(
                     member_key, threshold=threshold, use_sem=use_sem,
                     val_col=_val_col,
@@ -1167,12 +1170,16 @@ class BatchExportPanel(QWidget):
                         ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                     any_ts = True
 
-                fluor_vals = sorted(_all_fluor_values(rows, val_col=_val_col))
+                import numpy as _np
+                pooled = _all_fluor_values(df, val_col=_val_col) if df is not None and not df.empty else _np.empty(0, dtype=float)
+                fluor_vals = _np.sort(pooled)
 
-            all_fluor_vals.extend(fluor_vals)
-            if fluor_vals:
-                n = len(fluor_vals)
-                ax_cdf.plot(fluor_vals, [(k + 1) / n for k in range(n)],
+            n = int(fluor_vals.size)
+            if n:
+                import numpy as _np
+                all_fluor_vals.extend(fluor_vals.tolist())
+                cdf = _np.arange(1, n + 1) / n
+                ax_cdf.plot(fluor_vals, cdf,
                             color=color, lw=1.8,
                             label=f"{display_name} (n={n:,})", zorder=3)
                 any_cdf = True

@@ -280,6 +280,17 @@ class SmfishTab(QWidget):
             return
 
         self._out_dir = out_dir
+
+        if not self._smfish_tokens:
+            # The pipeline run produced no smFISH channels — surface that
+            # explicitly instead of leaving the user with empty dropdowns
+            # and a blank canvas.
+            self._show_no_smfish_state()
+            return
+
+        # Re-enable controls in case the previous load was a no-smFISH run.
+        self._set_controls_enabled(True)
+
         zips = sorted(out_dir.glob("*_out.zip"))
         self._well_to_zip = {}
         for z in zips:
@@ -295,6 +306,45 @@ class SmfishTab(QWidget):
         if channels:
             self._channel_cb.setCurrentIndex(0)
         self._refresh_fov_tp_values()
+
+    _NO_SMFISH_MESSAGE = (
+        "No smFISH data was generated during the processing pipeline.\n"
+        "Re-run the analysis with smFISH channels enabled to populate this tab."
+    )
+
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for w in (self._channel_cb, self._fov_cb, self._tp_cb,
+                  self._threshold_edit, self._lut_min_edit, self._lut_max_edit):
+            try:
+                w.setEnabled(enabled)
+            except Exception:
+                pass
+
+    def _show_no_smfish_state(self) -> None:
+        self._set_status(self._NO_SMFISH_MESSAGE.replace("\n", "  "))
+        for cb in (self._channel_cb, self._fov_cb, self._tp_cb):
+            cb.blockSignals(True)
+            cb.clear()
+            cb.blockSignals(False)
+        self._set_controls_enabled(False)
+        self._well_to_zip = {}
+        self._current_log_img = None
+        self._current_labels = None
+        self._current_sorted_vals = None
+        try:
+            self._ax_img.clear()
+            self._ax_img.set_axis_off()
+            self._ax_img.text(
+                0.5, 0.5, self._NO_SMFISH_MESSAGE,
+                transform=self._ax_img.transAxes,
+                ha="center", va="center",
+                color="#888888",
+                fontsize=11, wrap=True,
+            )
+            if self._canvas_img is not None:
+                self._canvas_img.draw_idle()
+        except Exception:
+            pass
 
     def _selected_well_token(self) -> str | None:
         if self._app is None:

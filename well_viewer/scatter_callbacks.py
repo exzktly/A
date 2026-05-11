@@ -128,8 +128,34 @@ class ScatterCellViewer(QDialog):
         if getattr(self, "_debug_text", None) is not None:
             self._debug_text.append(line)
 
+    @staticmethod
+    def _row_dict_at(df, idx: int) -> dict:
+        """Return row ``idx`` of ``_get_rows`` as a ``{column: value}`` dict.
+
+        ``app._get_rows`` returns a ``pandas.DataFrame`` (positional ``df[idx]``
+        is a *column* lookup → ``KeyError``), so use ``iloc``.
+        """
+        return dict(df.iloc[idx])
+
     def _load_cell_data(self) -> None:
-        """Load cell data: find images using filename, get cell bounds from mask."""
+        """Load cell data: find images using filename, get cell bounds from mask.
+
+        Any unexpected failure is surfaced in the diagnostics panel rather than
+        propagating — the dialog must always appear so the user can see *why*
+        a cell image could not be loaded.
+        """
+        try:
+            self._load_cell_data_impl()
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            self._debug(f"Unexpected error while loading cell data: {exc!r}")
+            self._debug(traceback.format_exc())
+            try:
+                self._img_label.setText(f"Error loading cell: {exc}")
+            except Exception:
+                pass
+
+    def _load_cell_data_impl(self) -> None:
         self._channel_luts = {}
         self._cell_outline_mask = None
         self._debug_lines = []
@@ -144,13 +170,18 @@ class ScatterCellViewer(QDialog):
             return
         self._debug(f"parsed_nuclear_id={nuclear_id}")
 
+        if self.well_label not in getattr(self.app, "_well_paths", {}):
+            self._img_label.setText(f"Well {self.well_label} is no longer loaded")
+            self._debug(f"well_label not in app._well_paths: {self.well_label!r}")
+            return
+
         rows = self.app._get_rows(self.well_label)
-        if self.row_idx >= len(rows):
+        if not (0 <= self.row_idx < len(rows)):
             self._img_label.setText("Invalid row index")
             self._debug(f"row_idx out of bounds: row_idx={self.row_idx}, rows={len(rows)}")
             return
 
-        row = rows[self.row_idx]
+        row = self._row_dict_at(rows, self.row_idx)
         self._nuclear_token = str(row.get("channel") or "").strip()
         self._debug(f"csv.channel={self._nuclear_token!r}")
         self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")

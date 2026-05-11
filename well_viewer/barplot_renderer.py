@@ -26,12 +26,15 @@ from well_viewer.barplot_controller import (
     ordered_bar_keys as _ordered_bar_keys,
     render_bar_items as _render_bar_items,
 )
+import numpy as np
+import pandas as pd
+
 from well_viewer.data_loading import (
     _beeswarm_jitter,
+    df_included_mask,
     extract_well_token as _extract_well_token,
     parse_timepoint_hours,
-    resolve_value,
-    row_is_included,
+    resolve_value_series,
 )
 from well_viewer.plate_layout import WELL_COLORS
 from well_viewer.plot_style import apply_ax_style
@@ -63,7 +66,6 @@ def draw_violin(
                      color=TXT_MUT, fontsize=9)
         return
 
-    import numpy as np_local
     n = len(wells)
     slider = getattr(app, "_violin_slider", None)
     bw_raw = float(slider.value()) / 100.0 if slider is not None else 1.0
@@ -75,39 +77,33 @@ def draw_violin(
     ratios = getattr(app, "_ratio_index", None)
 
     for i, (lbl, color) in enumerate(zip(wells, colors)):
-        rows = app._get_rows(lbl)
-        vals: List[float] = []
+        df = app._get_rows(lbl)
+        vals = np.empty(0, dtype=float)
         n_total = n_above = 0
-        for row in rows:
-            if not row_is_included(row):
-                continue
-            raw_t = row.get("timepoint_hours")
-            try:
-                t = float(raw_t)
-            except (TypeError, ValueError):
-                continue
-            if abs(t - target_t) > 1e-6:
-                continue
-            v = resolve_value(row, app._active_val_col, ratios)
-            if math.isnan(v):
-                continue
-            n_total += 1
-            if v > threshold:
-                n_above += 1
-                vals.append(v)
+        if df is not None and not df.empty and "timepoint_hours" in df.columns:
+            mask = df_included_mask(df).to_numpy(copy=True)
+            tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").to_numpy()
+            with np.errstate(invalid="ignore"):
+                mask &= np.isfinite(tp) & (np.abs(tp - target_t) <= 1e-6)
+            v = resolve_value_series(df, app._active_val_col, ratios).to_numpy()
+            mask &= np.isfinite(v)
+            v_sel = v[mask]
+            n_total = int(v_sel.size)
+            vals = v_sel[v_sel > threshold]
+            n_above = int(vals.size)
 
         frac_vals.append(n_above / n_total if n_total else float("nan"))
 
-        if len(vals) < 3:
-            if vals:
+        if vals.size < 3:
+            if vals.size:
                 ax_mean.scatter([i], [vals[0]], c=color, s=20, zorder=4)
             continue
 
-        arr = np_local.array(vals, dtype=float)
+        arr = vals
         kde = gaussian_kde(arr, bw_method=bw)
-        y_min, y_max = arr.min(), arr.max()
+        y_min, y_max = float(arr.min()), float(arr.max())
         y_pad = (y_max - y_min) * 0.05
-        ys = np_local.linspace(y_min - y_pad, y_max + y_pad, 200)
+        ys = np.linspace(y_min - y_pad, y_max + y_pad, 200)
         density = kde(ys)
         max_d = density.max()
         if max_d > 0:
@@ -118,7 +114,7 @@ def draw_violin(
         ax_mean.plot(i - density, ys, color=color, lw=0.6, alpha=0.7, zorder=3)
         ax_mean.plot(i + density, ys, color=color, lw=0.6, alpha=0.7, zorder=3)
 
-        median = float(np_local.median(arr))
+        median = float(np.median(arr))
         ax_mean.hlines(median, i - bar_w * 0.6, i + bar_w * 0.6,
                        colors="white", lw=2.0, zorder=5)
         ax_mean.hlines(median, i - bar_w * 0.6, i + bar_w * 0.6,
@@ -168,36 +164,37 @@ def draw_beeswarm(
     ratios = getattr(app, "_ratio_index", None)
 
     for i, (lbl, color) in enumerate(zip(wells, colors)):
-        rows = app._get_rows(lbl)
-        cell_vals: List[float] = []
+        df = app._get_rows(lbl)
+        cell_vals = np.empty(0, dtype=float)
         frac_val: Optional[float] = None
-        n_above = n_total = 0
-        for row in rows:
-            if not row_is_included(row):
-                continue
-            raw = row.get("timepoint_hours")
-            t: Optional[float] = (raw if isinstance(raw, float)
-                                  and not math.isnan(raw)
-                                  else parse_timepoint_hours(
-                                      str(row.get("timepoint", ""))))
-            if t is None or abs(t - target_t) > 1e-6:
-                continue
-            val = resolve_value(row, app._active_val_col, ratios)
-            if math.isnan(val):
-                continue
-            n_total += 1
-            if val > threshold:
-                n_above += 1
-                cell_vals.append(val)
-        if n_total > 0:
-            frac_val = n_above / n_total
+        if df is not None and not df.empty:
+            mask = df_included_mask(df).to_numpy(copy=True)
+            if "timepoint_hours" in df.columns:
+                tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").to_numpy()
+            else:
+                tp = np.full(len(df), np.nan)
+            need = ~np.isfinite(tp)
+            if need.any() and "timepoint" in df.columns:
+                fallback = (df.loc[need, "timepoint"].fillna("").astype(str)
+                            .map(parse_timepoint_hours))
+                tp[need] = fallback.fillna(np.nan).to_numpy(dtype=float)
+            with np.errstate(invalid="ignore"):
+                mask &= np.isfinite(tp) & (np.abs(tp - target_t) <= 1e-6)
+            val = resolve_value_series(df, app._active_val_col, ratios).to_numpy()
+            mask &= np.isfinite(val)
+            v_sel = val[mask]
+            n_total = int(v_sel.size)
+            cell_vals = v_sel[v_sel > threshold]
+            n_above = int(cell_vals.size)
+            if n_total > 0:
+                frac_val = n_above / n_total
 
-        if cell_vals:
-            jx, jy = _beeswarm_jitter(cell_vals, x_center=float(i),
+        if cell_vals.size:
+            jx, jy = _beeswarm_jitter(cell_vals.tolist(), x_center=float(i),
                                        max_spread=bar_w)
             ax_mean.scatter(jx, jy, c=color, s=6, alpha=0.55,
                             zorder=3, linewidths=0)
-            m = sum(cell_vals) / len(cell_vals)
+            m = float(cell_vals.mean())
             ax_mean.plot([i - bar_w * 0.6, i + bar_w * 0.6],
                          [m, m], color=color, lw=1.5, zorder=4)
         else:

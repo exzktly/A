@@ -92,6 +92,8 @@ from PySide6.QtWidgets import (
 )
 
 import matplotlib
+import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 from well_viewer.batch_models import BarGroup, ReplicateSet
 from well_viewer.viewer_state import groups_with_loaded_wells as _groups_with_loaded_wells
@@ -465,6 +467,16 @@ def make_overlay_thumb(arr, sz_w: int, sz_h: int,
     return pm.scaled(int(sz_w), int(sz_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
+def _safe_int_or_none(value: object) -> Optional[int]:
+    """Best-effort coercion of ``value`` to int, returning None on failure."""
+    if value is None:
+        return None
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
 def _bind_drag(frame, btn_store, on_press, on_drag, on_release, *, button: int = 1) -> None:
     """Bind press/drag/release events — stub retained for API compat under Qt."""
     # Qt: wire mousePressEvent/mouseMoveEvent/mouseReleaseEvent overrides instead.
@@ -532,7 +544,6 @@ from well_viewer.plot_style import apply_ax_style
 
 from well_viewer.data_loading import (
     AggPoint,
-    _STRING_COLS,
     _all_fluor_values,
     _all_fluor_values_filtered,
     _beeswarm_jitter,
@@ -541,14 +552,13 @@ from well_viewer.data_loading import (
     detect_nuclear_channel_token,
     detect_review_image_channels,
     detect_smfish_channels,
+    df_included_mask,
     load_well_csv,
-    rows_to_df,
     merge_fluor_channels,
     normalize_channel_tokens,
     parse_timepoint_hours,
     parse_well_token,
-    resolve_value,
-    row_is_included,
+    resolve_value_series,
 )
 from well_viewer.ratio_models import (
     RatioMetric,
@@ -688,7 +698,7 @@ class WellViewerApp(QWidget):
         self._in_dir:     Optional[Path]        = None
         self._tmp_dir:    Optional[Path]        = None
         self._well_paths: Dict[str, Path]       = {}
-        self._cache:      Dict[str, List[dict]] = {}
+        self._cache:      Dict[str, pd.DataFrame] = {}
         self._all_timepoints_cache: List[float] = []
         self._all_fovs_cache: List[str] = []
         self._last_sel:   Optional[str]         = None
@@ -904,39 +914,29 @@ class WellViewerApp(QWidget):
             gates[channel] = self._get_fluor_gate(channel)
         return gates
 
-    def _row_is_included(self, row: dict) -> bool:
-        """Instance wrapper so controllers can consistently check Included."""
-        return row_is_included(row)
-
     def _apply_cell_gating_to_included(self) -> None:
-        """Write cell-gating result into each cached row's Included field (1/0)."""
+        """Write cell-gating result into each cached DataFrame's ``Included`` column."""
         cell_area_threshold = self._get_cell_area_threshold()
         fluor_gates = self._get_all_fluor_gates()
 
         for label in self._well_paths:
-            rows = self._get_rows(label)
-            for row in rows:
-                include = 1
-                try:
-                    area = float(row.get("area_px", 0))
-                    if area <= cell_area_threshold:
-                        include = 0
-                except (ValueError, TypeError):
-                    include = 0
-
-                if include:
-                    for channel, gate_threshold in fluor_gates.items():
-                        col = f"{channel}_mean_intensity"
-                        try:
-                            fluor = float(row.get(col, float("nan")))
-                            if fluor != fluor or fluor <= gate_threshold:
-                                include = 0
-                                break
-                        except (ValueError, TypeError):
-                            include = 0
-                            break
-
-                row["Included"] = include
+            df = self._get_rows(label)
+            if df is None or df.empty:
+                continue
+            mask = pd.Series(True, index=df.index)
+            if "area_px" in df.columns:
+                area = pd.to_numeric(df["area_px"], errors="coerce")
+                mask &= area.notna() & (area > cell_area_threshold)
+            else:
+                mask &= cell_area_threshold < 0
+            for channel, gate in fluor_gates.items():
+                col = f"{channel}_mean_intensity"
+                if col not in df.columns:
+                    mask = pd.Series(False, index=df.index)
+                    break
+                v = pd.to_numeric(df[col], errors="coerce")
+                mask &= v.notna() & (v > gate)
+            df["Included"] = mask.astype(int)
 
         # Re-apply user overrides on top of the gating-computed Included so
         # per-cell curation persists across threshold recomputes.
@@ -1146,12 +1146,11 @@ class WellViewerApp(QWidget):
         """Populate the timepoint, channel, and statistic dropdowns."""
         all_tps: set = set()
         for label in self._well_paths:
-            for row in self._get_rows(label):
-                raw = row.get("timepoint_hours")
-                try:
-                    all_tps.add(float(raw))
-                except (TypeError, ValueError):
-                    pass
+            df = self._get_rows(label)
+            if df is None or "timepoint_hours" not in df.columns:
+                continue
+            tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").dropna().unique()
+            all_tps.update(float(t) for t in tp)
         sorted_tps = sorted(all_tps)
         tp_strs    = [f"{t:.4g}" for t in sorted_tps]
         _set_combo_values(self._stats_tp_cb, tp_strs or ["—"])
@@ -3042,15 +3041,20 @@ class WellViewerApp(QWidget):
           2) pipeline_info.json ``available_timepoints`` when present
         """
         all_tps: set[float] = set()
-        for rows in self._cache.values():
-            for row in rows:
-                raw = row.get("timepoint_hours")
-                t: Optional[float] = (
-                    raw if isinstance(raw, float) and not math.isnan(raw)
-                    else parse_timepoint_hours(str(row.get("timepoint", "")))
-                )
-                if t is not None:
-                    all_tps.add(t)
+        for df in self._cache.values():
+            if df is None or df.empty:
+                continue
+            if "timepoint_hours" in df.columns:
+                tp_num = pd.to_numeric(df["timepoint_hours"], errors="coerce")
+                all_tps.update(float(t) for t in tp_num.dropna().unique())
+                missing = tp_num.isna()
+            else:
+                missing = pd.Series(True, index=df.index)
+            if "timepoint" in df.columns and missing.any():
+                for s in df.loc[missing, "timepoint"].fillna("").astype(str).unique():
+                    parsed = parse_timepoint_hours(s)
+                    if parsed is not None:
+                        all_tps.add(parsed)
         pipeline_info = getattr(self, "_pipeline_info", {}) or {}
         for tp in pipeline_info.get("available_timepoints", []) or []:
             parsed = parse_timepoint_hours(str(tp))
@@ -3070,9 +3074,11 @@ class WellViewerApp(QWidget):
                 return raw
 
         all_fovs: set[str] = set()
-        for rows in self._cache.values():
-            for row in rows:
-                fov = _norm_fov(row.get("fov", ""))
+        for df in self._cache.values():
+            if df is None or df.empty or "fov" not in df.columns:
+                continue
+            for raw in df["fov"].fillna("").astype(str).unique():
+                fov = _norm_fov(raw)
                 if fov:
                     all_fovs.add(fov)
         pipeline_info = getattr(self, "_pipeline_info", {}) or {}
@@ -3405,11 +3411,12 @@ class WellViewerApp(QWidget):
 
     def _recalculate_threshold(self) -> None:
         # Detect channels from the first loaded well
-        all_rows_sample = next(
-            (self._get_rows(lbl) for lbl in self._well_paths), []
+        sample_df = next(
+            (self._get_rows(lbl) for lbl in self._well_paths),
+            pd.DataFrame(),
         )
-        detected = detect_fluor_channels(all_rows_sample)
-        detected_smfish = detect_smfish_channels(all_rows_sample)
+        detected = detect_fluor_channels(sample_df)
+        detected_smfish = detect_smfish_channels(sample_df)
         pipeline_fluor_raw = [
             str(tok).strip().lower()
             for tok in (self._pipeline_info.get("fluor_tokens", []) if isinstance(self._pipeline_info, dict) else [])
@@ -3421,7 +3428,7 @@ class WellViewerApp(QWidget):
         if isinstance(self._pipeline_info, dict):
             seg_tok = str(self._pipeline_info.get("nuclear_token", "") or "").strip().lower()
         if not seg_tok:
-            seg_tok = detect_nuclear_channel_token(all_rows_sample)
+            seg_tok = detect_nuclear_channel_token(sample_df)
         fluor_channels = merge_fluor_channels(pipeline_fluor, detected, seg_tok)
         if fluor_channels:
             self._fluor_channels = fluor_channels
@@ -3432,7 +3439,7 @@ class WellViewerApp(QWidget):
             if not self._active_image_channel:
                 self._active_image_channel = fluor_channels[0]
         self._seg_channel_token = seg_tok
-        self._review_image_channels = detect_review_image_channels(all_rows_sample, self._fluor_channels, seg_tok)
+        self._review_image_channels = detect_review_image_channels(sample_df, self._fluor_channels, seg_tok)
         self._update_channel_selector()
 
         # Update smFISH channels and reset metric if needed
@@ -3474,12 +3481,12 @@ class WellViewerApp(QWidget):
             except Exception:
                 _logger.exception("Heatmap timepoint refresh failed")
 
-        all_vals = [v for lbl in self._well_paths
-                    for v in _all_fluor_values(self._get_rows(lbl),
-                                             val_col=self._active_val_col)]
-        if not all_vals:
+        chunks = [_all_fluor_values(self._get_rows(lbl), val_col=self._active_val_col)
+                  for lbl in self._well_paths]
+        all_vals = np.concatenate(chunks) if chunks else np.empty(0)
+        if all_vals.size == 0:
             return
-        lo, hi = min(all_vals), max(all_vals)
+        lo, hi = float(all_vals.min()), float(all_vals.max())
         if hi <= lo: hi = lo + 1.0
         self._threshold_min = lo
         self._threshold_max = hi
@@ -3937,7 +3944,7 @@ class WellViewerApp(QWidget):
         """Return labels in a stable order (sorted) for consistent plot colours."""
         return sorted(self._selected_wells, key=lambda lbl: self._parse_rc(lbl))
 
-    def _get_rows(self, label: str) -> List[dict]:
+    def _get_rows(self, label: str) -> pd.DataFrame:
         if label not in self._cache:
             self._cache[label] = load_well_csv(self._well_paths[label])
         return self._cache[label]
@@ -3953,14 +3960,9 @@ class WellViewerApp(QWidget):
         per_fov_spread: bool = False,
         tp_col: str = "timepoint_hours",
     ):
-        """Aggregate a single well via the vectorized DataFrame path.
-
-        The DataFrame is built from ``_get_rows(label)`` on every call;
-        consumers that hammer this in tight loops trade a small DataFrame
-        construction cost for the vectorized inner loop.
-        """
+        """Aggregate a single well via the vectorized DataFrame path."""
         return aggregate_with_threshold_df(
-            rows_to_df(self._get_rows(label)),
+            self._get_rows(label),
             threshold=threshold,
             use_sem=use_sem,
             tp_col=tp_col,
@@ -3993,10 +3995,9 @@ class WellViewerApp(QWidget):
                 fluor_gates=fluor_gates, per_fov_spread=per_fov_spread,
                 tp_col=tp_col,
             )
-        import pandas as pd
         frames = []
         for w in valid:
-            sub = rows_to_df(self._get_rows(w))
+            sub = self._get_rows(w)
             if per_fov_spread and len(sub) > 0:
                 # Prefix FOV ids with the well label so identical FOV numbers
                 # across replicate wells stay distinct when pooled.
@@ -4062,6 +4063,44 @@ class WellViewerApp(QWidget):
             self._norm_timepoint(_pick("timepoint", "tp", "time", "time_h", "timepoint_hours")),
             _norm(_pick("nucleus_id", "nucleus id", "nucleusId", "nucleusID")),
         )
+
+    def _review_row_keys_series(self, df: pd.DataFrame) -> Optional[pd.Series]:
+        """Vectorized counterpart of ``_review_row_keys`` for a DataFrame.
+
+        Returns a Series of ``(fov, tp_norm, nid_norm)`` tuples aligned with
+        ``df.index``, or ``None`` if no usable identifier columns are present.
+        """
+        if df is None or df.empty:
+            return None
+
+        def _resolve_col(*names: str) -> Optional[str]:
+            lowered = {str(c).lower(): c for c in df.columns}
+            for name in names:
+                if name in df.columns:
+                    return name
+                key = name.lower()
+                if key in lowered:
+                    return lowered[key]
+            return None
+
+        def _norm_token(s: pd.Series) -> pd.Series:
+            s = s.fillna("").astype(str).str.strip()
+            num = pd.to_numeric(s, errors="coerce")
+            return s.where(num.isna(), num.map(lambda f: f"{f:g}" if pd.notna(f) else ""))
+
+        fov_col = _resolve_col("fov", "FOV")
+        tp_col = _resolve_col("timepoint", "tp", "time", "time_h", "timepoint_hours")
+        nid_col = _resolve_col("nucleus_id", "nucleus id", "nucleusId", "nucleusID")
+        if fov_col is None and tp_col is None and nid_col is None:
+            return None
+
+        fov = (_norm_token(df[fov_col]) if fov_col else
+               pd.Series([""] * len(df), index=df.index))
+        tp = (df[tp_col].map(self._norm_timepoint) if tp_col else
+              pd.Series([""] * len(df), index=df.index))
+        nid = (_norm_token(df[nid_col]) if nid_col else
+               pd.Series([""] * len(df), index=df.index))
+        return pd.Series(list(zip(fov, tp, nid)), index=df.index)
 
     @staticmethod
     def _review_norm_fov(v: object) -> str:
@@ -4271,28 +4310,33 @@ class WellViewerApp(QWidget):
         include_by_nid: Dict[int, bool] = {
             int(nid): True for nid in _np.unique(center) if int(nid) > 0
         }
-        # Iterate the canonical cached rows in place — never deep-copy them.
-        # On a 6-well x ~10k-cell dataset this used to allocate ~60k transient
-        # dicts per refresh, which dominated Review Image RAM growth.
-        for row in self._review_load_rows(well):
-            row_fov, row_tp, row_nid = self._review_row_keys(row)
-            if row_fov != fov or row_tp != tp or not row_nid:
-                continue
-            try:
-                nid = int(float(row_nid))
-            except Exception:
-                continue
-            incl = self._review_effective_included(well, row).strip()
-            include_by_nid[nid] = (incl != "0")
+        df = self._get_rows(well)
+        if df is not None and not df.empty:
+            keys = self._review_row_keys_series(df)
+            if keys is not None:
+                target = (fov, tp, None)
+                fov_eq = keys.map(lambda k: k[0] == fov and k[1] == tp and k[2] != "")
+                sub = df.loc[fov_eq.fillna(False).to_numpy()]
+                if not sub.empty:
+                    sub_keys = keys.loc[sub.index]
+                    nids = sub_keys.map(lambda k: k[2]).map(_safe_int_or_none)
+                    incl = sub["Included"].map(lambda v: int(float(str(v).strip() or "1")) if str(v).strip() not in ("",) else 1)
+                    overrides = self._review_included_overrides
+                    for nid, base_incl in zip(nids, incl):
+                        if nid is None:
+                            continue
+                        ovr = overrides.get((well, fov, tp, str(nid)))
+                        if ovr is not None:
+                            include_by_nid[nid] = (str(ovr).strip() != "0")
+                        elif nid in include_by_nid:
+                            include_by_nid[nid] = bool(base_incl)
         # Apply overrides for cells present in the mask but without a CSV row
-        # (e.g. when no pipeline results are loaded yet). Without this, drag/
-        # click deletions have no visual effect until analysis is run.
+        # (e.g. when no pipeline results are loaded yet).
         for (ovr_well, ovr_fov, ovr_tp, ovr_nid), val in self._review_included_overrides.items():
             if ovr_well != well or ovr_fov != fov or ovr_tp != tp:
                 continue
-            try:
-                nid = int(float(ovr_nid))
-            except Exception:
+            nid = _safe_int_or_none(ovr_nid)
+            if nid is None:
                 continue
             if nid in include_by_nid:
                 include_by_nid[nid] = (val.strip() != "0")
@@ -4305,9 +4349,7 @@ class WellViewerApp(QWidget):
 
         Mirrors the bar plot's gating logic: a cell is "above threshold" only
         when it passes (a) cell-area gating, (b) every fluorescence gate, and
-        (c) ``row[active_val_col] > thresh_frac_on``. Rows from other FOVs or
-        timepoints are explicitly skipped so a binary mask built from the
-        full well's rows can't pull in mismatched nucleus IDs.
+        (c) ``row[active_val_col] > thresh_frac_on``.
         """
         center = _np.asarray(mask_arr)
         cell_area_threshold = self._get_cell_area_threshold()
@@ -4318,44 +4360,37 @@ class WellViewerApp(QWidget):
         above_by_nid: Dict[int, bool] = {
             int(nid): False for nid in _np.unique(center) if int(nid) > 0
         }
-        for row in self._review_load_rows(well):
-            row_fov, row_tp, row_nid = self._review_row_keys(row)
-            if row_fov != fov or row_tp != tp or not row_nid:
-                continue
-            try:
-                nid = int(float(row_nid))
-            except Exception:
-                continue
-            if not row_is_included(row):
-                above_by_nid[nid] = False
-                continue
-            try:
-                area = float(row.get("area_px", 0))
-            except (TypeError, ValueError):
-                above_by_nid[nid] = False
-                continue
-            if area <= cell_area_threshold:
-                above_by_nid[nid] = False
-                continue
-            gates_passed = True
-            for chan, gate in fluor_gates.items():
-                col = f"{chan}_mean_intensity"
-                try:
-                    fluor = float(row.get(col, float("nan")))
-                except (TypeError, ValueError):
-                    gates_passed = False
-                    break
-                if fluor != fluor or fluor <= gate:
-                    gates_passed = False
-                    break
-            if not gates_passed:
-                above_by_nid[nid] = False
-                continue
-            val = resolve_value(row, val_col, ratios)
-            if val != val:  # NaN guard
-                above_by_nid[nid] = False
-                continue
-            above_by_nid[nid] = bool(val > threshold)
+        df = self._get_rows(well)
+        if df is None or df.empty:
+            return above_by_nid
+        keys = self._review_row_keys_series(df)
+        if keys is None:
+            return above_by_nid
+        sel = keys.map(lambda k: k[0] == fov and k[1] == tp and k[2] != "").fillna(False).to_numpy()
+        sub = df.loc[sel]
+        if sub.empty:
+            return above_by_nid
+
+        mask = df_included_mask(sub).to_numpy(copy=True)
+        if "area_px" in sub.columns:
+            area = pd.to_numeric(sub["area_px"], errors="coerce").to_numpy()
+            with np.errstate(invalid="ignore"):
+                mask &= np.isfinite(area) & (area > cell_area_threshold)
+        for chan, gate in fluor_gates.items():
+            col = f"{chan}_mean_intensity"
+            if col not in sub.columns:
+                mask[:] = False
+                break
+            v = pd.to_numeric(sub[col], errors="coerce").to_numpy()
+            mask &= np.isfinite(v) & (v > gate)
+        val = resolve_value_series(sub, val_col, ratios).to_numpy()
+        mask &= np.isfinite(val) & (val > threshold)
+
+        sub_keys = keys.loc[sub.index]
+        for k, ok in zip(sub_keys, mask):
+            nid = _safe_int_or_none(k[2])
+            if nid is not None and nid in above_by_nid:
+                above_by_nid[nid] = bool(ok)
         return above_by_nid
 
     def _refresh_review_image(self) -> None:
@@ -5262,40 +5297,41 @@ class WellViewerApp(QWidget):
             if lbl not in self._well_paths:
                 continue
             try:
-                rows = self._get_rows(lbl)
+                df = self._get_rows(lbl)
             except Exception:
                 continue
-            for row in rows:
-                fov, tp, nid = self._review_row_keys(row)
-                if not (fov and tp and nid):
-                    continue
-                val = lookup.get((fov, tp, nid))
-                if val is None:
-                    continue
+            if df is None or df.empty:
+                continue
+            keys = self._review_row_keys_series(df)
+            if keys is None:
+                continue
+            override_map = pd.Series(lookup)
+            override_for_row = keys.map(override_map)
+            mask = override_for_row.notna()
+            if not mask.any():
+                continue
+            def _coerce(val: object) -> int:
                 try:
-                    row["Included"] = int(float(str(val).strip() or "1"))
+                    return int(float(str(val).strip() or "1"))
                 except (TypeError, ValueError):
-                    row["Included"] = 1 if str(val).strip() == "1" else 0
+                    return 1 if str(val).strip() == "1" else 0
+            df.loc[mask, "Included"] = override_for_row[mask].map(_coerce).astype(int)
 
     def _review_load_rows(self, label: str) -> List[dict]:
-        """Return the canonical cached rows for ``label`` (no copies).
+        """Materialize the cached DataFrame for ``label`` as a list of row dicts.
 
-        Each row is lazily normalized on first access. The returned list is the
-        live cache list — callers must NOT mutate row contents beyond the
-        canonical 'well'/'Included' fields, and must use
-        ``_review_effective_included`` instead of reading row['Included']
-        directly when they want overrides applied.
-
-        Avoiding the per-call ``[dict(row) for row ...]`` deep copy is
-        critical: with thousands of cells per well across multiple wells, the
-        previous behavior allocated tens of thousands of new dicts on every
-        Review Image / Review CSV refresh and pinned hundreds of MB of RAM
-        until the next major GC.
+        Used by the Review CSV table widget and the Review Image overlay
+        builders. Mutations to returned dicts are local — write back to the
+        canonical store via ``_apply_review_overrides_to_cache`` (which
+        updates the cached DataFrame's ``Included`` column directly).
         """
         try:
-            return self._get_rows(label)
+            df = self._get_rows(label)
         except Exception:
             return []
+        if df is None or df.empty:
+            return []
+        return df.to_dict("records")
 
     def _update_bar_tp_menu(self) -> None:
         """
@@ -5728,17 +5764,19 @@ class WellViewerApp(QWidget):
                 if not math.isnan(f): well_fracs.append(f)
 
         if well_means:
-            gm  = statistics.mean(well_means)
-            n   = len(well_means)
-            gsd = statistics.pstdev(well_means) if n > 1 else 0.0
+            arr = np.asarray(well_means, dtype=float)
+            gm  = float(arr.mean())
+            n   = arr.size
+            gsd = float(arr.std(ddof=0)) if n > 1 else 0.0
             gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
         else:
             gm, gerr = float("nan"), 0.0
 
         if well_fracs:
-            gf  = statistics.mean(well_fracs)
-            nf  = len(well_fracs)
-            fsd = statistics.pstdev(well_fracs) if nf > 1 else 0.0
+            arr = np.asarray(well_fracs, dtype=float)
+            gf  = float(arr.mean())
+            nf  = arr.size
+            fsd = float(arr.std(ddof=0)) if nf > 1 else 0.0
             ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
         else:
             gf, ferr = float("nan"), 0.0
@@ -5762,7 +5800,6 @@ class WellViewerApp(QWidget):
         disambiguated by prefixing with the source well label so identical FOV
         numbers in different wells stay distinct.
         """
-        import pandas as pd
         if not hasattr(self, "_stats_cache"):
             self._stats_cache = {}
         cell_area_threshold = self._get_cell_area_threshold()
@@ -5777,8 +5814,8 @@ class WellViewerApp(QWidget):
         for lbl in rset.wells:
             if lbl not in self._well_paths:
                 continue
-            df = rows_to_df(self._get_rows(lbl))
-            if len(df) == 0:
+            df = self._get_rows(lbl)
+            if df is None or len(df) == 0:
                 continue
             if "fov" in df.columns:
                 fov_str = (df["fov"].fillna("1").astype(str)
@@ -6291,7 +6328,23 @@ class WellViewerApp(QWidget):
                 self._open_scatter_cell_viewer(nearest_well, nearest_filename, nearest_nuclear_id, nearest_row_idx)
 
         except Exception as e:
-            self._set_status(f"Error handling scatter click: {e}")
+            # The user clicked expecting a popup — surface the failure instead
+            # of swallowing it into a fleeting status line. Show the cause and
+            # the full traceback so the source is diagnosable on the spot.
+            import traceback
+            _logger.exception("Error handling scatter-plot cell click")
+            tb = traceback.format_exc()
+            self._set_status(f"Could not open cell viewer: {e}")
+            try:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Warning)
+                box.setWindowTitle("Cell viewer error")
+                box.setText("Could not open the cell-image viewer for the clicked point.")
+                box.setInformativeText(str(e))
+                box.setDetailedText(tb)
+                box.exec()
+            except Exception:
+                pass
 
     def _on_scatter_motion(self, event) -> None:
         """Handle hover events on scatter plot to show tooltips."""
