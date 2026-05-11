@@ -12,6 +12,7 @@ env/
 dist/
 build/
 *.egg-info/
+*.zip
 
 # PyInstaller
 *.spec.bak
