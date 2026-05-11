@@ -199,7 +199,29 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
 
 
 def on_review_csv_row_double_click(app, item) -> None:
-    """Called with a QTableWidgetItem from itemDoubleClicked signal."""
+    """Called with a QTableWidgetItem from itemDoubleClicked signal.
+
+    Wrapped end-to-end so a partially-built Segmentation tab (e.g. the
+    user double-clicks before the preview panel has materialised) shows a
+    status message instead of bubbling a NoneType AttributeError out of
+    the Qt event loop.
+    """
+    try:
+        _on_review_csv_row_double_click_impl(app, item)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger("well_viewer").exception(
+            "Review-CSV row double-click failed",
+        )
+        try:
+            app._set_status(
+                f"Could not navigate to Segmentation: {exc} (see log for details).",
+            )
+        except Exception:
+            pass
+
+
+def _on_review_csv_row_double_click_impl(app, item) -> None:
     if not hasattr(app, "_review_csv_table"):
         return
     table = app._review_csv_table
@@ -228,10 +250,15 @@ def on_review_csv_row_double_click(app, item) -> None:
     app._update_preview(key)
 
     # _preview_fov_var drives _refresh_review_image; force the target FOV
-    # before repopulating the TP menu.
+    # before repopulating the TP menu. The combo only exists once the
+    # Segmentation tab's preview panel has been built — guard for the
+    # double-click-before-build case so we don't crash.
     if fov:
-        app._preview_fov_cb.setCurrentText(fov)
-    app._refresh_review_image()
+        fov_cb = getattr(app, "_preview_fov_cb", None)
+        if fov_cb is not None:
+            fov_cb.setCurrentText(fov)
+    if hasattr(app, "_refresh_review_image"):
+        app._refresh_review_image()
 
     # TP menu now holds the target FOV's timepoints. Selecting the TP here
     # triggers _refresh_review_image via currentIndexChanged, which renders
