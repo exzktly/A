@@ -200,6 +200,25 @@ def _tp_sort_key(tp: str):
     return (h is None, h if h is not None else 0.0, str(tp))
 
 
+def _cache_column_tokens(app, column: str) -> List[str]:
+    """Unique normalised tokens from ``column`` across every cached DataFrame.
+
+    ``app._cache`` values are DataFrames since the pandas migration; iterating
+    one with ``for row in df`` yields *column names*, not rows. Pull the column
+    out vectorised instead — and skip frames that don't carry it at all.
+    """
+    seen: List[str] = []
+    cache = getattr(app, "_cache", None) or {}
+    for df in cache.values():
+        if df is None or column not in getattr(df, "columns", ()):
+            continue
+        for val in df[column].dropna().unique():
+            tok = _norm_token(val)
+            if tok and tok not in seen:
+                seen.append(tok)
+    return seen
+
+
 def _timepoint_options(app) -> List[str]:
     info = getattr(app, "_pipeline_info", None) or {}
     seen: List[str] = []
@@ -211,13 +230,7 @@ def _timepoint_options(app) -> List[str]:
         return sorted(seen, key=_tp_sort_key)
     # Fallback: derive timepoints from loaded CSV rows when pipeline_info
     # doesn't list them (older runs, custom schemas, etc.).
-    cache = getattr(app, "_cache", None) or {}
-    for rows in cache.values():
-        for row in rows:
-            tok = _norm_token(row.get("timepoint", ""))
-            if tok and tok not in seen:
-                seen.append(tok)
-    return sorted(seen, key=_tp_sort_key)
+    return sorted(_cache_column_tokens(app, "timepoint"), key=_tp_sort_key)
 
 
 def _fov_options(app) -> List[str]:
@@ -229,13 +242,7 @@ def _fov_options(app) -> List[str]:
             seen.append(tok)
     if seen:
         return seen
-    cache = getattr(app, "_cache", None) or {}
-    for rows in cache.values():
-        for row in rows:
-            tok = _norm_token(row.get("fov", ""))
-            if tok and tok not in seen:
-                seen.append(tok)
-    return seen
+    return _cache_column_tokens(app, "fov")
 
 
 def _well_options(app) -> List[str]:
