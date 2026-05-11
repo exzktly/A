@@ -128,6 +128,18 @@ class ScatterCellViewer(QDialog):
         if getattr(self, "_debug_text", None) is not None:
             self._debug_text.append(line)
 
+    @staticmethod
+    def _row_dict_at(rows, idx: int) -> dict:
+        """Return row ``idx`` as a ``{column: value}`` dict.
+
+        ``app._get_rows`` returns a ``pandas.DataFrame`` (positional ``df[idx]``
+        would be a *column* lookup → ``KeyError``); accept a ``list[dict]`` too
+        for the scalar code path.
+        """
+        if hasattr(rows, "iloc"):  # pandas DataFrame
+            return dict(rows.iloc[idx])
+        return rows[idx]
+
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask."""
         self._channel_luts = {}
@@ -145,12 +157,12 @@ class ScatterCellViewer(QDialog):
         self._debug(f"parsed_nuclear_id={nuclear_id}")
 
         rows = self.app._get_rows(self.well_label)
-        if self.row_idx >= len(rows):
+        if not (0 <= self.row_idx < len(rows)):
             self._img_label.setText("Invalid row index")
             self._debug(f"row_idx out of bounds: row_idx={self.row_idx}, rows={len(rows)}")
             return
 
-        row = rows[self.row_idx]
+        row = self._row_dict_at(rows, self.row_idx)
         self._nuclear_token = str(row.get("channel") or "").strip()
         self._debug(f"csv.channel={self._nuclear_token!r}")
         self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")
