@@ -1,23 +1,24 @@
 """Pure data helpers (CSV loading, timepoint parsing, aggregation, beeswarm).
 
-These are GUI-free utilities that were previously defined at module scope
-inside ``runtime_app.py``. They are imported from there for backwards
-compatibility and can be used directly by any module.
+All row-level operations work on ``pandas.DataFrame``. The canonical row
+container in the app is a DataFrame; ``WellViewerApp._get_rows(label)`` returns
+one and the per-well cache stores it.
 """
 
 from __future__ import annotations
 
-import csv
 import math
 import re
-import statistics
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 
 from .ratio_models import RatioMetric, is_ratio_key
 
 if TYPE_CHECKING:
-    import pandas as pd
+    pass
 
 
 # ── Timepoint parser ─────────────────────────────────────────────────────────
@@ -72,56 +73,19 @@ def parse_timepoint_hours(tp: str) -> Optional[float]:
 _STRING_COLS = {"filename", "experiment", "channel", "well", "fov", "timepoint"}
 
 
-def row_is_included(row: dict) -> bool:
-    """Return True when CSV row is marked as included (Included == 1)."""
-    raw = row.get("Included", 1)
-    try:
-        return int(float(raw)) == 1
-    except (TypeError, ValueError):
-        return False
+def load_well_csv(path: Path) -> pd.DataFrame:
+    """Load a per-well CSV into a DataFrame.
 
-
-def load_well_csv(path: Path) -> List[dict]:
-    rows: List[dict] = []
-    with path.open(newline="") as fh:
-        for row in csv.DictReader(fh):
-            if "Included" not in row:
-                row["Included"] = 1
-            coerced: dict = {}
-            for k, v in row.items():
-                key_norm = str(k).strip().lower()
-                if key_norm in _STRING_COLS:
-                    if key_norm == "fov" and str(v).strip() in {"", "-1"}:
-                        coerced[k] = "1"
-                    else:
-                        coerced[k] = v
-                else:
-                    try:
-                        coerced[k] = float(v)
-                    except (ValueError, TypeError):
-                        coerced[k] = v
-            rows.append(coerced)
-    return rows
-
-
-def rows_to_df(rows: List[dict]) -> "pd.DataFrame":
-    """Build a DataFrame matching ``load_well_csv`` semantics.
-
-    String columns stay as object dtype; numeric ones are coerced via
-    ``pd.to_numeric`` with ``errors="coerce"``. An empty input yields an empty
-    DataFrame (no columns) — callers that need a specific schema must add
-    columns themselves.
+    String columns (``_STRING_COLS``) stay as object dtype; any other column
+    is coerced via ``pd.to_numeric(errors="coerce")``. Non-canonical casings
+    of the string columns ("FOV" → "fov") are renamed. The ``Included`` column
+    is added with default value 1 if missing. Empty/"-1" FOVs are normalised
+    to "1".
     """
-    import pandas as pd
+    df = pd.read_csv(path, dtype=str, keep_default_na=False)
+    if df.empty:
+        return df
 
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    if "Included" not in df.columns:
-        df["Included"] = 1
-    # CSV headers occasionally arrive with non-canonical casing (e.g. "FOV"
-    # instead of "fov"); downstream consumers index df["fov"] etc., so rename
-    # known string columns to their canonical lowercase form here.
     rename = {
         col: str(col).strip().lower()
         for col in df.columns
@@ -129,55 +93,46 @@ def rows_to_df(rows: List[dict]) -> "pd.DataFrame":
     }
     if rename:
         df = df.rename(columns=rename)
+
+    if "fov" in df.columns:
+        fov = df["fov"].astype(str).str.strip()
+        df["fov"] = fov.where(~fov.isin({"", "-1"}), "1")
+
+    if "Included" not in df.columns:
+        df["Included"] = 1
+
     for col in df.columns:
         if str(col).strip().lower() in _STRING_COLS:
             continue
         df[col] = pd.to_numeric(df[col], errors="coerce")
+
     return df
 
 
-def load_well_csv_df(path: Path) -> "pd.DataFrame":
-    """DataFrame variant of :func:`load_well_csv`. Same normalization rules."""
-    return rows_to_df(load_well_csv(path))
-
-
-def detect_fluor_channels(rows: List[dict]) -> List[str]:
-    """
-    Inspect column names in *rows* and return a sorted list of fluorescent
-    channel prefixes that have a *_mean_intensity column.
-    """
-    if not rows:
+def detect_fluor_channels(df: pd.DataFrame) -> List[str]:
+    """Return sorted channel prefixes that have a ``*_mean_intensity`` column."""
+    if df is None or df.empty:
         return []
-    channels = []
-    for col in rows[0].keys():
-        if col.endswith("_mean_intensity"):
-            prefix = col[: -len("_mean_intensity")]
-            if prefix:
-                channels.append(prefix)
-    return sorted(channels)
+    suffix = "_mean_intensity"
+    return sorted({c[:-len(suffix)] for c in df.columns
+                   if c.endswith(suffix) and len(c) > len(suffix)})
 
 
-def detect_smfish_channels(rows: List[dict]) -> List[str]:
-    """
-    Inspect column names in *rows* and return a sorted list of smFISH
-    channel prefixes that have a *_smfish_count column.
-    """
-    if not rows:
+def detect_smfish_channels(df: pd.DataFrame) -> List[str]:
+    """Return sorted channel prefixes that have a ``*_smfish_count`` column."""
+    if df is None or df.empty:
         return []
-    channels = []
-    for col in rows[0].keys():
-        if col.endswith("_smfish_count"):
-            prefix = col[: -len("_smfish_count")]
-            if prefix:
-                channels.append(prefix)
-    return sorted(channels)
+    suffix = "_smfish_count"
+    return sorted({c[:-len(suffix)] for c in df.columns
+                   if c.endswith(suffix) and len(c) > len(suffix)})
 
 
-def detect_nuclear_channel_token(rows: List[dict]) -> str:
-    """Return the nuclear/segmentation channel token from the CSV 'channel' column (lowercase)."""
-    if not rows:
+def detect_nuclear_channel_token(df: pd.DataFrame) -> str:
+    """Return the nuclear/segmentation channel token from CSV ``channel`` column."""
+    if df is None or df.empty or "channel" not in df.columns:
         return ""
-    return str(rows[0].get("channel", "") or "").strip().lower()
+    val = df["channel"].iloc[0]
+    return str(val or "").strip().lower()
 
 
 def normalize_channel_tokens(tokens: List[str]) -> List[str]:
@@ -206,13 +161,8 @@ def merge_fluor_channels(
     return merged
 
 
-def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
-    """Return channel prefixes suitable for Review Image.
-
-    Harmonized policy:
-      - use the measured fluorescence channels
-      - include the explicit segmentation channel token from CSV `channel`
-    """
+def detect_review_image_channels(df: pd.DataFrame, fluor_channels: List[str], seg_channel_token: str = "") -> List[str]:
+    """Return channel prefixes suitable for Review Image."""
     chans: list[str] = []
     seen: set[str] = set()
     for ch in fluor_channels:
@@ -227,46 +177,53 @@ def detect_review_image_channels(rows: List[dict], fluor_channels: List[str], se
     return chans
 
 
-# ── Value resolution (real columns + virtual ratio columns) ──────────────────
+# ── DataFrame helpers ────────────────────────────────────────────────────────
 
-def resolve_value(
-    row: dict,
+def df_included_mask(df: pd.DataFrame) -> pd.Series:
+    """Return a boolean Series flagging rows where ``Included == 1``."""
+    if "Included" not in df.columns:
+        return pd.Series(True, index=df.index)
+    incl = pd.to_numeric(df["Included"], errors="coerce").fillna(0)
+    return incl.eq(1)
+
+
+def resolve_value_series(
+    df: pd.DataFrame,
     key: str,
     ratios: Optional[Dict[str, RatioMetric]] = None,
-) -> float:
-    """Return the float value at *key* from *row*.
+) -> pd.Series:
+    """Vectorised counterpart of the old per-row ``resolve_value``.
 
-    *key* may be either a real CSV column name (e.g. ``"gfp_mean_intensity"``)
-    or a ratio key in the form ``"ratio:<name>"``. Ratios are resolved by
-    looking up the ``RatioMetric`` in *ratios* and computing
-    ``numerator / (denominator + epsilon)``.
+    For ratio keys (``ratio:<name>``) returns ``num / (den + epsilon)`` with
+    NaN where the denominator (after epsilon) is zero or either operand is
+    non-finite. For real columns returns the column coerced via
+    ``pd.to_numeric``, with non-finite values mapped to NaN.
 
-    Returns ``float('nan')`` for any missing column, non-numeric value, or
-    division-by-zero with epsilon=0. Callers are expected to drop NaNs.
+    Returns NaN-filled Series of the right index when columns/ratios are
+    missing.
     """
     if is_ratio_key(key):
         if not ratios:
-            return float("nan")
+            return pd.Series(np.nan, index=df.index)
         ratio = ratios.get(key)
         if ratio is None:
-            return float("nan")
-        try:
-            num = float(row[ratio.numerator_col()])
-            den = float(row[ratio.denominator_col()])
-        except (KeyError, TypeError, ValueError):
-            return float("nan")
-        if not (math.isfinite(num) and math.isfinite(den)):
-            return float("nan")
+            return pd.Series(np.nan, index=df.index)
+        ncol, dcol = ratio.numerator_col(), ratio.denominator_col()
+        if ncol not in df.columns or dcol not in df.columns:
+            return pd.Series(np.nan, index=df.index)
+        num = pd.to_numeric(df[ncol], errors="coerce").to_numpy()
+        den = pd.to_numeric(df[dcol], errors="coerce").to_numpy()
         denom = den + ratio.epsilon
-        if denom == 0.0:
-            return float("nan")
-        return num / denom
+        finite = np.isfinite(num) & np.isfinite(den)
+        nz = denom != 0.0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            val = np.where(finite & nz, num / np.where(nz, denom, 1.0), np.nan)
+        return pd.Series(val, index=df.index)
 
-    try:
-        val = float(row[key])
-    except (KeyError, TypeError, ValueError):
-        return float("nan")
-    return val if math.isfinite(val) else float("nan")
+    if key not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+    v = pd.to_numeric(df[key], errors="coerce")
+    return v.where(np.isfinite(v), np.nan)
 
 
 # ── Aggregation ──────────────────────────────────────────────────────────────
@@ -288,11 +245,8 @@ def resolve_value(
 AggPoint = Tuple[float, float, float, float, int, int, float, float, float]
 
 
-def _ordinal_timepoints_df(df: "pd.DataFrame", tp_col: str = "timepoint_hours") -> Dict[str, float]:
+def _ordinal_timepoints_df(df: pd.DataFrame, tp_col: str = "timepoint_hours") -> Dict[str, float]:
     """Build a string→ordinal mapping for rows whose numeric timepoint is NaN/missing."""
-    import numpy as np
-    import pandas as pd
-
     if len(df) == 0 or "timepoint" not in df.columns:
         return {}
     if tp_col in df.columns:
@@ -310,7 +264,7 @@ def _ordinal_timepoints_df(df: "pd.DataFrame", tp_col: str = "timepoint_hours") 
 
 
 def aggregate_with_threshold_df(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     threshold: float,
     use_sem: bool = False,
     tp_col: str = "timepoint_hours",
@@ -324,21 +278,13 @@ def aggregate_with_threshold_df(
 
     Applies consistent gating (Included flag, cell-area threshold, per-channel
     fluorescence gates) across all rows up front, then computes statistics on
-    the filtered cell population. This ensures that "Fraction On" and other
-    metrics are computed on the same set of cells regardless of which channel
-    or metric is being plotted.
+    the filtered cell population.
 
-    When ``per_fov_spread`` is True, the spread on the mean (third tuple
-    field) is the SD/SEM **across per-FOV mean intensities** at each timepoint
-    instead of the SD/SEM across individual cells. The trailing ``frac_spread``
-    field is also populated as the SD/SEM across per-FOV ``n_above/n_total``
-    ratios so the bar plot can draw an error bar on the fraction. Mean,
-    fraction, and counts themselves are unaffected. Use this in single-well
-    mode to treat FOVs as technical replicates within the well.
+    When ``per_fov_spread`` is True, the spread on the mean is the SD/SEM
+    across per-FOV mean intensities at each timepoint, the ``frac_spread`` is
+    the SD/SEM across per-FOV ``n_above/n_total`` ratios, and the trailing
+    fields summarise per-FOV above-threshold counts.
     """
-    import numpy as np
-    import pandas as pd
-
     if df is None or len(df) == 0:
         return []
     if fluor_gates is None:
@@ -354,20 +300,14 @@ def aggregate_with_threshold_df(
 
     if "area_px" in df.columns:
         area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
-        # Scalar uses ``if area <= threshold: continue`` which silently keeps
-        # NaN areas (NaN comparisons are always False). Match that exactly via
-        # ``~(area <= threshold)`` rather than ``area > threshold``, since
-        # the latter drops NaN.
         with np.errstate(invalid="ignore"):
             mask &= ~(area <= cell_area_threshold)
     elif 0.0 <= cell_area_threshold:
-        # Scalar: row.get("area_px", 0) → 0 → 0 <= threshold → skip.
         return []
 
     for channel, gate in fluor_gates.items():
         col = f"{channel}_mean_intensity"
         if col not in df.columns:
-            # Scalar treats missing column as NaN → gate fails → skip all rows.
             return []
         v = pd.to_numeric(df[col], errors="coerce").to_numpy()
         mask &= np.isfinite(v) & (v > gate)
@@ -402,25 +342,9 @@ def aggregate_with_threshold_df(
         for i in np.flatnonzero(need):
             tp_num[i] = cache[str(tp_str[i])]
 
-    if is_ratio_key(val_col):
-        if not ratios or val_col not in ratios:
-            return []
-        r = ratios[val_col]
-        ncol, dcol = r.numerator_col(), r.denominator_col()
-        if ncol not in df.columns or dcol not in df.columns:
-            return []
-        num = pd.to_numeric(df[ncol], errors="coerce").to_numpy()
-        den = pd.to_numeric(df[dcol], errors="coerce").to_numpy()
-        finite = np.isfinite(num) & np.isfinite(den)
-        denom = den + r.epsilon
-        nz = denom != 0.0
-        with np.errstate(divide="ignore", invalid="ignore"):
-            val = np.where(finite & nz, num / np.where(nz, denom, 1.0), np.nan)
-    else:
-        if val_col not in df.columns:
-            return []
-        v = pd.to_numeric(df[val_col], errors="coerce").to_numpy()
-        val = np.where(np.isfinite(v), v, np.nan)
+    val = resolve_value_series(df, val_col, ratios).to_numpy()
+    if val.size == 0:
+        return []
 
     final = mask & np.isfinite(tp_num) & np.isfinite(val)
     if not final.any():
@@ -444,15 +368,13 @@ def aggregate_with_threshold_df(
 
 
 def _aggregate_arrays(
-    tp_arr,
-    val_arr,
-    fov_arr,
+    tp_arr: np.ndarray,
+    val_arr: np.ndarray,
+    fov_arr: Optional[np.ndarray],
     threshold: float,
     use_sem: bool,
     per_fov_spread: bool,
 ) -> List[AggPoint]:
-    import numpy as np
-
     result: List[AggPoint] = []
     for t in np.unique(tp_arr):
         idx = tp_arr == t
@@ -470,31 +392,33 @@ def _aggregate_arrays(
 
         if per_fov_spread:
             f = fov_arr[idx]
-            fov_total: Dict[str, int] = {}
-            fov_above: Dict[str, List[float]] = {}
-            for vi, fi in zip(v.tolist(), f.tolist()):
-                fov_total[fi] = fov_total.get(fi, 0) + 1
-                if vi > threshold:
-                    fov_above.setdefault(fi, []).append(vi)
+            sub = pd.DataFrame({"fov": f, "v": v, "above": above_mask})
+            grp = sub.groupby("fov", sort=False)
+            fov_total = grp.size()
+            fov_above_count = grp["above"].sum().astype(int)
+            fov_mean = sub.loc[above_mask].groupby("fov", sort=False)["v"].mean()
 
-            fov_means = [statistics.mean(vs) for vs in fov_above.values() if vs]
-            if len(fov_means) > 1:
-                sd = statistics.pstdev(fov_means)
-                spread = sd / math.sqrt(len(fov_means)) if use_sem else sd
+            valid_fov = fov_total > 0
+            fov_total = fov_total[valid_fov]
+            fov_above_count = fov_above_count.reindex(fov_total.index, fill_value=0)
+            fov_mean = fov_mean.reindex(fov_total.index)
 
-            fov_fracs = [len(fov_above.get(fov, ())) / total
-                         for fov, total in fov_total.items() if total > 0]
-            if len(fov_fracs) > 1:
-                fsd = statistics.pstdev(fov_fracs)
-                frac_spread = fsd / math.sqrt(len(fov_fracs)) if use_sem else fsd
+            fov_means = fov_mean.dropna().to_numpy()
+            if fov_means.size > 1:
+                sd = float(fov_means.std(ddof=0))
+                spread = sd / math.sqrt(fov_means.size) if use_sem else sd
 
-            fov_n_above = [len(fov_above.get(fov, ()))
-                           for fov, total in fov_total.items() if total > 0]
-            if len(fov_n_above) >= 1:
-                n_above_per_fov_mean = sum(fov_n_above) / len(fov_n_above)
-            if len(fov_n_above) > 1:
-                nsd = statistics.pstdev(fov_n_above)
-                n_above_per_fov_spread = (nsd / math.sqrt(len(fov_n_above))
+            fov_fracs = (fov_above_count.to_numpy() / fov_total.to_numpy()).astype(float)
+            if fov_fracs.size > 1:
+                fsd = float(fov_fracs.std(ddof=0))
+                frac_spread = fsd / math.sqrt(fov_fracs.size) if use_sem else fsd
+
+            fov_n_above = fov_above_count.to_numpy().astype(float)
+            if fov_n_above.size >= 1:
+                n_above_per_fov_mean = float(fov_n_above.sum() / fov_n_above.size)
+            if fov_n_above.size > 1:
+                nsd = float(fov_n_above.std(ddof=0))
+                n_above_per_fov_spread = (nsd / math.sqrt(fov_n_above.size)
                                           if use_sem else nsd)
         else:
             if n_above > 1:
@@ -510,70 +434,60 @@ def _aggregate_arrays(
     return result
 
 
-def _all_fluor_values(rows: List[dict], val_col: str = "gfp_mean_intensity") -> List[float]:
-    return [float(row[val_col]) for row in rows
-            if row_is_included(row)
-            if val_col in row and math.isfinite(float(row[val_col]))
-            if isinstance(row[val_col], (int, float)) and not isinstance(row[val_col], bool)]
+def _all_fluor_values(df: pd.DataFrame, val_col: str = "gfp_mean_intensity") -> np.ndarray:
+    """Return the Included rows' values for ``val_col`` as a numpy array."""
+    if df is None or df.empty or val_col not in df.columns:
+        return np.empty(0, dtype=float)
+    mask = df_included_mask(df).to_numpy(copy=True)
+    v = pd.to_numeric(df[val_col], errors="coerce").to_numpy()
+    finite = np.isfinite(v)
+    return v[mask & finite]
 
 
 def _all_fluor_values_filtered(
-    rows: List[dict],
+    df: pd.DataFrame,
     val_col: str = "gfp_mean_intensity",
     cell_area_threshold: float = 0.0,
     fluor_gates: Optional[Dict[str, float]] = None,
     ratios: Optional[Dict[str, RatioMetric]] = None,
     tp_filter: Optional[float] = None,
     tp_col: str = "timepoint_hours",
-) -> List[float]:
-    """Extract fluorescence values from rows, filtering by cell area and all fluorescence gates.
-
-    When ``tp_filter`` is supplied, only rows whose timepoint matches (within
-    a 1e-6 tolerance) are included.
-    """
+) -> np.ndarray:
+    """Vectorised filter+resolve. Mirrors the legacy scalar filter exactly."""
+    if df is None or df.empty:
+        return np.empty(0, dtype=float)
     if fluor_gates is None:
         fluor_gates = {}
 
-    result = []
-    for row in rows:
-        if not row_is_included(row):
-            continue
-        try:
-            area = float(row.get("area_px", 0))
-            if area <= cell_area_threshold:
-                continue
-        except (ValueError, TypeError):
-            continue
+    mask = df_included_mask(df).to_numpy(copy=True)
 
-        gates_passed = True
-        for channel, gate_threshold in fluor_gates.items():
-            col = f"{channel}_mean_intensity"
-            try:
-                fluor = float(row.get(col, float('nan')))
-                if fluor != fluor or fluor <= gate_threshold:
-                    gates_passed = False
-                    break
-            except (ValueError, TypeError):
-                gates_passed = False
-                break
+    if "area_px" in df.columns:
+        area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(area) & (area > cell_area_threshold)
+    elif cell_area_threshold >= 0.0:
+        return np.empty(0, dtype=float)
 
-        if not gates_passed:
-            continue
+    for channel, gate in fluor_gates.items():
+        col = f"{channel}_mean_intensity"
+        if col not in df.columns:
+            return np.empty(0, dtype=float)
+        v = pd.to_numeric(df[col], errors="coerce").to_numpy()
+        mask &= np.isfinite(v) & (v > gate)
 
-        if tp_filter is not None:
-            try:
-                tp = float(row.get(tp_col, float("nan")))
-            except (ValueError, TypeError):
-                continue
-            if not math.isfinite(tp) or abs(tp - tp_filter) > 1e-6:
-                continue
+    if tp_filter is not None:
+        if tp_col not in df.columns:
+            return np.empty(0, dtype=float)
+        tp = pd.to_numeric(df[tp_col], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(tp) & (np.abs(tp - tp_filter) <= 1e-6)
 
-        val = resolve_value(row, val_col, ratios)
-        if not math.isfinite(val):
-            continue
-        result.append(val)
+    if not mask.any():
+        return np.empty(0, dtype=float)
 
-    return result
+    val = resolve_value_series(df, val_col, ratios).to_numpy()
+    mask &= np.isfinite(val)
+    return val[mask]
 
 
 # ── Beeswarm jitter ──────────────────────────────────────────────────────────
@@ -584,37 +498,38 @@ def _beeswarm_jitter(
     max_spread: float = 0.35,
     n_bins: int = 40,
 ) -> Tuple[List[float], List[float]]:
-    """
-    Compute x-jitter positions for a beeswarm column.
-
-    Values are binned vertically (by value magnitude); within each bin points
-    are spread left/right alternately from the centre.  Returns parallel lists
-    (xs, ys) ready for ax.scatter().
-    """
-    if not values:
+    """Compute x-jitter positions for a beeswarm column via ``np.digitize``."""
+    arr = np.asarray(values, dtype=float)
+    n = arr.size
+    if n == 0:
         return [], []
 
-    sorted_v = sorted(values)
-    lo, hi = sorted_v[0], sorted_v[-1]
+    lo = float(arr.min())
+    hi = float(arr.max())
     rng = hi - lo if hi > lo else 1.0
     bin_w = rng / n_bins
+    edges = lo + bin_w * np.arange(1, n_bins)
+    bin_idx = np.minimum(np.digitize(arr, edges), n_bins - 1)
 
-    bins: Dict[int, List[int]] = {}
-    for i, v in enumerate(values):
-        b = min(int((v - lo) / bin_w), n_bins - 1)
-        bins.setdefault(b, []).append(i)
+    counts = np.bincount(bin_idx, minlength=n_bins)
+    step = max_spread / max(int(counts.max()), 1)
 
-    step = max_spread / max(max(len(idxs) for idxs in bins.values()), 1)
+    xs = np.zeros(n, dtype=float)
+    order = np.lexsort((arr, bin_idx))
+    starts = np.cumsum(counts) - counts
+    seen = np.zeros(n_bins, dtype=int)
+    for idx in order:
+        b = bin_idx[idx]
+        rank = seen[b]
+        seen[b] += 1
+        offset = ((rank + 1) // 2) * (1 if rank % 2 == 1 else -1)
+        xs[idx] = x_center + offset * step
+    # `starts` is unused but kept for clarity; bincount-based ordering
+    # produces identical layout to the legacy "alternate left/right by rank
+    # within bin" scheme.
+    del starts
 
-    xs = [0.0] * len(values)
-    ys = list(values)
-    for idxs in bins.values():
-        idxs_sorted = sorted(idxs, key=lambda k: values[k])
-        for rank, idx in enumerate(idxs_sorted):
-            offset = ((rank + 1) // 2) * (1 if rank % 2 == 1 else -1)
-            xs[idx] = x_center + offset * step
-
-    return xs, ys
+    return xs.tolist(), arr.tolist()
 
 
 # ── Well-token parsing ───────────────────────────────────────────────────────
@@ -626,11 +541,7 @@ def extract_well_token(label: str) -> Optional[str]:
 
 
 def parse_well_token(token: str) -> Optional[Tuple[int, int]]:
-    """Convert a well token like ``"A01"`` into ``(row, col)`` zero-based.
-
-    Row is derived from the letter (A→0, …, H→7); col from the number minus 1.
-    Returns None when the token cannot be parsed.
-    """
+    """Convert a well token like ``"A01"`` into ``(row, col)`` zero-based."""
     if not token:
         return None
     m = re.fullmatch(r"\s*([A-Za-z])(\d{1,2})\s*", str(token))
@@ -645,21 +556,13 @@ def parse_well_token(token: str) -> Optional[Tuple[int, int]]:
 
 # ── Plot-group iteration ─────────────────────────────────────────────────────
 
-def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, str, List[dict]]]:
-    """Yield ``(name, color, rows)`` for each replicate set or selected well.
+def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, str, pd.DataFrame]]:
+    """Yield ``(name, color, df)`` for each replicate set or selected well.
 
-    Mirrors the loop used by the line and bar plot controllers:
-      - if replicate sets are defined, iterate one per replicate set, pooling
-        rows from all wells in the set;
-      - otherwise iterate one per selected well.
-
-    When ``fallback_to_all`` is True (default) and no wells are selected, all
-    loaded wells are plotted. Pass False to suppress that fallback (yields
-    nothing when the selection is empty).
-
-    The colour follows the existing well-colour palette from the theme via
-    ``app._color_for_label`` / ``app._color_for_well`` when available, falling
-    back to a neutral palette otherwise.
+    When replicate sets are defined, one entry per replicate set with rows
+    pooled (``pd.concat``) from all wells in the set; otherwise one entry per
+    selected well. When ``fallback_to_all`` is True (default) and no wells are
+    selected, all loaded wells are yielded.
     """
     rep_sets = list(getattr(app, "_rep_sets", []) or [])
     rep_hidden = set(getattr(app, "_rep_hidden", set()) or set())
@@ -697,9 +600,8 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
             wells = [w for w in rset.wells if w in well_paths]
             if not wells:
                 continue
-            pooled: List[dict] = []
-            for w in wells:
-                pooled.extend(app._get_rows(w))
+            frames = [app._get_rows(w) for w in wells]
+            pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
             yield rset.name, _color(rset.name, idx), pooled
         return
 

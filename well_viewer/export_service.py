@@ -349,58 +349,49 @@ def export_raw_data_csv(app) -> None:
         _warn(app, "Export", "Load data before exporting raw CSV.")
         return
 
-    rows_out = []
-    fieldnames = {"well", "well_name"}
+    import numpy as np
+    import pandas as pd
+    from well_viewer.data_loading import df_included_mask
+
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gate_threshold = app._get_fluor_gate(app._active_channel)
     well_labels = _well_labels_map(app)
+    fluor_col = f"{app._active_channel}_mean_intensity"
 
+    frames = []
     for label in sorted(app._well_paths):
-        well_name = well_name_for(label, well_labels)
-        for row in app._get_rows(label):
-            if not app._row_is_included(row):
-                continue
-            try:
-                area = float(row.get("area_px", float('nan')))
-            except (ValueError, TypeError):
-                continue
+        df = app._get_rows(label)
+        if df is None or df.empty or "area_px" not in df.columns or fluor_col not in df.columns:
+            continue
+        mask = df_included_mask(df).to_numpy(copy=True)
+        area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(area) & (area > cell_area_threshold)
+        fluor = pd.to_numeric(df[fluor_col], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(fluor) & (fluor > fluor_gate_threshold)
+        if not mask.any():
+            continue
+        sub = df.loc[mask].copy()
+        sub.insert(0, "well_name", well_name_for(label, well_labels))
+        sub.insert(0, "well", label)
+        frames.append(sub)
 
-            if (area != area) or area <= cell_area_threshold:
-                continue
-
-            fluor_col = f"{app._active_channel}_mean_intensity"
-            try:
-                fluor = float(row.get(fluor_col, float('nan')))
-            except (ValueError, TypeError):
-                continue
-
-            if (fluor != fluor) or fluor <= fluor_gate_threshold:
-                continue
-
-            out_row = {"well": label, "well_name": well_name}
-            out_row.update(row)
-            # Restore canonical well/well_name in case the source row carries
-            # its own "well" column from upstream pipeline output.
-            out_row["well"] = label
-            out_row["well_name"] = well_name
-            rows_out.append(out_row)
-            fieldnames.update(out_row.keys())
-
-    if not rows_out:
+    if not frames:
         _warn(app, "Export", "No raw rows available to export.")
         return
 
-    ordered_fields = ["well", "well_name"] + [k for k in sorted(fieldnames) if k not in ("well", "well_name")]
+    combined = pd.concat(frames, ignore_index=True, sort=False)
+    other_cols = sorted(c for c in combined.columns if c not in ("well", "well_name"))
+    combined = combined[["well", "well_name"] + other_cols]
+
     out_path = _ask_save_csv(app, "Export raw data", "raw_data_export.csv")
     if not out_path:
         return
 
     try:
-        with open(out_path, "w", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=ordered_fields)
-            writer.writeheader()
-            writer.writerows(rows_out)
-        app._set_status(f"Exported {len(rows_out)} raw row(s) → {Path(out_path).name}")
+        combined.to_csv(out_path, index=False)
+        app._set_status(f"Exported {len(combined)} raw row(s) → {Path(out_path).name}")
     except OSError as exc:
         _error(app, "Export failed", str(exc))
 
@@ -723,29 +714,33 @@ def export_distribution_data(app) -> None:
     ch = getattr(app, "_active_channel", "channel")
     well_labels = _well_labels_map(app)
     well_paths = _well_paths_keys(app)
-    rows_out = []
-    for name, _color, rows in iter_plot_groups(app):
+    import pandas as pd
+    chunks = []
+    tp_tag_str = f"{tp_h:g}" if _math.isfinite(tp_h) else ""
+    for name, _color, df in iter_plot_groups(app):
         vals = _all_fluor_values_filtered(
-            rows, val_col=val_col,
+            df, val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
             ratios=ratios,
             tp_filter=tp_filter,
         )
+        if vals.size == 0:
+            continue
         well_name = well_name_for(name, well_labels,
                                   well_paths=well_paths, strict=True)
-        for v in vals:
-            rows_out.append({
-                "group": name,
-                "well_name": well_name,
-                "timepoint_h": f"{tp_h:g}" if _math.isfinite(tp_h) else "",
-                val_col: f"{v:.6f}",
-            })
+        chunks.append(pd.DataFrame({
+            "group": name,
+            "well_name": well_name,
+            "timepoint_h": tp_tag_str,
+            val_col: [f"{v:.6f}" for v in vals],
+        }))
 
-    if not rows_out:
+    if not chunks:
         _warn(app, "Export", "No distribution data — select wells and a timepoint first.")
         return
 
+    combined = pd.concat(chunks, ignore_index=True)
     tp_tag = f"_t{tp_h:g}h" if _math.isfinite(tp_h) else ""
     out_path = _ask_save_csv(
         app, "Export distribution data",
@@ -753,12 +748,8 @@ def export_distribution_data(app) -> None:
     )
     if not out_path:
         return
-    fieldnames = ["group", "well_name", "timepoint_h", val_col]
     try:
-        with open(out_path, "w", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows_out)
-        app._set_status(f"Exported {len(rows_out)} cell(s) → {Path(out_path).name}")
+        combined.to_csv(out_path, index=False)
+        app._set_status(f"Exported {len(combined)} cell(s) → {Path(out_path).name}")
     except OSError as exc:
         _error(app, "Export failed", str(exc))

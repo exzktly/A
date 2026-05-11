@@ -2,13 +2,12 @@
 
 Histograms / KDE / violin plots of the active value column at a chosen
 timepoint, grouped per replicate set or per well. The active column is
-ratio-aware (handled transparently by ``data_loading.resolve_value``).
+ratio-aware (handled transparently by ``data_loading.resolve_value_series``).
 """
 
 from __future__ import annotations
 
 import math
-import statistics
 from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
@@ -28,7 +27,8 @@ def _gaussian_kde(values: Sequence[float], grid: np.ndarray) -> np.ndarray:
     Hand-rolled fallback so the distribution tab works without scipy. Returns
     an array of the same shape as *grid*.
     """
-    arr = np.asarray([v for v in values if math.isfinite(v)], dtype=float)
+    arr = np.asarray(values, dtype=float)
+    arr = arr[np.isfinite(arr)]
     n = arr.size
     if n < 2:
         return np.zeros_like(grid)
@@ -47,13 +47,15 @@ def _gaussian_kde(values: Sequence[float], grid: np.ndarray) -> np.ndarray:
 
 def _grid_for(values_lists: Iterable[Sequence[float]], n_pts: int = 200, log_x: bool = False) -> np.ndarray:
     """Build an x-axis grid spanning all per-group min/max."""
-    all_vals: List[float] = []
-    for vs in values_lists:
-        all_vals.extend(v for v in vs if math.isfinite(v))
-    if not all_vals:
+    chunks = [np.asarray(vs, dtype=float) for vs in values_lists]
+    if not chunks:
         return np.linspace(0.0, 1.0, n_pts)
-    lo = min(all_vals)
-    hi = max(all_vals)
+    pooled = np.concatenate(chunks)
+    pooled = pooled[np.isfinite(pooled)]
+    if pooled.size == 0:
+        return np.linspace(0.0, 1.0, n_pts)
+    lo = float(pooled.min())
+    hi = float(pooled.max())
     if hi <= lo:
         hi = lo + 1.0
     if log_x and lo > 0:
@@ -96,20 +98,17 @@ def redraw_distribution(app) -> None:
     bins = int(getattr(app, "_distribution_bins", 40) or 40)
     log_x = bool(getattr(app, "_distribution_log_x", False))
 
-    groups: List[Tuple[str, str, List[float]]] = []
-    for name, color, rows in iter_plot_groups(app, fallback_to_all=False):
-        if not math.isfinite(tp_h):
-            tp_filter = None
-        else:
-            tp_filter = tp_h
+    groups: List[Tuple[str, str, np.ndarray]] = []
+    for name, color, df in iter_plot_groups(app, fallback_to_all=False):
+        tp_filter = tp_h if math.isfinite(tp_h) else None
         vals = _all_fluor_values_filtered(
-            rows, val_col=val_col,
+            df, val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
             ratios=ratios,
             tp_filter=tp_filter,
         )
-        if vals:
+        if vals.size:
             groups.append((name, color, vals))
 
     ax.clear()
@@ -137,7 +136,7 @@ def redraw_distribution(app) -> None:
             if mode in ("Histogram", "Histogram + KDE"):
                 ax.hist(
                     vals, bins=bins, density=True, alpha=0.45,
-                    color=color, label=f"{name} (n={len(vals)})",
+                    color=color, label=f"{name} (n={int(vals.size)})",
                 )
             if mode in ("KDE only", "Histogram + KDE"):
                 kde = _gaussian_kde(vals, grid)
@@ -166,7 +165,7 @@ def redraw_distribution(app) -> None:
         except Exception:
             pass
 
-    title = _title_for(app, tp_h, sum(len(vs) for _, _, vs in groups), len(groups))
+    title = _title_for(app, tp_h, int(sum(int(vs.size) for _, _, vs in groups)), len(groups))
     ax.set_title(title, fontsize=9)
     canvas.draw_idle()
 

@@ -3,39 +3,29 @@
 from __future__ import annotations
 
 import math
-import statistics as _statistics
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
+import pandas as pd
 
 from . import debug_flags
-from .data_loading import resolve_value
+from .data_loading import df_included_mask, resolve_value_series
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
 
 def get_all_timepoints(app) -> List[float]:
-    """Extract all unique timepoints from loaded CSV data across all wells.
-
-    Returns:
-        Sorted list of unique timepoints (in hours) from all wells.
-    """
-    timepoints = set()
-
+    """Extract all unique included timepoints across loaded wells."""
+    timepoints: set = set()
     for label in app._well_paths:
-        rows = app._get_rows(label)
-        for row in rows:
-            if not app._row_is_included(row):
-                continue
-            try:
-                tp = float(row.get("timepoint_hours", float('nan')))
-                if not (tp != tp):  # Skip NaN
-                    timepoints.add(tp)
-            except (ValueError, TypeError):
-                pass
-
+        df = app._get_rows(label)
+        if df is None or df.empty or "timepoint_hours" not in df.columns:
+            continue
+        mask = df_included_mask(df)
+        tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").where(mask)
+        timepoints.update(float(t) for t in tp.dropna().unique())
     return sorted(timepoints)
 
 
@@ -80,11 +70,43 @@ def collect_scatter_data(
     if ratios is None:
         ratios = getattr(app, "_ratio_index", None) or {}
 
+    def _collect_well(well_label: str) -> Optional[Tuple[np.ndarray, np.ndarray, list]]:
+        df = app._get_rows(well_label)
+        if df is None or df.empty:
+            return None
+        if "timepoint_hours" not in df.columns or "area_px" not in df.columns:
+            return None
+        mask = df_included_mask(df).to_numpy(copy=True)
+        tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(tp) & (np.abs(tp - timepoint_h) <= 1e-6)
+        area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(area) & (area > cell_area_threshold)
+        x = resolve_value_series(df, col_x, ratios).to_numpy()
+        y = resolve_value_series(df, col_y, ratios).to_numpy()
+        mask &= np.isfinite(x) & np.isfinite(y) & (x > fluor_gate_x) & (y > fluor_gate_y)
+        if not mask.any():
+            return None
+        sel = df.loc[mask]
+        if sel.empty:
+            return None
+        filenames = (sel["filename"].astype(str).to_numpy()
+                     if "filename" in sel.columns else np.array([""] * len(sel)))
+        nuclear_ids = (sel["nucleus_id"].astype(str).to_numpy()
+                       if "nucleus_id" in sel.columns else np.array([""] * len(sel)))
+        row_idx = sel.index.to_numpy()
+        if debug_flags.review_scatter_debug_enabled() and len(sel) > 0:
+            print(f"DEBUG scatter_controller: Row keys: {list(sel.columns)}")
+            print(f"DEBUG scatter_controller: filename={filenames[0]!r}, nuclear_id={nuclear_ids[0]!r}")
+        metadata = [(well_label, fn, nid, int(ri))
+                    for fn, nid, ri in zip(filenames, nuclear_ids, row_idx)]
+        return x[mask], y[mask], metadata
+
     # Use active replicate sets if defined, otherwise fall back to selected wells
     active_rsets = app._rep_sets_active()
 
     if active_rsets:
-        # Group by replicate sets
         from well_viewer.lineplot_controller import _apply_order as _apply_rs_order
         active_rsets = _apply_rs_order(
             active_rsets,
@@ -94,68 +116,25 @@ def collect_scatter_data(
         for group_idx, rset in enumerate(active_rsets):
             group_name = rset.name
             color = well_colors[group_idx % len(well_colors)]
-            x_vals: List[float] = []
-            y_vals: List[float] = []
-            metadata: List[Tuple[str, Optional[str], int]] = []
-
-            # Collect data from all wells in this replicate set
+            xs: List[np.ndarray] = []
+            ys: List[np.ndarray] = []
+            metadata: List[Tuple[str, str, str, int]] = []
             for well_label in rset.wells:
                 if well_label not in app._well_paths:
                     continue
-
-                rows = app._get_rows(well_label)
-                for row_idx, row in enumerate(rows):
-                    if not app._row_is_included(row):
-                        continue
-                    # Filter by timepoint
-                    try:
-                        tp = float(row.get("timepoint_hours", float('nan')))
-                    except (ValueError, TypeError):
-                        continue
-
-                    if abs(tp - timepoint_h) > 1e-6:
-                        continue
-
-                    # Filter by cell area threshold
-                    try:
-                        area = float(row.get("area_px", float('nan')))
-                    except (ValueError, TypeError):
-                        continue
-
-                    if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
-                        continue
-
-                    # Filter by fluorescence gate threshold on both channels.
-                    # ``resolve_value`` transparently handles ratio: keys.
-                    x = resolve_value(row, col_x, ratios)
-                    y = resolve_value(row, col_y, ratios)
-
-                    if (x != x) or (y != y):  # Skip NaN
-                        continue
-
-                    if x <= fluor_gate_x or y <= fluor_gate_y:
-                        continue
-
-                    x_vals.append(x)
-                    y_vals.append(y)
-
-                    # Store filename and nucleus_id for image lookup
-                    filename = row.get("filename", "")
-                    nuclear_id = row.get("nucleus_id", "")
-                    if row_idx == 0 and debug_flags.review_scatter_debug_enabled():  # Debug first row only
-                        print(f"DEBUG scatter_controller: Row keys: {list(row.keys())}")
-                        print(f"DEBUG scatter_controller: filename={filename!r}, nuclear_id={nuclear_id!r}")
-                    metadata.append((well_label, filename, nuclear_id, row_idx))
-
-            if x_vals:  # Only add group if it has data
+                got = _collect_well(well_label)
+                if got is None:
+                    continue
+                wx, wy, wmeta = got
+                xs.append(wx); ys.append(wy); metadata.extend(wmeta)
+            if xs:
                 scatter_data[group_name] = {
-                    'x': x_vals,
-                    'y': y_vals,
+                    'x': np.concatenate(xs).tolist(),
+                    'y': np.concatenate(ys).tolist(),
                     'color': color,
                     'metadata': metadata,
                 }
     else:
-        # No groups: show each well separately
         from well_viewer.lineplot_controller import _apply_order as _apply_well_order
         selected_wells = sorted(
             (lbl for lbl in app._selected_wells if lbl in app._well_paths),
@@ -166,63 +145,18 @@ def collect_scatter_data(
             list(getattr(app, "_line_order_wells", []) or []),
             key=lambda x: x,
         )
-
         for well_idx, well_label in enumerate(selected_wells):
             color = well_colors[well_idx % len(well_colors)]
-            x_vals: List[float] = []
-            y_vals: List[float] = []
-            metadata: List[Tuple[str, str, str, int]] = []
-
-            rows = app._get_rows(well_label)
-            for row_idx, row in enumerate(rows):
-                if not app._row_is_included(row):
-                    continue
-                # Filter by timepoint
-                try:
-                    tp = float(row.get("timepoint_hours", float('nan')))
-                except (ValueError, TypeError):
-                    continue
-
-                if abs(tp - timepoint_h) > 1e-6:
-                    continue
-
-                # Filter by cell area threshold
-                try:
-                    area = float(row.get("area_px", float('nan')))
-                except (ValueError, TypeError):
-                    continue
-
-                if (area != area) or area <= cell_area_threshold:  # Skip NaN or below threshold
-                    continue
-
-                # Filter by fluorescence gate threshold on both channels
-                try:
-                    x = float(row.get(col_x, float('nan')))
-                    y = float(row.get(col_y, float('nan')))
-                except (ValueError, TypeError):
-                    continue
-
-                if (x != x) or (y != y):  # Skip NaN
-                    continue
-
-                if x <= fluor_gate_x or y <= fluor_gate_y:
-                    continue
-
-                x_vals.append(x)
-                y_vals.append(y)
-
-                # Store filename and nucleus_id for image lookup
-                filename = row.get("filename", "")
-                nuclear_id = row.get("nucleus_id", "")
-                metadata.append((well_label, filename, nuclear_id, row_idx))
-
-            if x_vals:  # Only add well if it has data
-                scatter_data[well_label] = {
-                    'x': x_vals,
-                    'y': y_vals,
-                    'color': color,
-                    'metadata': metadata,
-                }
+            got = _collect_well(well_label)
+            if got is None:
+                continue
+            wx, wy, wmeta = got
+            scatter_data[well_label] = {
+                'x': wx.tolist(),
+                'y': wy.tolist(),
+                'color': color,
+                'metadata': wmeta,
+            }
 
     return scatter_data
 
@@ -467,9 +401,10 @@ def collect_scatter_agg_data(
         vals = well_fracs if metric == "frac" else well_means
         if not vals:
             return float("nan"), 0.0
-        mean_v = _statistics.mean(vals)
-        n = len(vals)
-        sd = _statistics.pstdev(vals) if n > 1 else 0.0
+        arr = np.asarray(vals, dtype=float)
+        mean_v = float(arr.mean())
+        n = arr.size
+        sd = float(arr.std(ddof=0)) if n > 1 else 0.0
         err = sd / math.sqrt(n) if (use_sem and n > 1) else sd
         return mean_v, err
 

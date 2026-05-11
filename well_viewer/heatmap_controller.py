@@ -15,10 +15,11 @@ import numpy as np
 from matplotlib import patches as mpatches
 from matplotlib import colormaps as mpl_colormaps
 
+import pandas as pd
+
 from well_viewer.data_loading import (
     _all_fluor_values_filtered,
     parse_well_token,
-    resolve_value,
 )
 from well_viewer.heatmap_models import (
     HeatmapLayout,
@@ -160,24 +161,25 @@ def _cell_value(
         return float(matched[0][3])
 
     if metric == METRIC_RATIO:
-        # Pool ratio values across cells at the target timepoint. The legacy
-        # _all_fluor_values_filtered helper still expects a list of dicts;
-        # rebuild it on demand only for this branch.
+        # Pool ratio values across cells at the target timepoint via vectorized
+        # DataFrame concat — no per-row dict iteration.
         if not is_ratio_key(val_col):
             return float("nan")
-        pooled_rows: List[dict] = []
-        for w in valid_wells:
-            pooled_rows.extend(app._get_rows(w))
+        frames = [app._get_rows(w) for w in valid_wells]
+        frames = [f for f in frames if f is not None and not f.empty]
+        if not frames:
+            return float("nan")
+        pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
         vals = _all_fluor_values_filtered(
-            pooled_rows, val_col=val_col,
+            pooled, val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
             ratios=ratios,
             tp_filter=target_t,
         )
-        if not vals:
+        if vals.size == 0:
             return float("nan")
-        return float(sum(vals) / len(vals))
+        return float(vals.mean())
 
     # METRIC_MEAN (and fallback)
     pts = app._aggregate_group(

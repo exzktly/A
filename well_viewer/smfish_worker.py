@@ -7,7 +7,6 @@ hands in functions that emit Qt signals).
 
 from __future__ import annotations
 
-import csv
 import io
 import logging
 import threading
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+import pandas as pd
 
 from well_viewer.preview_controller import read_member_bytes
 from well_viewer.smfish_controller import (
@@ -76,26 +76,30 @@ def _write_counts_to_csvs(
         if not csv_matches:
             continue
         csv_path = csv_matches[0]
-        with csv_path.open("r", newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            rows = list(reader)
-            fieldnames = list(reader.fieldnames or [])
-        if column not in fieldnames:
-            fieldnames.append(column)
+        df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
 
-        for row in rows:
-            r_well = normalize_well_token((row.get("well") or well))
-            fov = normalize_id((row.get("fov") or row.get("FOV") or ""))
-            tp = normalize_id(
-                (row.get("timepoint") or row.get("tp") or row.get("time") or "")
-            )
-            nid = (row.get("nucleus_id") or "").strip()
-            row[column] = str(counts.get((r_well, fov, tp, nid), 0))
+        well_series = (df["well"] if "well" in df.columns
+                       else pd.Series([""] * len(df), index=df.index)).fillna("")
+        r_well = well_series.where(well_series != "", well).map(normalize_well_token)
+        fov_raw = (df.get("fov", df.get("FOV", pd.Series([""] * len(df), index=df.index)))
+                   .fillna("").astype(str))
+        fov = fov_raw.map(normalize_id)
+        tp_raw_cols = [c for c in ("timepoint", "tp", "time") if c in df.columns]
+        if tp_raw_cols:
+            tp_raw = df[tp_raw_cols[0]]
+            for c in tp_raw_cols[1:]:
+                tp_raw = tp_raw.where(tp_raw.fillna("") != "", df[c])
+        else:
+            tp_raw = pd.Series([""] * len(df), index=df.index)
+        tp = tp_raw.fillna("").astype(str).map(normalize_id)
+        nid = ((df["nucleus_id"] if "nucleus_id" in df.columns
+                else pd.Series([""] * len(df), index=df.index))
+               .fillna("").astype(str).str.strip())
 
-        with csv_path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
+        keys = list(zip(r_well, fov, tp, nid))
+        df[column] = [str(counts.get(k, 0)) for k in keys]
+
+        df.to_csv(csv_path, index=False)
 
 
 def apply_global_threshold_async(

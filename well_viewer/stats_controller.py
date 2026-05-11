@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import statistics as _pystats
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-from well_viewer.data_loading import is_ratio_key, resolve_value, row_is_included
+import numpy as np
+import pandas as pd
+
+from well_viewer.data_loading import (
+    df_included_mask,
+    is_ratio_key,
+    resolve_value_series,
+)
 
 
 _STAT_LABELS = {
@@ -15,26 +22,20 @@ _STAT_LABELS = {
 }
 
 
-def _compute_statistic(
-    vals: List[float], statistic: str, threshold: float
+def _compute_statistic_arr(
+    arr: np.ndarray, statistic: str, threshold: float
 ) -> Optional[float]:
-    """Compute the per-bucket summary value for ``statistic``.
-
-    For "mean" / "median" the value is computed over cells whose value is
-    above ``threshold``; for "fraction" it's the proportion of all cells
-    whose value is above ``threshold``. Returns None when there is no
-    underlying data to summarise.
-    """
-    if not vals:
+    """Compute the per-bucket summary on a numpy array; ``arr`` may be empty."""
+    if arr.size == 0:
         return None
     if statistic == "fraction":
-        return sum(1 for v in vals if v > threshold) / len(vals)
-    above = [v for v in vals if v > threshold]
-    if not above:
+        return float(np.mean(arr > threshold))
+    above = arr[arr > threshold]
+    if above.size == 0:
         return None
     if statistic == "median":
-        return float(_pystats.median(above))
-    return float(sum(above) / len(above))
+        return float(np.median(above))
+    return float(above.mean())
 
 
 def collect_group_values(
@@ -46,14 +47,7 @@ def collect_group_values(
     threshold: Optional[float] = None,
     statistic: str = "mean",
 ) -> List[float]:
-    """Return one summary value per well (or per-FOV when the group has 1 well).
-
-    Each element of the returned list is the chosen ``statistic`` (mean /
-    median / fraction-above-threshold) computed across the cells in that well
-    or FOV. When the group contains exactly one well, samples are aggregated
-    per FOV so single-well groups yield enough samples to compute a meaningful
-    SD via the chosen test.
-    """
+    """Return one summary value per well (or per-FOV when the group has 1 well)."""
     val_col = val_col or app._active_val_col
     if threshold is None:
         try:
@@ -70,29 +64,32 @@ def collect_group_values(
 
     samples: List[float] = []
     for lbl in wells:
-        rows = app._get_rows(lbl)
-        buckets: Dict[str, List[float]] = {}
-        for row in rows:
-            if not row_is_included(row):
-                continue
-            raw_t = row.get("timepoint_hours")
-            try:
-                t = float(raw_t)
-            except (TypeError, ValueError):
-                continue
-            if abs(t - target_t) > 1e-6:
-                continue
-            v = resolve_value(row, val_col, ratios)
-            if v is None or v != v:  # filter NaN
-                continue
-            if aggregate_per_fov:
-                key = str(row.get("fov", "") or "").strip() or "_"
-            else:
-                key = lbl
-            buckets.setdefault(key, []).append(float(v))
+        df = app._get_rows(lbl)
+        if df is None or df.empty:
+            continue
+        mask = df_included_mask(df).to_numpy(copy=True)
+        if "timepoint_hours" not in df.columns:
+            continue
+        tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(tp) & (np.abs(tp - target_t) <= 1e-6)
+        val = resolve_value_series(df, val_col, ratios).to_numpy()
+        mask &= np.isfinite(val)
+        if not mask.any():
+            continue
 
-        for vals in buckets.values():
-            stat = _compute_statistic(vals, statistic, threshold)
+        if aggregate_per_fov:
+            fov_raw = (df["fov"].fillna("").astype(str).str.strip()
+                       if "fov" in df.columns
+                       else pd.Series([""] * len(df), index=df.index))
+            fov = fov_raw.where(fov_raw != "", "_").to_numpy()
+            sub = pd.DataFrame({"key": fov[mask], "v": val[mask]})
+            for _, group_vals in sub.groupby("key", sort=False)["v"]:
+                stat = _compute_statistic_arr(group_vals.to_numpy(), statistic, threshold)
+                if stat is not None:
+                    samples.append(stat)
+        else:
+            stat = _compute_statistic_arr(val[mask], statistic, threshold)
             if stat is not None:
                 samples.append(stat)
     return samples
@@ -111,25 +108,22 @@ def collect_group_per_cell_values(
             threshold = float(getattr(app, "_threshold", 0.0))
     threshold = float(threshold)
     ratios = getattr(app, "_ratio_index", None)
-    vals: List[float] = []
+    chunks: List[np.ndarray] = []
     for lbl in grp.wells:
         if lbl not in app._well_paths:
             continue
-        for row in app._get_rows(lbl):
-            if not row_is_included(row):
-                continue
-            try:
-                t = float(row.get("timepoint_hours"))
-            except (TypeError, ValueError):
-                continue
-            if abs(t - target_t) > 1e-6:
-                continue
-            v = resolve_value(row, val_col, ratios)
-            if v is None or v != v:
-                continue
-            if v > threshold:
-                vals.append(float(v))
-    return vals
+        df = app._get_rows(lbl)
+        if df is None or df.empty or "timepoint_hours" not in df.columns:
+            continue
+        mask = df_included_mask(df).to_numpy(copy=True)
+        tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").to_numpy()
+        with np.errstate(invalid="ignore"):
+            mask &= np.isfinite(tp) & (np.abs(tp - target_t) <= 1e-6)
+        val = resolve_value_series(df, val_col, ratios).to_numpy()
+        mask &= np.isfinite(val) & (val > threshold)
+        if mask.any():
+            chunks.append(val[mask])
+    return np.concatenate(chunks).tolist() if chunks else []
 
 
 def _channel_label_for_val_col(val_col: str) -> str:

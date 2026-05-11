@@ -41,7 +41,6 @@ from well_viewer.batch_export._common import (
     get_color,
     BarGroup,
     _bar_render_items,
-    _all_fluor_values,
     _extract_well_token,
     _PLATE_COLS,
     _PLATE_ROWS,
@@ -148,15 +147,15 @@ class ScatterBatchExportPanel(BatchExportPanel):
     def _init_timepoint_dropdown(self) -> None:
         timepoints = sorted(set(getattr(self._app, "_all_timepoints_cache", []) or []))
         if not timepoints:
+            import pandas as _pd
+            tps: set = set()
             for lbl in self._app._well_paths:
-                for row in self._app._get_rows(lbl):
-                    try:
-                        tp = float(row.get("timepoint_hours", float("nan")))
-                    except (TypeError, ValueError):
-                        continue
-                    if not math.isnan(tp):
-                        timepoints.append(tp)
-            timepoints = sorted(set(timepoints))
+                df = self._app._get_rows(lbl)
+                if df is None or "timepoint_hours" not in df.columns:
+                    continue
+                tp = _pd.to_numeric(df["timepoint_hours"], errors="coerce").dropna().unique()
+                tps.update(float(t) for t in tp)
+            timepoints = sorted(tps)
         tp_vals = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0.0"]
         self._tp_lb.clear()
         for tp in tp_vals:
