@@ -5,21 +5,33 @@ from __future__ import annotations
 
 def _select_tab_by_text(notebook, text: str) -> None:
     """Select a QTabWidget tab by its text label."""
+    if notebook is None:
+        return
     for i in range(notebook.count()):
         if notebook.tabText(i) == text:
             notebook.setCurrentIndex(i)
             return
 
 
-def _table_row_dict(table, row_idx: int) -> dict:
-    """Extract a row from a QTableWidget as a {col_name: value} dict."""
-    col_names = [
+def _table_column_names(table) -> list[str]:
+    """Return the QTableWidget's header labels (index strings when unset)."""
+    return [
         (table.horizontalHeaderItem(c).text() if table.horizontalHeaderItem(c) else str(c))
         for c in range(table.columnCount())
     ]
+
+
+def _table_row_dict(table, row_idx: int, col_names: list[str] | None = None) -> dict:
+    """Extract a row from a QTableWidget as a {col_name: value} dict.
+
+    Pass ``col_names`` (from :func:`_table_column_names`) when iterating many
+    rows so the header labels aren't re-fetched for every row.
+    """
+    if col_names is None:
+        col_names = _table_column_names(table)
     return {
         col_names[c]: (table.item(row_idx, c).text() if table.item(row_idx, c) else "")
-        for c in range(table.columnCount())
+        for c in range(min(len(col_names), table.columnCount()))
     }
 
 
@@ -55,75 +67,135 @@ def on_review_image_click(app, event, logger) -> None:
     app._select_review_csv_row_for_cell(fov, tp, str(nid))
 
 
-def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logger) -> None:
-    if not hasattr(app, "_review_fov_cb"):
-        return
-    fov_n, tp_n, nucleus_n = app._review_row_keys({"fov": fov, "tp": tp, "nucleus_id": nucleus_id})
-    app._review_csv_lookup_context = {
-        "well": str(app._preview_selected_well or ""),
-        "fov": str(fov_n),
-        "tp": str(tp_n),
-        "nucleus_id": str(nucleus_n),
-    }
-    app._set_status(
-        "Review CSV lookup request: "
-        f"well={app._review_csv_lookup_context['well']}  "
-        f"fov={app._review_csv_lookup_context['fov']}  "
-        f"tp={app._review_csv_lookup_context['tp']}  "
-        f"nucleus_id={app._review_csv_lookup_context['nucleus_id']}"
-    )
-    logger.info(
-        "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
-        app._preview_selected_well, fov, tp, nucleus_id,
-    )
-    # Ensure the previewed well is in the sidebar selection so the tab-switch
-    # refresh loads its CSV rows — Review Image's preview well is independent
-    # of _selected_wells, and _refresh_review_csv reads only _selected_wells.
-    preview_well = app._preview_selected_well
-    if (
-        preview_well
-        and preview_well in getattr(app, "_well_paths", {})
-        and preview_well not in app._selected_wells
-    ):
-        app._selected_wells.add(preview_well)
-        if hasattr(app, "_refresh_sidebar_map"):
-            app._refresh_sidebar_map()
-    if hasattr(app, "_notebook"):
-        _select_tab_by_text(app._notebook, "Review CSV")
-    # Block the per-combo currentIndexChanged signals so we rebuild the table
-    # exactly once instead of three times (once per setCurrentText, then again
-    # explicitly). Previously this rebuilt 10k+ QTableWidgetItems three times
-    # in a row on every Review Image click.
-    app._review_fov_cb.blockSignals(True)
-    app._review_tp_cb.blockSignals(True)
-    try:
-        app._review_fov_cb.setCurrentText(fov_n)
-        app._review_tp_cb.setCurrentText(tp_n)
-    finally:
-        app._review_fov_cb.blockSignals(False)
-        app._review_tp_cb.blockSignals(False)
-    app._refresh_review_csv_rows()
+def _resolve_table_column(col_names: list[str], *candidates: str) -> int:
+    """Return the index of the first matching column (case-insensitive), or -1."""
+    lowered = {name.lower(): i for i, name in enumerate(col_names)}
+    for cand in candidates:
+        if cand in col_names:
+            return col_names.index(cand)
+        i = lowered.get(cand.lower())
+        if i is not None:
+            return i
+    return -1
 
-    table = app._review_csv_table
-    debug_candidates = []
-    for row_idx in range(table.rowCount()):
-        row = _table_row_dict(table, row_idx)
-        rf, rt, rn = app._review_row_keys(row)
-        debug_candidates.append((rf, rt, rn))
-        if rf == fov_n and rt == tp_n and rn == nucleus_n:
-            table.selectRow(row_idx)
-            item = table.item(row_idx, 0)
-            if item:
-                table.scrollToItem(item)
-            app._set_status(f"Matched Review CSV row for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}.")
+
+def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logger) -> None:
+    """Navigate the Review CSV tab to the row for the given cell.
+
+    Wrapped end-to-end: any failure is logged + surfaced on the status line
+    rather than escaping into the Qt event loop (which previously left the UI
+    looking hung). The post-refresh row scan reads only the FOV / timepoint /
+    nucleus columns instead of materialising a dict per row, so a fallback
+    "show all rows" table doesn't make this O(rows × columns).
+    """
+    try:
+        fov_n, tp_n, nucleus_n = app._review_row_keys({"fov": fov, "tp": tp, "nucleus_id": nucleus_id})
+        app._review_csv_lookup_context = {
+            "well": str(app._preview_selected_well or ""),
+            "fov": str(fov_n),
+            "tp": str(tp_n),
+            "nucleus_id": str(nucleus_n),
+        }
+        app._set_status(
+            "Review CSV lookup request: "
+            f"well={app._review_csv_lookup_context['well']}  "
+            f"fov={app._review_csv_lookup_context['fov']}  "
+            f"tp={app._review_csv_lookup_context['tp']}  "
+            f"nucleus_id={app._review_csv_lookup_context['nucleus_id']}"
+        )
+        logger.info(
+            "Review-image click -> Review CSV lookup: well=%s fov=%s tp=%s nucleus_id=%s",
+            app._preview_selected_well, fov, tp, nucleus_id,
+        )
+        # Ensure the previewed well is in the sidebar selection so the tab-switch
+        # refresh loads its CSV rows — Review Image's preview well is independent
+        # of _selected_wells, and _refresh_review_csv reads only _selected_wells.
+        preview_well = app._preview_selected_well
+        if (
+            preview_well
+            and preview_well in getattr(app, "_well_paths", {})
+            and preview_well not in app._selected_wells
+        ):
+            app._selected_wells.add(preview_well)
+            if hasattr(app, "_refresh_sidebar_map"):
+                app._refresh_sidebar_map()
+        # If the Review CSV tab is already built, pre-point its FOV/TP combos
+        # at the target *before* switching tabs. The tab-switch fires
+        # _refresh_review_csv, which would otherwise rebuild the table for
+        # whatever FOV/TP happened to be selected (and, when none of those
+        # rows survive the filter, fall back to inserting *every* loaded row —
+        # tens of thousands of QTableWidgetItems — which is what made this
+        # look hung).
+        if hasattr(app, "_review_fov_cb") and hasattr(app, "_review_tp_cb"):
+            for combo, value in ((app._review_fov_cb, fov_n), (app._review_tp_cb, tp_n)):
+                combo.blockSignals(True)
+                try:
+                    combo.setCurrentText(value)
+                finally:
+                    combo.blockSignals(False)
+        # Switch to the Review CSV tab — this lazily builds the tab (and its
+        # combo boxes / table) if the user hasn't visited it yet.
+        if hasattr(app, "_notebook"):
+            _select_tab_by_text(app._notebook, "Review CSV")
+        if not hasattr(app, "_review_csv_table") or not hasattr(app, "_review_fov_cb"):
+            app._set_status("Review CSV tab is not available yet.")
             return
-    logger.warning(
-        "Review CSV exact row match not found. target=(%s,%s,%s) candidates_shown=%d sample=%s",
-        fov_n, tp_n, nucleus_n, len(debug_candidates), debug_candidates[:10],
-    )
-    app._set_status(
-        f"No exact Review CSV row match for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}; showing fallback rows."
-    )
+        # Block the per-combo currentIndexChanged signals so we rebuild the
+        # table once here instead of once per setCurrentText.
+        app._review_fov_cb.blockSignals(True)
+        app._review_tp_cb.blockSignals(True)
+        try:
+            app._review_fov_cb.setCurrentText(fov_n)
+            app._review_tp_cb.setCurrentText(tp_n)
+        finally:
+            app._review_fov_cb.blockSignals(False)
+            app._review_tp_cb.blockSignals(False)
+        app._refresh_review_csv_rows()
+
+        table = app._review_csv_table
+        col_names = _table_column_names(table)
+        fov_ci = _resolve_table_column(col_names, "fov", "FOV")
+        tp_ci = _resolve_table_column(col_names, "timepoint", "tp", "time", "time_h", "timepoint_hours")
+        nid_ci = _resolve_table_column(col_names, "nucleus_id", "nucleus id", "nucleusId", "nucleusID")
+
+        def _cell(row_idx: int, ci: int) -> str:
+            if ci < 0:
+                return ""
+            item = table.item(row_idx, ci)
+            return item.text() if item is not None else ""
+
+        debug_candidates = []
+        for row_idx in range(table.rowCount()):
+            mini = {}
+            if fov_ci >= 0:
+                mini[col_names[fov_ci]] = _cell(row_idx, fov_ci)
+            if tp_ci >= 0:
+                mini[col_names[tp_ci]] = _cell(row_idx, tp_ci)
+            if nid_ci >= 0:
+                mini[col_names[nid_ci]] = _cell(row_idx, nid_ci)
+            rf, rt, rn = app._review_row_keys(mini)
+            if len(debug_candidates) < 10:
+                debug_candidates.append((rf, rt, rn))
+            if rf == fov_n and rt == tp_n and rn == nucleus_n:
+                table.selectRow(row_idx)
+                item = table.item(row_idx, 0)
+                if item:
+                    table.scrollToItem(item)
+                app._set_status(f"Matched Review CSV row for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}.")
+                return
+        logger.warning(
+            "Review CSV exact row match not found. target=(%s,%s,%s) rows=%d sample=%s",
+            fov_n, tp_n, nucleus_n, table.rowCount(), debug_candidates,
+        )
+        app._set_status(
+            f"No exact Review CSV row match for nucleus {nucleus_n} at FOV {fov_n}, TP {tp_n}; showing fallback rows."
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Review-image -> Review CSV navigation failed")
+        try:
+            app._set_status("Could not navigate to the Review CSV row (see log for details).")
+        except Exception:
+            pass
 
 
 def on_review_csv_row_double_click(app, item) -> None:
