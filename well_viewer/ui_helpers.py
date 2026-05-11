@@ -121,13 +121,53 @@ def make_scrollable_canvas(parent: QWidget, **_kw) -> Tuple[QScrollArea, QWidget
     return sa, inner
 
 
+class _PlotDockHost(QWidget):
+    """Container whose right-side dock *floats over* the plot area.
+
+    The export-style configurator used to be a layout sibling of the plot
+    area, so toggling it stole ~260 px and forced matplotlib to re-render the
+    whole figure (a noticeable freeze on the tall multi-panel bar plot). Here
+    the dock is a manually positioned child overlay instead: showing/hiding it
+    never changes the plot canvas's size, so no re-render is triggered.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._overlay_dock: Optional[QWidget] = None
+        self._dock_width: int = 0
+
+    def set_overlay_dock(self, dock: QWidget, width: int = 0) -> None:
+        self._overlay_dock = dock
+        if width > 0:
+            self._dock_width = int(width)
+        self._reposition_overlay()
+
+    def _reposition_overlay(self) -> None:
+        dock = self._overlay_dock
+        if dock is None:
+            return
+        w = self._dock_width
+        if w <= 0:
+            hint = dock.sizeHint().width()
+            w = hint if hint > 0 else 260
+        w = min(w, self.width())
+        dock.setGeometry(max(0, self.width() - w), 0, w, self.height())
+        if dock.isVisible():
+            dock.raise_()
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        self._reposition_overlay()
+
+
 def make_plot_with_right_dock(parent: QWidget) -> Tuple[QWidget, QVBoxLayout, QWidget]:
-    """Build a ``plot | right-dock`` split container inside ``parent``.
+    """Build a plot area with a right-side overlay dock inside ``parent``.
 
     Returns ``(plot_area, plot_layout, right_dock)`` — callers lay their
     figure/toolbar into ``plot_layout`` and the export-style sidebar docks
-    into ``right_dock``. The dock starts empty (hidden) so it occupies no
-    space until the sidebar is shown.
+    into ``right_dock``. ``right_dock`` floats over the right edge of the plot
+    area (it is *not* a layout sibling), so toggling it visible never resizes
+    the plot canvas. It starts hidden.
     """
     root = parent.layout()
     if root is None:
@@ -135,25 +175,28 @@ def make_plot_with_right_dock(parent: QWidget) -> Tuple[QWidget, QVBoxLayout, QW
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-    split = QWidget(parent)
-    hbox = QHBoxLayout(split)
-    hbox.setContentsMargins(0, 0, 0, 0)
-    hbox.setSpacing(0)
+    host = _PlotDockHost(parent)
+    host_layout = QVBoxLayout(host)
+    host_layout.setContentsMargins(0, 0, 0, 0)
+    host_layout.setSpacing(0)
 
-    plot_area = QWidget(split)
+    plot_area = QWidget(host)
     plot_layout = QVBoxLayout(plot_area)
     plot_layout.setContentsMargins(0, 0, 0, 0)
     plot_layout.setSpacing(0)
-    hbox.addWidget(plot_area, 1)
+    host_layout.addWidget(plot_area, 1)
 
-    right_dock = QWidget(split)
+    right_dock = QWidget(host)  # child of host but NOT in host_layout — floats
     right_dock_layout = QVBoxLayout(right_dock)
     right_dock_layout.setContentsMargins(0, 0, 0, 0)
     right_dock_layout.setSpacing(0)
     right_dock.setVisible(False)
-    hbox.addWidget(right_dock, 0)
+    # Back-reference so launch_export_editor can register the dock's width and
+    # nudge a reposition once its content (the fixed-width sidebar) is added.
+    right_dock._dock_host = host  # type: ignore[attr-defined]
+    host.set_overlay_dock(right_dock, 0)
 
-    root.addWidget(split, 1)
+    root.addWidget(host, 1)
     return plot_area, plot_layout, right_dock
 
 

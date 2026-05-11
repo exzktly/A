@@ -237,6 +237,13 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
 
             if dock is not None and dock.layout() is not None:
                 dock.layout().addWidget(sb)
+                # The dock floats over the plot area now (a ``_PlotDockHost``
+                # child overlay) — register its width so the host can size and
+                # position it without ever resizing the plot canvas.
+                host = getattr(dock, "_dock_host", None)
+                if host is not None and hasattr(host, "set_overlay_dock"):
+                    width = sb.sizeHint().width() or 260
+                    host.set_overlay_dock(dock, width)
             elif canvas is not None:
                 canvas_parent = canvas.parentWidget()
                 if canvas_parent is not None:
@@ -245,7 +252,13 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
                         parent_layout.addWidget(sb)
 
         if dock is not None:
+            host = getattr(dock, "_dock_host", None)
+            if host is not None and hasattr(host, "set_overlay_dock"):
+                host.set_overlay_dock(dock, sb.sizeHint().width() or 260)
             dock.setVisible(True)
+            dock.raise_()  # float above the plot canvas
+            if host is not None and hasattr(host, "_reposition_overlay"):
+                host._reposition_overlay()
         sb.show()
         sb.raise_()
         # Apply the (already-persisted) prefs to the figure once. Use the
