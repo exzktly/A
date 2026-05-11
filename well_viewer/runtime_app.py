@@ -6291,11 +6291,23 @@ class WellViewerApp(QWidget):
                 self._open_scatter_cell_viewer(nearest_well, nearest_filename, nearest_nuclear_id, nearest_row_idx)
 
         except Exception as e:
-            # Don't swallow this silently — the user clicked expecting a popup.
-            # Log the full traceback so the failure is recoverable, and point
-            # the status line at the log instead of a one-line message.
+            # The user clicked expecting a popup — surface the failure instead
+            # of swallowing it into a fleeting status line. Show the cause and
+            # the full traceback so the source is diagnosable on the spot.
+            import traceback
             _logger.exception("Error handling scatter-plot cell click")
-            self._set_status(f"Could not open cell viewer: {e} (see log for details)")
+            tb = traceback.format_exc()
+            self._set_status(f"Could not open cell viewer: {e}")
+            try:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Warning)
+                box.setWindowTitle("Cell viewer error")
+                box.setText("Could not open the cell-image viewer for the clicked point.")
+                box.setInformativeText(str(e))
+                box.setDetailedText(tb)
+                box.exec()
+            except Exception:
+                pass
 
     def _on_scatter_motion(self, event) -> None:
         """Handle hover events on scatter plot to show tooltips."""

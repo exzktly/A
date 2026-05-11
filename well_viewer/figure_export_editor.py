@@ -248,7 +248,17 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
             dock.setVisible(True)
         sb.show()
         sb.raise_()
-        sb._on_fields_changed()
+        # Apply the (already-persisted) prefs to the figure once. Use the
+        # direct entry point rather than ``sb._on_fields_changed()`` — the
+        # latter also copies every widget value back onto ``_export_style_prefs``
+        # (a redundant no-op right after the widgets were initialised from
+        # those same prefs) and is wired to every widget's change signal, so
+        # routing the open path through it risks extra restyle+redraw passes
+        # on a heavy (tall, 3-panel) bar figure.
+        try:
+            apply_export_style_to_current(app, fig, canvas)
+        except Exception:
+            pass
         # Re-populate the line-order lists so they reflect the current rep-set
         # / well selection each time the panel is opened.
         try:
