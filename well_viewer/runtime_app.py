@@ -698,7 +698,7 @@ class WellViewerApp(QWidget):
         self._in_dir:     Optional[Path]        = None
         self._tmp_dir:    Optional[Path]        = None
         self._well_paths: Dict[str, Path]       = {}
-        self._cache:      Dict[str, List[dict]] = {}
+        self._cache:      Dict[str, pd.DataFrame] = {}
         self._all_timepoints_cache: List[float] = []
         self._all_fovs_cache: List[str] = []
         self._last_sel:   Optional[str]         = None
@@ -6328,7 +6328,23 @@ class WellViewerApp(QWidget):
                 self._open_scatter_cell_viewer(nearest_well, nearest_filename, nearest_nuclear_id, nearest_row_idx)
 
         except Exception as e:
-            self._set_status(f"Error handling scatter click: {e}")
+            # The user clicked expecting a popup — surface the failure instead
+            # of swallowing it into a fleeting status line. Show the cause and
+            # the full traceback so the source is diagnosable on the spot.
+            import traceback
+            _logger.exception("Error handling scatter-plot cell click")
+            tb = traceback.format_exc()
+            self._set_status(f"Could not open cell viewer: {e}")
+            try:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Warning)
+                box.setWindowTitle("Cell viewer error")
+                box.setText("Could not open the cell-image viewer for the clicked point.")
+                box.setInformativeText(str(e))
+                box.setDetailedText(tb)
+                box.exec()
+            except Exception:
+                pass
 
     def _on_scatter_motion(self, event) -> None:
         """Handle hover events on scatter plot to show tooltips."""
