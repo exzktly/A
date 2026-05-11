@@ -535,8 +535,10 @@ def image_table_load_heatmap_layout(app) -> None:
     Pulls the single sidebar layout maintained by the heat-map tab
     (``views.heatmap_layout_sidebar_view``), resizes the Image Table's
     selector grid to match, and writes each cell's well into the
-    corresponding per-cell well dropdown. Cells that the heatmap leaves
-    empty stay untouched on the Image Table side.
+    corresponding per-cell well dropdown. Cells that the heat map leaves
+    empty are cleared on the Image Table side — otherwise they would stick
+    on the first well token (the ``QComboBox.addItems`` default of A1)
+    that ``image_table_rebuild_grid`` had just put there.
     """
     from well_viewer.views.heatmap_layout_sidebar_view import (
         SIDEBAR_LAYOUT_NAME,
@@ -571,6 +573,20 @@ def image_table_load_heatmap_layout(app) -> None:
     image_table_rebuild_grid(app)
 
     cells = getattr(app, "_image_table_cells", None) or []
+
+    # Clear every freshly-rebuilt cell's well first so heat-map blanks
+    # come through as blanks instead of the A1 default.
+    for row in cells:
+        for cell in row:
+            cb = cell.get("well_cb")
+            if cb is None:
+                continue
+            cb.blockSignals(True)
+            try:
+                cb.setCurrentIndex(-1)
+            finally:
+                cb.blockSignals(False)
+
     placed = 0
     for (r, c), wells in layout.cells.items():
         if not (0 <= r < len(cells)) or not (0 <= c < len(cells[r])):
