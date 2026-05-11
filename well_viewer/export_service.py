@@ -213,9 +213,24 @@ def _error(app, title: str, msg: str) -> None:
 
 
 def export_plot_data(app) -> None:
-    selected = app._selected_labels()
+    selected = list(app._selected_labels())
+    well_to_repset: dict = {}
     if not selected:
-        _warn(app, "Export", "No wells selected.")
+        # The line plot falls back to active replicate sets when nothing is
+        # manually selected; the CSV export must do the same instead of
+        # refusing — otherwise "Export CSV" reports "no wells selected" while
+        # the plot is clearly showing rep-set data. Emit per-well rows for the
+        # rep-set members (deduped, order preserved) plus a replicate_set
+        # column so the grouping isn't lost.
+        seen: set = set()
+        for rset in (app._rep_sets_active() or []):
+            for w in rset.wells:
+                if w in app._well_paths and w not in seen:
+                    seen.add(w)
+                    selected.append(w)
+                    well_to_repset[w] = getattr(rset, "name", "")
+    if not selected:
+        _warn(app, "Export", "No wells selected. Select wells in the picker, or define a replicate set.")
         return
     ch = app._active_channel
     metric = app._active_metric
@@ -225,6 +240,7 @@ def export_plot_data(app) -> None:
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
     well_labels = _well_labels_map(app)
+    include_repset_col = bool(well_to_repset)
     rows_out = []
     for label in selected:
         pts = app._aggregate_well(
@@ -238,6 +254,8 @@ def export_plot_data(app) -> None:
                 "well": label,
                 "well_name": well_name_for(label, well_labels),
             }
+            if include_repset_col:
+                row["replicate_set"] = well_to_repset.get(label, "")
             row.update(line_metric_row(pt, ch=ch, metric=metric,
                                        threshold=threshold, band_lbl=band_lbl))
             rows_out.append(row)
@@ -247,7 +265,8 @@ def export_plot_data(app) -> None:
     out_path = _ask_save_csv(app, "Export plot data", f"{ch}_{metric}_plot_export.csv")
     if not out_path:
         return
-    fieldnames = ["well", "well_name"] + line_metric_fieldnames(ch, metric, band_lbl)
+    base_cols = ["well", "well_name"] + (["replicate_set"] if include_repset_col else [])
+    fieldnames = base_cols + line_metric_fieldnames(ch, metric, band_lbl)
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
