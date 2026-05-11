@@ -128,6 +128,19 @@ class ScatterCellViewer(QDialog):
         if getattr(self, "_debug_text", None) is not None:
             self._debug_text.append(line)
 
+    @staticmethod
+    def _row_dict_at(rows, idx: int) -> dict:
+        """Return row ``idx`` as a plain ``{column: value}`` dict.
+
+        ``app._get_rows`` returns a ``list[dict]`` in the scalar code path and
+        a ``pandas.DataFrame`` once the DataFrame migration lands; positional
+        access on a DataFrame (``df[idx]``) is a *column* lookup, which raised
+        ``KeyError`` here and made the cell-image popup vanish. Accept either.
+        """
+        if hasattr(rows, "iloc"):  # pandas DataFrame
+            return dict(rows.iloc[idx])
+        return rows[idx]
+
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask.
 
@@ -172,7 +185,7 @@ class ScatterCellViewer(QDialog):
             self._debug(f"row_idx out of bounds: row_idx={self.row_idx}, rows={len(rows)}")
             return
 
-        row = rows[self.row_idx]
+        row = self._row_dict_at(rows, self.row_idx)
         self._nuclear_token = str(row.get("channel") or "").strip()
         self._debug(f"csv.channel={self._nuclear_token!r}")
         self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")
