@@ -100,3 +100,85 @@ Conventions:
 > Caveat: PySide6 isn't installed in this environment, so component work will need to be
 > verified by running the app locally (screenshots), per the porting plan's "run between
 > every step" rule.
+
+---
+
+# v3 additions — expanded scope (round 2)
+
+`design/All-Well Additions v3.html` + `DESIGN_NOTES.md` §6 + `DESIGN_TOKENS.md`
+§9 added five mid-port supplements, in response to `design/DECISIONS_NEEDED.md`.
+This section folds them into the plan; Tables 1–2 and the build order above are
+amended by what follows.
+
+## A. How the additions resolve `DECISIONS_NEEDED.md`
+
+| # (DECISIONS) | Status | What the v3 additions say |
+|---|---|---|
+| 1 — plot layout model (per-card vs single shared canvas) | **Resolved → single shared figure canvas** | The v3 figure card is one figure (header row: channel/trace label + `Screen`/`Publication` toggle + `Stats · SEM` chip) with one bottom toolbar. Per-panel metric strips and the hover-toolbar stay reverted (§2.4/§2.8); `HoverToolbarOverlay` is not used; there's no per-subplot view/channel switcher. (If two subplots are stacked they share the canvas.) |
+| 2 — dark vs white plot background | **Resolved → both, switchable** | §6.1: dark on-screen, light on export, via a 2-state `Screen`/`Publication` toggle in the figure header — a *live preview*, never the canonical state (file open always lands on Screen). New `--pub-*` tokens + a `CPub` / `TRACE_PUB` parallel palette (DESIGN_TOKENS §9). A "preview only" chip shows whenever Publication is active. The export dialog reads the preview state to pre-select the theme; "Transparent" is an export-only extra. |
+| 3 — `PlotCard` SEM/FOV toggles + export hooks | **Mostly resolved → relocated** | §6.2: SEM/SD + FOV/Spread leave the toolbar entirely and become a new **Statistics** section in the Properties panel (`Error bars`: None/SEM/SD/95%CI · `Across`: Replicates/FOV · `Show`: Mean / Mean+spread / All points), with a collapsed-header preview value (`SEM · spread`) and a quick popover anchored to the figure-header `Stats · SEM` chip. So `PlotCard`'s toolbar doesn't need these. *Still open:* the "configure subplots" tool, and the export-dialog↔preview-state wiring is now a defined requirement (not yet detailed). |
+| 4 — `TitleBar` ⇒ frameless window | **Resolved → keep custom, affordances specified** | §6.5: keep the frameless titlebar. Now spec'd: Win/Linux 28-px min/max/close icon group (close hovers `--danger`); macOS native traffic lights; invisible 4–8-px resize edge/corner widgets (`startSystemResize`); ghost `Open` button + ⌘O + brand-logo dropdown (Open / Recent / Preferences / About / Quit); theme switcher (sun/moon → popover: Dark · Light · System + High-contrast toggle); drag-anywhere-non-interactive + double-click-maximize + `startSystemMove`. **Fallback** (if accessibility audit fails): `FramelessWindowHint=False` and the breadcrumb + actions descend to a 36-px sub-strip beneath the native bar. |
+| 5 / 9 — selected wells: accent vs trace colours | **Still open (design unchanged)** | §2.1 ("plate IS the legend") still implies trace colours; the v3 additions don't revisit it. The Step-1 left-rail port currently uses **accent** for selected wells. Needs an explicit call; if "trace", flip the `setWellColors` override in `runtime_app._refresh_sidebar_map_now` (one-liner) — but only for the *legend* plate-map (left rail), not the picker plate-maps (Sample Definitions / Bar Plots stay accent/neutral). |
+| 6 — `_bind_getter_setter` doesn't know `Stepper`/`SegmentedControl`/`ChipGroup`/`StyledSlider` | **Still open — and now more pressing** | The new Statistics section (#3 above) is three segmented-control-style pickers in the Properties panel → either `_bind_getter_setter` must learn them, or the section is hand-wired. Policy call needed before that section is built. |
+| 7 — `PillTabBar` ≠ `QTabWidget` | **Still open (unchanged)** | v3 doesn't touch the main notebooks. Recommendation (a) — keep `QTabWidget`, use `PillTabBar` only for the channel-tabs strip — still stands. The brand-logo dropdown / theme-switcher in §6.5 need a `Popover`/`QMenu`, not `PillTabBar`. |
+| 8 — `SavedSelectionsList` read-only | **Resolved → must become a full editable panel** | §6.3: one unified **Saved selections** panel *replaces both* the replicate-sets and bar-groups panels. Each row: drag handle · visibility eye · colour dot · inline-renamable name · count chip · kebab; rows expand to show sub-item well chips; drag-reorder == bar-plot order; right-click → Rename/Recolour/Duplicate/Hide/Move/Export/Delete; footer `From selection` + `Import…`; hidden rows fade + strike + sink. Migration: on file load both legacy lists merge into one `selections` array, bar-group order wins, name conflicts get `_v2`. So `SavedSelectionsList` is **not** sufficient as built — it's effectively a new editable widget (the current read-mostly one is at most a starting delegate). |
+| 10 — `ColorSwatchRow` curated-only | **Resolved → curated + Custom escape hatch, plus a separate LUT selector** | §6.4: (i) trace-colour picker = curated 6-swatch row + a conic-gradient **Custom** tile that opens a free-form picker (SV square + hue strip + Hex/HSL/Alpha fields + per-dataset recents, capped at 8); selected swatch has a 2-px accent outline. (ii) **LUT selector** (review-image LUTs) = a trigger button showing the current LUT's gradient strip + name, opening a searchable popover with four categories (Perceptual / Diverging / Categorical / Cyclic), each row a 60-px live gradient strip + monospace name, plus reverse-LUT + reset buttons next to the trigger and a `n / m` match count in the search header. |
+| 11 — `Toast` ≠ `QMessageBox` | **Still open (unchanged)** | v3 adds no notification design. `Toast` stays additive; `QMessageBox` stays for blocking/answer-bearing dialogs. |
+
+### New gaps the additions introduce
+
+- **`Popover` primitive** — needed in ≥3 new places (the Stats `SEM` chip popover, the LUT-selector popover, the titlebar theme-switcher popover) and arguably the row kebab menu. No such widget exists; `Drawer` is edge-anchored, not anchor-relative.
+- **Free-form colour picker** (SV square + hue strip + Hex/HSL/Alpha) — net-new custom-painted widgets.
+- **Gradient strip / LUT preview** — net-new custom-painted widget (used in the LUT trigger and every LUT list row).
+- **Publication rcParams + `CPub`/`TRACE_PUB`** — `theme.py` needs the second token set; `PlotCard` (or whatever the figure widget becomes) needs a `mode="screen"|"publication"` axes-style path; the existing `plot_style.apply_ax_style` (and every controller that calls it) has to learn both modes.
+- **"Saved selections" data-model migration** — a one-time on-load merge of `app._rep_sets` + `app._bar_groups` into a single `selections` array, with the bar-group-order-wins / `_v2`-conflict rules. Touches `well_viewer/sample_definitions.py`, `bar_models.py`, persistence (`persistence/sample_definitions.py`, `persistence/bar_groups.py`, `persistence/line_order.py`), and every consumer of `_rep_sets`/`_bar_groups`/`_rep_hidden` (the line/bar/scatter renderers, `selection_controller`, `runtime_app._refresh_sidebar_map_now`, the rep-set-mode plate behaviour, the heatmap layout flow…). This is large and orthogonal to the widget work.
+- **`TitleBar` native-frame fallback mode** — a second layout (36-px sub-strip under the native bar) the widget must support, gated on an accessibility audit.
+
+## B. New custom widgets to build in `widgets/` before Phase 8 proceeds cleanly
+
+In rough dependency order:
+
+1. **`Popover`** — anchor-relative floating panel (positions next to an anchor widget; dismiss on outside-click / `Esc`; optional arrow). Core primitive; used by Stats chip, LUT selector, theme switcher, kebab menus. (Distinct from `Drawer`, which is edge-docked.)
+2. **`GradientStrip`** — custom-painted horizontal colour-ramp swatch (paints a `QLinearGradient` from a list of stops; reversible). Used in the LUT trigger and every LUT list row.
+3. **`LutSelector`** — composes a trigger (`GradientStrip` + name + reverse + reset) with a `Popover` holding a searchable, categorised list of `GradientStrip` rows + a `n / m` match count. Backed by a LUT registry (matplotlib colormaps grouped into Perceptual/Diverging/Categorical/Cyclic).
+4. **`ColorPickerPopover`** (+ sub-components `SvSquare`, `HueStrip`) — the free-form picker: an SV square (custom-painted, drag-to-pick), a hue strip, Hex/HSL/Alpha line edits, and a "recents" row (≤8). Opened from the **Custom** tile.
+5. **`WindowResizeGrips`** (a.k.a. frameless-window helper) — the invisible 4–8-px edge + corner grip widgets that call `windowHandle().startSystemResize(edge)`; installs cursors. Needed by `TitleBar`'s frameless mode.
+6. *(possibly)* **`PreviewBadge`** — the small "preview only" pill in the figure header when Publication mode is active. Trivial — could just be a styled `QLabel`; not strictly a new widget.
+
+The `Screen`/`Publication` figure-header control is just a 2-segment `SegmentedControl`; the Statistics section is a `CollapsibleSection` of three `SegmentedControl`s — no new widget for those.
+
+## C. Existing `widgets/` widgets that need extension
+
+- **`SavedSelectionsList` → effectively rebuilt** as an editable, reorderable list: editable model with write-back to the `selections` array; drag-to-reorder; inline rename; per-row eye / colour-dot (→ recolour via `ColorSwatchRow`) / count chip / kebab (→ `Popover`/`QMenu`); expandable rows showing a `ChipGroup` of well chips; footer `From selection` / `Import…`; hidden-row styling (fade + strike + sink to bottom). Big.
+- **`ColorSwatchRow` → add a "Custom" tile** that opens `ColorPickerPopover`; carry & display a per-dataset recents list; keep the 2-px accent outline on the selected swatch.
+- **`TitleBar` → add**: window-control buttons (min/max/close — uses `IconButton`); the brand-logo dropdown menu (uses `Popover`/`QMenu`); the theme-switcher popover (Dark · Light · System + High-contrast); the ghost `Open` button + ⌘O; the `WindowResizeGrips`; a **native-frame fallback** layout (36-px sub-strip under the OS bar). Substantial.
+- **`PlotCard` → add**: `setPlotTheme("screen"|"publication")` driving an rcParams swap between the dark token set and `CPub`/`--pub-*`; expose that state so the export dialog can read it; the figure-header row (channel/trace label + the `Screen`/`Publication` `SegmentedControl` + a `Stats · SEM` chip whose click opens a `Popover` hosting the Statistics controls). Also still owes the [gap]s from `WIDGET_GAPS.md` (configure-subplots tool, export-pipeline integration).
+- **`StatusDot`** — unchanged, but now also used for the titlebar "Saved" dot + `● Connected` exactly as planned; no change needed.
+
+## D. Which Phase 8 prompts to re-issue or modify
+
+> I don't have the verbatim 8.1–8.5 prompt list, so this maps by *area* — please
+> confirm the numbering. Nothing here should be built before you've reviewed it.
+
+| Area / prompt | Status | What changes |
+|---|---|---|
+| **Left rail / well-plate selector** (≈ 8.1) | Step 1 done | **Small modification:** selected wells on the *legend* plate-map (left rail) should use **trace colours** not accent, if you take that call (DECISIONS #5/#9). No other v3 impact on the rail itself. |
+| **Right-side property panel** (≈ 8.2) | "Reference area" port done | **Re-issue / extend:** add the new **Statistics** section (§6.2) between Data and Appearance (`Error bars` / `Across` / `Show`), populate `CollapsibleSection.setValueWidget` header previews (the port currently populates none — §2.5 wants them, §6.2 wants `SEM · spread`), and decide the binding question (DECISIONS #6) since the new section needs it. Also still open: is the Properties panel the per-figure export dock (current) or a future global rail (§2.5)? |
+| **Plot / figure area — matplotlib** (≈ 8.3, if not yet issued) | Not started | **Issue with v3 scope baked in:** single shared canvas confirmed; figure-header row needs the `Screen`/`Publication` toggle + "preview only" chip + `Stats · SEM` chip-with-popover; `PlotCard` needs the dark↔light rcParams swap (+ `theme.CPub`/`TRACE_PUB`, + `plot_style.apply_ax_style` rework); the export dialog reads the preview state and offers "Transparent". Biggest expansion. |
+| **Main window / titlebar / app shell** (≈ 8.4, if not yet issued) | Not started | **Issue with v3 scope:** frameless titlebar with the full §6.5 affordance set (window controls, resize grips, brand dropdown, theme switcher, Open button) **plus the native-frame fallback mode**. Decision #4 resolved (keep custom) — unblocked but bigger. |
+| **Sample Definitions / Bar Plots tabs** (≈ 8.5 or wherever those land) | Not started | **Re-issue with the unified design:** the two legacy panels (replicate-sets, bar-groups) collapse into one **Saved selections** panel (§6.3) backed by the merged `selections` model + the on-load migration. The plate-maps in those tabs become "pick wells for the active saved-selection row". This is the largest non-widget data change in the round-2 scope. |
+| **Image-table / Segmentation tabs** | Not started | The review-image LUT picker (`QComboBox` today) becomes the §6.4 **`LutSelector`**; trace-colour pickers anywhere become `ColorSwatchRow` + the **Custom** escape hatch (§6.4). |
+
+## E. Recommended order, revised
+
+0. **You decide:** DECISIONS #5/#9 (accent vs trace), #6 (binding-layer policy), and confirm the 8.1–8.5 mapping above.
+1. Build the new primitives: `Popover` → `GradientStrip` → `WindowResizeGrips`; then `LutSelector` (needs `Popover`+`GradientStrip`) and `ColorPickerPopover`/`SvSquare`/`HueStrip` (+ extend `ColorSwatchRow` with the Custom tile). Gallery entries + `__main__` demos as usual.
+2. Extend `PlotCard` for the screen/publication theme + figure-header row; add `theme.CPub`/`TRACE_PUB`; rework `plot_style.apply_ax_style` for both modes (no controllers touched yet).
+3. Re-issue & do the **plot/figure-area port** (≈8.3) with the above in hand.
+4. Re-issue & extend the **Properties-panel port** (≈8.2): add the Statistics section (decide binding first), populate header previews.
+5. Build the editable **`SavedSelectionsList`** + the `selections` data-model migration, then re-issue the **Sample Definitions / Bar Plots port** (≈8.5).
+6. Extend **`TitleBar`** (+ `WindowResizeGrips`, the dropdown/theme popovers, the native-frame fallback) and re-issue the **app-shell port** (≈8.4).
+7. The remaining `WellPlateSelector` migration (Steps 2–8 of `WELL_SELECTOR_GAP.md`) for the other six plate-maps slots in alongside step 5 (Sample Definitions / Bar Plots) and step 6 (image-table / segmentation), since those are where the legacy grids live.
+
+> Same caveat: no PySide6 in this environment — every widget/port step needs a
+> local run + screenshots before it's trusted.
