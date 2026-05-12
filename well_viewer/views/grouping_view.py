@@ -88,143 +88,155 @@ def rep_panel_refresh(app) -> None:
         app._rep_refresh_map()
 
 
-def _grp_bar_selections(app):
-    """The bar-group entries of the unified ``app._selections`` model (in order;
-    the j-th here corresponds to ``app._bar_groups[j]``)."""
-    return [s for s in getattr(app, "_selections", []) if s.get("source") == "bar_group"]
-
-
-def _grp_idx_for(app, sel_id) -> int:
-    for j, s in enumerate(_grp_bar_selections(app)):
-        if s["id"] == sel_id:
-            return j
-    return -1
-
-
 def grp_panel_refresh(app) -> None:
-    """Refresh the GROUPS list — a ``widgets.SavedSelectionsList`` (composable)
-    over the bar-group entries of ``app._selections``."""
-    lst = getattr(app, "_grp_list", None)
-    if lst is None:
+    """Rebuild the group card list in the Sample Definitions tab."""
+    if not hasattr(app, "_grp_inner"):
         return
-    sels = _grp_bar_selections(app)
-    try:
-        lst.setEnabledWells(list(getattr(app, "_well_paths", {}).keys()))
-    except Exception:
-        pass
-    lst.updateSelections(sels)
-    ai = getattr(app, "_bar_active_grp", -1)
-    if 0 <= ai < len(sels):
-        lst.setCurrentId(sels[ai]["id"])
-    # honour a pending inline-rename request (set by the "Rename" action)
-    idx = getattr(app, "_grp_inline_edit_idx", -1)
-    if 0 <= idx < len(sels):
-        app._grp_inline_edit_idx = -1
-        row = getattr(lst, "_rows", {}).get(sels[idx]["id"])
-        if row is not None and hasattr(row, "trigger_rename"):
-            QTimer.singleShot(0, row.trigger_rename)
+    inner = app._grp_inner
+    inner_layout = inner.layout()
+    if inner_layout is None:
+        inner_layout = QVBoxLayout(inner)
+        inner.setLayout(inner_layout)
+    _clear_layout(inner_layout)
 
-
-# ── GROUPS-list ↔ legacy-bar_groups bridge (Phase 8.0 Stage C, sub-cluster 1) ──
-def _rebuild_group_from(app, j: int, wells, reps) -> None:
-    """Rewrite ``app._bar_groups[j]`` so it represents the unified-model
-    ``(wells, replicates)`` the user just edited in the list: one fresh
-    ``ReplicateSet`` per replicate sub-list (named ``"<group> #k"``), the rest
-    of ``wells`` as ``solo_wells``. Prunes / extends ``app._rep_sets`` to match.
-    """
-    from well_viewer.batch_models import ReplicateSet
-    if not (0 <= j < len(app._bar_groups)):
+    if not app._bar_groups:
+        msg = QLabel(
+            "No groups defined.\nClick + Add to create one.",
+            inner,
+        )
+        msg.setObjectName("Muted")
+        inner_layout.addWidget(msg)
+        inner_layout.addStretch(1)
         return
-    grp = app._bar_groups[j]
-    wells = list(wells or [])
-    reps = [list(s) for s in (reps or []) if s]
-    old_members = list(grp.members)
-    new_members = [ReplicateSet(f"{grp.name} #{k + 1}", list(sub)) for k, sub in enumerate(reps)]
-    covered = {w for sub in reps for w in sub}
-    grp.members = new_members
-    grp.solo_wells = [w for w in wells if w not in covered]
-    # _rep_sets keeps the legacy invariant "every group member is in _rep_sets":
-    # drop old members no longer referenced by any group; add the new ones.
-    app._rep_sets = [r for r in app._rep_sets
-                     if r not in old_members or any(r in g.members for g in app._bar_groups)]
-    for m in new_members:
-        if m not in app._rep_sets:
-            app._rep_sets.append(m)
-    app._rebuild_all()
 
+    for gi, grp in enumerate(app._bar_groups):
+        is_sel = gi == app._bar_active_grp
+        card = QWidget(inner)
+        card.setProperty("variant", "group_row")
+        card.setProperty("active", "true" if is_sel else "false")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(6, 4, 6, 4)
 
-def _grp_on_activated(app, sel_id) -> None:
-    j = _grp_idx_for(app, sel_id)
-    if j >= 0:
-        app._grp_select(j)
+        hdr = QWidget(card)
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(0, 0, 0, 0)
+        dot = QLabel("●", hdr)
+        hl.addWidget(dot)
 
+        name_edit = QLineEdit(grp.name, hdr)
+        hl.addWidget(name_edit)
 
-def _grp_on_renamed(app, sel_id, name) -> None:
-    j = _grp_idx_for(app, sel_id)
-    if not (0 <= j < len(app._bar_groups)):
-        return
-    name = (name or "").strip()
-    if name and name != app._bar_groups[j].name:
-        app._bar_groups[j].name = name
-        app._rebuild_all()
+        def _commit_name(i=gi, ed=name_edit):
+            new_name = (ed.text() or "").strip()
+            if not new_name:
+                ed.setText(app._bar_groups[i].name)
+                return
+            if new_name != app._bar_groups[i].name:
+                app._bar_groups[i].name = new_name
+                app._rebuild_all()
 
+        name_edit.editingFinished.connect(_commit_name)
 
-def _grp_on_visibility(app, sel_id, hidden) -> None:
-    j = _grp_idx_for(app, sel_id)
-    if 0 <= j < len(app._bar_groups):
-        app._bar_groups[j].hidden = bool(hidden)
-        app._rebuild_all()
+        if getattr(app, "_grp_inline_edit_idx", -1) == gi:
+            app._grp_inline_edit_idx = -1
+            QTimer.singleShot(0, lambda ed=name_edit: (ed.setFocus(), ed.selectAll()))
 
+        if grp.hidden:
+            hid = QLabel("[hidden]", hdr)
+            hid.setObjectName("Muted")
+            hl.addWidget(hid)
 
-def _grp_on_deleted(app, sel_id) -> None:
-    j = _grp_idx_for(app, sel_id)
-    if j >= 0:
-        app._grp_delete(j)
+        n_sets = len(grp.members)
+        n_wells = len(grp.wells)
+        cnt = QLabel(
+            f"  {n_sets} set{'s' if n_sets != 1 else ''}  ·  "
+            f"{n_wells} well{'s' if n_wells != 1 else ''}",
+            hdr,
+        )
+        cnt.setObjectName("Muted")
+        hl.addWidget(cnt)
+        hl.addStretch(1)
 
+        hl.addWidget(btn_card(
+            hdr, "Show" if grp.hidden else "Hide",
+            lambda i=gi: app._grp_toggle_visibility(i),
+        ))
+        hl.addWidget(btn_danger(hdr, "✕", lambda i=gi: app._grp_delete(i)))
+        cl.addWidget(hdr)
 
-def _grp_on_duplicated(app, new_id, src_id) -> None:
-    import copy as _copy
-    from well_viewer.batch_models import ReplicateSet  # noqa: F401  (deepcopy clones members)
-    j = _grp_idx_for(app, src_id)
-    if not (0 <= j < len(app._bar_groups)):
-        return
-    g2 = _copy.deepcopy(app._bar_groups[j])
-    g2.name = f"{g2.name} copy"
-    app._bar_groups.insert(j + 1, g2)
-    for m in g2.members:
-        if m not in app._rep_sets:
-            app._rep_sets.append(m)
-    app._rebuild_all()
+        if grp.members or grp.solo_wells:
+            mem = QWidget(card)
+            ml = QVBoxLayout(mem)
+            ml.setContentsMargins(0, 0, 0, 0)
+            for rset in grp.members:
+                mrow = QWidget(mem)
+                mrl = QHBoxLayout(mrow)
+                mrl.setContentsMargins(0, 0, 0, 0)
+                mrl.addWidget(QLabel(f"[{rset.name}]", mrow))
+                for w in rset.wells:
+                    chip = QLabel(w, mrow)
+                    chip.setProperty("variant", "chip")
+                    mrl.addWidget(chip)
+                if is_sel:
+                    mrl.addWidget(btn_danger(
+                        mrow, "−",
+                        lambda g=gi, r=rset: app._grp_remove_member(g, r),
+                    ))
+                mrl.addStretch(1)
+                ml.addWidget(mrow)
+            for w in grp.solo_wells:
+                srow = QWidget(mem)
+                srl = QHBoxLayout(srow)
+                srl.setContentsMargins(0, 0, 0, 0)
+                srl.addWidget(QLabel(f"[solo] {w}", srow))
+                if is_sel:
+                    srl.addWidget(btn_danger(
+                        srow, "−",
+                        lambda g=gi, wl=w: app._grp_remove_solo(g, wl),
+                    ))
+                srl.addStretch(1)
+                ml.addWidget(srow)
+            cl.addWidget(mem)
+        else:
+            empty = QLabel("Empty — add replicate sets or wells below", card)
+            empty.setObjectName("Muted")
+            cl.addWidget(empty)
 
+        if is_sel:
+            if app._rep_sets:
+                act_rep = QWidget(card)
+                arl = QHBoxLayout(act_rep)
+                arl.setContentsMargins(0, 0, 0, 0)
+                lbl = QLabel("+ Set:", act_rep)
+                lbl.setObjectName("Muted")
+                arl.addWidget(lbl)
+                for rset in app._rep_sets:
+                    if rset not in grp.members:
+                        arl.addWidget(btn_card(
+                            act_rep, rset.name,
+                            lambda r=rset, g=gi: app._grp_add_member(g, r),
+                        ))
+                arl.addStretch(1)
+                cl.addWidget(act_rep)
+            else:
+                lbl = QLabel(
+                    "(No replicate sets — define them in the left panel)",
+                    card,
+                )
+                lbl.setObjectName("Muted")
+                cl.addWidget(lbl)
 
-def _grp_on_order(app, ids) -> None:
-    pre = _grp_bar_selections(app)
-    id_to_j = {s["id"]: j for j, s in enumerate(pre)}
-    new_groups = [app._bar_groups[id_to_j[i]] for i in ids if i in id_to_j]
-    for g in app._bar_groups:
-        if g not in new_groups:
-            new_groups.append(g)
-    if new_groups != app._bar_groups:
-        app._bar_groups = new_groups
-        app._rebuild_all()
+        def _sel(_e, i=gi):
+            app._grp_select(i)
+        card.mousePressEvent = _sel
+        inner_layout.addWidget(card)
 
-
-def _grp_on_composition(app, sel_id) -> None:
-    j = _grp_idx_for(app, sel_id)
-    if j < 0:
-        return
-    lst = getattr(app, "_grp_list", None)
-    if lst is None:
-        return
-    for s in lst.selections():
-        if s.get("id") == sel_id:
-            _rebuild_group_from(app, j, s.get("wells") or [], s.get("replicates"))
-            return
+    inner_layout.addStretch(1)
 
 
 def build_group_def_panel(app, parent: QWidget) -> None:
     """Right panel of Sample Definitions tab."""
-    from widgets.saved_selections_list import SavedSelectionsList
+    from well_viewer.ui_helpers import make_scrollable_canvas
 
     layout = parent.layout()
     if layout is None:
@@ -274,26 +286,15 @@ def build_group_def_panel(app, parent: QWidget) -> None:
     layout.addWidget(btn_row)
 
     help_lbl = QLabel(
-        "Each group produces one bar/line on the plot. Expand a group to edit "
-        "its wells / replicates, or use “+ wells…”.",
+        "Each group produces one bar/line on the plot. "
+        "Add replicate sets or individual wells to a group.",
         parent,
     )
     help_lbl.setObjectName("Muted")
     help_lbl.setWordWrap(True)
     layout.addWidget(help_lbl)
 
-    # v2 (Phase 8.0 Stage C): the group card-list is now a SavedSelectionsList
-    # over the bar-group entries of app._selections, in composable mode.
-    lst = SavedSelectionsList(parent)
-    lst.setComposable(True)
-    app._grp_list = lst
-    layout.addWidget(lst, 1)
-    lst.entryActivated.connect(lambda sid: _grp_on_activated(app, sid))
-    lst.entryRenamed.connect(lambda sid, name: _grp_on_renamed(app, sid, name))
-    lst.entryVisibilityToggled.connect(lambda sid, hidden: _grp_on_visibility(app, sid, hidden))
-    lst.entryDeleted.connect(lambda sid: _grp_on_deleted(app, sid))
-    lst.entryDuplicated.connect(lambda new_id, src_id: _grp_on_duplicated(app, new_id, src_id))
-    lst.orderChanged.connect(lambda ids: _grp_on_order(app, ids))
-    lst.wellsChanged.connect(lambda sid, _w: _grp_on_composition(app, sid))
-    lst.addFromSelectionRequested.connect(app._grp_add)
-    lst.importRequested.connect(app._bar_load_groups)
+    sa, inner = make_scrollable_canvas(parent)
+    layout.addWidget(sa, 1)
+    app._grp_canvas = sa
+    app._grp_inner = inner
