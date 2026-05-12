@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 import theme  # noqa: E402
 
 
-def _card(title: str, builder) -> QFrame:
+def _card(title: str, builder, note: str | None = None) -> QFrame:
     card = QFrame()
     card.setObjectName("Panel")
     card.setProperty("panel", True)
@@ -49,6 +49,11 @@ def _card(title: str, builder) -> QFrame:
         f"font-size: {theme.Typography.caption_size}px; font-weight: {theme.Typography.medium};"
     )
     v.addWidget(cap)
+    if note:
+        n = QLabel(note)
+        n.setWordWrap(True)
+        n.setStyleSheet(f"color: {theme.Colors.text_faint}; font-size: {theme.Typography.caption_size}px;")
+        v.addWidget(n)
     try:
         body = builder()
     except Exception:  # pragma: no cover - keep the gallery alive
@@ -62,6 +67,25 @@ def _card(title: str, builder) -> QFrame:
         v.addLayout(body)
     v.addStretch(1)
     return card
+
+
+def _section(title: str) -> QWidget:
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, theme.Spacing.sm, 0, theme.Spacing.xs)
+    v.setSpacing(theme.Spacing.xs)
+    lbl = QLabel(title.upper())
+    lbl.setStyleSheet(
+        f"color: {theme.Colors.text_secondary}; font-size: {theme.Typography.caption_size}px; "
+        f"font-weight: {theme.Typography.semibold}; letter-spacing: 1px;"
+    )
+    v.addWidget(lbl)
+    rule = QFrame()
+    rule.setFixedHeight(1)
+    rule.setAttribute(Qt.WA_StyledBackground, True)
+    rule.setStyleSheet(f"background-color: {theme.Colors.border_subtle};")
+    v.addWidget(rule)
+    return host
 
 
 def _row(*widgets) -> QWidget:
@@ -563,6 +587,44 @@ def _build_titlebar():
     return host
 
 
+def _build_binding_harness():
+    import contextlib
+    import io
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    out = QLabel("(not run yet)")
+    out.setStyleSheet(f"font-family: {theme.Typography.family_mono}; "
+                      f"font-size: {theme.Typography.caption_size}px;")
+    out.setWordWrap(True)
+
+    def _run():
+        buf = io.StringIO()
+        ok = False
+        try:
+            from widgets.binding_check import run as _bc_run
+            with contextlib.redirect_stdout(buf):
+                ok = bool(_bc_run())
+        except Exception as exc:  # pragma: no cover
+            out.setText(f"⚠ harness error: {exc}")
+            out.setStyleSheet(f"color: {theme.Colors.danger}; font-family: {theme.Typography.family_mono};")
+            return
+        text = buf.getvalue().strip() or ("ALL PASS" if ok else "SOME FAILED")
+        colour = theme.Colors.success if ok else theme.Colors.danger
+        out.setText(text)
+        out.setStyleSheet(f"color: {colour}; font-family: {theme.Typography.family_mono}; "
+                          f"font-size: {theme.Typography.caption_size}px;")
+
+    btn = QPushButton("Run binding round-trip")
+    btn.setObjectName("Primary")
+    btn.clicked.connect(_run)
+    v.addWidget(btn, 0, Qt.AlignLeft)
+    v.addWidget(out)
+    _run()
+    return host
+
+
 # ── window ──────────────────────────────────────────────────────────────────
 def build_gallery() -> QWidget:
     root = QWidget()
@@ -608,38 +670,81 @@ def build_gallery() -> QWidget:
     grid.setContentsMargins(pad, pad, pad, pad)
     grid.setHorizontalSpacing(theme.Spacing.lg)
     grid.setVerticalSpacing(theme.Spacing.lg)
-
-    cards = [
-        ("ToggleSwitch", _build_toggle),
-        ("CollapsibleSection", _build_collapsible),
-        ("SegmentedControl", _build_segmented),
-        ("ChipGroup", _build_chips),
-        ("PillTabBar", _build_pilltabs),
-        ("Stepper", _build_stepper),
-        ("StyledSlider", _build_slider),
-        ("IconButton", _build_iconbar),
-        ("StatusDot", _build_statusdots),
-        ("BrandTile", _build_brand),
-        ("ColorSwatchRow", _build_swatches),
-        ("SearchInput", _build_search),
-        ("EmptyState", _build_empty),
-        ("Popover", _build_popover),
-        ("GradientStrip", _build_gradient_strip),
-        ("WindowResizeGrips", _build_window_resize_grips),
-        ("LutSelector", _build_lut_selector),
-        ("ColorPickerPopover", _build_color_picker_popover),
-        ("HoverToolbarOverlay", _build_hover_overlay),
-        ("SavedSelectionsList", _build_saved),
-        ("WellPlateSelector", _build_plate),
-        ("PlotCard", _build_plotcard),
-        ("TitleBar", _build_titlebar),
-    ]
-    cols = 2
-    for i, (title, builder) in enumerate(cards):
-        grid.addWidget(_card(title, builder), i // cols, i % cols)
     grid.setColumnStretch(0, 1)
     grid.setColumnStretch(1, 1)
+    cols = 2
 
+    # (entry forms): ("title", builder, note) for a normal card,
+    # ("§", "Section name") for a section header (always starts a new row),
+    # ("title", builder, note, "wide") for a card spanning both columns.
+    layout = [
+        ("§", "Form controls & inputs"),
+        ("ToggleSwitch", _build_toggle, "on/off paint · bindingAdapter()"),
+        ("StyledSlider", _build_slider, "custom groove/handle · bindingAdapter()"),
+        ("Stepper", _build_stepper, "± buttons + field · bindingAdapter()"),
+        ("SegmentedControl", _build_segmented, "options · setCurrentByData · bindingAdapter()"),
+        ("ChipGroup", _build_chips, "exclusive & multi · checkedData/setCheckedData · bindingAdapter()"),
+        ("SearchInput", _build_search, "placeholder + hint count"),
+
+        ("§", "Navigation & disclosure"),
+        ("PillTabBar", _build_pilltabs, "tab switching"),
+        ("CollapsibleSection", _build_collapsible, "expand/collapse, nested content"),
+
+        ("§", "Buttons, icons & status"),
+        ("IconButton", _build_iconbar, "icon set · checkable · with-text"),
+        ("StatusDot", _build_statusdots, "status palette + labels"),
+        ("BrandTile", _build_brand, "the four-quadrant mark"),
+        ("EmptyState", _build_empty, "icon + message + action"),
+
+        ("§", "Colour"),
+        ("GradientStrip", _build_gradient_strip, "(pos,colour) stops · flat list · callable · reversed"),
+        ("LutSelector", _build_lut_selector, "trigger + reverse/reset · popover w/ search n / m · lutChanged"),
+        ("ColorSwatchRow", _build_swatches, "curated + recents + Custom tile → ColorPickerPopover"),
+        ("ColorPickerPopover", _build_color_picker_popover, "SV square + hue strip + hex/alpha + recents"),
+
+        ("§", "Overlays & transient surfaces"),
+        ("Popover", _build_popover, "side × align · auto-flip · Esc/outside dismiss"),
+        ("HoverToolbarOverlay", _build_hover_overlay, "hover-to-reveal toolbar over a host"),
+
+        ("§", "Plate & plot"),
+        ("WellPlateSelector", _build_plate, "select/passive modes · colours · header clicks"),
+        ("SavedSelectionsList", _build_saved, "v2 editable: rename · recolour popover · reorder · hide · expand-to-chips"),
+        ("PlotCard", _build_plotcard, "toolbar + coords · figure header + Stat·Error stats popover · screen/publication theme", "wide"),
+
+        ("§", "Window chrome"),
+        ("TitleBar", _build_titlebar, "window controls · brand→menu · theme popover · ⌘O · setFramelessMode · should_use_frameless()", "wide"),
+        ("WindowResizeGrips", _build_window_resize_grips, "opens a frameless test window with draggable edges/corners"),
+
+        ("§", "Binding harness"),
+        ("Binding round-trip", _build_binding_harness, "runs widgets/binding_check.run() in-process — every binding-driven widget round-trips model↔widget", "wide"),
+    ]
+
+    r = 0
+    next_col = 0
+    for entry in layout:
+        if entry[0] == "§":
+            if next_col != 0:
+                r += 1
+                next_col = 0
+            grid.addWidget(_section(entry[1]), r, 0, 1, cols)
+            r += 1
+            continue
+        title, builder = entry[0], entry[1]
+        note = entry[2] if len(entry) > 2 else None
+        wide = len(entry) > 3 and entry[3] == "wide"
+        card = _card(title, builder, note)
+        if wide:
+            if next_col != 0:
+                r += 1
+                next_col = 0
+            grid.addWidget(card, r, 0, 1, cols)
+            r += 1
+        else:
+            grid.addWidget(card, r, next_col)
+            next_col += 1
+            if next_col >= cols:
+                next_col = 0
+                r += 1
     scroll.setWidget(inner)
     outer.addWidget(scroll, 1)
 

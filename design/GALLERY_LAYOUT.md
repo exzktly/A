@@ -1,5 +1,11 @@
 # Gallery layout proposal (Phase 6.5.11a — gate)
 
+> **Status: ✅ approved (2026-05-12) and implemented in 6.5.11b** — `widgets/gallery.py`
+> now follows this structure (8 sections, per-card notes, wide cards span both
+> columns, in-process binding-harness card). Runtime QA / sign-off is on the
+> user's machine.
+
+
 `widgets/gallery.py` grew organically — one flat 2-column `QGridLayout` of
 `("Title", builder)` cards in roughly the order widgets were built. With the
 6.5.2–6.5.10 additions it's now 23 cards in arbitrary order, and some
