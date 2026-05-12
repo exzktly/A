@@ -506,6 +506,7 @@ class _SelectionRow(QFrame):
             plate.setSelectionMode("select")
             plate.setRowColumnSelectable(True)
             plate.setSingleSelectionMode(False)
+            plate.setDragMode("rect")   # rubber-band rectangle, not freeform paint
         except Exception:
             pass
         plate.setSelectedWellIds([w for w in self._wells if w in set(enabled)])

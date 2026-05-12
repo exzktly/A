@@ -144,6 +144,12 @@ class _PlateGrid(QWidget):
         self._drag_active = False
         self._drag_adding = True
         self._drag_visited: set[tuple[int, int]] = set()
+        # Rectangle ("rubber-band") drag-select state (when _drag_mode == "rect").
+        self._drag_mode = "paint"              # "paint" | "rect"
+        self._rect_start: tuple[int, int] | None = None
+        self._rect_cur: tuple[int, int] | None = None
+        self._rect_base: dict[tuple[int, int], int] = {}
+        self._rect_polarity = "add"            # "add" | "remove"
 
     # ── geometry (all font / size relative) ──────────────────────────────
     def _label_extent(self) -> float:
@@ -277,6 +283,17 @@ class _PlateGrid(QWidget):
 
     def set_drag_select_enabled(self, on: bool) -> None:
         self._drag_select = bool(on)
+
+    def set_drag_mode(self, mode: str) -> None:
+        """``"paint"`` (toggle each cell the cursor crosses — the default, as the
+        legacy rep-map plate) or ``"rect"`` (rubber-band: drag a rectangle, all
+        enclosed enabled cells are added — or removed, if the press cell was
+        already selected)."""
+        if mode in ("paint", "rect"):
+            self._drag_mode = mode
+
+    def drag_mode(self) -> str:
+        return self._drag_mode
 
     def set_row_column_selectable(self, on: bool) -> None:
         self._rc_selectable = bool(on)
@@ -462,10 +479,19 @@ class _PlateGrid(QWidget):
             return
         # select mode
         if self._drag_select and not self._single_select:
-            self._drag_active = True
-            self._drag_adding = (r, c) not in self._selected
-            self._drag_visited = {(r, c)}
-            self.toggle_well(r, c, force=self._drag_adding)
+            if self._drag_mode == "rect":
+                self._drag_active = True
+                self._rect_polarity = "remove" if (r, c) in self._selected else "add"
+                self._rect_base = dict(self._selected)
+                self._rect_start = (r, c)
+                self._rect_cur = (r, c)
+                self._apply_rect()
+                self.update()
+            else:
+                self._drag_active = True
+                self._drag_adding = (r, c) not in self._selected
+                self._drag_visited = {(r, c)}
+                self.toggle_well(r, c, force=self._drag_adding)
         else:
             self.toggle_well(r, c)
 
@@ -501,8 +527,13 @@ class _PlateGrid(QWidget):
             self._hover_cell, self._hover_row, self._hover_col = cell, row, col
             self.update()
 
-        if self._drag_active and (event.buttons() & Qt.LeftButton) and cell is not None:
-            if cell not in self._drag_visited:
+        if self._drag_active and (event.buttons() & Qt.LeftButton):
+            if self._drag_mode == "rect":
+                if cell is not None and cell != self._rect_cur:
+                    self._rect_cur = cell
+                    self._apply_rect()
+                    self.update()
+            elif cell is not None and cell not in self._drag_visited:
                 self._drag_visited.add(cell)
                 self.toggle_well(cell[0], cell[1], force=self._drag_adding)
 
@@ -512,8 +543,33 @@ class _PlateGrid(QWidget):
         if self._drag_active:
             self._drag_active = False
             self._drag_visited = set()
+            self._rect_start = None
+            self._rect_cur = None
+            self._rect_base = {}
+            self.update()
             self.selectionDragFinished.emit()
         super().mouseReleaseEvent(event)
+
+    def _apply_rect(self) -> None:
+        """Recompute ``_selected`` for the current rubber-band rectangle."""
+        if self._rect_start is None or self._rect_cur is None:
+            return
+        r0, c0 = self._rect_start
+        r1, c1 = self._rect_cur
+        box = {(r, c)
+               for r in range(min(r0, r1), max(r0, r1) + 1)
+               for c in range(min(c0, c1), max(c0, c1) + 1)
+               if self._is_enabled((r, c))}
+        base = dict(self._rect_base)
+        if self._rect_polarity == "add":
+            for k in box:
+                base.setdefault(k, 0)
+        else:
+            for k in box:
+                base.pop(k, None)
+        if base != self._selected:
+            self._selected = base
+            self._changed()
 
     # ── drop sink (heatmap-layout DnD) ───────────────────────────────────
     def dragEnterEvent(self, event) -> None:  # noqa: N802
@@ -638,6 +694,17 @@ class _PlateGrid(QWidget):
                     p.setPen(QPen(QColor(c.border_strong if hovered else c.border),
                                   max(1.0, wr.width() * 0.04)))
                     p.drawEllipse(wr)
+
+        # Rubber-band rectangle while a "rect" drag-select is in progress.
+        if (self._drag_mode == "rect" and self._rect_start is not None
+                and self._rect_cur is not None):
+            r0, c0 = self._rect_start
+            r1, c1 = self._rect_cur
+            tl = self._cell_rect(min(r0, r1), min(c0, c1)).topLeft()
+            br = self._cell_rect(max(r0, r1), max(c0, c1)).bottomRight()
+            p.setBrush(with_alpha(QColor(c.accent), 0.14))
+            p.setPen(QPen(QColor(c.accent), 1.4, Qt.DashLine))
+            p.drawRect(QRectF(tl, br))
         p.end()
 
 
@@ -750,6 +817,15 @@ class WellPlateSelector(QWidget):
     def setDragSelectEnabled(self, on: bool) -> None:
         self._grid.set_drag_select_enabled(on)
 
+    def setDragMode(self, mode: str) -> None:
+        """``"paint"`` (default — toggle each cell crossed) or ``"rect"``
+        (rubber-band: drag a rectangle; enclosed enabled cells are added, or
+        removed if the press cell was already selected)."""
+        self._grid.set_drag_mode(mode)
+
+    def dragMode(self) -> str:
+        return self._grid.drag_mode()
+
     def setRowColumnSelectable(self, on: bool) -> None:
         self._grid.set_row_column_selectable(on)
 
@@ -831,9 +907,12 @@ if __name__ == "__main__":
     rc_cb = QCheckBox("row/col selectable")
     rc_cb.setChecked(True)
     rc_cb.toggled.connect(plate.setRowColumnSelectable)
+    rect_cb = QCheckBox("rubber-band drag (rect)")
+    rect_cb.toggled.connect(lambda on: plate.setDragMode("rect" if on else "paint"))
     opts.addWidget(drag_cb)
     opts.addWidget(single_cb)
     opts.addWidget(rc_cb)
+    opts.addWidget(rect_cb)
     opts.addStretch(1)
     lay.addLayout(opts)
 
