@@ -67,6 +67,33 @@ class Colors:
     success_glow    = "rgba(74, 222, 128, 0.12)"   # halo around the "saved" dot
 
 
+class CPub:
+    """Publication-preview plot surface (DESIGN_TOKENS.md §9).
+
+    A *plot-canvas* theme, not app chrome — the surrounding panel stays dark even
+    when the figure interior is white. These feed matplotlib ``rcParams``
+    (``figure.facecolor`` / ``axes.facecolor`` / ``axes.edgecolor`` /
+    ``xtick.color`` / ``ytick.color`` / ``text.color`` / ``grid.color``); they do
+    not appear in :func:`qss`. Used for the "Publication" mode of `PlotCard` and
+    as the default background for exported figures.
+    """
+
+    bg          = "#FFFFFF"   # --pub-bg        : figure facecolor (print white)
+    bg_subtle   = "#F8F9FB"   # --pub-bg-subtle : axes facecolor when a slight inset reads better
+    text        = "#1A1D24"   # --pub-text      : title / label text
+    text_muted  = "#4C5360"   # --pub-text-muted: tick labels, secondary annotations
+    grid        = "#E5E7EB"   # --pub-grid      : gridlines
+    spine       = "#4C5360"   # --pub-spine     : axis spines
+
+    # Darkened trace colours chosen for AA contrast on the white surface,
+    # parallel to ``Colors.trace`` (deeper blue / red / green / amber).
+    trace       = ("#1F4FB0", "#B02C2C", "#2E8C50", "#B5781A")
+
+
+# Convenience aliases mirroring the on-screen `Colors.trace` / publication palette.
+TRACE_PUB = list(CPub.trace)
+
+
 class Typography:
     """Type tokens (DESIGN_TOKENS.md §2)."""
 

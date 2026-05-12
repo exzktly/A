@@ -43,6 +43,10 @@ class StyledSlider(QSlider):
             self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
             self.setMinimumWidth(self._handle_d() + 6)
 
+    def bindingAdapter(self):
+        """``(getter, setter, change_signal)`` for binding-driven panels."""
+        return (self.value, self.setValue, self.valueChanged)
+
     # ── metrics (font relative → DPI aware) ──────────────────────────────
     def _groove_h(self) -> int:
         return max(4, round(self.fontMetrics().height() * 0.28))

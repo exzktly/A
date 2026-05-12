@@ -92,6 +92,13 @@ class ChipGroup(QWidget):
             return self._data[self._current]
         return None
 
+    def setCurrentByData(self, value) -> None:
+        """(exclusive mode) select the chip whose ``data`` equals *value*."""
+        for i, d in enumerate(self._data):
+            if d == value:
+                self.setCurrentIndex(i)
+                return
+
     # multi-select
     def isChecked(self, index: int) -> bool:
         return 0 <= index < len(self._buttons) and self._buttons[index].isChecked()
@@ -103,8 +110,26 @@ class ChipGroup(QWidget):
     def checkedIndices(self) -> list[int]:
         return [i for i, b in enumerate(self._buttons) if b.isChecked()]
 
+    def checkedData(self) -> list:
+        """(multi-select mode) the ``data`` of every checked chip, in chip order."""
+        return [self._data[i] for i in self.checkedIndices()]
+
+    def setCheckedData(self, values) -> None:
+        """(multi-select mode) check exactly the chips whose ``data`` is in *values*."""
+        vals = list(values or [])
+        for i, d in enumerate(self._data):
+            self.setChecked(i, d in vals)
+
     def chipText(self, index: int) -> str:
         return self._buttons[index].text() if 0 <= index < len(self._buttons) else ""
+
+    def bindingAdapter(self):
+        """``(getter, setter, change_signal)`` for binding-driven panels —
+        exclusive mode binds the current chip ``data``; multi-select binds the
+        list of checked ``data``."""
+        if self._exclusive:
+            return (self.currentData, self.setCurrentByData, self.currentChanged)
+        return (self.checkedData, self.setCheckedData, self.chipToggled)
 
     # ── internals ────────────────────────────────────────────────────────
     def _on_id_toggled(self, idx: int, checked: bool) -> None:

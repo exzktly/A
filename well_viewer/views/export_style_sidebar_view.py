@@ -59,7 +59,19 @@ class ExportStyleSidebar(QWidget):
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
-        """Register read/write hooks and wire a change signal to auto-apply."""
+        """Register read/write hooks and wire a change signal to auto-apply.
+
+        Custom v2 widgets opt in via a ``bindingAdapter() -> (getter, setter,
+        change_signal)`` method (see ``OPEN_DECISIONS.md`` #2 / Phase 6.5.1);
+        stock widgets fall through to the ``isinstance`` branches below.
+        """
+        adapter = getattr(widget, "bindingAdapter", None)
+        if callable(adapter):
+            getter, setter, change_signal = adapter()
+            self._getters[key] = getter
+            self._setters[key] = lambda v, _s=setter: _s(v)
+            change_signal.connect(lambda *_a: self._on_fields_changed())
+            return
         if isinstance(widget, QSpinBox):
             self._getters[key] = widget.value
             self._setters[key] = lambda v, w=widget: w.setValue(int(v))

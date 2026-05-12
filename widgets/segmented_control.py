@@ -114,6 +114,18 @@ class SegmentedControl(QWidget):
             return self._data[self._current]
         return None
 
+    def setCurrentByData(self, value) -> None:
+        """Select the segment whose ``data`` equals *value* (no-op if none)."""
+        for i, d in enumerate(self._data):
+            if d == value:
+                self.setCurrentIndex(i)
+                return
+
+    def bindingAdapter(self):
+        """``(getter, setter, change_signal)`` for binding-driven panels — the
+        bound value is the segment ``data`` (pass ``data=`` to ``addSegment``)."""
+        return (self.currentData, self.setCurrentByData, self.currentChanged)
+
     def segmentText(self, index: int) -> str:
         if 0 <= index < len(self._buttons):
             return self._buttons[index].text()

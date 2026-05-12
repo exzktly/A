@@ -68,6 +68,11 @@ class ToggleSwitch(QCheckBox):
         self._anim.setEndValue(1.0 if checked else 0.0)
         self._anim.start()
 
+    def bindingAdapter(self):
+        """``(getter, setter, change_signal)`` for binding-driven panels — the
+        bound value is the boolean checked state."""
+        return (self.isChecked, lambda v: self.setChecked(bool(v)), self.toggled)
+
     # ── geometry (font-relative → DPI aware) ─────────────────────────────
     def _track_h(self) -> int:
         return max(16, self.fontMetrics().height())

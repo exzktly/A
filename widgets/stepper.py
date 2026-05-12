@@ -132,6 +132,10 @@ class Stepper(QFrame):
         self._prefix = text or ""
         self._edit.setText(self._format(self._value))
 
+    def bindingAdapter(self):
+        """``(getter, setter, change_signal)`` for binding-driven panels."""
+        return (self.value, self.setValue, self.valueChanged)
+
     # ── internals ────────────────────────────────────────────────────────
     def _clamp(self, v: float) -> float:
         return max(self._min, min(self._max, v))
