@@ -99,6 +99,13 @@ true when it mutates the model directly (e.g. the migration).
 
 ## 3. Migration: `_rep_sets` + `_rep_hidden` + `_bar_groups` → `selections`
 
+> **Note:** the *full, standalone* migration plan — real legacy shapes, all edge
+> cases, the 20-file touch-site inventory, schema versioning, backup/recovery,
+> failure handling, test plan, staged rollout — now lives in
+> **`design/SELECTIONS_MIGRATION.md`** (Phase 8.0). §3–§5 below remain the
+> normative *contract* (the shape & the algorithm's intent); the migration doc
+> implements them.
+
 Run once when a dataset loads, **only if** the persisted `sample_definitions`
 block has no `selections` key (i.e. it's a legacy v1 block — see §4).
 
