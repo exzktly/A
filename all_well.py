@@ -296,7 +296,10 @@ def main() -> None:
                     help="Pre-load a results directory into the Review tab on startup.")
     args = ap.parse_args()
 
+    import theme
+
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyleSheet(theme.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()
     sys.exit(app.exec())
