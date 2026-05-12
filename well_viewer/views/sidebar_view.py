@@ -134,22 +134,25 @@ def build_sidebar(app, parent: QWidget) -> None:
     for _tok, _btn in app._sidebar_btns.items():
         _make_btn_handlers(_tok, _btn)
 
-    # All / None buttons
+    # All / None action buttons (v2 chrome — styled by theme.qss()).
     br = QWidget(parent)
     br_l = QHBoxLayout(br)
     br_l.setContentsMargins(6, 4, 6, 6)
-    br_l.setSpacing(3)
+    br_l.setSpacing(6)
     layout.addWidget(br)
     app._sidebar_allnone_frame = br
-    for txt, cmd in (("All", app._select_all), ("None", app._select_none)):
+    for txt, cmd, obj_name in (("All", app._select_all, None),
+                               ("None", app._select_none, "Danger")):
         b = QPushButton(txt, br)
-        b.setProperty("variant", "primary-dark")
+        if obj_name:
+            b.setObjectName(obj_name)
+        b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, c=cmd: c())
         br_l.addWidget(b, 1)
 
-    # Selected well count label
+    # Selected-well count status text.
     app._sel_count_lbl = QLabel("", parent)
-    app._sel_count_lbl.setObjectName("Muted")
+    app._sel_count_lbl.setObjectName("Caption")
     layout.addWidget(app._sel_count_lbl)
 
     # Group-mode hint
