@@ -1802,12 +1802,28 @@ class WellViewerApp(QWidget):
     def _labels_add_suffix(self) -> None:
         self._labels_apply_affix(where="suffix")
 
+    def _sync_selections_from_legacy(self) -> None:
+        """Re-derive ``self._selections`` from the live legacy rep-set / bar-group
+        state (Phase 8.0 Stage B: keep the unified model a live mirror of the
+        legacy "shadow" that the group/rep edit code still mutates directly).
+        Ids are kept stable across the re-derive. Best-effort — a failure leaves
+        ``_selections`` as-is (the save path re-syncs as a backstop too)."""
+        try:
+            from well_viewer.selections_model import from_legacy_appstate
+            sels, cur = from_legacy_appstate(
+                self, prior_selections=getattr(self, "_selections", None))
+            self._selections = sels
+            self._current_selection_id = cur
+        except Exception:
+            _logger.exception("sync of _selections from legacy state failed")
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
         Card lists are only rebuilt when the tab is active (expensive).
         Plate maps are always updated (cheap).
         """
+        self._sync_selections_from_legacy()
         tab_visible = False
         if hasattr(self, "_notebook"):
             try:
@@ -3484,6 +3500,7 @@ class WellViewerApp(QWidget):
 
     def _sb_on_rep_change(self) -> None:
         """Rep-set visibility changed — refresh unified picker + both plots."""
+        self._sync_selections_from_legacy()
         self._refresh_sidebar_map()
         self._redraw()
         self._redraw_bars()

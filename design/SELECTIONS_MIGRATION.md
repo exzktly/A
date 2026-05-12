@@ -574,6 +574,23 @@ rank-based too. **Not yet converted:** `scatter_controller` colours and the
 `batch_export/*` panels — next cluster (Stage B-3 / B-5). `py_compile` clean;
 the migration self-test still `ALL PASS`.
 
+### Stage B foundation — `_selections` is now a live mirror — **done** (code, not runtime-verified)
+
+`from_legacy_appstate` gained a `prior_selections=` argument and `_reuse_ids`
+(match new entries to prior ones by name, then by well-set, so ids stay stable
+across a legacy→model re-derive — needed once `SavedSelectionsList` keys
+per-row state off id; `current_id` is re-pointed accordingly).
+`WellViewerApp._sync_selections_from_legacy()` re-derives `self._selections`
+from the live `_rep_sets`/`_bar_groups`/`_rep_hidden`/`_bar_active_grp` with id
+reuse; it's invoked at the top of `_groups_centre_refresh` (every Sample-Definitions
+mutation/refresh) and `_sb_on_rep_change` (rep-set visibility toggles), so the
+unified model now tracks the legacy "shadow" between edits — not just at save
+time (the save path still re-syncs as a backstop). The legacy edit code still
+mutates the shadow directly; **Stage C** will flip that (mutations write
+`_selections`; the shadow is derived) and wire `widgets.SavedSelectionsList`
+into the rep-set/group views; **Stage D** removes the shadow. `py_compile`
+clean; self-test `ALL PASS` (incl. an id-reuse round-trip smoke).
+
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball
   the bar/line/stats/scatter plots & plate maps (colours **will** look different

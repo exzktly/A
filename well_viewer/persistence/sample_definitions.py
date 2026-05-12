@@ -29,9 +29,14 @@ def sync_selections_from_legacy(app) -> None:
     mutate ``_selections`` directly and this becomes a no-op / is removed.)
     Best-effort: a failure leaves ``_selections`` as-is.
     """
+    syncer = getattr(app, "_sync_selections_from_legacy", None)
+    if callable(syncer):
+        syncer()
+        return
     try:
         from well_viewer import selections_model as _sel
-        selections, current_id = _sel.from_legacy_appstate(app)
+        selections, current_id = _sel.from_legacy_appstate(
+            app, prior_selections=getattr(app, "_selections", None))
         app._selections = selections
         app._current_selection_id = current_id
     except Exception:  # pragma: no cover - never block a save over this

@@ -619,12 +619,55 @@ def selections_to_legacy(selections: Sequence[dict], current_id: Any = None, *,
 
 
 # ────────────────────────────────────────────────────── runtime convenience ──
-def from_legacy_appstate(app, *, palette: Optional[Sequence[str]] = None,
+def _reuse_ids(new: list[dict], prior: Optional[Sequence[dict]]) -> None:
+    """Re-assign ``new[*]['id']`` from a matching ``prior`` selection where one
+    exists (matched by name, then by well-set), so ids stay stable across a
+    legacy→model re-derive — important once a widget keys per-row state off id."""
+    if not prior:
+        return
+    by_name: dict[str, str] = {}
+    by_wells: dict[tuple, str] = {}
+    for s in prior:
+        sid = s.get("id")
+        if not isinstance(sid, str) or not sid:
+            continue
+        nm = s.get("name")
+        if isinstance(nm, str):
+            by_name.setdefault(nm, sid)
+        wk = tuple(sorted(s.get("wells") or []))
+        if wk:
+            by_wells.setdefault(wk, sid)
+    used: set = set()
+    # first pass: by name (names are unique within the array)
+    for s in new:
+        cand = by_name.get(s.get("name"))
+        if cand and cand not in used:
+            s["id"] = cand
+            used.add(cand)
+    # second pass: by well-set, for entries that didn't match a name
+    for s in new:
+        if s["id"] in used:
+            continue
+        cand = by_wells.get(tuple(sorted(s.get("wells") or [])))
+        if cand and cand not in used:
+            s["id"] = cand
+            used.add(cand)
+    # ensure overall uniqueness (a freshly-minted id could theoretically collide)
+    seen: set = set()
+    for s in new:
+        if s["id"] in seen:
+            s["id"] = _mint_id(seen | used, _default_id_factory)
+        seen.add(s["id"])
+
+
+def from_legacy_appstate(app, *, prior_selections: Optional[Sequence[dict]] = None,
+                         palette: Optional[Sequence[str]] = None,
                          id_factory: Callable[[], str] = _default_id_factory):
     """Build ``(selections, current_id)`` from a live app's legacy attributes.
 
-    (Provided for completeness — Stage A migrates from disk; this is the
-    in-session path used by later stages / tests.)
+    ``prior_selections`` (the app's current ``_selections``, if any) is used to
+    keep ids stable across the re-derive. Stage A→C migrates from disk on load
+    and re-derives on save / after mutations; this is that path.
     """
     rep_sets = list(getattr(app, "_rep_sets", []) or [])
     bar_groups = list(getattr(app, "_bar_groups", []) or [])
@@ -639,6 +682,12 @@ def from_legacy_appstate(app, *, palette: Optional[Sequence[str]] = None,
             "solo_wells": list(getattr(g, "solo_wells", [])),
         } for g in bar_groups],
     }
-    return migrate_v1(block, rep_hidden=rep_hidden, bar_active_grp=bar_active,
-                      loaded_tokens=list(well_paths.keys()) or None,
-                      palette=palette, id_factory=id_factory)
+    selections, current_id = migrate_v1(
+        block, rep_hidden=rep_hidden, bar_active_grp=bar_active,
+        loaded_tokens=list(well_paths.keys()) or None,
+        palette=palette, id_factory=id_factory)
+    if prior_selections:
+        cur_idx = next((i for i, s in enumerate(selections) if s["id"] == current_id), None)
+        _reuse_ids(selections, prior_selections)
+        current_id = selections[cur_idx]["id"] if cur_idx is not None else _pick_current(selections, current_id)
+    return selections, current_id
