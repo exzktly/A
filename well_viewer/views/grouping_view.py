@@ -52,16 +52,38 @@ def _rep_rebuild_from(app, sel_id, wells, reps) -> None:
     from well_viewer.batch_models import ReplicateSet
     kind, idx = _sel_legacy_target(app, sel_id)
     wells = list(wells or [])
+    wset = set(wells)
     reps = [list(s) for s in (reps or []) if s]
+    keep_rs = app._rep_sets[idx] if kind == "rep" and 0 <= idx < len(app._rep_sets) else None
+    keep_grp = app._bar_groups[idx] if kind == "grp" and 0 <= idx < len(app._bar_groups) else None
+    # A well belongs to at most one group — the group being edited wins; strip
+    # its new wells out of every other group first.
+    for r in app._rep_sets:
+        if r is keep_rs:
+            continue
+        nw = [w for w in r.wells if w not in wset]
+        if nw != r.wells:
+            r.wells = nw
+    for g in app._bar_groups:
+        if g is not keep_grp:
+            nw = [w for w in g.solo_wells if w not in wset]
+            if nw != g.solo_wells:
+                g.solo_wells = nw
+        for m in g.members:
+            if m is keep_rs:
+                continue
+            nm = [w for w in m.wells if w not in wset]
+            if nm != m.wells:
+                m.wells = nm
     if kind == "rep":
-        if 0 <= idx < len(app._rep_sets):
-            app._rep_sets[idx].wells = list(wells)
+        if keep_rs is not None:
+            keep_rs.wells = list(wells)
             app._rebuild_all()
         return
     if kind == "grp":
-        if not (0 <= idx < len(app._bar_groups)):
+        if keep_grp is None:
             return
-        grp = app._bar_groups[idx]
+        grp = keep_grp
         old_members = list(grp.members)
         new_members = [ReplicateSet(f"{grp.name} #{k + 1}", list(sub)) for k, sub in enumerate(reps)]
         covered = {w for sub in reps for w in sub}
@@ -131,14 +153,19 @@ def _grp_on_deleted(app, sel_id) -> None:
 def _grp_on_duplicated(app, new_id, src_id) -> None:
     import copy as _copy
     kind, idx = _sel_legacy_target(app, src_id)
+    # A well belongs to at most one group, so a duplicate starts empty (it
+    # copies the group's name/structure; assign wells to it afterward).
     if kind == "rep" and 0 <= idx < len(app._rep_sets):
         r2 = _copy.deepcopy(app._rep_sets[idx])
         r2.name = f"{r2.name} copy"
+        r2.wells = []
         app._rep_sets.insert(idx + 1, r2)
         app._rebuild_all()
     elif kind == "grp" and 0 <= idx < len(app._bar_groups):
         g2 = _copy.deepcopy(app._bar_groups[idx])
         g2.name = f"{g2.name} copy"
+        g2.members = []
+        g2.solo_wells = []
         app._bar_groups.insert(idx + 1, g2)
         for m in g2.members:
             if m not in app._rep_sets:

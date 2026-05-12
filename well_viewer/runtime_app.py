@@ -1649,8 +1649,16 @@ class WellViewerApp(QWidget):
             if not sel:
                 QMessageBox.warning(dlg, "No wells", "Select at least one well.")
                 return
+            # A well belongs to at most one group — the new set takes them.
+            sset = set(sel)
+            for r in self._rep_sets:
+                r.wells = [w for w in r.wells if w not in sset]
+            for g in self._bar_groups:
+                g.solo_wells = [w for w in g.solo_wells if w not in sset]
+                for m in g.members:
+                    m.wells = [w for w in m.wells if w not in sset]
             name = name_edit.text().strip() or f"Rep {len(self._rep_sets)+1}"
-            self._rep_sets.append(ReplicateSet(name, sel))
+            self._rep_sets.append(ReplicateSet(name, list(sel)))
             self._active_rep_idx = len(self._rep_sets) - 1
             dlg.accept()
             self._rebuild_all()
@@ -1817,12 +1825,39 @@ class WellViewerApp(QWidget):
         except Exception:
             _logger.exception("sync of _selections from legacy state failed")
 
+    def _enforce_well_exclusivity(self) -> None:
+        """Invariant: a well belongs to **at most one group** (replicate set /
+        bar group). Keep each well in the first group that has it (replicate-set
+        order, then bar-group order), strip it from the rest. The add-points
+        already enforce this with the *edited* group winning; this is a safety
+        net (and cleans up pre-existing overlaps from old saved data)."""
+        seen: set = set()
+        for r in getattr(self, "_rep_sets", []):
+            kept = []
+            for w in r.wells:
+                if w in seen:
+                    continue
+                seen.add(w)
+                kept.append(w)
+            if kept != r.wells:
+                r.wells = kept
+        for g in getattr(self, "_bar_groups", []):
+            kept = []
+            for w in getattr(g, "solo_wells", []):
+                if w in seen:
+                    continue
+                seen.add(w)
+                kept.append(w)
+            if kept != g.solo_wells:
+                g.solo_wells = kept
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
         Card lists are only rebuilt when the tab is active (expensive).
         Plate maps are always updated (cheap).
         """
+        self._enforce_well_exclusivity()
         self._sync_selections_from_legacy()
         tab_visible = False
         if hasattr(self, "_notebook"):

@@ -60,6 +60,13 @@ def rep_map_apply(app, tok: str) -> None:
     if _grp_active(app):
         grp = app._bar_groups[app._bar_active_grp]
         if app._rep_drag_adding:
+            # A well belongs to at most one group — pull it out of every other.
+            for r in app._rep_sets:
+                if tok in r.wells:
+                    r.wells.remove(tok)
+            for g in app._bar_groups:
+                if g is not grp and tok in g.solo_wells:
+                    g.solo_wells.remove(tok)
             if tok not in grp.solo_wells:
                 grp.solo_wells.append(tok)
         else:
@@ -74,6 +81,9 @@ def rep_map_apply(app, tok: str) -> None:
         for other in app._rep_sets:
             if other is not rset and tok in other.wells:
                 other.wells.remove(tok)
+        for g in app._bar_groups:
+            if tok in g.solo_wells:
+                g.solo_wells.remove(tok)
         if tok not in rset.wells:
             rset.wells.append(tok)
     else:
