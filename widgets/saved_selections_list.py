@@ -700,6 +700,20 @@ class SavedSelectionsList(QWidget):
             self._current_id = self._selections[0]["id"] if self._selections else ""
         self._rebuild()
 
+    def updateSelections(self, selections) -> None:
+        """Like ``setSelections`` but, when the id-list (and order) is unchanged,
+        updates each row in place instead of rebuilding — so an expanded /
+        in-progress-edit row isn't collapsed by an upstream refresh."""
+        sels = [self._sanitise(dict(s)) for s in selections]
+        new_ids = [s["id"] for s in sels]
+        if new_ids and new_ids == [s["id"] for s in self._selections]:
+            self._selections = sels
+            if self._current_id not in set(new_ids):
+                self._current_id = new_ids[0]
+            self._refresh_rows()
+        else:
+            self.setSelections(sels)
+
     def selections(self) -> list[dict]:
         return [dict(s) for s in self._selections]
 

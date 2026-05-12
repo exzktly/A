@@ -591,6 +591,45 @@ mutates the shadow directly; **Stage C** will flip that (mutations write
 into the rep-set/group views; **Stage D** removes the shadow. `py_compile`
 clean; self-test `ALL PASS` (incl. an id-reuse round-trip smoke).
 
+### Stage C — sub-cluster 1: GROUPS panel → `SavedSelectionsList` — **done** (code, not runtime-verified)
+
+`well_viewer/views/grouping_view.py`: the Sample-Definitions tab's **GROUPS**
+card list (`grp_panel_refresh` + the `make_scrollable_canvas` part of
+`build_group_def_panel`) is replaced by a `widgets.SavedSelectionsList` in
+**composable** mode (`app._grp_list`), populated from the `source=="bar_group"`
+entries of `app._selections` (`updateSelections` — in-place when ids are
+unchanged, so an expanded row isn't collapsed by an upstream refresh; new
+`SavedSelectionsList.updateSelections`). The header buttons (Clear All / + Add /
+Quick Groups / Save… / Load…) and the rep-map plate on the left panel are
+unchanged. Widget signals are bridged to the legacy mutators:
+`entryActivated→grp_select`, `entryRenamed→rename + _rebuild_all`,
+`entryVisibilityToggled→hidden + _rebuild_all`, `entryDeleted→grp_delete`,
+`entryDuplicated→deepcopy a BarGroup`, `orderChanged→reorder _bar_groups`,
+`addFromSelectionRequested→grp_add`, `importRequested→bar_load_groups`, and
+`wellsChanged→_rebuild_group_from(j, wells, reps)` — which rewrites
+`_bar_groups[j]` (one fresh `ReplicateSet` "<group> #k" per replicate sub-list;
+the rest of `wells` as `solo_wells`) and prunes/extends `_rep_sets`, then
+`_rebuild_all()` → `_sync_selections_from_legacy()` re-derives `_selections` →
+the list refreshes. `_grp_inner`/`_grp_canvas` removed; `_grp_inline_edit_idx`
+now triggers the row's inline rename. `py_compile` clean; self-test `ALL PASS`.
+
+**Known interim quirks** (gone after Stage D, when `_selections` is canonical
+and the shadow goes away): (a) a group's *solo* wells round-trip through the
+legacy `BarGroup` as **singleton replicate sub-lists** (`solo_wells` →
+`replicate_sets()` → `[[w]]` → `migrate_v1` → `[[w]]`), so after any composition
+edit a previously-solo well shows up as its own `R*k*` row — per the migration
+contract's `solo → [[w]]` rule, not a new behaviour; (b) a group's member
+rep-sets are *renamed* `"<group> #k"` on edit (the unified model has no rep-set
+names), so the left panel's REPLICATE-SETS list will show those names for
+rep-sets that were group members and got edited from the GROUPS list — this is
+already true after a v2 save / migration, just made visible sooner.
+
+Next sub-clusters: 2 — REPLICATE-SETS panel → `SavedSelectionsList` (and
+retarget the rep-map plate to the currently-selected selection; optional
+"＋ from another selection…" affordance); 3 — the mutation flip (mutations write
+`_selections`; the shadow is *derived from* it; `_sync_selections_from_legacy`
+becomes a no-op); 4 — Stage D (delete the shadow).
+
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball
   the bar/line/stats/scatter plots & plate maps (colours **will** look different
