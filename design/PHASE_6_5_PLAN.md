@@ -1,0 +1,92 @@
+# Phase 6.5 — widget-building round (before Phase 8 resumes)
+
+A focused round to build the new widgets and extensions surfaced by the v3
+additions + `OPEN_DECISIONS.md`, so that when Phase 8 (the per-area port)
+resumes it has a complete, demonstrated widget library to draw on. **Phase 8
+does not resume until all four deliverables below are met.**
+
+## Deliverables (exit criteria)
+
+1. **All new widgets built and demonstrated in `widgets/gallery.py`** — `Popover`,
+   `GradientStrip`, `WindowResizeGrips`, `LutSelector` (+ a LUT registry),
+   `ColorPickerPopover` (+ `SvSquare`, `HueStrip`).
+2. **All extensions to existing widgets completed, with the extended
+   functionality also demonstrated in `gallery.py`** — `ColorSwatchRow` ("Custom"
+   tile + recents), `SavedSelectionsList` (editable / reorderable / per-row
+   actions / expandable / footer), `TitleBar` (window controls + brand dropdown +
+   theme-switcher popover + ghost Open + resize-grip integration + native-frame
+   fallback), `PlotCard` (Screen/Publication theme swap + figure-header row +
+   Stats popover), and `theme.py` (`CPub` + `TRACE_PUB`).
+3. **The `_bind_getter_setter` extension applied** per `OPEN_DECISIONS.md` #2
+   (option b — `bindingAdapter()` protocol on the custom widgets; one new
+   `hasattr` branch in `well_viewer/views/export_style_sidebar_view.py`).
+4. **Every custom widget that participates in binding-driven panels passes a
+   binding test** — a minimal example binding the widget to a model property and
+   showing changes propagate both ways, for `ToggleSwitch`, `SegmentedControl`,
+   `ChipGroup`, `Stepper`, `StyledSlider`.
+
+## Working rules (carried over)
+
+- One new widget per commit; extensions one commit each (or split if large, e.g.
+  `SavedSelectionsList`). Every widget keeps a `__main__` standalone demo. Every
+  new/extended widget gets a card in `widgets/gallery.py`. `python -m py_compile`
+  on every change; **runtime QA (run the demo / `gallery.py`, screenshot) is
+  required before a sub-phase is "done" — this environment has no PySide6, so
+  that step happens on your machine.**
+- Styling stays from `theme.py` tokens (+ `theme.qss()` object names) — no new
+  hardcoded hex. New custom widgets carry their own per-widget QSS built from
+  tokens, scoped to their own `objectName`.
+- No app-side wiring beyond the `_bind_getter_setter` branch (deliverable 3). The
+  port itself (Phase 8) consumes these widgets later.
+
+---
+
+## Sub-phases (in order)
+
+| # | Sub-phase | Builds / changes | Depends on | Deliverable(s) |
+|---|---|---|---|---|
+| 6.5.1 | **Foundations & binding contract** | `theme.py`: add `CPub` class + `TRACE_PUB` list (DESIGN_TOKENS §9.2; rcParams-only, no QSS change). Add `bindingAdapter()` (returns `(getter, setter, change_signal)`) to `SegmentedControl`, `ChipGroup`, `Stepper`, `StyledSlider`; add `setCurrentByData(value)` to `SegmentedControl`/`ChipGroup`; confirm `ToggleSwitch` (already bindable as a `QCheckBox`) — give it a `bindingAdapter` too for uniformity. Extend `ExportStyleSidebar._bind_getter_setter` with the `if hasattr(w, "bindingAdapter")` branch. Add the **binding test harness** (`widgets/tests/test_binding.py` if pytest is available; else `widgets/binding_check.py` with a `__main__` that runs the round-trips and prints PASS/FAIL): a tiny model object (a property + a `<prop>Changed` signal, or a dict-backed pseudo-model) bound to each of the five widgets, asserting model→widget, widget→model, and no feedback loop. | — | 3, 4 |
+| 6.5.2 | **`Popover`** (core primitive) | New `widgets/popover.py` — an anchor-relative floating panel: positions next to an anchor widget (above/below/left/right with auto-flip), `setContentWidget(w)`, dismiss on outside-click / `Esc`, optional arrow, soft drop shadow (`QGraphicsDropShadowEffect`). `__main__` + gallery card. | — | 1 |
+| 6.5.3 | **`GradientStrip`** | New `widgets/gradient_strip.py` — custom-painted horizontal colour ramp from a list of `(stop, color)` pairs (or a callable); `setReversed(bool)`; `setStops(...)`. Used by `LutSelector` (trigger + every list row). `__main__` + gallery card. | — | 1 |
+| 6.5.4 | **`WindowResizeGrips`** | New `widgets/window_resize_grips.py` — installs 8 invisible ~6–8 px grip widgets (4 edges, 4 corners) on a top-level window, sets the right resize cursors, and calls `window().windowHandle().startSystemResize(edge)` on press. `attach(window)` / `detach()`. `__main__` demo = a small frameless test window. (Gallery: documented + a stand-in card — a frameless window can't be embedded in the gallery; the `__main__` demo is the live test.) | — | 1 |
+| 6.5.5 | **`LutSelector`** (+ LUT registry) | New `widgets/lut_selector.py` — a LUT registry grouping matplotlib colormaps into Perceptual / Diverging / Categorical / Cyclic; a trigger button = `GradientStrip` (current LUT) + name + a reverse-LUT toggle + a reset button; clicking it opens a `Popover` with a search field (`n / m` match count in the header) over a categorised list of rows, each row = a `GradientStrip` + monospace name. Signal: `lutChanged(name: str, reversed: bool)`. `setLut(name, reversed)`. `__main__` + gallery card. | 6.5.2, 6.5.3 | 1 |
+| 6.5.6 | **`ColorPickerPopover`** (+ `SvSquare`, `HueStrip`) | New `widgets/color_picker_popover.py` — `SvSquare` (custom-painted saturation/value gradient for the current hue, drag-to-pick), `HueStrip` (custom-painted hue ramp, drag), `QLineEdit`s for Hex / HSL / Alpha (validated, two-way with the squares), a per-dataset "recents" row (≤8 swatches), all hosted in a `Popover`. Signals: `colorPicked(QColor)` (live) + `colorCommitted(QColor)` (on close/Enter). `setColor(QColor)`, `setRecents(list)`. `__main__` + gallery card. | 6.5.2 | 1 |
+| 6.5.7 | **`ColorSwatchRow` extension** — Custom tile + recents | Extend `widgets/color_swatch_row.py` — add an optional conic-gradient "Custom" tile at the end of the swatch row that opens `ColorPickerPopover` (the picked colour becomes the current selection and prepends to recents); carry & display a recents list (≤8); keep the 2-px accent outline on the selected swatch; emit `colorPicked(QColor)` whether the colour came from a curated swatch, a recent, or the picker. Gallery: a row showing curated swatches + recents + the Custom tile + the picker opening. | 6.5.6 | 2 |
+| 6.5.8 | **`SavedSelectionsList` extension** — editable / reorderable | Effectively a rebuild of `widgets/saved_selections_list.py` against a stand-in model (a list of `{id, name, color, wells:[...], hidden:bool}` dicts): per-row drag handle (drag-to-reorder), visibility eye, colour dot (recolour via `ColorSwatchRow`), inline-renamable name (delegate editor or a `QLineEdit` overlay), count chip, kebab → a `Popover`/`QMenu` (Rename / Recolour / Duplicate / Hide / Move up-down / Export / Delete); rows expand to a `ChipGroup` of well chips; footer with `From selection` + `Import…` buttons; hidden rows fade + strike-through + sink to the bottom. Signals: `entryActivated(id)`, `entryRenamed(id, name)`, `entryRecoloured(id, color)`, `entryVisibilityToggled(id, visible)`, `entryDuplicated(id)`, `entryDeleted(id)`, `entryExportRequested(id)`, `orderChanged([id,…])`, `addFromSelectionRequested()`, `importRequested()`. (The actual `_rep_sets` + `_bar_groups` → `selections` data-model migration is **Phase-8 app work**, *not* 6.5 — 6.5 delivers the widget only.) Gallery: a populated, editable list. | 6.5.2, 6.5.6 (recolour), existing `ChipGroup` | 2 |
+| 6.5.9 | **`TitleBar` extension** | Extend `widgets/title_bar.py` — add: window-control buttons (min / max / close as `IconButton`s; close hovers to `--danger`; macOS-mode hides them, leaving room for native traffic lights); the brand-logo dropdown (a `Popover`/`QMenu`: Open / Recent / Preferences / About / Quit); the theme-switcher (sun/moon `IconButton` → `Popover` with Dark / Light / System tiles + a High-contrast toggle); the ghost `Open` button + a ⌘O shortcut; integrate `WindowResizeGrips` (enabled in frameless mode); a **native-frame fallback** mode — `setFramelessMode(bool)`: when off, the breadcrumb + actions render as a 36-px sub-strip beneath the OS bar. Gallery: the titlebar demo updated to show the window controls + dropdown + theme popover + a toggle between frameless and fallback layouts (the actual frameless window behaviour is tested via `title_bar.py __main__`). | 6.5.2, 6.5.4 | 2 |
+| 6.5.10 | **`PlotCard` extension** — Screen/Publication theme + figure-header row | Extend `widgets/plot_card.py` — `setPlotTheme("screen"|"publication")` swaps the figure's rcParams between the dark token set and `theme.CPub`/`TRACE_PUB` (`figure.facecolor`, `axes.facecolor`, `axes.edgecolor`, `xtick/ytick.color`, `text.color`, `grid.color`, the trace prop-cycle) and redraws; `plotTheme()` exposes the state (the export dialog reads it later, in Phase 8). Add the figure-header row: a channel/trace label + a 2-segment `SegmentedControl` (`Screen` / `Publication`) + a "preview only" badge shown only in publication mode + a `Stats · SEM` chip whose click opens a `Popover` hosting the three Statistics controls (`Error bars` / `Across` / `Show` as `SegmentedControl`s — optionally wrapped in a `CollapsibleSection`). Signals: `plotThemeChanged(str)`, `statsChanged(dict)`. (The matplotlib `rcParams`-set-once-at-startup, the `plot_style.apply_ax_style` rework, and re-wiring every controller that styles axes are **Phase-8 plot-area work**, not 6.5.) Gallery: a `PlotCard` with the toggle doing a live light/dark swap + the Stats popover. | 6.5.1 (`CPub`/`TRACE_PUB`), 6.5.2 (`Popover`), existing `SegmentedControl`/`CollapsibleSection` | 2 |
+| 6.5.11 | **Gallery consolidation & sign-off** | Make `widgets/gallery.py` show a card for **every** new widget (6.5.2–6.5.6) and demonstrate **every** extension (6.5.7–6.5.10) — Custom tile, editable selections list, titlebar with controls/dropdown/theme/fallback, `PlotCard` theme toggle + Stats popover, `LutSelector`, `ColorPickerPopover`, `Popover`, `GradientStrip`, `WindowResizeGrips` (documented). Run `python widgets/gallery.py`, screenshot, fix any layout/visual issues. Confirm the binding test (6.5.1) still passes. Then Phase 6.5 is complete and Phase 8 resumes. | all of the above | 1, 2 |
+
+## Order rationale (dependency chain)
+
+`6.5.1` (foundations + binding — small, unblocks #3/#4) → `6.5.2 Popover`
+(needed by `LutSelector`, `ColorPickerPopover`, `TitleBar`, `PlotCard`,
+`SavedSelectionsList`) → `6.5.3 GradientStrip` + `6.5.4 WindowResizeGrips`
+(independent leaves; can be done in parallel with 6.5.2) → `6.5.5 LutSelector`
+(needs 2+3) → `6.5.6 ColorPickerPopover` (needs 2) → `6.5.7 ColorSwatchRow ext`
+(needs 6) → `6.5.8 SavedSelectionsList ext` (needs 2+6) → `6.5.9 TitleBar ext`
+(needs 2+4) → `6.5.10 PlotCard ext` (needs 1+2) → `6.5.11 gallery consolidation`.
+
+## Explicitly NOT in Phase 6.5 (these stay Phase 8)
+
+- The decision-#1 colour fix in `runtime_app._refresh_sidebar_map_now` (per-well
+  branch → graph-palette colours by well-position rank instead of `ACCENT`) —
+  it's an app-side change (~1 line + sourcing the graph's palette/ordering); it
+  lands as part of the **left-rail finish** in Phase 8.
+- The `_rep_sets` + `_bar_groups` → unified `selections` data-model migration
+  (the on-load merge, bar-group-order-wins, `_v2` conflict rule, and updating
+  every consumer) — **Sample-Definitions / Bar-Plots Phase-8 port**.
+- The matplotlib `rcParams`-at-startup + `plot_style.apply_ax_style` rework +
+  routing every controller through it; the export-dialog↔preview-state wiring —
+  **plot/figure-area Phase-8 port**.
+- Wiring the new Statistics section into the actual Properties panel, populating
+  `CollapsibleSection.setValueWidget` previews — **properties-panel Phase-8 port**.
+- Making `AllWellApp` a frameless window and hosting the extended `TitleBar` in it
+  — **app-shell Phase-8 port**.
+- Migrating the other six plate-maps off the legacy `WellButton` grid
+  (`WELL_SELECTOR_GAP.md` Steps 2–8) — **Phase-8**, alongside the relevant tabs.
+- Confirming the 8.1–8.5 prompt numbering — your call, before Phase 8 resumes.
+
+## Status
+
+Not started — this is the plan only. Work begins at 6.5.1 on your go-ahead.
