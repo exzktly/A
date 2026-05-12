@@ -11,6 +11,19 @@ and what downstream (Phase-8 areas / new widgets / extensions) hangs on it.
 
 ---
 
+## ✅ RESOLVED (decisions made)
+
+| # | Resolution | Notes |
+|---|---|---|
+| 1 — selected-well colour | **Mockup wins — the plate uses trace colours, matching the graph everywhere.** Per-well mode: each selected well's colour = the graph's series colour for that well, ordered by **well position rank** (A01 < A02 < … < H12). Replicate-set mode: every well in a set takes that set's colour (must match the set's colour on the graph) — already the case. | "Match the graph everywhere" means `runtime_app._refresh_sidebar_map_now` (per-well branch) stops passing `setWellColors({tok: ACCENT})` and instead passes `setWellColors({tok: <graph palette colour for tok's rank>})` using the *same* palette + ordering the line/bar/scatter renderers use (`lineplot_controller` colours by position in `_apply_order(sorted_selected, _line_order_wells)`), so the plate and the figure can't drift. Default ordering = plate-position rank; honouring a user's custom `_line_order_wells` for the plate's colour order is a refinement that rides along with the saved-selections rework. Rep-set branch already passes `WELL_COLORS[si]` — leave it. |
+| 2 — `_bind_getter_setter` policy | **(b) — a small `bindingAdapter` protocol on the custom widgets.** | Each bindable custom widget (`SegmentedControl`, `ChipGroup`, `Stepper`, `StyledSlider`) exposes `bindingAdapter() -> (getter, setter, change_signal)` (or a `BINDING` class attr); `_bind_getter_setter` gains one `hasattr` check, stock-widget branches untouched. `SegmentedControl`/`ChipGroup` also grow a `setCurrentByData(value)` helper. |
+| 3 — `PillTabBar` vs `QTabWidget` | **(a) — `PillTabBar` = the channel-tabs strip only; `QTabWidget` (+ `_GroupedTabBar`) stays for the Review notebook, the Plotting sub-notebook, and the secondary tab strip, restyled via `theme.qss()`.** | No notebook rebuild. `PillTabBar` lives only in the figure/plot-area header (channel switcher). |
+| 4 — `Toast` vs `QMessageBox` | **(b) — three notification roles.** `Toast` = transient "X happened, fyi" only; status bar (`_set_status`) = persistent current state; `QMessageBox` = modal must-respond. | Migration of "X happened" `_set_status` calls → `Toast` is opportunistic (as port prompts touch those sites), not a sweep. No toast queue in v1. |
+
+The original options/analysis for each is kept below for reference.
+
+---
+
 ## 1. Selected-well colour — accent vs trace (`DECISIONS_NEEDED` #5/#9)
 
 **The call.** On the left-rail plate, do selected wells render in the **accent**
