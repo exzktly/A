@@ -291,6 +291,83 @@ def _build_popover():
     return host
 
 
+def _build_gradient_strip():
+    from PySide6.QtGui import QColor
+    from widgets.gradient_strip import GradientStrip
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    g1 = GradientStrip([(0.0, theme.Colors.surface), (0.5, theme.Colors.accent),
+                        (1.0, theme.Colors.accent_fg)])      # (pos, colour) stops
+    g1.setMinimumHeight(16)
+    g2 = GradientStrip(list(theme.Colors.trace))             # evenly-spaced flat list
+    g2.setMinimumHeight(16)
+    g3 = GradientStrip(reversed=False)                       # sampled from a callable
+    g3.setMinimumHeight(16)
+    g3.setSamples(lambda t: QColor.fromHsvF(max(0.0, min(0.999, 0.75 - 0.75 * t)),
+                                            0.6, 0.35 + 0.55 * t))
+    for w in (g1, g2, g3):
+        v.addWidget(w)
+    return host
+
+
+def _build_window_resize_grips():
+    from widgets.window_resize_grips import WindowResizeGrips
+    from PySide6.QtWidgets import QMainWindow
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    lbl = QLabel("A frameless window helper — can't be embedded here. "
+                 "Open a test window to drag its edges/corners:")
+    lbl.setWordWrap(True)
+    v.addWidget(lbl)
+    btn = QPushButton("Open frameless test window")
+    btn.setObjectName("Primary")
+    v.addWidget(btn, 0, Qt.AlignLeft)
+    holder = {"win": None}
+
+    def _open():
+        if holder["win"] is not None and holder["win"].isVisible():
+            holder["win"].raise_(); holder["win"].activateWindow(); return
+        w = QMainWindow()
+        w.setWindowFlag(Qt.FramelessWindowHint, True)
+        w.setMinimumSize(260, 160)
+        c = QWidget()
+        cv = QVBoxLayout(c)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        bar = QWidget()
+        bar.setObjectName("Sidebar")
+        bar.setAttribute(Qt.WA_StyledBackground, True)
+        bbl = QHBoxLayout(bar)
+        bbl.setContentsMargins(theme.Spacing.md, theme.Spacing.sm, theme.Spacing.sm, theme.Spacing.sm)
+        bbl.addWidget(QLabel("drag title to move · drag edges to resize"))
+        bbl.addStretch(1)
+        cb = QPushButton("✕")
+        cb.clicked.connect(w.close)
+        bbl.addWidget(cb)
+        drag = {"o": None}
+        bar.mousePressEvent = (lambda e: (w.windowHandle() and w.windowHandle().startSystemMove())
+                               if e.button() == Qt.LeftButton else None)
+        cv.addWidget(bar)
+        inner = QWidget()
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(theme.Spacing.lg, theme.Spacing.lg, theme.Spacing.lg, theme.Spacing.lg)
+        iv.addWidget(QLabel("Hover the 4 edges / 4 corners → resize cursor; drag to resize."))
+        iv.addStretch(1)
+        cv.addWidget(inner, 1)
+        w.setCentralWidget(c)
+        w._grips = WindowResizeGrips(w, mode="auto", margin=8)   # keep a ref alive
+        w.resize(420, 260)
+        w.show()
+        holder["win"] = w
+
+    btn.clicked.connect(_open)
+    return host
+
+
 def _build_saved():
     from widgets.saved_selections_list import SavedSelectionsList
     lst = SavedSelectionsList()
@@ -422,6 +499,8 @@ def build_gallery() -> QWidget:
         ("SearchInput", _build_search),
         ("EmptyState", _build_empty),
         ("Popover", _build_popover),
+        ("GradientStrip", _build_gradient_strip),
+        ("WindowResizeGrips", _build_window_resize_grips),
         ("HoverToolbarOverlay", _build_hover_overlay),
         ("SavedSelectionsList", _build_saved),
         ("WellPlateSelector", _build_plate),
