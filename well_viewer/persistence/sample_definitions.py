@@ -20,9 +20,9 @@ _logger = logging.getLogger("well_viewer")
 
 
 def save_to_pipeline_info(app) -> None:
-    """Merge well labels + groups into the pipeline_info.json sidecar."""
+    """Merge well labels + the unified ``selections`` model into pipeline_info.json."""
     from well_viewer.sample_definitions import (
-        build_sample_definitions,
+        build_sample_definitions_v2,
         save_to_pipeline_info as _write_block,
     )
     if not app._data_dir:
@@ -31,18 +31,23 @@ def save_to_pipeline_info(app) -> None:
             "Open a data folder before saving sample definitions.",
         )
         return
+    if getattr(app, "_selections_v2_writes_disabled", False):
+        QMessageBox.warning(
+            app, "Save unavailable",
+            "Saved sample definitions couldn't be upgraded earlier this session, "
+            "so writing them is disabled to avoid corrupting the file. See the log.",
+        )
+        return
     notes_edit = getattr(app, "_notes_edit", None)
     notes_text = (
         notes_edit.toPlainText() if notes_edit is not None
         else getattr(app, "_notes_text", "") or ""
     )
     app._notes_text = notes_text
-    block = build_sample_definitions(
-        app._well_labels,
-        app._rep_sets,
-        app._bar_groups,
-        extract_well_token=extract_well_token,
-        notes=notes_text,
+    selections = list(getattr(app, "_selections", []) or [])
+    current_id = getattr(app, "_current_selection_id", None)
+    block = build_sample_definitions_v2(
+        app._well_labels, selections, current_id, notes=notes_text,
     )
     try:
         info_path = _write_block(app._data_dir, block)
@@ -52,52 +57,100 @@ def save_to_pipeline_info(app) -> None:
     except OSError as exc:
         QMessageBox.critical(app, "Save failed", str(exc))
         return
+    n_hidden = sum(1 for s in selections if s.get("hidden"))
     app._set_status(
         f"Sample definitions saved to {info_path.name}: "
         f"{len(block['well_labels'])} label(s), "
-        f"{len(block['rep_sets'])} replicate set(s), "
-        f"{len(block['groups'])} group(s)."
+        f"{len(selections)} selection(s)"
+        + (f" ({n_hidden} hidden)" if n_hidden else "")
+        + " (schema v2)."
     )
+
+
+def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, dict]:
+    """Parse a sample_definitions/bar_groups block → set ``app._selections`` and
+    refresh the legacy ``_rep_sets`` / ``_bar_groups`` / … shadow.
+
+    For a **v1** block the legacy shadow is hydrated by the *original* parser
+    (``bar_groups_from_data``) so it stays byte-perfect — no regression on
+    opening an existing dataset. For a **v2** block it's derived from
+    ``selections`` via the inverse map. Either way ``app._selections`` is set.
+
+    Returns ``(applied, well_labels_dict)``. On a malformed block / migration
+    failure: logs, leaves the existing state alone, disables v2 writes for the
+    session, and returns ``(False, {})``.
+    """
+    from well_viewer import selections_model as _sel
+    from well_viewer.barplot_controller import bar_groups_from_data
+    tok_to_label = getattr(app, "_tok_to_label", {})
+    try:
+        is_v2 = _sel.block_is_v2(block)
+        # Don't honour line order here — line_order.json loads *after* this; its
+        # loader re-applies the reorder and re-derives the shadow.
+        selections, current_id, well_labels, notes = _sel.from_block(
+            block, tok_to_label=tok_to_label)
+        if is_v2:
+            rep_sets, bar_groups, ari, bag, rh = _sel.selections_to_legacy(
+                selections, current_id, tok_to_label=tok_to_label)
+        else:
+            rep_sets, bar_groups = bar_groups_from_data(
+                {"rep_sets": list(block.get("rep_sets", []) or []),
+                 "groups": list(block.get("groups", []) or [])},
+                tok_to_label=tok_to_label)
+            ari = -1
+            bag = 0 if bar_groups else -1
+            rh = set()
+    except Exception:  # pragma: no cover - defensive: never crash on bad data
+        _logger.exception("Couldn't upgrade saved sample definitions — using "
+                          "compatibility mode; the file was left untouched.")
+        app._selections_v2_writes_disabled = True
+        try:
+            app._set_status("Couldn't upgrade saved sample definitions — using "
+                            "them in compatibility mode (see log).")
+        except Exception:
+            pass
+        return False, {}
+
+    app._selections = selections
+    app._current_selection_id = current_id
+    app._rep_sets = rep_sets
+    app._bar_groups = bar_groups
+    app._active_rep_idx = ari
+    app._bar_active_grp = bag
+    app._rep_hidden = rh
+    if set_notes:
+        app._notes_text = notes
+        notes_edit = getattr(app, "_notes_edit", None)
+        if notes_edit is not None and notes_edit.toPlainText() != notes:
+            blocked = notes_edit.blockSignals(True)
+            try:
+                notes_edit.setPlainText(notes)
+            finally:
+                notes_edit.blockSignals(blocked)
+    return True, well_labels
 
 
 def load_from_pipeline_info(app) -> bool:
     """Apply any saved sample_definitions block in pipeline_info.json.
 
+    v1 blocks are migrated to the unified ``selections`` model on the fly (the
+    migrated state is persisted, with a one-time backup, on the next Save).
     Returns True when a block was found and applied.
     """
-    from well_viewer.sample_definitions import (
-        parse_groups_block,
-        parse_notes,
-        parse_well_labels,
-        read_sample_definitions,
-    )
+    from well_viewer.sample_definitions import read_sample_definitions
     if not app._data_dir:
         return False
     block = read_sample_definitions(app._data_dir)
     if not block:
         return False
-    labels = parse_well_labels(block, valid_tokens=app._well_paths.keys())
-    if labels:
-        app._well_labels.update(labels)
-    rep_sets, bar_groups = parse_groups_block(
-        block, tok_to_label=app._tok_to_label,
-    )
-    if rep_sets or bar_groups:
-        app._rep_sets = rep_sets
-        app._bar_groups = bar_groups
-        app._active_rep_idx = -1
-        app._bar_active_grp = 0 if bar_groups else -1
-    notes = parse_notes(block)
-    app._notes_text = notes
-    notes_edit = getattr(app, "_notes_edit", None)
-    if notes_edit is not None and notes_edit.toPlainText() != notes:
-        blocked = notes_edit.blockSignals(True)
-        try:
-            notes_edit.setPlainText(notes)
-        finally:
-            notes_edit.blockSignals(blocked)
-    if labels or rep_sets or bar_groups:
-        app._invalidate_stats_cache()
+    applied, well_labels = _apply_unified_state(app, block)
+    if not applied:
+        return True  # a block existed; we just couldn't upgrade it
+    valid = set(app._well_paths.keys())
+    for tok, lab in (well_labels or {}).items():
+        if tok in valid and str(lab).strip():
+            app._well_labels[str(tok)] = str(lab).strip()
+    app._invalidate_stats_cache()
     return True
 
 
@@ -182,6 +235,9 @@ def clear_all(app) -> None:
             notes_edit.clear()
         finally:
             notes_edit.blockSignals(blocked)
+
+    app._selections = []
+    app._current_selection_id = None
 
     app._rep_sets = []
     app._active_rep_idx = -1

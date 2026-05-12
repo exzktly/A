@@ -1,10 +1,13 @@
 # Phase 8.0 — Saved-selections data-model migration plan
 
-> **Status:** proposed (2026-05-12) — **awaiting approval.** Nothing implemented.
-> This promotes `SELECTIONS_MODEL_CONTRACT.md` §3–§5 (which only *sketched* the
-> migration) into a complete, standalone plan: real legacy shapes, the algorithm
-> with edge cases, the full 20-file touch-site inventory, schema versioning,
-> backup/recovery, failure handling, a test plan, and a staged rollout.
+> **Status:** approved 2026-05-12 (Q1 migrate `bar_groups.json`; Q2 bake rank
+> colour immediately; Q3 drop the legacy shadow at phase end; Q4 implement §3.5
+> now). **Stage A is implemented** (see *Progress* at the bottom); Stages B–D
+> not started. This doc promotes `SELECTIONS_MODEL_CONTRACT.md` §3–§5 (which
+> only *sketched* the migration) into a complete, standalone plan: real legacy
+> shapes, the algorithm with edge cases, the full 20-file touch-site inventory,
+> schema versioning, backup/recovery, failure handling, a test plan, and a
+> staged rollout.
 
 **Honesty note (answering the question asked):** when I wrote contract §3–§5 I
 **inferred** the `_rep_sets` / `_bar_groups` shapes from the *class definitions*
@@ -477,7 +480,85 @@ that runs without a display.
 
 ---
 
-**Next step:** your approval (and answers to Q1–Q4). Then Stage A only —
-`selections_model.py` + the persistence read/write wiring + tests T1–T5/T7/T8 —
-lands as one commit; T6 is your runtime check; then Stages B/C/D proceed
-cluster-by-cluster.
+## 11. Progress
+
+### Stage A — model + migration + persistence (with a legacy shadow) — **done** (code, not runtime-verified)
+
+- **`well_viewer/selections_model.py`** (new, GUI-free) — the v2 `Selection`
+  shape + helpers: `normalize_token` / `well_rank` / `rank_color` (decision-#1:
+  colour = palette entry of the selection's *lowest* well's row-major rank;
+  **baked at migration time** per Q2), `make_selection` (normalises, de-overlaps
+  `replicates` ⊆ `wells`, mints `uuid4().hex[:8]` ids, `_v2`-resolves names),
+  `validate_repair`, `migrate_v1` (bar-groups-first → free rep-sets; drops
+  members referencing unknown rep-sets with a warning; in-session variant takes
+  `rep_hidden`/`loaded_tokens`/`bar_active_grp`), `reorder_by_line_order` (§3.5,
+  per Q4), `from_block` / `to_block` (v2 `{schema_version: 2, selections,
+  current_id, well_labels, notes}`; drops `rep_sets`/`groups`), `to_bar_groups_payload`,
+  `selections_to_legacy` (the inverse map — `source=="rep_set"` → a free
+  `ReplicateSet`; everything else → a `BarGroup` with one member per `replicates`
+  sub-list named `"<name> #k"`; `rep_hidden` always empty since it was never
+  persisted), `from_legacy_appstate`. Borrows `WELL_COLORS` from
+  `plate_layout` with a pure-Python fallback so the module (and its self-test)
+  import without Qt.
+- **`well_viewer/sample_definitions.py`** — added `build_sample_definitions_v2`
+  (→ `to_block`) and `_backup_pre_v2` (raw-bytes copy to
+  `pipeline_info.json.pre-v2-backup`, no-clobber + timestamped fallback);
+  `save_to_pipeline_info` now writes a backup *before* a v1→v2 overwrite and
+  **aborts the save** (`OSError`) if the backup can't be written; preserves all
+  other `pipeline_info.json` keys verbatim. (The legacy `build_sample_definitions`
+  / `parse_groups_block` are kept, unused, for now.)
+- **`well_viewer/persistence/sample_definitions.py`** — `load_from_pipeline_info`
+  now builds `app._selections` / `app._current_selection_id` from the block; the
+  legacy `_rep_sets`/`_bar_groups`/… shadow is hydrated **by the original parser
+  for a v1 block** (byte-perfect — zero regression on opening an existing
+  dataset) and **by the inverse map for a v2 block**; a malformed block /
+  migration failure logs, leaves state alone, sets `_selections_v2_writes_disabled`,
+  surfaces a status message, and does **not** write. `save_to_pipeline_info`
+  writes the v2 block from `_selections` (refuses if writes are disabled).
+  `clear_all` resets `_selections`/`_current_selection_id` too.
+- **`well_viewer/persistence/bar_groups.py`** — `bar_groups.json` now round-trips
+  the same model (Q1): `save_via_dialog` writes a v2 payload; `from_dict` reads
+  v1 (via the original parser → byte-perfect shadow) or v2 (via the inverse map),
+  always setting `_selections`.
+- **`well_viewer/persistence/line_order.py`** — after loading `line_order.json`
+  (which loads *after* sample-defs), `_reorder_selections_by_line_order` re-sorts
+  `app._selections` per §3.5 (the legacy shadow is left alone — the legacy
+  renderers already re-order at draw time via `_line_order_*`).
+- **`well_viewer/runtime_app.py`** — `__init__` declares `_selections: list = []`,
+  `_current_selection_id: Optional[str] = None`, `_selections_v2_writes_disabled:
+  bool = False` (2-line addition; everything else still works off the shadow).
+- **`well_viewer/_selftest_migration.py`** (new, runnable like `binding_check.py`)
+  — covers T1 (clean migration: order/sources/names/wells/replicates/hidden/rank
+  colours/ids/current/round-trip + inverse-map sanity), T2 (the exact `_v2` /
+  `<base> N` conflict sequence, matching `SavedSelectionsList._unique_name`), T3
+  (malformed: missing-member groups, non-dict items, junk/dup tokens, `"true"`
+  string, non-list `wells`, surviving-empty groups), T4 (missing fields / `null`
+  / no-block), T5 (already-v2: dup ids, dup names, bad colours, unknown-key
+  preservation, idempotent round-trip), T7 (disk: `.pre-v2-backup` byte-identical
+  & no-clobber, other pipeline keys preserved, recovery), T8 (hostile inputs
+  don't crash; a throwing `id_factory` falls back to uuid). **`ALL PASS`** here;
+  `python -m py_compile` clean on every changed file.
+
+**Documented Stage-A simplifications** (faithful enough; cleaned up in B/C):
+1. The legacy shadow is byte-perfect for a freshly-loaded **v1** dataset; once
+   you Save (→ the file becomes v2) a reload reconstructs the shadow via the
+   inverse map, so a bar group's member rep-sets come back named `"<group> #k"`
+   and a solo well becomes its own 1-well member. The *bar plot* may therefore
+   draw a group with multiple members / solo wells slightly differently after a
+   v2 save until Stage B-2 rewrites the bar renderer to read `_selections`.
+2. Decision-#1 colour is baked at migration (Q2), so colours **do** change on
+   the first load of a v1 dataset (intended).
+3. `_rep_hidden` doesn't round-trip into `_selections.hidden` for free-rep-set
+   selections (it was never persisted; a from-disk load has always come back
+   fully visible). Group/user/import `hidden` round-trips fine.
+4. `app._bar_groups_prune()` (run after a dataset load) still prunes the legacy
+   shadow but no longer affects `_selections` — consistent with the contract
+   (stored wells may legitimately not be in the current dataset).
+
+### Still to do
+- **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app, eyeball
+  bar/line plots & the group/rep lists, Save → reopen, confirm `.pre-v2-backup`
+  exists and restores cleanly; `python well_viewer/_selftest_migration.py` → `ALL PASS`.
+- **Stages B / C / D** per §7 (switch consumers cluster-by-cluster → views →
+  drop the shadow; decision-#1 render-time colour-by-rank for the unstructured
+  selected-wells case lands in Stage C).

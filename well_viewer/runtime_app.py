@@ -762,6 +762,13 @@ class WellViewerApp(QWidget):
         self._bar_ylim_frac_lo_edit = None
         self._bar_ylim_frac_hi_edit = None
         self._bar_order: Optional[List] = None
+        # Unified saved-selections model (Phase 8.0) — source of truth; the
+        # legacy _rep_sets/_bar_groups/… below are a derived shadow for now
+        # (see design/SELECTIONS_MIGRATION.md). _selections_v2_writes_disabled
+        # latches True if a load-time v1→v2 migration ever fails.
+        self._selections:               list = []
+        self._current_selection_id:     Optional[str] = None
+        self._selections_v2_writes_disabled: bool = False
         self._rep_sets:          List[ReplicateSet] = []
         self._active_rep_idx:    int               = -1
         self._rep_hidden:        set               = set()
