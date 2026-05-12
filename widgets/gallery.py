@@ -368,6 +368,56 @@ def _build_window_resize_grips():
     return host
 
 
+def _build_lut_selector():
+    from widgets.lut_selector import LutSelector
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    sel = LutSelector(lut="viridis")
+    v.addWidget(sel)
+    out = QLabel("lut: viridis  (reversed=False)")
+    out.setObjectName("Caption")
+    out.setWordWrap(True)
+    v.addWidget(out)
+    sel.lutChanged.connect(lambda name, rev: out.setText(f"lut: {name}  (reversed={rev})"))
+    v.addStretch(1)
+    return host
+
+
+def _build_color_picker_popover():
+    from PySide6.QtGui import QColor
+    from widgets.color_picker_popover import ColorPickerPopover
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    btn = QPushButton("Pick a colour…")
+    btn.setObjectName("Primary")
+    v.addWidget(btn, 0, Qt.AlignLeft)
+    swatch = QLabel()
+    swatch.setFixedHeight(28)
+    swatch.setAttribute(Qt.WA_StyledBackground, True)
+    out = QLabel("#6B8AFD")
+    out.setObjectName("Caption")
+
+    def _paint(c: QColor):
+        swatch.setStyleSheet(
+            f"background-color: {c.name()}; border: 1px solid {theme.Colors.border}; "
+            f"border-radius: {theme.Radii.xs}px;")
+        out.setText(c.name().upper())
+
+    _paint(QColor("#6B8AFD"))
+    v.addWidget(swatch)
+    v.addWidget(out)
+    v.addStretch(1)
+    pop = ColorPickerPopover(host, color="#6B8AFD")
+    pop.colorPicked.connect(_paint)
+    pop.colorCommitted.connect(_paint)
+    btn.clicked.connect(lambda: pop.popup(btn, side="bottom", align="start"))
+    return host
+
+
 def _build_saved():
     from widgets.saved_selections_list import SavedSelectionsList
     lst = SavedSelectionsList()
@@ -501,6 +551,8 @@ def build_gallery() -> QWidget:
         ("Popover", _build_popover),
         ("GradientStrip", _build_gradient_strip),
         ("WindowResizeGrips", _build_window_resize_grips),
+        ("LutSelector", _build_lut_selector),
+        ("ColorPickerPopover", _build_color_picker_popover),
         ("HoverToolbarOverlay", _build_hover_overlay),
         ("SavedSelectionsList", _build_saved),
         ("WellPlateSelector", _build_plate),
