@@ -261,6 +261,36 @@ def _build_empty():
     return es
 
 
+def _build_popover():
+    from widgets.popover import Popover
+    host = QWidget()
+    lay = QHBoxLayout(host)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(theme.Spacing.sm)
+
+    def _content(text):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(theme.Spacing.sm)
+        h = QLabel(text)
+        h.setObjectName("Heading")
+        v.addWidget(h)
+        v.addWidget(QLabel("Click outside or press Esc to dismiss."))
+        v.addWidget(QPushButton("An action"))
+        return w
+
+    for label, side in (("below", "bottom"), ("above", "top"), ("right", "right")):
+        b = QPushButton(f"open {label}")
+        b.setCursor(Qt.PointingHandCursor)
+        pop = Popover(host)
+        pop.setContentWidget(_content(f"Popover (side={side})"))
+        b.clicked.connect(lambda _=False, _b=b, _p=pop, _s=side: _p.popup(_b, side=_s))
+        lay.addWidget(b)
+    lay.addStretch(1)
+    return host
+
+
 def _build_saved():
     from widgets.saved_selections_list import SavedSelectionsList
     lst = SavedSelectionsList()
@@ -391,6 +421,7 @@ def build_gallery() -> QWidget:
         ("ColorSwatchRow", _build_swatches),
         ("SearchInput", _build_search),
         ("EmptyState", _build_empty),
+        ("Popover", _build_popover),
         ("HoverToolbarOverlay", _build_hover_overlay),
         ("SavedSelectionsList", _build_saved),
         ("WellPlateSelector", _build_plate),

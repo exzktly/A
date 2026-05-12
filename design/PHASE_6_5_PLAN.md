@@ -138,7 +138,7 @@ machine** unless noted.
 |---|---|---|
 | 6.5.1 — foundations & binding contract | **done** (code, not runtime-verified) | `theme.CPub` + `TRACE_PUB`; `bindingAdapter()` on `ToggleSwitch` / `SegmentedControl` / `ChipGroup` / `Stepper` / `StyledSlider`; `setCurrentByData` on `SegmentedControl` / `ChipGroup` (+ `checkedData`/`setCheckedData` on `ChipGroup`); `_bind_getter_setter` gained the `bindingAdapter` branch; `widgets/binding_check.py` harness added. `py_compile` clean. |
 | 6.5.1a — binding-harness runtime QA (user) | **✅ confirmed PASS** (user, 2026-05-12) | `python widgets/binding_check.py` — all green. Gate clear; 6.5.2 onward unblocked. |
-| 6.5.2 — `Popover` | not started | |
+| 6.5.2 — `Popover` | **done** (code, not runtime-verified) | `widgets/popover.py` — `Qt.Popup` frameless anchor-relative panel: `setContentWidget` / `popup(anchor, side, align, gap)` with auto-flip + screen-clamp, dismiss on outside-click / Esc, soft drop shadow on a `#PopoverFrame` card, `opened`/`closed` signals; `__main__` demo (6 side/align buttons) + a `Popover` card in `gallery.py`. `py_compile` clean. |
 | 6.5.3 — `GradientStrip` | not started | |
 | 6.5.4 — `WindowResizeGrips` | not started | |
 | 6.5.5 — `LutSelector` | not started | |
