@@ -136,16 +136,16 @@ machine** unless noted.
 
 | Sub-phase | Status | Commit / note |
 |---|---|---|
-| 6.5.1 — foundations & binding contract | **done** (code, not runtime-verified) | `theme.CPub` + `TRACE_PUB`; `bindingAdapter()` on `ToggleSwitch` / `SegmentedControl` / `ChipGroup` / `Stepper` / `StyledSlider`; `setCurrentByData` on `SegmentedControl` / `ChipGroup` (+ `checkedData`/`setCheckedData` on `ChipGroup`); `_bind_getter_setter` gained the `bindingAdapter` branch; `widgets/binding_check.py` harness added. `py_compile` clean; awaiting 6.5.1a. |
-| 6.5.1a — binding-harness runtime QA (user) | **awaiting user** | Pull the branch, run `python widgets/binding_check.py`, confirm all PASS. No 6.5.2 commit until confirmed. |
+| 6.5.1 — foundations & binding contract | **done** (code, not runtime-verified) | `theme.CPub` + `TRACE_PUB`; `bindingAdapter()` on `ToggleSwitch` / `SegmentedControl` / `ChipGroup` / `Stepper` / `StyledSlider`; `setCurrentByData` on `SegmentedControl` / `ChipGroup` (+ `checkedData`/`setCheckedData` on `ChipGroup`); `_bind_getter_setter` gained the `bindingAdapter` branch; `widgets/binding_check.py` harness added. `py_compile` clean. |
+| 6.5.1a — binding-harness runtime QA (user) | **✅ confirmed PASS** (user, 2026-05-12) | `python widgets/binding_check.py` — all green. Gate clear; 6.5.2 onward unblocked. |
 | 6.5.2 — `Popover` | not started | |
 | 6.5.3 — `GradientStrip` | not started | |
 | 6.5.4 — `WindowResizeGrips` | not started | |
 | 6.5.5 — `LutSelector` | not started | |
 | 6.5.6 — `ColorPickerPopover` | not started | |
 | 6.5.7 — `ColorSwatchRow` ext | not started | |
-| 6.5.8a — selections-model contract (user gate) | not started | |
-| 6.5.8 — `SavedSelectionsList` ext | not started | |
+| 6.5.8a — selections-model contract (user gate) | **done — awaiting user approval** | `design/SELECTIONS_MODEL_CONTRACT.md` written: the unified `selections` list shape (`id` / `name` / `color` / `hidden` / `wells` / `replicates` / `labels?` / `source`), invariants, the `_rep_sets`+`_rep_hidden`+`_bar_groups` → `selections` migration (bar-group order wins, `_v2` on name clash), persistence (`pipeline_info.json::sample_definitions` `schema_version: 2`), and the Phase-8 inverse map. 5 open questions at the end. **No 6.5.8 commit until approved.** |
+| 6.5.8 — `SavedSelectionsList` ext | not started | blocked on 6.5.8a approval |
 | 6.5.9 — `TitleBar` ext | not started | |
 | 6.5.10 — `PlotCard` ext | not started | |
 | 6.5.11a — gallery layout proposal (user gate) | not started | |
