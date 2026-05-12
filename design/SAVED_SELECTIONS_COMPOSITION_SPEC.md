@@ -157,7 +157,7 @@ condition's N replicates" — the common `rep_set` case).
   - `setSelectedWellIds(...)` = this selection's current `wells`;
   - row/column header clicks select/deselect whole rows/columns (the
     `WellPlateSelector` already supports this);
-  - dragging paints a rectangle of cells (already supported).
+  - dragging paint-toggles each cell the cursor crosses ("drag-paint", as the legacy rep-map plate does — not a rubber-band rectangle; already supported by `WellPlateSelector`).
 - Below the plate: an **OK / Cancel** pair (or live + a "Done"). On commit, the
   selection's `wells` is set to `picked ∩ enabledWells`, in plate-rank order;
   any `replicates` sub-list is pruned to wells still present (empty sub-lists
@@ -257,7 +257,7 @@ In `widgets/gallery.py`, the existing **`SavedSelectionsList`** card is upgraded
   5. right-click a chip → "Move to new replicate" / "Move to R1" → chip hops
      rows;
   6. click `+ wells…` → a `Popover` with a `WellPlateSelector` opens; click
-     cells / a column header / drag a rectangle → OK → those wells appear as
+     cells / a column header / drag-paint a run of cells → OK → those wells appear as
      chips;
   7. watch a `QLabel` read-out wired to `wellsChanged` / `replicatesChanged` /
      `selectionsChanged`.
