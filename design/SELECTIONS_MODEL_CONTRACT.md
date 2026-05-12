@@ -7,7 +7,9 @@ state maps onto it. The "stand-in model" the widget is built against in 6.5.8 **
 this contract** — not a throwaway — so the Phase-8 wiring drops in without
 reshaping the widget.
 
-**Status:** proposal — needs user approval before 6.5.8 (the widget) is built.
+**Status:** ✅ **approved** (user, 2026-05-12) — the five open questions below are
+resolved (all per the recommendation). 6.5.8 (the editable `SavedSelectionsList`)
+is built against this; the Phase-8 migration targets it.
 
 References: `DESIGN_NOTES.md` §6.3 (the design intent), `well_viewer/batch_models.py`
 (`ReplicateSet`, `BarGroup`), `well_viewer/sample_definitions.py` (the current
@@ -259,18 +261,19 @@ round-trip obligations explicit. None of it is built in Phase 6.5.)
 
 ---
 
-## Open questions for you
+## Resolved (approved 2026-05-12)
 
-1. **`id` scheme** — `uuid4().hex[:8]` (no counter to persist) vs `"sel-N"` (a
-   persisted `_next_id`)? I lean uuid.
-2. **`replicates` for free rep-sets** — `[wells]` (one condition, N replicates)
-   as proposed, or `None` (let Phase-8 decide)? I lean `[wells]` — it preserves
-   the legacy "this is a pooled-replicate condition" intent.
-3. **`labels` (per-selection label overrides)** — keep it in the schema as a
-   reserved, ignored-in-v1 field, or drop it entirely until there's a concrete
-   need? I lean keep-reserved (cheap; round-tripped).
-4. **Conflict suffix** — `"_v2"`, `"_v2 2"`, `"_v2 3"`, … as proposed, or
-   `"(2)"`, `"(3)"`, …? §6.3 literally says `_v2`; I followed it.
-5. **`current_id` persistence** — persist it (so reopening a file restores the
-   "current" selection) or recompute it (always first non-hidden)? I lean
-   persist.
+1. **`id` scheme** → **`uuid4().hex[:8]`** (opaque, unique, stable; no persisted
+   counter). On collision (vanishingly unlikely) re-mint.
+2. **`replicates` for free rep-sets** → **`[wells]`** (one condition with N
+   replicates — preserves the legacy "pooled-replicate condition" intent).
+   `None` only for brand-new "From selection" / imported entries with no stated
+   rep structure.
+3. **`labels` (per-selection label overrides)** → **kept in the schema as a
+   reserved, ignored-in-v1 field** (round-tripped untouched; the global
+   `well_labels` stays the source of truth).
+4. **Conflict suffix** → **`"_v2"`, then `"_v2 2"`, `"_v2 3"`, …** (per §6.3's
+   literal `_v2`, extended deterministically).
+5. **`current_id`** → **persisted** in the `sample_definitions` block (reopening
+   a file restores the "current" selection; falls back to the first non-hidden
+   entry if the stored id is absent).
