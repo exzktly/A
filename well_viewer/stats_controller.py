@@ -366,7 +366,7 @@ def stats_refresh_map(app) -> None:
     for grp in app._stats_groups:
         c = app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         for w in grp.wells:
-            tok_color.setdefault(w, c)
+            tok_color[w] = c   # last group wins — matches the sidebar/replicate plates
     grp = stats_active_group(app)
     active_wells: set = set(grp.wells) if grp else set()
     for tok, btn in app._stats_map_btns.items():

@@ -576,16 +576,26 @@ the migration self-test still `ALL PASS`.
 
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball
-  the bar/line/stats plots & plate maps (colours **will** look different now —
-  by plate position, decision #1; verify they're *consistent* across plate ↔
-  line ↔ bar ↔ stats), the group/rep lists, **edit a group/rep then Save →
-  reopen** (the Stage-A save fix must persist the edit), confirm
-  `pipeline_info.json.pre-v2-backup` exists and restores cleanly;
+  the bar/line/stats/scatter plots & plate maps (colours **will** look different
+  now — by plate position, decision #1; verify they're *consistent* across
+  plate ↔ line ↔ bar ↔ stats ↔ scatter), the group/rep lists, **edit a
+  group/rep then Save → reopen** (the Stage-A save fix must persist the edit),
+  confirm `pipeline_info.json.pre-v2-backup` exists and restores cleanly;
   `python well_viewer/_selftest_migration.py` → `ALL PASS`.
-- **Stage B (rest)** — switch the remaining read-only consumers (`scatter_controller`,
-  `batch_export/*`, and the `runtime_app` rep-set helpers) to the unified model;
-  **Stage C** — flip the mutation paths (`grouping_controller`, `selection_controller`,
-  the `runtime_app` rep/group dialogs) to mutate `_selections` directly (so
+- **`batch_export/*`** — `base_panel.py` still has `WELL_COLORS[gi % len]` /
+  `WELL_COLORS[mi % len]` colour assignments (4 sites) — next colour cluster.
+- **Statistics-tab *widget* styling** — the Statistics tab still uses the
+  *legacy* `_stats_map_btns` QPushButton plate (themed to match `#WellButton`
+  in `theme.qss()`), **not** the v2 `widgets.WellPlateSelector` that the left
+  rail uses — so it looks a bit different (cell sizing, headers, hover, drag
+  visuals). Migrating the stats / image-table / segmentation / sample-defs
+  plates to `WellPlateSelector` is the deferred WellSelector migration
+  (`WELL_SELECTOR_GAP.md` Steps 2–8) — its own cluster, not part of the
+  colour work.
+- **Stage B (rest)** — switch the remaining read-only consumers (`batch_export/*`,
+  the `runtime_app` rep-set helpers) to the unified model; **Stage C** — flip
+  the mutation paths (`grouping_controller`, `selection_controller`, the
+  `runtime_app` rep/group dialogs) to mutate `_selections` directly (so
   `sync_selections_from_legacy` becomes a no-op), and swap the rep-set/group
   view widgets for `widgets.SavedSelectionsList`; **Stage D** — delete the
   legacy `_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp`
