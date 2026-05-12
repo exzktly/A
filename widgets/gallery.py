@@ -488,18 +488,41 @@ def _build_plotcard():
         lbl = QLabel("matplotlib not installed — PlotCard unavailable")
         lbl.setWordWrap(True)
         return lbl
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
     card = PlotCard(figsize=(4.6, 2.8))
-    ax = card.add_subplot(111)
+    card.setFigureTitle("Signal")
     import math
     xs = [i * 0.1 for i in range(110)]
-    for k, color in enumerate(theme.Colors.trace):
-        ax.plot(xs, [math.sin(x + k * 0.6) for x in xs], color=color, linewidth=1.5)
-    ax.axhline(0.0, color=theme.Colors.threshold, linestyle="--", linewidth=1.0)
-    ax.set_title("Signal")
-    card.style_axes(ax)
-    card.draw()
-    card.setMinimumHeight(260)
-    return card
+
+    def _plot():
+        card.figure.clear()
+        ax = card.add_subplot(111)
+        for k, color in enumerate(card.traceColors()):
+            ax.plot(xs, [math.sin(x + k * 0.6) for x in xs], color=color, linewidth=1.5)
+        ax.axhline(0.0, color=theme.Colors.threshold, linestyle="--", linewidth=1.0)
+        card.style_axes(ax)
+        card.draw()
+
+    _plot()
+    card.setMinimumHeight(240)
+    v.addWidget(card, 1)
+    row = QHBoxLayout()
+    row.setSpacing(theme.Spacing.sm)
+    btn = QPushButton("Toggle screen / publication")
+    btn.clicked.connect(lambda: (card.setPlotTheme(
+        "publication" if card.plotTheme() == "screen" else "screen"), _plot()))
+    row.addWidget(btn)
+    row.addStretch(1)
+    v.addLayout(row)
+    out = QLabel("(stats chip → popover · screen/publication theme)")
+    out.setObjectName("Caption")
+    v.addWidget(out)
+    card.statsChanged.connect(lambda s, e: out.setText(f"stats → {s} · {e}"))
+    card.plotThemeChanged.connect(lambda m: out.setText(f"plot theme → {m}"))
+    return host
 
 
 def _build_titlebar():
