@@ -1,19 +1,36 @@
 """WellPlateSelector — the 8×12 microplate selector from the v2 mockup.
 
 Composes a custom-painted plate grid (clickable A–H row letters and 1–12 column
-numbers act as whole-row / whole-column toggles) with an action row
-(``All 96`` / ``Invert`` / ``Clear``). Selected wells render as "lit chips":
-a per-trace radial gradient keyed to the well's position in the selection, with
-a faint top highlight.
+numbers act as whole-row / whole-column controls) with an optional action row
+(``All 96`` / ``Invert`` / ``Clear``). Selected/decorated wells render as "lit
+chips": a radial gradient + a faint top sheen.
 
-The plate IS the legend — well A01 always carries trace colour 0, A02 trace 1,
-etc. (selection is colour-ordered by plate position), matching the mockup.
+Beyond the basic flat selection set, the widget supports the decoration /
+interaction surface an embedding app needs (see ``design/WELL_SELECTOR_GAP.md``):
 
-API
----
+* **Per-well enabled state** — ``setEnabledWells`` / ``setWellEnabled``. Disabled
+  wells recede visually and are ignored by clicks, drags and hover.
+* **Per-well colour overrides** — ``setWellColors`` / ``setWellColor`` /
+  ``setWellState`` so the host can paint app-defined states (selected = accent,
+  replicate-set membership, …) regardless of the widget's own selection set.
+* **Drag-to-select** — press and drag across wells to toggle a run in one
+  gesture (``setDragSelectEnabled``); ``selectionDragFinished`` fires once at the
+  end so consumers can do a single refresh.
+* **Selection mode** — ``"select"`` (the widget owns a selection set) or
+  ``"passive"`` (clicks/headers only *emit* signals; the host owns state).
+* **Row/column header signals** — ``rowHeaderActivated(str)`` /
+  ``columnHeaderActivated(str)`` (row letter ``"A"``…, zero-padded column
+  ``"01"``…), plus ``setRowColumnSelectable`` to disable header interaction.
+* **Single-selection mode** — ``setSingleSelectionMode`` keeps at most one well
+  selected.
+* **Tooltips** — the hovered well's ID, or a custom ``setWellTooltipProvider``.
+
+API (selection)
+---------------
 * ``selectedWells`` — Qt property: list of well IDs like ``"A01"`` (sorted).
   Also ``selectedWellIds()`` / ``setSelectedWellIds(iterable)``.
-* ``selectAll()`` / ``clearSelection()`` / ``invertSelection()``.
+* ``selectAll()`` / ``clearSelection()`` / ``invertSelection()`` (operate on
+  enabled wells).
 * ``selectionChanged(list)`` — emitted with the new sorted well-ID list.
 
 All metrics derive from the widget font / available size — no hardcoded device
@@ -29,12 +46,12 @@ _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
-from PySide6.QtCore import Property, QRectF, QSize, Qt, Signal  # noqa: E402
+from PySide6.QtCore import Property, QEvent, QRectF, QSize, Qt, Signal  # noqa: E402
 from PySide6.QtGui import (  # noqa: E402
     QBrush, QColor, QPainter, QPen, QRadialGradient,
 )
 from PySide6.QtWidgets import (  # noqa: E402
-    QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QHBoxLayout, QPushButton, QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
 import theme  # noqa: E402
@@ -49,26 +66,48 @@ def _well_id(row: int, col: int) -> str:
     return f"{_ROW_LETTERS[row]}{col + 1:02d}"
 
 
-def _parse_well_id(well_id: str) -> tuple[int, int] | None:
-    well_id = str(well_id).strip().upper()
-    if len(well_id) < 2 or well_id[0] not in _ROW_LETTERS:
+def _row_letter(row: int) -> str:
+    return _ROW_LETTERS[row]
+
+
+def _col_label(col: int) -> str:
+    return f"{col + 1:02d}"
+
+
+def _parse_well_id(well_id) -> tuple[int, int] | None:
+    if isinstance(well_id, tuple) and len(well_id) == 2:
+        r, c = well_id
+        if isinstance(r, int) and isinstance(c, int) and 0 <= r < _N_ROWS and 0 <= c < _N_COLS:
+            return r, c
+        return None
+    wid = str(well_id).strip().upper()
+    if len(wid) < 2 or wid[0] not in _ROW_LETTERS:
         return None
     try:
-        col = int(well_id[1:]) - 1
+        col = int(wid[1:]) - 1
     except ValueError:
         return None
-    row = _ROW_LETTERS.index(well_id[0])
+    row = _ROW_LETTERS.index(wid[0])
     if 0 <= row < _N_ROWS and 0 <= col < _N_COLS:
         return row, col
     return None
 
 
+def _to_qcolor(value) -> QColor | None:
+    if value is None:
+        return None
+    c = QColor(value)
+    return c if c.isValid() else None
+
+
 class _PlateGrid(QWidget):
-    """The painted grid + headers. Selection state lives here."""
+    """The painted grid + headers. Decoration / interaction state lives here."""
 
     selectionChanged = Signal()
-    rowHeaderClicked = Signal(int)
-    colHeaderClicked = Signal(int)
+    selectionDragFinished = Signal()
+    rowHeaderActivated = Signal(str)       # row letter, e.g. "A"
+    columnHeaderActivated = Signal(str)    # zero-padded column, e.g. "01"
+    wellActivated = Signal(str)            # well id, e.g. "A07" (passive mode)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -78,17 +117,30 @@ class _PlateGrid(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCursor(Qt.PointingHandCursor)
 
-        self._selected: dict[tuple[int, int], int] = {}  # (row, col) -> trace idx
+        # Selection set: (row, col) -> trace index (recomputed on change).
+        self._selected: dict[tuple[int, int], int] = {}
+        # Decoration overrides.
+        self._enabled: set[tuple[int, int]] | None = None   # None ⇒ all enabled
+        self._colors: dict[tuple[int, int], QColor] = {}
+        # Interaction config.
+        self._mode = "select"                  # "select" | "passive"
+        self._drag_select = True
+        self._rc_selectable = True
+        self._single_select = False
+        self._tooltip_provider = None          # Callable[[str], str] | None
+        # Transient hover / drag state.
         self._hover_cell: tuple[int, int] | None = None
         self._hover_row: int | None = None
         self._hover_col: int | None = None
+        self._drag_active = False
+        self._drag_adding = True
+        self._drag_visited: set[tuple[int, int]] = set()
 
     # ── geometry (all font / size relative) ──────────────────────────────
     def _label_extent(self) -> float:
         return self.fontMetrics().height() * 1.7
 
     def _metrics(self) -> tuple[float, float, float, float]:
-        """Return (label_extent, cell_size, grid_origin_x, grid_origin_y)."""
         lab = self._label_extent()
         avail_w = max(1.0, self.width() - lab - 2.0)
         avail_h = max(1.0, self.height() - lab - 2.0)
@@ -106,8 +158,7 @@ class _PlateGrid(QWidget):
     def _well_rect(self, row: int, col: int) -> QRectF:
         cr = self._cell_rect(row, col)
         d = cr.width() * 0.80
-        cx, cy = cr.center().x(), cr.center().y()
-        return QRectF(cx - d / 2.0, cy - d / 2.0, d, d)
+        return QRectF(cr.center().x() - d / 2.0, cr.center().y() - d / 2.0, d, d)
 
     def sizeHint(self) -> QSize:
         u = max(20, round(self.fontMetrics().height() * 1.7))
@@ -118,6 +169,117 @@ class _PlateGrid(QWidget):
         u = max(12, round(self.fontMetrics().height() * 1.1))
         lab = round(self.fontMetrics().height() * 1.4)
         return QSize(lab + u * _N_COLS, lab + u * _N_ROWS)
+
+    # ── enabled / colour decoration ──────────────────────────────────────
+    def _is_enabled(self, key: tuple[int, int]) -> bool:
+        return self._enabled is None or key in self._enabled
+
+    def set_enabled_wells(self, ids) -> None:
+        if ids is None:
+            new = None
+        else:
+            new = set()
+            for w in ids:
+                parsed = _parse_well_id(w)
+                if parsed is not None:
+                    new.add(parsed)
+        if new == self._enabled:
+            return
+        self._enabled = new
+        # Drop selection / colours / hover for now-disabled wells.
+        if new is not None:
+            self._selected = {k: v for k, v in self._selected.items() if k in new}
+            self._colors = {k: v for k, v in self._colors.items() if k in new}
+            if self._hover_cell is not None and self._hover_cell not in new:
+                self._hover_cell = None
+        self._recolor()
+        self.update()
+
+    def set_well_enabled(self, well_id, enabled: bool) -> None:
+        parsed = _parse_well_id(well_id)
+        if parsed is None:
+            return
+        if self._enabled is None:
+            self._enabled = {(r, c) for r in range(_N_ROWS) for c in range(_N_COLS)}
+        if enabled:
+            self._enabled.add(parsed)
+        else:
+            self._enabled.discard(parsed)
+            self._selected.pop(parsed, None)
+            self._colors.pop(parsed, None)
+        self._recolor()
+        self.update()
+
+    def set_well_colors(self, mapping) -> None:
+        for w, col in (mapping or {}).items():
+            self.set_well_color(w, col, _defer=True)
+        self.update()
+
+    def set_well_color(self, well_id, color, *, _defer: bool = False) -> None:
+        parsed = _parse_well_id(well_id)
+        if parsed is None:
+            return
+        qc = _to_qcolor(color)
+        if qc is None:
+            self._colors.pop(parsed, None)
+        else:
+            self._colors[parsed] = qc
+        if not _defer:
+            self.update()
+
+    def clear_well_colors(self) -> None:
+        if self._colors:
+            self._colors.clear()
+            self.update()
+
+    def set_well_state(self, well_id, state: str) -> None:
+        """Convenience: ``"selected"`` / ``"neutral"`` / ``"disabled"`` /
+        ``"color:#hex"`` / ``"muted:#hex"`` mapped to the enabled/colour
+        primitives. (The host can always use those primitives directly.)"""
+        parsed = _parse_well_id(well_id)
+        if parsed is None:
+            return
+        s = str(state)
+        if s == "disabled":
+            self.set_well_enabled(well_id, False)
+            return
+        self.set_well_enabled(well_id, True)
+        if s == "selected":
+            self.set_well_color(well_id, theme.Colors.accent)
+        elif s == "neutral":
+            self.set_well_color(well_id, None)
+        elif s.startswith("color:"):
+            self.set_well_color(well_id, s[len("color:"):])
+        elif s.startswith("muted:"):
+            base = _to_qcolor(s[len("muted:"):])
+            self.set_well_color(well_id, base.darker(220) if base else None)
+
+    # ── interaction config ───────────────────────────────────────────────
+    def set_mode(self, mode: str) -> None:
+        if mode in ("select", "passive"):
+            self._mode = mode
+
+    def mode(self) -> str:
+        return self._mode
+
+    def set_drag_select_enabled(self, on: bool) -> None:
+        self._drag_select = bool(on)
+
+    def set_row_column_selectable(self, on: bool) -> None:
+        self._rc_selectable = bool(on)
+        if not on and (self._hover_row is not None or self._hover_col is not None):
+            self._hover_row = self._hover_col = None
+            self.update()
+
+    def set_single_selection_mode(self, on: bool) -> None:
+        self._single_select = bool(on)
+        if on and len(self._selected) > 1:
+            keep = next(iter(sorted(self._selected)))
+            self._selected = {keep: 0}
+            self._changed()
+
+    def set_tooltip_provider(self, provider) -> None:
+        self._tooltip_provider = provider
 
     # ── selection helpers ────────────────────────────────────────────────
     def _recolor(self) -> None:
@@ -136,46 +298,73 @@ class _PlateGrid(QWidget):
 
     def set_ids(self, ids) -> None:
         new: dict[tuple[int, int], int] = {}
-        for wid in ids or ():
-            parsed = _parse_well_id(wid) if not isinstance(wid, tuple) else wid
-            if parsed is not None and 0 <= parsed[0] < _N_ROWS and 0 <= parsed[1] < _N_COLS:
+        for w in ids or ():
+            parsed = _parse_well_id(w)
+            if parsed is not None and self._is_enabled(parsed):
                 new[parsed] = 0
+        if self._single_select and len(new) > 1:
+            new = {next(iter(sorted(new))): 0}
         if new == self._selected:
             return
         self._selected = new
         self._changed()
 
-    def toggle_well(self, row: int, col: int) -> None:
-        key = (row, col)
-        if key in self._selected:
-            del self._selected[key]
+    def _add(self, key: tuple[int, int]) -> None:
+        if self._single_select:
+            self._selected = {key: 0}
         else:
             self._selected[key] = 0
+
+    def toggle_well(self, row: int, col: int, *, force=None) -> None:
+        key = (row, col)
+        if not self._is_enabled(key):
+            return
+        present = key in self._selected
+        want = (not present) if force is None else bool(force)
+        if want == present:
+            return
+        if want:
+            self._add(key)
+        else:
+            self._selected.pop(key, None)
         self._changed()
 
     def toggle_row(self, row: int) -> None:
-        keys = [(row, c) for c in range(_N_COLS)]
+        keys = [(row, c) for c in range(_N_COLS) if self._is_enabled((row, c))]
+        if not keys:
+            return
         if all(k in self._selected for k in keys):
             for k in keys:
                 self._selected.pop(k, None)
         else:
-            for k in keys:
-                self._selected[k] = 0
+            if self._single_select:
+                self._selected = {keys[0]: 0}
+            else:
+                for k in keys:
+                    self._selected[k] = 0
         self._changed()
 
     def toggle_col(self, col: int) -> None:
-        keys = [(r, col) for r in range(_N_ROWS)]
+        keys = [(r, col) for r in range(_N_ROWS) if self._is_enabled((r, col))]
+        if not keys:
+            return
         if all(k in self._selected for k in keys):
             for k in keys:
                 self._selected.pop(k, None)
         else:
-            for k in keys:
-                self._selected[k] = 0
+            if self._single_select:
+                self._selected = {keys[0]: 0}
+            else:
+                for k in keys:
+                    self._selected[k] = 0
         self._changed()
 
     def set_all(self, on: bool) -> None:
         if on:
-            new = {(r, c): 0 for r in range(_N_ROWS) for c in range(_N_COLS)}
+            new = {(r, c): 0 for r in range(_N_ROWS) for c in range(_N_COLS)
+                   if self._is_enabled((r, c))}
+            if self._single_select and len(new) > 1:
+                new = {next(iter(sorted(new))): 0}
         else:
             new = {}
         if new == self._selected:
@@ -184,17 +373,17 @@ class _PlateGrid(QWidget):
         self._changed()
 
     def invert(self) -> None:
-        new = {
-            (r, c): 0
-            for r in range(_N_ROWS) for c in range(_N_COLS)
-            if (r, c) not in self._selected
-        }
+        new = {(r, c): 0
+               for r in range(_N_ROWS) for c in range(_N_COLS)
+               if self._is_enabled((r, c)) and (r, c) not in self._selected}
+        if self._single_select and len(new) > 1:
+            new = {next(iter(sorted(new))): 0}
         self._selected = new
         self._changed()
 
     # ── input ────────────────────────────────────────────────────────────
     def _hit(self, x: float, y: float):
-        """Return ('well', r, c) | ('row', r) | ('col', c) | None."""
+        """('well', r, c) | ('row', r) | ('col', c) | None — geometry only."""
         _lab, cell, ox, oy = self._metrics()
         col = int((x - ox) // cell) if x >= ox else -1
         row = int((y - oy) // cell) if y >= oy else -1
@@ -211,38 +400,115 @@ class _PlateGrid(QWidget):
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() != Qt.LeftButton:
             return super().mousePressEvent(event)
-        pos = event.position()
-        hit = self._hit(pos.x(), pos.y())
+        hit = self._hit(event.position().x(), event.position().y())
         if hit is None:
             return
-        if hit[0] == "well":
-            self.toggle_well(hit[1], hit[2])
-        elif hit[0] == "row":
-            self.rowHeaderClicked.emit(hit[1])
-        elif hit[0] == "col":
-            self.colHeaderClicked.emit(hit[1])
+        kind = hit[0]
+        if kind == "row":
+            if not self._rc_selectable:
+                return
+            self.rowHeaderActivated.emit(_row_letter(hit[1]))
+            if self._mode == "select":
+                self.toggle_row(hit[1])
+            return
+        if kind == "col":
+            if not self._rc_selectable:
+                return
+            self.columnHeaderActivated.emit(_col_label(hit[1]))
+            if self._mode == "select":
+                self.toggle_col(hit[1])
+            return
+        # well
+        r, c = hit[1], hit[2]
+        if not self._is_enabled((r, c)):
+            return
+        if self._mode == "passive":
+            self.wellActivated.emit(_well_id(r, c))
+            return
+        # select mode
+        if self._drag_select and not self._single_select:
+            self._drag_active = True
+            self._drag_adding = (r, c) not in self._selected
+            self._drag_visited = {(r, c)}
+            self.toggle_well(r, c, force=self._drag_adding)
+        else:
+            self.toggle_well(r, c)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         pos = event.position()
         hit = self._hit(pos.x(), pos.y())
         cell = row = col = None
         if hit is not None:
-            if hit[0] == "well":
+            if hit[0] == "well" and self._is_enabled((hit[1], hit[2])):
                 cell = (hit[1], hit[2])
-            elif hit[0] == "row":
+            elif hit[0] == "row" and self._rc_selectable:
                 row = hit[1]
-            elif hit[0] == "col":
+            elif hit[0] == "col" and self._rc_selectable:
                 col = hit[1]
         if (cell, row, col) != (self._hover_cell, self._hover_row, self._hover_col):
             self._hover_cell, self._hover_row, self._hover_col = cell, row, col
             self.update()
+
+        if self._drag_active and (event.buttons() & Qt.LeftButton) and cell is not None:
+            if cell not in self._drag_visited:
+                self._drag_visited.add(cell)
+                self.toggle_well(cell[0], cell[1], force=self._drag_adding)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._drag_active:
+            self._drag_active = False
+            self._drag_visited = set()
+            self.selectionDragFinished.emit()
+        super().mouseReleaseEvent(event)
 
     def leaveEvent(self, _event) -> None:  # noqa: N802
         if (self._hover_cell, self._hover_row, self._hover_col) != (None, None, None):
             self._hover_cell = self._hover_row = self._hover_col = None
             self.update()
 
+    def event(self, ev) -> bool:  # noqa: N802
+        if ev.type() == QEvent.ToolTip:
+            pos = ev.pos()
+            hit = self._hit(pos.x(), pos.y())
+            if hit is not None and hit[0] == "well":
+                wid = _well_id(hit[1], hit[2])
+                text = wid
+                if self._tooltip_provider is not None:
+                    try:
+                        text = str(self._tooltip_provider(wid)) or wid
+                    except Exception:
+                        text = wid
+                QToolTip.showText(ev.globalPos(), text, self)
+            else:
+                QToolTip.hideText()
+            ev.accept()
+            return True
+        return super().event(ev)
+
     # ── painting ─────────────────────────────────────────────────────────
+    def _paint_lit(self, p: QPainter, wr: QRectF, base: QColor, hovered: bool) -> None:
+        c = theme.Colors
+        base = QColor(base)
+        grad = QRadialGradient(
+            wr.center().x() - wr.width() * 0.15,
+            wr.center().y() - wr.height() * 0.20,
+            wr.width() * 0.75,
+        )
+        grad.setColorAt(0.0, base.lighter(150))
+        grad.setColorAt(0.55, base)
+        grad.setColorAt(1.0, base.darker(135))
+        p.setBrush(QBrush(grad))
+        p.setPen(QPen(QColor(c.text_primary) if hovered else base.darker(170),
+                      max(1.0, wr.width() * 0.04)))
+        p.drawEllipse(wr)
+        hl = QRectF(wr).adjusted(
+            wr.width() * 0.16, wr.height() * 0.10,
+            -wr.width() * 0.16, -wr.height() * 0.46,
+        )
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(with_alpha("#FFFFFF", 0.30), max(1.0, wr.width() * 0.06)))
+        p.drawArc(hl, 20 * 16, 140 * 16)
+
     def paintEvent(self, _event) -> None:  # noqa: N802
         c = theme.Colors
         traces = theme.Colors.trace
@@ -255,14 +521,14 @@ class _PlateGrid(QWidget):
         # Column numbers (1–12) along the top.
         for ci in range(_N_COLS):
             rect = QRectF(ox + ci * cell, oy - lab, cell, lab)
-            hot = (self._hover_col == ci)
+            hot = self._rc_selectable and self._hover_col == ci
             p.setPen(QColor(c.text_primary if hot else c.text_muted))
             p.drawText(rect, int(Qt.AlignCenter), str(ci + 1))
 
         # Row letters (A–H) down the left.
         for ri in range(_N_ROWS):
             rect = QRectF(ox - lab, oy + ri * cell, lab, cell)
-            hot = (self._hover_row == ri)
+            hot = self._rc_selectable and self._hover_row == ri
             p.setPen(QColor(c.text_primary if hot else c.text_muted))
             p.drawText(rect, int(Qt.AlignCenter), _ROW_LETTERS[ri])
 
@@ -271,33 +537,20 @@ class _PlateGrid(QWidget):
             for ci in range(_N_COLS):
                 key = (ri, ci)
                 wr = self._well_rect(ri, ci)
+                if not self._is_enabled(key):
+                    p.setBrush(QColor(c.panel))
+                    p.setPen(QPen(QColor(c.border_subtle), max(1.0, wr.width() * 0.04)))
+                    p.drawEllipse(wr)
+                    continue
                 hovered = (
                     self._hover_cell == key
-                    or self._hover_row == ri
-                    or self._hover_col == ci
+                    or (self._rc_selectable and (self._hover_row == ri or self._hover_col == ci))
                 )
-                if key in self._selected:
+                base = self._colors.get(key)
+                if base is None and key in self._selected:
                     base = QColor(traces[self._selected[key] % len(traces)])
-                    grad = QRadialGradient(
-                        wr.center().x() - wr.width() * 0.15,
-                        wr.center().y() - wr.height() * 0.20,
-                        wr.width() * 0.75,
-                    )
-                    grad.setColorAt(0.0, base.lighter(150))
-                    grad.setColorAt(0.55, base)
-                    grad.setColorAt(1.0, base.darker(135))
-                    p.setBrush(QBrush(grad))
-                    p.setPen(QPen(base.darker(170) if not hovered else QColor(c.text_primary),
-                                  max(1.0, wr.width() * 0.04)))
-                    p.drawEllipse(wr)
-                    # Faint top inset highlight (the "lit chip" sheen).
-                    hl = QRectF(wr).adjusted(
-                        wr.width() * 0.16, wr.height() * 0.10,
-                        -wr.width() * 0.16, -wr.height() * 0.46,
-                    )
-                    p.setBrush(Qt.NoBrush)
-                    p.setPen(QPen(with_alpha("#FFFFFF", 0.30), max(1.0, wr.width() * 0.06)))
-                    p.drawArc(hl, 20 * 16, 140 * 16)
+                if base is not None:
+                    self._paint_lit(p, wr, base, hovered)
                 else:
                     p.setBrush(QColor(c.hover if hovered else c.panel_elevated))
                     p.setPen(QPen(QColor(c.border_strong if hovered else c.border),
@@ -307,9 +560,13 @@ class _PlateGrid(QWidget):
 
 
 class WellPlateSelector(QWidget):
-    """8×12 plate selector with header toggles and All / Invert / Clear actions."""
+    """8×12 plate selector with header controls and All / Invert / Clear actions."""
 
     selectionChanged = Signal(list)
+    selectionDragFinished = Signal()
+    rowHeaderActivated = Signal(str)
+    columnHeaderActivated = Signal(str)
+    wellActivated = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -323,14 +580,16 @@ class WellPlateSelector(QWidget):
 
         self._grid = _PlateGrid(self)
         self._grid.selectionChanged.connect(self._on_grid_changed)
-        self._grid.rowHeaderClicked.connect(self._grid.toggle_row)
-        self._grid.colHeaderClicked.connect(self._grid.toggle_col)
+        self._grid.selectionDragFinished.connect(self.selectionDragFinished)
+        self._grid.rowHeaderActivated.connect(self.rowHeaderActivated)
+        self._grid.columnHeaderActivated.connect(self.columnHeaderActivated)
+        self._grid.wellActivated.connect(self.wellActivated)
         root.addWidget(self._grid, 1)
 
-        actions = QHBoxLayout()
-        actions.setSpacing(theme.Spacing.sm)
+        self._actions = QHBoxLayout()
+        self._actions.setSpacing(theme.Spacing.sm)
         self._btn_all = QPushButton("All 96")
-        self._btn_all.setToolTip("Select all 96 wells")
+        self._btn_all.setToolTip("Select all loaded wells")
         self._btn_invert = QPushButton("Invert")
         self._btn_invert.setToolTip("Invert the current selection")
         self._btn_clear = QPushButton("Clear")
@@ -338,9 +597,11 @@ class WellPlateSelector(QWidget):
         self._btn_clear.setToolTip("Clear the selection")
         for b in (self._btn_all, self._btn_invert, self._btn_clear):
             b.setCursor(Qt.PointingHandCursor)
-            actions.addWidget(b)
-        actions.addStretch(1)
-        root.addLayout(actions)
+            self._actions.addWidget(b)
+        self._actions.addStretch(1)
+        self._actions_host = QWidget(self)
+        self._actions_host.setLayout(self._actions)
+        root.addWidget(self._actions_host)
 
         self._btn_all.clicked.connect(self.selectAll)
         self._btn_invert.clicked.connect(self.invertSelection)
@@ -348,7 +609,7 @@ class WellPlateSelector(QWidget):
 
         self.setStyleSheet(self._build_qss())
 
-    # ── public API ───────────────────────────────────────────────────────
+    # ── selection API (back-compat + enabled-aware) ──────────────────────
     def selectAll(self) -> None:
         self._grid.set_all(True)
 
@@ -372,6 +633,53 @@ class WellPlateSelector(QWidget):
 
     selectedWells = Property(list, _get_selected, _set_selected)
 
+    # ── decoration API ───────────────────────────────────────────────────
+    def setEnabledWells(self, ids) -> None:
+        """Set the full set of usable wells (``None`` ⇒ all 96 enabled)."""
+        self._grid.set_enabled_wells(ids)
+
+    def setWellEnabled(self, well_id, enabled: bool = True) -> None:
+        self._grid.set_well_enabled(well_id, enabled)
+
+    def setWellColors(self, mapping) -> None:
+        """``{well_id: color|None}`` — explicit per-well fill overrides."""
+        self._grid.set_well_colors(mapping)
+
+    def setWellColor(self, well_id, color) -> None:
+        self._grid.set_well_color(well_id, color)
+
+    def clearWellColors(self) -> None:
+        self._grid.clear_well_colors()
+
+    def setWellState(self, well_id, state: str) -> None:
+        self._grid.set_well_state(well_id, state)
+
+    # ── interaction config ───────────────────────────────────────────────
+    def setSelectionMode(self, mode: str) -> None:
+        """``"select"`` (widget owns the selection) or ``"passive"`` (clicks /
+        headers only emit signals)."""
+        self._grid.set_mode(mode)
+
+    def selectionMode(self) -> str:
+        return self._grid.mode()
+
+    def setDragSelectEnabled(self, on: bool) -> None:
+        self._grid.set_drag_select_enabled(on)
+
+    def setRowColumnSelectable(self, on: bool) -> None:
+        self._grid.set_row_column_selectable(on)
+
+    def setSingleSelectionMode(self, on: bool) -> None:
+        self._grid.set_single_selection_mode(on)
+
+    def setWellTooltipProvider(self, provider) -> None:
+        self._grid.set_tooltip_provider(provider)
+
+    def setActionsVisible(self, visible: bool) -> None:
+        """Show/hide the built-in All / Invert / Clear button row (a host with
+        its own action buttons can hide it)."""
+        self._actions_host.setVisible(bool(visible))
+
     # ── internals ────────────────────────────────────────────────────────
     def _on_grid_changed(self) -> None:
         self.selectionChanged.emit(self._grid.selected_ids())
@@ -390,7 +698,9 @@ class WellPlateSelector(QWidget):
 
 # ── standalone visual test ──────────────────────────────────────────────────
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget as _QW
+    from PySide6.QtWidgets import (
+        QApplication, QCheckBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget as _QW,
+    )
 
     app = QApplication.instance() or QApplication(_sys.argv)
     app.setStyleSheet(theme.qss())
@@ -407,8 +717,31 @@ if __name__ == "__main__":
     lay.addWidget(title)
 
     plate = WellPlateSelector()
-    plate.setSelectedWellIds(["A01", "A02", "B01", "C03", "C04", "D06", "H12"])
+    # Only some wells "have data".
+    enabled = [f"{r}{c:02d}" for r in "ABCDEF" for c in range(1, 11)]
+    plate.setEnabledWells(enabled)
+    plate.setSelectedWellIds(["A01", "A02", "B01", "C03", "C04", "D06"])
+    # Tag a couple of wells with explicit colours (e.g. replicate-set membership).
+    plate.setWellColors({"E07": theme.Colors.trace[3], "E08": theme.Colors.trace[3],
+                         "F09": theme.Colors.trace[1]})
+    plate.setWellState("F10", "muted:" + theme.Colors.trace[1])
+    plate.setWellTooltipProvider(lambda wid: f"Well {wid} — example tooltip")
     lay.addWidget(plate, 1)
+
+    opts = QHBoxLayout()
+    drag_cb = QCheckBox("drag-select")
+    drag_cb.setChecked(True)
+    drag_cb.toggled.connect(plate.setDragSelectEnabled)
+    single_cb = QCheckBox("single-select")
+    single_cb.toggled.connect(plate.setSingleSelectionMode)
+    rc_cb = QCheckBox("row/col selectable")
+    rc_cb.setChecked(True)
+    rc_cb.toggled.connect(plate.setRowColumnSelectable)
+    opts.addWidget(drag_cb)
+    opts.addWidget(single_cb)
+    opts.addWidget(rc_cb)
+    opts.addStretch(1)
+    lay.addLayout(opts)
 
     echo = QLabel()
     echo.setObjectName("Secondary")
@@ -418,9 +751,12 @@ if __name__ == "__main__":
         echo.setText(f"{len(ids)} selected: {', '.join(ids) if ids else '(none)'}")
 
     plate.selectionChanged.connect(_show)
+    plate.selectionDragFinished.connect(lambda: echo.setText(echo.text() + "  [drag finished]"))
+    plate.rowHeaderActivated.connect(lambda r: echo.setText(f"row header → {r}"))
+    plate.columnHeaderActivated.connect(lambda c: echo.setText(f"column header → {c}"))
     _show(plate.selectedWellIds())
     lay.addWidget(echo)
 
-    root.resize(620, 460)
+    root.resize(640, 520)
     root.show()
     _sys.exit(app.exec())

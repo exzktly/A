@@ -174,3 +174,59 @@ runtime‑tested commit, not bundled into "port the left rail". Why not "keep th
 legacy grid forever": none of the gaps are intractable, and the v2 plate‑as‑
 legend rendering is a real design goal, so a permanent fork would be the wrong
 call.
+
+---
+
+## 5. Status — WellPlateSelector extension (kicked off)
+
+Landed in `widgets/well_plate_selector.py` (the *widget* side; the app-side
+migration is still pending — see below):
+
+- **G3 / G5 — per-well decoration API:** `setEnabledWells(ids|None)` /
+  `setWellEnabled(id, bool)` (disabled wells recede, are skipped by clicks /
+  drags / hover, and drop their colour + selection); `setWellColors(mapping)` /
+  `setWellColor(id, color|None)` / `clearWellColors()` (explicit per-well fill,
+  rendered as a "lit chip" gradient before the trace-index logic);
+  `setWellState(id, "selected"|"neutral"|"disabled"|"color:#hex"|"muted:#hex")`
+  convenience. `paintEvent` got a disabled-appearance branch and routes
+  coloured/selected wells through one `_paint_lit` helper.
+- **G2 — drag-to-select:** `setDragSelectEnabled(bool)` (default on); press +
+  drag toggles a run, "add vs remove" locked at press; `selectionDragFinished()`
+  signal fires once at the end.
+- **G4 (widget half) — selection mode:** `setSelectionMode("select"|"passive")`.
+  In `"passive"` mode a well click emits `wellActivated(str)` and header clicks
+  emit `rowHeaderActivated`/`columnHeaderActivated` instead of mutating the
+  widget's own set — so the host can interpret clicks as rep-set-visibility
+  toggles. (The app-side interpretation is the migration step.)
+- **G8 — header signals:** `rowHeaderActivated(str)` (row letter) /
+  `columnHeaderActivated(str)` (zero-padded column) on `WellPlateSelector`,
+  emitted in both modes.
+- **G9 — gating flags:** `setRowColumnSelectable(bool)` (header clicks become
+  no-ops) and `setSingleSelectionMode(bool)` (at most one well selected) — the
+  smFISH suppression + single-well clamp can ride on these.
+- **G12 — tooltips:** `_PlateGrid.event()` handles `QEvent.ToolTip` (hovered
+  well's ID, or a `setWellTooltipProvider(callable)` override).
+- Also: `setActionsVisible(bool)` to hide the built-in All/Invert/Clear row when
+  the host has its own; `setSelectedWellIds` / `set_all` / `invert` now skip
+  disabled wells. Existing API (`selectedWells` property, `selectionChanged`,
+  `selectAll`/`clearSelection`/`invertSelection`) is unchanged.
+
+Still TODO before the rail swap:
+
+- **G6 (heatmap drag source)** — a `setDragMime(str|None)` that originates a
+  `QDrag` per cell on press-then-move; small–medium.
+- **G7 (drop sink)** — `dragEnter/dragMove/dropEvent` + a `wellDropped(id, token)`
+  signal; small.
+- **G10 (the real migration)** — rewrite `runtime_app._refresh_sidebar_map_now`
+  to drive `setWellColors`/`setWellEnabled` instead of iterating
+  `app._sidebar_btns` + `WellButton.set_state`; rewire `selection_controller`'s
+  plate handlers (drag press/apply/release, `select_row`/`select_col`,
+  `sb_on_rep_change` / `on_plate_sel_change`) onto `WellPlateSelector`'s
+  signals + `setSelectionMode("passive")` for rep-set mode; point the heatmap
+  controller's `set_drag_mime` calls at `setDragMime`; then delete
+  `WellButton` / `build_plate_grid` and the `_sidebar_btns` registry. Medium–
+  large; must be runtime-tested (no PySide6 in this env).
+
+⚠️ The widget changes here were checked with `python -m py_compile` only — run
+`python widgets/well_plate_selector.py` and `python widgets/gallery.py` to QA
+the new enabled/colour/drag-select behaviour before building on it.
