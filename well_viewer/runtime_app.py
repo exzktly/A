@@ -3130,48 +3130,56 @@ class WellViewerApp(QWidget):
         QTimer.singleShot(0, self._refresh_sidebar_map_now)
 
     def _refresh_sidebar_map_now(self) -> None:
-        """Recolour every sidebar button to reflect rep-set visibility.
+        """Push current selection / rep-set state onto the sidebar plate widget.
 
-        Rep-set mode: visible set = full colour sunken, hidden = muted flat,
-        unassigned = neutral. Per-well mode: selected = ACCENT sunken, else
-        neutral. Missing wells are disabled.
+        Rep-set mode: each set's wells take that set's colour (muted when the
+        set is hidden); the plate runs in "passive" mode so clicks toggle a
+        set's visibility. Per-well mode: selected wells take the accent colour
+        and the plate runs in "select" mode (drag-to-select). Wells with no
+        loaded data are disabled. The count / group-hint labels are updated
+        exactly as before.
         """
-        bg, fg, fg_disabled = self._plate_theme_colors()
+        plate = getattr(self, "_sidebar_plate", None)
+        if plate is None:
+            self._sidebar_map_refresh_pending = False
+            return
+
         rep_sets = getattr(self, "_rep_sets", [])
         rep_mode = bool(rep_sets)
 
-        tok_rep: Dict[str, tuple] = {}
-        for si, rset in enumerate(rep_sets):
-            full_c = WELL_COLORS[si % len(WELL_COLORS)]
-            hidden = si in self._rep_hidden
-            for tok in rset.wells:
-                tok_rep[tok] = (full_c, hidden)
+        colors: Dict[str, object] = {}
+        if rep_mode:
+            for si, rset in enumerate(rep_sets):
+                full_c = WELL_COLORS[si % len(WELL_COLORS)]
+                shade = self._mute_color(full_c) if (si in self._rep_hidden) else full_c
+                for tok in rset.wells:
+                    if tok in self._well_paths:
+                        colors[tok] = shade
+        else:
+            for tok in self._selected_wells:
+                if tok in self._well_paths:
+                    colors[tok] = ACCENT
 
-        for tok, btn in self._sidebar_btns.items():
-            if tok not in self._well_paths:
-                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
-            elif rep_mode and tok in tok_rep:
-                full_c, hidden = tok_rep[tok]
-                if hidden:
-                    # Hidden sets: muted bg, full colour on hover, flat relief.
-                    self._style_plate_button(
-                        btn, bg=self._mute_color(full_c), fg="white",
-                        state="normal", cursor="hand2", relief="flat",
-                        activebackground=full_c, activeforeground="white",
-                        disabledforeground=fg_disabled,
-                    )
-                else:
-                    self._plate_apply_colored(
-                        btn, full_c, active=True, fg_disabled=fg_disabled,
-                    )
-            elif rep_mode:
-                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
-            elif tok in self._selected_wells:
-                self._plate_apply_colored(
-                    btn, ACCENT, active=True, fg_disabled=fg_disabled,
-                )
-            else:
-                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
+        # smFISH suppresses row/col header selection and forces single-well.
+        smfish = False
+        nb = getattr(self, "_notebook", None)
+        if nb is not None:
+            try:
+                smfish = (nb.tabText(nb.currentIndex()) == "smFISH")
+            except Exception:
+                smfish = False
+
+        self._sidebar_plate_updating = True
+        try:
+            plate.setEnabledWells(list(self._well_paths.keys()))
+            plate.setSelectionMode("passive" if rep_mode else "select")
+            plate.setRowColumnSelectable(not smfish)
+            plate.setSingleSelectionMode(smfish and not rep_mode)
+            plate.clearWellColors()
+            plate.setWellColors(colors)
+            plate.setSelectedWellIds([] if rep_mode else list(self._selected_wells))
+        finally:
+            self._sidebar_plate_updating = False
 
         # Count label / hint
         loaded  = self._rep_sets_loaded() if rep_mode else []
@@ -3192,6 +3200,73 @@ class WellViewerApp(QWidget):
                 self._line_group_hint.setText("")
 
         self._sidebar_map_refresh_pending = False
+
+    # ── v2 plate-widget bridge (WellPlateSelector ↔ WellViewerApp state) ──────
+    # The left-rail plate is now a single ``widgets.WellPlateSelector`` instead
+    # of an ``app._sidebar_btns`` grid of ``WellButton``s. ``app._selected_wells``
+    # stays the source of truth; ``_refresh_sidebar_map_now`` pushes appearance /
+    # selection onto the widget, and the handlers below take user actions back.
+
+    def _on_sidebar_plate_selection_changed(self, ids) -> None:
+        # Fires per-cell during a drag and once for a click; also fires when
+        # ``_refresh_sidebar_map_now`` calls ``setSelectedWellIds`` (guarded).
+        if getattr(self, "_sidebar_plate_updating", False):
+            return
+        if getattr(self, "_rep_sets", None):
+            return  # rep-set mode: the plate is passive; its selection is unused
+        new_set = set(ids)
+        if new_set == self._selected_wells:
+            return
+        self._selected_wells = new_set
+        # Lightweight: just repaint the plate + count label (debounced). The
+        # heavy refresh / plot redraw happens once on ``selectionDragFinished``
+        # (clicks and drags) or in the header-activation handlers.
+        self._refresh_sidebar_map()
+
+    def _on_sidebar_plate_drag_finished(self) -> None:
+        if getattr(self, "_sidebar_plate_updating", False):
+            return
+        if getattr(self, "_rep_sets", None):
+            return
+        self._on_plate_sel_change()
+
+    def _on_sidebar_plate_well_activated(self, well_id: str) -> None:
+        # Only meaningful in rep-set mode (the plate is passive there); in
+        # per-well mode the widget owns its selection and toggles internally.
+        if not getattr(self, "_rep_sets", None):
+            return
+        si = self._rep_idx_for_label(well_id)
+        if si is None:
+            return
+        if si in self._rep_hidden:
+            self._rep_hidden.discard(si)
+        else:
+            self._rep_hidden.add(si)
+        self._invalidate_stats_cache()
+        self._sb_on_rep_change()
+
+    def _on_sidebar_plate_row_activated(self, row: str) -> None:
+        if getattr(self, "_rep_sets", None):
+            self._select_row(row)            # rep-set-aware toggle + refresh
+        else:
+            # The widget already toggled the row and synced ``_selected_wells``
+            # via the preceding ``selectionChanged``; do the heavy refresh once.
+            self._on_plate_sel_change()
+
+    def _on_sidebar_plate_col_activated(self, col: str) -> None:
+        if getattr(self, "_rep_sets", None):
+            self._select_col(col)
+        else:
+            self._on_plate_sel_change()
+
+    def _on_sidebar_plate_well_dropped(self, well_id: str, token: str) -> None:
+        if not token:
+            return
+        try:
+            from well_viewer.views.heatmap_layout_sidebar_view import _on_drop_event
+            _on_drop_event(self, "palette", None, token)
+        except Exception:
+            _logger.exception("Heat map well drop handling failed")
 
     def _style_plate_button(
         self,
@@ -5023,47 +5098,29 @@ class WellViewerApp(QWidget):
         self._last_tab_name = tab
 
     def _sync_heatmap_well_drag_mode(self, enable: bool) -> None:
-        """Toggle WELL_MIME drag/drop on the sidebar plate-map well buttons.
+        """Toggle WELL_MIME drag/drop on the sidebar plate widget.
 
-        When *enable* is True, each ``WellButton`` exports its token via the
-        WELL_MIME format on left-button drag and accepts dropped tokens as
-        a "return to palette" action that unassigns the well from the
-        active heat-map layout. When False, drag/drop is disabled and the
-        buttons revert to plain selection behavior.
+        When *enable* is True, the plate exports the well under the pointer via
+        the WELL_MIME format on left-button drag (clicks stop toggling
+        selection) and accepts dropped tokens as a "return to palette" action
+        that unassigns the well from the active heat-map layout (handled by
+        ``_on_sidebar_plate_well_dropped``). When False, drag/drop is disabled
+        and the plate reverts to plain selection behaviour.
         """
-        btns = getattr(self, "_sidebar_btns", None) or {}
-        if not btns:
+        plate = getattr(self, "_sidebar_plate", None)
+        if plate is None:
             return
         from well_viewer.views.heatmap_layout_sidebar_view import WELL_MIME
-
         if enable:
-            def _make_drop(token_unused: str):
-                def _on_drop(token: str) -> None:
-                    try:
-                        from well_viewer.views.heatmap_layout_sidebar_view import (
-                            _on_drop_event,
-                        )
-                        _on_drop_event(self, "palette", None, token)
-                    except Exception:
-                        _logger.exception("Heat map well drop handling failed")
-                return _on_drop
-
-            for tok, btn in btns.items():
-                if hasattr(btn, "set_drag_mime"):
-                    btn.set_drag_mime(WELL_MIME)
-                    btn.setEnabled(True)
-                if hasattr(btn, "set_drop_handler"):
-                    btn.set_drop_handler(WELL_MIME, _make_drop(tok))
+            plate.setDragMime(WELL_MIME)
+            plate.setAcceptDropMime(WELL_MIME)
         else:
-            for btn in btns.values():
-                if hasattr(btn, "set_drag_mime"):
-                    btn.set_drag_mime(None)
-                if hasattr(btn, "set_drop_handler"):
-                    btn.set_drop_handler(None, None)
-            # Don't force-disable here — the per-tab branch in
+            plate.setDragMime(None)
+            plate.setAcceptDropMime(None)
+            # Don't force-disable wells here — the per-tab branch in
             # ``_on_tab_change`` either hides the sidebar (preview / image
-            # table tabs) or calls ``_refresh_sidebar_map`` which restores
-            # the correct enabled state per well.
+            # table tabs) or calls ``_refresh_sidebar_map`` which restores the
+            # correct enabled state per well.
 
     def _sync_preview_well_for_image_tabs(self) -> None:
         """Keep current preview well unless an active group supplies one."""

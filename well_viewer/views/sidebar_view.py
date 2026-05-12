@@ -38,7 +38,7 @@ def build_sidebar(app, parent: QWidget) -> None:
       - Group-mode hint label
     """
     from well_viewer.plate_layout import PLATE_ROWS as _PLATE_ROWS, PLATE_COLS as _PLATE_COLS
-    from well_viewer.views.well_button import build_plate_grid
+    from widgets.well_plate_selector import WellPlateSelector
 
     # Ensure parent has a vertical layout
     layout = parent.layout()
@@ -47,92 +47,36 @@ def build_sidebar(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-    # Plate map grid — padding is set uniformly inside build_plate_grid.
-    # The row letters / column numbers in the grid headers double as the
-    # row-or-column quick-select buttons via the ``on_row_click`` /
-    # ``on_col_click`` callbacks below.
-    map_outer = QWidget(parent)
-    layout.addWidget(map_outer)
+    # ── 8×12 well-plate selector (v2 widget) ──────────────────────────────
+    # Replaces the legacy WellButton grid for the line picker. Appearance and
+    # selection are driven from WellViewerApp._refresh_sidebar_map_now via the
+    # widget's setEnabledWells / setWellColors / setSelectionMode API; clicks /
+    # drags / headers come back through the signal connections below.
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)        # the rail keeps its own All / None below
+    layout.addWidget(plate)
+    app._sidebar_plate = plate
+    app._sidebar_map_outer = plate
+    app._sidebar_plate_updating = False
 
-    app._sidebar_btns = {}
+    # Back-compat stub. The Bar-Plots picker forwards its plate drag through
+    # app._bg_press → app._sb_press → selection_controller.sb_press, which still
+    # resolves well tokens against app._sidebar_btns. Keep a tokens-only stub so
+    # that path keeps working without re-rendering a second WellButton grid here
+    # (set_state calls land on the None values and are skipped).
+    app._sidebar_btns = {f"{r}{c}": None for r in _PLATE_ROWS for c in _PLATE_COLS}
     app._sidebar_drag_adding = True
     app._sidebar_drag_visited = set()
     app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
     app._bg_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
 
-    def _on_row_click(row: str) -> None:
-        if _row_col_select_disabled(app):
-            return
-        app._select_row(row)
-
-    def _on_col_click(col: str) -> None:
-        if _row_col_select_disabled(app):
-            return
-        app._select_col(col)
-
-    build_plate_grid(
-        map_outer,
-        app._sidebar_btns,
-        on_row_click=_on_row_click,
-        on_col_click=_on_col_click,
-    )
-    app._sidebar_map_outer = map_outer
-
-    def _tok_under_cursor(global_pos):
-        """Find which sidebar well-button contains ``global_pos``."""
-        for tok, btn in app._sidebar_btns.items():
-            try:
-                local = btn.mapFromGlobal(global_pos)
-                if btn.rect().contains(local):
-                    return tok
-            except Exception:
-                continue
-        return None
-
-    def _make_btn_handlers(tok, btn):
-        # Hold the WellButton's own mouse handlers so we can fall through
-        # to its built-in drag-source logic when the heat-map drag mode is
-        # active (set via ``btn.set_drag_mime(...)``). Without this fall-
-        # through, the selection handlers below would swallow the press
-        # before QDrag could start.
-        base_press = type(btn).mousePressEvent
-        base_move = type(btn).mouseMoveEvent
-        base_release = type(btn).mouseReleaseEvent
-
-        def _press(event):
-            if getattr(btn, "_drag_mime", None):
-                base_press(btn, event)
-                return
-            if event.button() != Qt.LeftButton:
-                return
-            pos = event.position().toPoint()
-            app._sb_press(_drag_info(tok, pos))
-
-        def _move(event):
-            if getattr(btn, "_drag_mime", None):
-                base_move(btn, event)
-                return
-            if not (event.buttons() & Qt.LeftButton):
-                return
-            global_pos = event.globalPosition().toPoint()
-            other_tok = _tok_under_cursor(global_pos)
-            if other_tok is None:
-                return
-            app._sb_drag(_drag_info(other_tok, event.position().toPoint()))
-
-        def _release(event):
-            if getattr(btn, "_drag_mime", None):
-                base_release(btn, event)
-                return
-            app._sb_release(None)
-
-        btn.setMouseTracking(True)
-        btn.mousePressEvent = _press
-        btn.mouseMoveEvent = _move
-        btn.mouseReleaseEvent = _release
-
-    for _tok, _btn in app._sidebar_btns.items():
-        _make_btn_handlers(_tok, _btn)
+    # Wire the plate to the app's selection / replicate-set / heat-map handlers.
+    plate.selectionChanged.connect(app._on_sidebar_plate_selection_changed)
+    plate.selectionDragFinished.connect(app._on_sidebar_plate_drag_finished)
+    plate.wellActivated.connect(app._on_sidebar_plate_well_activated)
+    plate.rowHeaderActivated.connect(app._on_sidebar_plate_row_activated)
+    plate.columnHeaderActivated.connect(app._on_sidebar_plate_col_activated)
+    plate.wellDropped.connect(app._on_sidebar_plate_well_dropped)
 
     # All / None action buttons (v2 chrome — styled by theme.qss()).
     br = QWidget(parent)

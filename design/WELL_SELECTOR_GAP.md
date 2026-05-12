@@ -356,3 +356,64 @@ Once *all* maps are migrated: delete `well_viewer/views/well_button.py`
 (`WellButton` + `build_plate_grid` + `_HeaderClickLabel`), the `WellLabel`
 import, `runtime_app._plate_apply_*` / `_style_plate_button` / `_mute_color` /
 `_plate_theme_colors`, and the `_plate_drag_*` engine. Final QA across every tab.
+
+---
+
+## 8. Step 1 — STATUS: implemented (awaiting runtime QA)
+
+The left-rail swap from §7 Step 1 is in:
+
+- `well_viewer/views/sidebar_view.build_sidebar` — the `build_plate_grid` /
+  `_sidebar_btns` / `_make_btn_handlers` block is replaced by a single
+  `widgets.WellPlateSelector` stored as `app._sidebar_plate`
+  (`setActionsVisible(False)` — the rail keeps its own All / None). A
+  tokens-only stub `app._sidebar_btns = {tok: None for all 96 toks}` is kept so
+  the Bar-Plots picker's `_bg_press → _sb_press → selection_controller.sb_press`
+  forward still resolves tokens (its `set_state` calls land on `None` and are
+  skipped). `WellButton` / `build_plate_grid` are **not** removed — the other
+  six plate-maps still use them.
+- `well_viewer/runtime_app.py`:
+  - `_refresh_sidebar_map_now` rewritten to push `setEnabledWells(loaded toks)`
+    + `setSelectionMode("passive" if rep else "select")` +
+    `setRowColumnSelectable(not smfish)` + `setSingleSelectionMode(smfish and
+    not rep)` + `clearWellColors()` / `setWellColors({tok: rep-set colour
+    (muted if hidden) | ACCENT for selected})` + `setSelectedWellIds(…)`. The
+    count-label / group-hint text logic is byte-for-byte unchanged.
+  - New bridge slots: `_on_sidebar_plate_selection_changed` (per-cell drag /
+    click — updates `_selected_wells`, debounced repaint only),
+    `_on_sidebar_plate_drag_finished` (the heavy `_on_plate_sel_change` once per
+    click/drag), `_on_sidebar_plate_well_activated` (rep-set visibility toggle,
+    passive mode), `_on_sidebar_plate_row_activated` / `_col_activated`
+    (`_select_row`/`_select_col` in rep mode, else just the heavy refresh),
+    `_on_sidebar_plate_well_dropped` (`_on_drop_event(app, "palette", None,
+    token)`).
+  - `_sync_heatmap_well_drag_mode` rewritten to `plate.setDragMime(WELL_MIME)` /
+    `setAcceptDropMime(WELL_MIME)` (and `None` to disable).
+- `widgets/well_plate_selector.py` — header-click ordering fixed so the
+  internal `toggle_row`/`toggle_col` (which emits `selectionChanged` → syncs
+  `app._selected_wells`) runs *before* the `rowHeaderActivated`/`columnHeaderActivated`
+  signal (so the app's heavy refresh sees the updated selection).
+
+Not removed / not changed: `WellButton`, `build_plate_grid`, the other six
+plate-maps, the `_plate_drag_*` engine, `_plate_apply_*` / `_style_plate_button`
+/ `_mute_color` / `_plate_theme_colors` (still used by those maps), the bar /
+stats / preview / replicate / image-table pickers, `selection_controller.sb_*`
+(still used by the bar picker's forward). `_select_row` / `_select_col`'s
+per-well branches are now only reachable in rep-set mode but were left intact.
+
+Known behaviour notes for QA:
+- Selected wells render in the **accent** colour (as today), not per-trace
+  colours — keeping the legacy look for now; switching to "plate is legend"
+  trace colours is a one-line change (don't override the colour for selected
+  wells in per-well mode).
+- During a drag the plot redraws **once** (on release / `selectionDragFinished`),
+  not per cell — matching the legacy `sb_release` behaviour.
+- ⚠️ Not runtime-verified — no PySide6 in this environment; checked with
+  `python -m py_compile` only. QA checklist: per-well click + drag-select; the
+  "N wells selected" / "N/M set(s) visible" text; no-data wells un-selectable;
+  row/column quick-select (per-well **and** rep-set variant); rep-set membership
+  colours + click-to-toggle-visibility; smFISH single-well clamp + suppressed
+  headers; heat-map-layout drag-out-and-return; theme switch repaint; and that
+  the Bar-Plots / Stats / Preview / Replicate / Image-table pickers still work
+  (their `build_plate_grid` path is untouched but the bar picker's drag now
+  resolves through the stub `_sidebar_btns`).

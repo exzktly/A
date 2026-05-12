@@ -431,16 +431,16 @@ class _PlateGrid(QWidget):
         if kind == "row":
             if not self._rc_selectable:
                 return
-            self.rowHeaderActivated.emit(_row_letter(hit[1]))
             if self._mode == "select":
-                self.toggle_row(hit[1])
+                self.toggle_row(hit[1])              # emits selectionChanged first
+            self.rowHeaderActivated.emit(_row_letter(hit[1]))
             return
         if kind == "col":
             if not self._rc_selectable:
                 return
-            self.columnHeaderActivated.emit(_col_label(hit[1]))
             if self._mode == "select":
-                self.toggle_col(hit[1])
+                self.toggle_col(hit[1])             # emits selectionChanged first
+            self.columnHeaderActivated.emit(_col_label(hit[1]))
             return
         # well
         r, c = hit[1], hit[2]
