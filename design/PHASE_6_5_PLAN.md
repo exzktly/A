@@ -46,7 +46,8 @@ does not resume until all four deliverables below are met.**
 | # | Sub-phase | Builds / changes | Depends on | Deliverable(s) |
 |---|---|---|---|---|
 | 6.5.1 | **Foundations & binding contract** | `theme.py`: add `CPub` class + `TRACE_PUB` list (DESIGN_TOKENS §9.2; rcParams-only, no QSS change). Add `bindingAdapter()` (returns `(getter, setter, change_signal)`) to `SegmentedControl`, `ChipGroup`, `Stepper`, `StyledSlider`; add `setCurrentByData(value)` to `SegmentedControl`/`ChipGroup`; confirm `ToggleSwitch` (already bindable as a `QCheckBox`) — give it a `bindingAdapter` too for uniformity. Extend `ExportStyleSidebar._bind_getter_setter` with the `if hasattr(w, "bindingAdapter")` branch. Add the **binding test harness** (`widgets/tests/test_binding.py` if pytest is available; else `widgets/binding_check.py` with a `__main__` that runs the round-trips and prints PASS/FAIL): a tiny model object (a property + a `<prop>Changed` signal, or a dict-backed pseudo-model) bound to each of the five widgets, asserting model→widget, widget→model, and no feedback loop. | — | 3, 4 |
-| 6.5.2 | **`Popover`** (core primitive) | New `widgets/popover.py` — an anchor-relative floating panel: positions next to an anchor widget (above/below/left/right with auto-flip), `setContentWidget(w)`, dismiss on outside-click / `Esc`, optional arrow, soft drop shadow (`QGraphicsDropShadowEffect`). `__main__` + gallery card. | — | 1 |
+| 6.5.1a | **🔒 GATE — binding-harness runtime QA (user)** | After 6.5.1 lands, *you* pull the branch and run the binding tests on your machine, confirming the harness is green against all five already-bindable widgets (`SegmentedControl`, `ChipGroup`, `Stepper`, `StyledSlider`, `ToggleSwitch`). **No 6.5.2 commit lands until you confirm.** Non-blocking on the implementation side — 6.5.2 work may be *staged* (drafted locally / on a scratch branch) in the meantime, but it is **not committed/pushed** to this branch until the gate clears. If the harness has issues, fixes go into 6.5.1 (not 6.5.2) and the gate is re-run. | 6.5.1 | gate on 3, 4 |
+| 6.5.2 | **`Popover`** (core primitive) | New `widgets/popover.py` — an anchor-relative floating panel: positions next to an anchor widget (above/below/left/right with auto-flip), `setContentWidget(w)`, dismiss on outside-click / `Esc`, optional arrow, soft drop shadow (`QGraphicsDropShadowEffect`). `__main__` + gallery card. | 6.5.1a (gate clear) | 1 |
 | 6.5.3 | **`GradientStrip`** | New `widgets/gradient_strip.py` — custom-painted horizontal colour ramp from a list of `(stop, color)` pairs (or a callable); `setReversed(bool)`; `setStops(...)`. Used by `LutSelector` (trigger + every list row). `__main__` + gallery card. | — | 1 |
 | 6.5.4 | **`WindowResizeGrips`** | New `widgets/window_resize_grips.py` — installs 8 invisible ~6–8 px grip widgets (4 edges, 4 corners) on a top-level window, sets the right resize cursors, and calls `window().windowHandle().startSystemResize(edge)` on press. `attach(window)` / `detach()`. `__main__` demo = a small frameless test window. (Gallery: documented + a stand-in card — a frameless window can't be embedded in the gallery; the `__main__` demo is the live test.) | — | 1 |
 | 6.5.5 | **`LutSelector`** (+ LUT registry) | New `widgets/lut_selector.py` — a LUT registry grouping matplotlib colormaps into Perceptual / Diverging / Categorical / Cyclic; a trigger button = `GradientStrip` (current LUT) + name + a reverse-LUT toggle + a reset button; clicking it opens a `Popover` with a search field (`n / m` match count in the header) over a categorised list of rows, each row = a `GradientStrip` + monospace name. Signal: `lutChanged(name: str, reversed: bool)`. `setLut(name, reversed)`. `__main__` + gallery card. | 6.5.2, 6.5.3 | 1 |
@@ -59,13 +60,20 @@ does not resume until all four deliverables below are met.**
 
 ## Order rationale (dependency chain)
 
-`6.5.1` (foundations + binding — small, unblocks #3/#4) → `6.5.2 Popover`
-(needed by `LutSelector`, `ColorPickerPopover`, `TitleBar`, `PlotCard`,
-`SavedSelectionsList`) → `6.5.3 GradientStrip` + `6.5.4 WindowResizeGrips`
-(independent leaves; can be done in parallel with 6.5.2) → `6.5.5 LutSelector`
-(needs 2+3) → `6.5.6 ColorPickerPopover` (needs 2) → `6.5.7 ColorSwatchRow ext`
-(needs 6) → `6.5.8 SavedSelectionsList ext` (needs 2+6) → `6.5.9 TitleBar ext`
-(needs 2+4) → `6.5.10 PlotCard ext` (needs 1+2) → `6.5.11 gallery consolidation`.
+`6.5.1` (foundations + binding — small, unblocks #3/#4) → **`6.5.1a` 🔒 gate**
+(your runtime QA of the binding harness; nothing in 6.5.2+ is *committed* until
+it clears) → `6.5.2 Popover` (needed by `LutSelector`, `ColorPickerPopover`,
+`TitleBar`, `PlotCard`, `SavedSelectionsList`) → `6.5.3 GradientStrip` +
+`6.5.4 WindowResizeGrips` (independent leaves; can be done in parallel with
+6.5.2) → `6.5.5 LutSelector` (needs 2+3) → `6.5.6 ColorPickerPopover` (needs 2)
+→ `6.5.7 ColorSwatchRow ext` (needs 6) → `6.5.8 SavedSelectionsList ext`
+(needs 2+6) → `6.5.9 TitleBar ext` (needs 2+4) → `6.5.10 PlotCard ext`
+(needs 1+2) → `6.5.11 gallery consolidation`.
+
+> The 6.5.1a gate is the only hard hand-off in the round: 6.5.1 ships → you
+> verify the harness locally → confirm → 6.5.2 onward proceeds. Implementation
+> may *stage* (draft, not push) 6.5.2 in the interim, but the 6.5.2 commit is
+> held until the gate is green.
 
 ## Explicitly NOT in Phase 6.5 (these stay Phase 8)
 
