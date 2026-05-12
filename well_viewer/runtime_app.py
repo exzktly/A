@@ -3169,17 +3169,13 @@ class WellViewerApp(QWidget):
             except Exception:
                 smfish = False
 
-        self._sidebar_plate_updating = True
-        try:
-            plate.setEnabledWells(list(self._well_paths.keys()))
-            plate.setSelectionMode("passive" if rep_mode else "select")
-            plate.setRowColumnSelectable(not smfish)
-            plate.setSingleSelectionMode(smfish and not rep_mode)
-            plate.clearWellColors()
-            plate.setWellColors(colors)
-            plate.setSelectedWellIds([] if rep_mode else list(self._selected_wells))
-        finally:
-            self._sidebar_plate_updating = False
+        plate.setEnabledWells(list(self._well_paths.keys()))
+        plate.setSelectionMode("passive" if rep_mode else "select")
+        plate.setRowColumnSelectable(not smfish)
+        plate.setSingleSelectionMode(smfish and not rep_mode)
+        plate.clearWellColors()
+        plate.setWellColors(colors)
+        plate.setSelectedWellIds([] if rep_mode else list(self._selected_wells))
 
         # Count label / hint
         loaded  = self._rep_sets_loaded() if rep_mode else []
@@ -3209,12 +3205,13 @@ class WellViewerApp(QWidget):
 
     def _on_sidebar_plate_selection_changed(self, ids) -> None:
         # Fires per-cell during a drag and once for a click; also fires when
-        # ``_refresh_sidebar_map_now`` calls ``setSelectedWellIds`` (guarded).
-        if getattr(self, "_sidebar_plate_updating", False):
-            return
+        # ``_refresh_sidebar_map_now`` calls ``setSelectedWellIds`` /
+        # ``setEnabledWells`` (those corrections converge harmlessly).
         if getattr(self, "_rep_sets", None):
             return  # rep-set mode: the plate is passive; its selection is unused
-        new_set = set(ids)
+        # Keep the invariant ``_selected_wells ⊆ _well_paths`` — downstream
+        # code (e.g. redraw_line_plots → _get_rows) assumes it.
+        new_set = {w for w in ids if w in self._well_paths}
         if new_set == self._selected_wells:
             return
         self._selected_wells = new_set
@@ -3224,8 +3221,6 @@ class WellViewerApp(QWidget):
         self._refresh_sidebar_map()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
-        if getattr(self, "_sidebar_plate_updating", False):
-            return
         if getattr(self, "_rep_sets", None):
             return
         self._on_plate_sel_change()

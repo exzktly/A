@@ -195,6 +195,7 @@ class _PlateGrid(QWidget):
         if new == self._enabled:
             return
         self._enabled = new
+        sel_before = dict(self._selected)
         # Drop selection / colours / hover for now-disabled wells.
         if new is not None:
             self._selected = {k: v for k, v in self._selected.items() if k in new}
@@ -203,6 +204,9 @@ class _PlateGrid(QWidget):
                 self._hover_cell = None
         self._recolor()
         self.update()
+        if self._selected != sel_before:
+            # Disabling a well dropped it from the selection — tell consumers.
+            self.selectionChanged.emit()
 
     def set_well_enabled(self, well_id, enabled: bool) -> None:
         parsed = _parse_well_id(well_id)

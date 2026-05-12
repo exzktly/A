@@ -54,10 +54,10 @@ def build_sidebar(app, parent: QWidget) -> None:
     # drags / headers come back through the signal connections below.
     plate = WellPlateSelector(parent)
     plate.setActionsVisible(False)        # the rail keeps its own All / None below
+    plate.setEnabledWells([])             # nothing selectable until a dataset loads
     layout.addWidget(plate)
     app._sidebar_plate = plate
     app._sidebar_map_outer = plate
-    app._sidebar_plate_updating = False
 
     # Back-compat stub. The Bar-Plots picker forwards its plate drag through
     # app._bg_press → app._sb_press → selection_controller.sb_press, which still
