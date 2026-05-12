@@ -19,6 +19,25 @@ from well_viewer.persistence import (
 _logger = logging.getLogger("well_viewer")
 
 
+def sync_selections_from_legacy(app) -> None:
+    """Rebuild ``app._selections`` from the live legacy state.
+
+    Stages A→C keep the legacy ``_rep_sets`` / ``_bar_groups`` / ``_rep_hidden``
+    as the *working* representation (group/rep edits still mutate them directly),
+    so before any save we re-derive the unified model from them — otherwise
+    in-session edits wouldn't be persisted. (Stage C will flip this: edits will
+    mutate ``_selections`` directly and this becomes a no-op / is removed.)
+    Best-effort: a failure leaves ``_selections`` as-is.
+    """
+    try:
+        from well_viewer import selections_model as _sel
+        selections, current_id = _sel.from_legacy_appstate(app)
+        app._selections = selections
+        app._current_selection_id = current_id
+    except Exception:  # pragma: no cover - never block a save over this
+        _logger.exception("Couldn't rebuild selections from legacy state before save")
+
+
 def save_to_pipeline_info(app) -> None:
     """Merge well labels + the unified ``selections`` model into pipeline_info.json."""
     from well_viewer.sample_definitions import (
@@ -38,6 +57,7 @@ def save_to_pipeline_info(app) -> None:
             "so writing them is disabled to avoid corrupting the file. See the log.",
         )
         return
+    sync_selections_from_legacy(app)
     notes_edit = getattr(app, "_notes_edit", None)
     notes_text = (
         notes_edit.toPlainText() if notes_edit is not None

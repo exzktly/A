@@ -72,6 +72,8 @@ def save_via_dialog(app) -> None:
     if not path_str:
         return
     try:
+        from well_viewer.persistence.sample_definitions import sync_selections_from_legacy
+        sync_selections_from_legacy(app)
         with open(path_str, "w", encoding="utf-8") as fh:
             json.dump(to_payload(app), fh, indent=2)
         _logger.info("Bar groups saved to %s", path_str)
