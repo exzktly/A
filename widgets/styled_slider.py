@@ -1,10 +1,14 @@
-"""StyledSlider — a QSlider with token styling and an accent focus halo.
+"""StyledSlider — a fully custom-painted QSlider.
 
-The groove / filled sub-page / handle are styled from ``theme`` tokens via a
-per-widget stylesheet; ``paintEvent`` adds a soft accent ring around the handle
-when the slider has keyboard focus (Qt QSS can't draw an outer glow).
+QSS sub-control styling of ``QSlider`` (groove / handle / sub-page) is
+notoriously platform-flaky — depending on the active ``QStyle`` the handle can
+fall back to the native look or get squished. So this subclass paints the groove
+(token ``border_subtle``), the filled portion (token ``accent``) and a circular
+handle itself, with an accent halo on keyboard focus, and drives the value from
+the pointer x-position so the hit area matches the painting.
 
-Behaves exactly like ``QSlider`` (same API / signals). Defaults to horizontal.
+Behaves like ``QSlider`` (same API / signals). Optimised for horizontal use;
+vertical sliders fall back to the default rendering.
 """
 
 from __future__ import annotations
@@ -16,9 +20,9 @@ _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
-from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QPainter  # noqa: E402
-from PySide6.QtWidgets import QSlider, QStyle, QStyleOptionSlider  # noqa: E402
+from PySide6.QtCore import QRectF, QSize, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QPainter, QPen  # noqa: E402
+from PySide6.QtWidgets import QSizePolicy, QSlider  # noqa: E402
 
 import theme  # noqa: E402
 from widgets._support import with_alpha  # noqa: E402
@@ -30,66 +34,123 @@ class StyledSlider(QSlider):
         self.setObjectName("StyledSlider")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet(self._build_qss())
+        # Strip any inherited QSS sub-control rules; we paint everything.
+        self.setStyleSheet("QSlider#StyledSlider { background: transparent; }")
+        if orientation == Qt.Horizontal:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.setMinimumHeight(self._handle_d() + 6)
+        else:
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+            self.setMinimumWidth(self._handle_d() + 6)
 
-    def _handle_rect(self):
-        opt = QStyleOptionSlider()
-        self.initStyleOption(opt)
-        return self.style().subControlRect(
-            QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self
-        )
+    # ── metrics (font relative → DPI aware) ──────────────────────────────
+    def _groove_h(self) -> int:
+        return max(4, round(self.fontMetrics().height() * 0.28))
 
+    def _handle_d(self) -> int:
+        return max(14, round(self.fontMetrics().height() * 1.05))
+
+    def _margin(self) -> float:
+        return self._handle_d() / 2.0 + 1.0
+
+    def sizeHint(self) -> QSize:
+        hd = self._handle_d()
+        if self.orientation() == Qt.Horizontal:
+            return QSize(max(120, super().sizeHint().width()), hd + 6)
+        return QSize(hd + 6, max(120, super().sizeHint().height()))
+
+    def minimumSizeHint(self) -> QSize:
+        hd = self._handle_d()
+        if self.orientation() == Qt.Horizontal:
+            return QSize(hd * 3, hd + 6)
+        return QSize(hd + 6, hd * 3)
+
+    # ── value <-> pixel mapping ──────────────────────────────────────────
+    def _track_bounds(self) -> tuple[float, float]:
+        m = self._margin()
+        lo = m
+        hi = max(m + 1.0, self.width() - m)
+        return lo, hi
+
+    def _fraction(self) -> float:
+        span = (self.maximum() - self.minimum()) or 1
+        frac = (self.value() - self.minimum()) / span
+        if self.invertedAppearance():
+            frac = 1.0 - frac
+        return min(1.0, max(0.0, frac))
+
+    def _value_from_x(self, x: float) -> int:
+        lo, hi = self._track_bounds()
+        frac = (x - lo) / (hi - lo) if hi > lo else 0.0
+        frac = min(1.0, max(0.0, frac))
+        if self.invertedAppearance():
+            frac = 1.0 - frac
+        return round(self.minimum() + frac * (self.maximum() - self.minimum()))
+
+    # ── input ────────────────────────────────────────────────────────────
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton and self.orientation() == Qt.Horizontal:
+            self.setSliderDown(True)
+            self.setValue(self._value_from_x(event.position().x()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if (event.buttons() & Qt.LeftButton) and self.orientation() == Qt.Horizontal:
+            self.setValue(self._value_from_x(event.position().x()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self.isSliderDown():
+            self.setSliderDown(False)
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        # Default QSlider wheel handling is fine; keep it.
+        super().wheelEvent(event)
+
+    # ── painting ─────────────────────────────────────────────────────────
     def paintEvent(self, event) -> None:  # noqa: N802
-        super().paintEvent(event)
-        if not self.hasFocus():
-            return
-        hr = self._handle_rect()
-        if hr.isNull():
-            return
+        if self.orientation() != Qt.Horizontal:
+            return super().paintEvent(event)
+
+        c = theme.Colors
+        enabled = self.isEnabled()
+        gh = self._groove_h()
+        hd = self._handle_d()
+        lo, hi = self._track_bounds()
+        cy = self.height() / 2.0
+        handle_cx = lo + self._fraction() * (hi - lo)
+
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        p.setBrush(Qt.NoBrush)
-        grow = max(2, round(hr.width() * 0.18))
-        p.setPen(with_alpha(theme.Colors.accent, 0.45))
-        p.drawEllipse(hr.adjusted(-grow, -grow, grow, grow))
+        p.setPen(Qt.NoPen)
 
-    def _build_qss(self) -> str:
-        c, r = theme.Colors, theme.Radii
-        # Groove thickness scales modestly with the font for DPI friendliness.
-        gh = max(4, round(self.fontMetrics().height() * 0.28))
-        hd = max(12, round(self.fontMetrics().height() * 1.0))
-        margin = round((hd - gh) / 2)
-        return f"""
-        #StyledSlider::groove:horizontal {{
-            height: {gh}px; background: {c.border_subtle}; border-radius: {gh // 2}px;
-        }}
-        #StyledSlider::sub-page:horizontal {{
-            background: {c.accent}; border-radius: {gh // 2}px;
-        }}
-        #StyledSlider::add-page:horizontal {{
-            background: {c.border_subtle}; border-radius: {gh // 2}px;
-        }}
-        #StyledSlider::handle:horizontal {{
-            width: {hd}px; height: {hd}px; margin: -{margin}px 0;
-            background: {c.panel_elevated};
-            border: 2px solid {c.rail};
-            border-radius: {hd // 2}px;
-        }}
-        #StyledSlider::handle:horizontal:hover {{ background: {c.hover}; }}
-        #StyledSlider::handle:horizontal:pressed {{ background: {c.active}; }}
-        #StyledSlider::groove:vertical {{
-            width: {gh}px; background: {c.border_subtle}; border-radius: {gh // 2}px;
-        }}
-        #StyledSlider::sub-page:vertical {{
-            background: {c.accent}; border-radius: {gh // 2}px;
-        }}
-        #StyledSlider::handle:vertical {{
-            width: {hd}px; height: {hd}px; margin: 0 -{margin}px;
-            background: {c.panel_elevated}; border: 2px solid {c.rail};
-            border-radius: {hd // 2}px;
-        }}
-        #StyledSlider:disabled {{ }}
-        """
+        # groove (full extent)
+        p.setBrush(QColor(c.border_subtle))
+        p.drawRoundedRect(QRectF(lo, cy - gh / 2.0, hi - lo, gh), gh / 2.0, gh / 2.0)
+
+        # filled portion up to the handle
+        fill_w = handle_cx - lo
+        if fill_w > 0.5:
+            p.setBrush(QColor(c.accent if enabled else c.accent_dim))
+            p.drawRoundedRect(QRectF(lo, cy - gh / 2.0, fill_w, gh), gh / 2.0, gh / 2.0)
+
+        # handle
+        handle_rect = QRectF(handle_cx - hd / 2.0, cy - hd / 2.0, hd, hd)
+        p.setBrush(QColor(c.panel_elevated if enabled else c.panel))
+        p.setPen(QPen(QColor(c.rail if enabled else c.border_subtle), 2.0))
+        p.drawEllipse(handle_rect)
+
+        if enabled and self.hasFocus():
+            grow = max(2.0, hd * 0.2)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(with_alpha(c.accent, 0.45), max(1.0, hd * 0.16)))
+            p.drawEllipse(handle_rect.adjusted(-grow, -grow, grow, grow))
+        p.end()
 
 
 # ── standalone visual test ──────────────────────────────────────────────────
@@ -140,6 +201,6 @@ if __name__ == "__main__":
     s1.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
     outer.addStretch(1)
 
-    root.resize(380, 240)
+    root.resize(400, 240)
     root.show()
     _sys.exit(app.exec())
