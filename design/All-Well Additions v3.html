@@ -1,0 +1,1732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>All-Well — v3 Additions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+/* =========================================================================
+   v3 ADDITIONS — supplemental mockups against the v2 design system.
+   Tokens here are IDENTICAL to All-Well Redesign v2.html (:root block).
+   Any token that's new is marked /* NEW v3 */
+/* ========================================================================= */
+
+:root {
+  --bg-app:        #0B0F17;
+  --bg-rail:       #0E131C;
+  --bg-panel:      #131A24;
+  --bg-elevated:   #1A2230;
+  --bg-hover:      #212B3B;
+  --bg-active:     #2A3548;
+  --bg-titlebar:   #0A0E15;
+
+  --border-subtle: #1B2331;
+  --border:        #2A3343;
+  --border-strong: #3B475C;
+
+  --text-primary:   #E6E9EF;
+  --text-secondary: #98A2B3;
+  --text-muted:     #5F6B7C;
+  --text-faint:     #404B5C;
+
+  --accent:        #6B8AFD;
+  --accent-hover:  #84A0FF;
+  --accent-dim:    #2C3A66;
+  --accent-fg:     #F0F4FF;
+
+  --success: #4ADE80;
+  --warn:    #F59E0B;
+  --danger:  #F87171;
+
+  --trace-1: #5B9BF8;
+  --trace-2: #F26B6B;
+  --trace-3: #4ADE80;
+  --trace-4: #F5A524;
+  --threshold: #F5A524;
+
+  --plot-grid:   #1F2733;
+  --plot-spine:  #3A4658;
+
+  /* NEW v3 — publication-preview surface (white-on-light, used in print-preview mode) */
+  --pub-bg:         #FFFFFF;
+  --pub-bg-subtle:  #F8F9FB;
+  --pub-text:       #1A1D24;
+  --pub-text-muted: #4C5360;
+  --pub-grid:       #E5E7EB;
+  --pub-spine:      #4C5360;
+
+  --font-sans: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  --fs-caption:  11px;
+  --fs-small:    12px;
+  --fs-body:     13px;
+  --fs-emph:     14px;
+  --fs-h3:       15px;
+  --fs-h2:       17px;
+
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px;  --s-4: 16px;
+  --s-5: 20px; --s-6: 24px; --s-8: 32px;
+
+  --r-xs: 3px; --r-sm: 5px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
+
+  --sh-1: 0 1px 0 rgba(0,0,0,.4);
+  --sh-2: 0 4px 12px rgba(0,0,0,.35);
+  --ring-focus: 0 0 0 2px rgba(107,138,253,.35);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font: 400 var(--fs-body)/1.45 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11','ss01','tnum';
+}
+
+/* ========== Doc shell ========== */
+.doc {
+  max-width: 1240px; margin: 0 auto;
+  padding: var(--s-8) var(--s-6) 80px;
+}
+.doc-head {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--s-5);
+  margin-bottom: var(--s-8);
+}
+.doc-head .eyebrow {
+  font: 600 var(--fs-caption)/1 var(--font-sans);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--s-2);
+}
+.doc-head h1 {
+  margin: 0 0 var(--s-2);
+  font: 700 28px/1.15 var(--font-sans);
+  letter-spacing: -.015em;
+}
+.doc-head p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--text-secondary);
+  font-size: var(--fs-emph); line-height: 1.55;
+}
+.doc-toc {
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.doc-toc a {
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+}
+.doc-toc a:hover { background: var(--bg-hover); color: var(--text-primary); }
+.doc-toc a span { color: var(--text-faint); margin-right: 6px; font-variant-numeric: tabular-nums; }
+
+/* ========== Section ========== */
+section.add {
+  margin-top: var(--s-8);
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--border-subtle);
+}
+section.add:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.add-head {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: var(--s-4);
+  align-items: start;
+  margin-bottom: var(--s-5);
+}
+.add-num {
+  font: 700 26px/1 var(--font-sans);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.add-head h2 {
+  margin: 0 0 var(--s-1);
+  font: 600 22px/1.2 var(--font-sans);
+  letter-spacing: -.01em;
+}
+.add-head p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-emph); line-height: 1.55;
+  max-width: 680px;
+}
+.add-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 500 var(--fs-caption)/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+}
+.add-status .d { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+/* Two-column: mockup + annotation */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 320px;
+  gap: var(--s-5);
+  align-items: start;
+}
+.mockup {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--s-5);
+}
+.mockup-label {
+  font: 500 var(--fs-caption)/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-faint);
+  margin-bottom: var(--s-3);
+}
+.annot h4 {
+  margin: 0 0 var(--s-2);
+  font: 600 var(--fs-h3)/1.3 var(--font-sans);
+}
+.annot ul {
+  margin: 0; padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: var(--fs-small); line-height: 1.6;
+}
+.annot ul li { margin-bottom: 6px; }
+.annot ul li b { color: var(--text-primary); font-weight: 600; }
+.annot .note {
+  margin-top: var(--s-3);
+  padding: var(--s-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.annot .note b { color: var(--text-primary); }
+
+/* ========== reused control primitives ========== */
+.btn {
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.btn.ghost:hover { background: var(--bg-panel); color: var(--text-primary); }
+.btn .lucide { width: 14px; height: 14px; stroke-width: 1.75; }
+.btn.icon { padding: 6px; width: 28px; height: 28px; justify-content: center; }
+
+.seg {
+  display: inline-flex; align-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  padding: 2px;
+  gap: 2px;
+}
+.seg button {
+  appearance: none; border: none; background: transparent;
+  color: var(--text-secondary);
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  padding: 5px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.seg button.on { background: var(--bg-elevated); color: var(--text-primary); box-shadow: var(--sh-1); }
+.seg button .lucide { width: 13px; height: 13px; stroke-width: 1.75; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  padding: 4px 10px;
+  font: 500 var(--fs-caption)/1 var(--font-sans);
+  color: var(--text-secondary);
+}
+.chip.on { background: var(--accent-dim); color: var(--accent-fg); border-color: var(--accent); }
+.chip .d { width: 7px; height: 7px; border-radius: 50%; }
+
+.h6 {
+  font: 600 var(--fs-caption)/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+}
+
+/* ========================================================================
+   §1 — Plot background / publication preview
+   ======================================================================== */
+.figure-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.figure-card .head {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.figure-card .head h3 {
+  margin: 0;
+  font: 600 var(--fs-h2)/1.2 var(--font-sans);
+  letter-spacing: -.01em;
+}
+.figure-card .head .grow { flex: 1; }
+
+.theme-toggle {
+  display: inline-flex; align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  padding: 2px;
+}
+.theme-toggle button {
+  appearance: none; border: none; background: transparent;
+  font: 500 var(--fs-caption)/1 var(--font-sans);
+  color: var(--text-secondary);
+  padding: 5px 9px 5px 7px;
+  border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer;
+}
+.theme-toggle button.on { background: var(--bg-active); color: var(--text-primary); }
+.theme-toggle .lucide { width: 12px; height: 12px; stroke-width: 2; }
+
+/* dark sample plot */
+.fig-canvas-dark {
+  height: 200px;
+  padding: var(--s-4);
+  background: var(--bg-panel);
+  display: flex; flex-direction: column; justify-content: center;
+}
+/* light (publication) preview */
+.fig-canvas-light {
+  height: 200px;
+  padding: var(--s-4);
+  background: var(--pub-bg);
+  color: var(--pub-text);
+  display: flex; flex-direction: column; justify-content: center;
+  position: relative;
+}
+.fig-canvas-light::before {
+  content: "Publication preview";
+  position: absolute; top: 10px; right: 12px;
+  font: 500 10px/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--pub-text-muted);
+  background: var(--pub-bg-subtle);
+  border: 1px solid var(--pub-grid);
+  padding: 4px 8px;
+  border-radius: var(--r-xs);
+}
+.figure-card .toolbar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 6px var(--s-3);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+.figure-card .toolbar .group { display: flex; gap: 2px; padding: 0 6px; border-right: 1px solid var(--border-subtle); }
+.figure-card .toolbar .group:last-of-type { border-right: none; }
+.figure-card .toolbar button {
+  appearance: none; background: transparent; border: none;
+  color: var(--text-secondary);
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.figure-card .toolbar button:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.figure-card .toolbar button.on { background: var(--bg-active); color: var(--text-primary); }
+.figure-card .toolbar .lucide { width: 13px; height: 13px; stroke-width: 1.75; }
+.figure-card .toolbar .coords {
+  margin-left: auto;
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* SVG plots */
+.plot-svg { width: 100%; height: 100%; }
+
+/* Export dialog */
+.dialog {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  width: 100%;
+  max-width: 420px;
+  overflow: hidden;
+}
+.dialog .head {
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; gap: var(--s-2);
+}
+.dialog .head h4 { margin: 0; font: 600 var(--fs-h3)/1 var(--font-sans); }
+.dialog .head .close { margin-left: auto; }
+.dialog .body { padding: var(--s-4); display: grid; gap: var(--s-3); }
+.dialog .row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: var(--s-3); }
+.dialog .row label { font: 500 var(--fs-small)/1 var(--font-sans); color: var(--text-secondary); }
+.dialog .foot { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: var(--s-2); background: var(--bg-rail); }
+
+.radio-group {
+  display: grid; gap: 4px;
+}
+.radio-group label.opt {
+  display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  background: var(--bg-elevated);
+}
+.radio-group label.opt.sel {
+  border-color: var(--accent);
+  background: linear-gradient(0deg, var(--accent-dim) 0%, var(--bg-elevated) 100%);
+}
+.radio-group .dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  position: relative;
+}
+.radio-group .sel .dot { border-color: var(--accent); }
+.radio-group .sel .dot::after {
+  content: ""; position: absolute; inset: 3px;
+  border-radius: 50%; background: var(--accent);
+}
+.radio-group .opt b { font: 600 var(--fs-small)/1.2 var(--font-sans); color: var(--text-primary); display: block; }
+.radio-group .opt .desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
+.radio-group .opt .preview {
+  width: 32px; height: 22px; border-radius: var(--r-xs);
+  border: 1px solid var(--border-subtle);
+}
+
+/* ========================================================================
+   §2 — Stats toggles (SEM/SD, FOV/Spread)
+   ======================================================================== */
+.prop-panel {
+  background: var(--bg-rail);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  width: 320px;
+  overflow: hidden;
+}
+.prop-section {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.prop-section:last-child { border-bottom: none; }
+.prop-head {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  cursor: pointer;
+}
+.prop-head .chev { color: var(--text-muted); }
+.prop-head .chev .lucide { width: 13px; height: 13px; }
+.prop-head .title { font: 600 var(--fs-small)/1 var(--font-sans); }
+.prop-head .preview {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.prop-body {
+  padding: 0 var(--s-4) var(--s-4);
+  display: grid; gap: var(--s-3);
+}
+.prop-row {
+  display: grid; grid-template-columns: 88px 1fr; align-items: center; gap: var(--s-3);
+}
+.prop-row > label {
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  color: var(--text-secondary);
+}
+
+.error-preview {
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.error-preview .stem { width: 1px; height: 12px; background: var(--text-secondary); }
+.error-preview .cap { width: 6px; height: 1px; background: var(--text-secondary); }
+
+/* Quick-access stats popover trigger inside figure header */
+.popover {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  width: 240px;
+  padding: var(--s-3);
+}
+.popover h6 { margin: 0 0 var(--s-2); font: 600 var(--fs-caption)/1 var(--font-sans); text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
+.popover .row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: var(--s-2); margin-bottom: 6px; }
+.popover .row label { font: 500 var(--fs-small)/1 var(--font-sans); color: var(--text-secondary); }
+
+/* ========================================================================
+   §3 — Saved selections panel
+   ======================================================================== */
+.sel-panel {
+  width: 320px;
+  background: var(--bg-rail);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.sel-panel .ph {
+  display: flex; align-items: center; padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sel-panel .ph h6 { margin: 0; }
+.sel-panel .ph .grow { flex: 1; }
+.sel-list { padding: var(--s-2); display: grid; gap: 2px; }
+
+.sel-row {
+  display: grid;
+  grid-template-columns: 14px 18px 14px 1fr 38px 22px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: transparent;
+}
+.sel-row:hover { background: var(--bg-panel); }
+.sel-row.sel { background: var(--bg-elevated); }
+.sel-row.sel .name { color: var(--text-primary); }
+.sel-row .grip {
+  color: var(--text-faint);
+  cursor: grab;
+}
+.sel-row .grip .lucide { width: 12px; height: 12px; }
+.sel-row .eye {
+  appearance: none; border: none; background: transparent;
+  color: var(--text-secondary); cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.sel-row.hidden .eye { color: var(--text-faint); }
+.sel-row.hidden .name { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--text-faint); }
+.sel-row .eye .lucide { width: 14px; height: 14px; }
+.sel-row .dot { width: 10px; height: 10px; border-radius: 50%; }
+.sel-row .name {
+  font: 500 var(--fs-small)/1.1 var(--font-sans);
+  color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sel-row.editing .name {
+  background: var(--bg-app);
+  border: 1px solid var(--accent);
+  padding: 3px 5px;
+  border-radius: var(--r-xs);
+  outline: none;
+  color: var(--text-primary);
+  box-shadow: var(--ring-focus);
+}
+.sel-row .count {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.sel-row .kebab {
+  appearance: none; border: none; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  width: 22px; height: 22px;
+  border-radius: var(--r-xs);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.sel-row .kebab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sel-row .kebab .lucide { width: 13px; height: 13px; }
+
+.sel-expand {
+  padding: 4px 14px 10px 44px;
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.sel-expand .well-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 500 10px/1 var(--font-mono);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 3px 6px;
+  border-radius: var(--r-xs);
+  font-variant-numeric: tabular-nums;
+}
+.sel-expand .well-chip .d {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.sel-expand .well-chip.add {
+  border-style: dashed;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.sel-panel .foot {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--s-2);
+  display: flex; gap: 4px;
+}
+.sel-panel .foot button {
+  flex: 1; justify-content: center;
+  background: transparent; border: 1px dashed var(--border);
+  color: var(--text-secondary);
+}
+.sel-panel .foot button:hover { background: var(--bg-panel); color: var(--text-primary); border-style: solid; }
+
+/* Right-click context preview */
+.menu {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--sh-2);
+  padding: 4px;
+  min-width: 160px;
+}
+.menu button {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  appearance: none; border: none; background: transparent;
+  color: var(--text-primary);
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  padding: 6px 10px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  text-align: left;
+}
+.menu button:hover { background: var(--bg-hover); }
+.menu button.danger { color: var(--danger); }
+.menu hr { margin: 4px 0; border: none; border-top: 1px solid var(--border-subtle); }
+.menu .lucide { width: 13px; height: 13px; stroke-width: 1.75; }
+.menu .k { margin-left: auto; font: 500 10px/1 var(--font-mono); color: var(--text-muted); }
+
+/* ========================================================================
+   §4 — Color picker & LUT selector
+   ======================================================================== */
+.swatch-row {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.swatch {
+  width: 24px; height: 24px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  position: relative;
+}
+.swatch.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.swatch.custom {
+  background:
+    conic-gradient(from 180deg at 50% 50%,
+      #ff5e62, #f5a524, #4ade80, #5b9bf8, #b06bfd, #ff5e62);
+  position: relative;
+}
+.swatch.custom::after {
+  content: "+";
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 14px/1 var(--font-sans);
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+
+/* Free-form color picker */
+.picker {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  width: 240px;
+  padding: var(--s-3);
+}
+.picker .sv {
+  width: 100%; aspect-ratio: 1.6 / 1;
+  border-radius: var(--r-sm);
+  background:
+    linear-gradient(to top, #000 0%, transparent 100%),
+    linear-gradient(to right, #fff 0%, transparent 100%),
+    hsl(212, 85%, 55%);
+  position: relative;
+  margin-bottom: var(--s-2);
+  border: 1px solid var(--border-subtle);
+}
+.picker .sv .knob {
+  position: absolute;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+  left: 62%; top: 38%;
+  transform: translate(-50%,-50%);
+}
+.picker .hue {
+  height: 10px; border-radius: var(--r-pill);
+  background: linear-gradient(to right,
+    #ff0000, #ffaa00, #aaff00, #00ff00, #00ffaa,
+    #00aaff, #0000ff, #aa00ff, #ff00aa, #ff0000);
+  position: relative;
+  margin-bottom: var(--s-2);
+  border: 1px solid var(--border-subtle);
+}
+.picker .hue .knob {
+  position: absolute; top: -2px; left: 58%;
+  width: 4px; height: 14px;
+  background: white;
+  border: 1px solid rgba(0,0,0,.6);
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+.picker .fields {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.picker .field {
+  display: grid;
+}
+.picker .field label {
+  font: 500 10px/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+.picker .field input {
+  appearance: none;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 5px 7px;
+  font: 500 var(--fs-small)/1 var(--font-mono);
+  border-radius: var(--r-xs);
+  font-variant-numeric: tabular-nums;
+}
+.picker .field input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring-focus); }
+.picker .recent {
+  margin-top: var(--s-2);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--s-2);
+}
+
+/* LUT selector */
+.lut-select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  width: 300px;
+  overflow: hidden;
+}
+.lut-select .head {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 6px var(--s-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lut-select .head .lucide { width: 13px; height: 13px; color: var(--text-muted); }
+.lut-select .head input {
+  appearance: none; background: transparent; border: none;
+  color: var(--text-primary);
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  width: 100%;
+}
+.lut-select .head input::placeholder { color: var(--text-muted); }
+.lut-select .body {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.lut-cat {
+  font: 600 10px/1 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  padding: 8px 8px 6px;
+}
+.lut-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 16px;
+  align-items: center; gap: var(--s-2);
+  padding: 5px 6px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.lut-row:hover { background: var(--bg-hover); }
+.lut-row.sel { background: var(--accent-dim); }
+.lut-row.sel .name { color: var(--accent-fg); }
+.lut-row .strip {
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+}
+.lut-row .name {
+  font: 500 var(--fs-small)/1 var(--font-mono);
+  color: var(--text-secondary);
+}
+.lut-row .check { color: var(--accent); }
+.lut-row .check .lucide { width: 13px; height: 13px; }
+
+/* gradient definitions for LUT strips */
+.lut-viridis  { background: linear-gradient(to right, #440154, #3b528b, #21918c, #5ec962, #fde725); }
+.lut-plasma   { background: linear-gradient(to right, #0d0887, #6a00a8, #b12a90, #e16462, #fca636, #f0f921); }
+.lut-magma    { background: linear-gradient(to right, #000004, #3b0f70, #8c2981, #de4968, #fe9f6d, #fcfdbf); }
+.lut-inferno  { background: linear-gradient(to right, #000004, #420a68, #932667, #dd513a, #fca50a, #fcffa4); }
+.lut-cividis  { background: linear-gradient(to right, #00224e, #2e466e, #666970, #958f78, #c8b25d, #fde737); }
+.lut-rocket   { background: linear-gradient(to right, #03051a, #50276d, #b13c6b, #ed7d59, #f8c97d, #faebdd); }
+.lut-mako     { background: linear-gradient(to right, #0b0405, #382a54, #355f8d, #348aa6, #5fcdac, #def5e5); }
+.lut-rdbu     { background: linear-gradient(to right, #67001f, #b2182b, #d6604d, #f4a582, #fddbc7, #f7f7f7, #d1e5f0, #92c5de, #4393c3, #2166ac, #053061); }
+.lut-piyg     { background: linear-gradient(to right, #8e0152, #c51b7d, #de77ae, #f1b6da, #fde0ef, #f7f7f7, #e6f5d0, #b8e186, #7fbc41, #4d9221, #276419); }
+.lut-coolwarm { background: linear-gradient(to right, #3b4cc0, #6f8fea, #aac7fd, #d5d5d5, #f3a685, #d6604d, #b40426); }
+.lut-tab10    { background: linear-gradient(to right,
+  #1f77b4 0% 10%, #ff7f0e 10% 20%, #2ca02c 20% 30%, #d62728 30% 40%, #9467bd 40% 50%,
+  #8c564b 50% 60%, #e377c2 60% 70%, #7f7f7f 70% 80%, #bcbd22 80% 90%, #17becf 90% 100%); }
+.lut-set2     { background: linear-gradient(to right,
+  #66c2a5 0% 13%, #fc8d62 13% 26%, #8da0cb 26% 39%, #e78ac3 39% 52%,
+  #a6d854 52% 65%, #ffd92f 65% 78%, #e5c494 78% 91%, #b3b3b3 91% 100%); }
+.lut-twilight { background: linear-gradient(to right, #e2d9e2, #9ebeaf, #4c7a8f, #2a3d61, #6e3a5f, #a4506d, #d1a39c, #e2d9e2); }
+
+/* ========================================================================
+   §5 — Titlebar decision
+   ======================================================================== */
+.titlebar {
+  display: grid;
+  grid-template-columns: 260px 1fr auto auto;
+  align-items: center;
+  background: var(--bg-titlebar);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: 0 6px 0 var(--s-4);
+  height: 44px;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+}
+.titlebar .resize-edge {
+  position: absolute; left: 0; right: 0; top: 0;
+  height: 4px;
+  cursor: ns-resize;
+  background: linear-gradient(to bottom, rgba(255,255,255,.04), transparent);
+}
+.titlebar .resize-edge::after {
+  content: "resize handle";
+  position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+  font: 500 9px/1 var(--font-sans);
+  color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: .08em;
+  white-space: nowrap;
+}
+
+.tb-brand { display: flex; align-items: center; gap: var(--s-2); }
+.tb-brand button.logo {
+  width: 22px; height: 22px;
+  border-radius: var(--r-xs);
+  appearance: none; border: none;
+  background:
+    radial-gradient(circle at 35% 35%, #5B9BF8 0 22%, transparent 23%),
+    radial-gradient(circle at 65% 35%, #4ADE80 0 22%, transparent 23%),
+    radial-gradient(circle at 35% 65%, #F5A524 0 22%, transparent 23%),
+    radial-gradient(circle at 65% 65%, #F26B6B 0 22%, transparent 23%),
+    #1A2230;
+  cursor: pointer;
+  position: relative;
+}
+.tb-brand button.logo::after {
+  content: "▾";
+  position: absolute; bottom: -3px; right: -3px;
+  font-size: 8px; color: var(--text-secondary);
+  background: var(--bg-titlebar);
+  border-radius: 50%;
+  width: 12px; height: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.tb-brand b { font-weight: 600; font-size: var(--fs-emph); letter-spacing: -.01em; }
+
+.tb-crumb { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-small); color: var(--text-secondary); padding: 0 var(--s-3); }
+.tb-crumb .sep { color: var(--text-faint); }
+.tb-crumb .file {
+  color: var(--text-primary);
+  font: 500 12px/1 var(--font-mono);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+  border-radius: var(--r-xs);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.tb-crumb .file .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(74,222,128,.12);
+}
+
+.tb-actions { display: flex; align-items: center; gap: var(--s-2); padding-right: var(--s-2); }
+
+.tb-window {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding-left: var(--s-2);
+  border-left: 1px solid var(--border-subtle);
+  margin-left: var(--s-2);
+}
+.tb-window button {
+  appearance: none; border: none; background: transparent;
+  width: 28px; height: 28px;
+  color: var(--text-secondary);
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.tb-window button:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.tb-window button.close:hover { background: var(--danger); color: white; }
+.tb-window .lucide { width: 13px; height: 13px; stroke-width: 1.75; }
+
+/* macOS-style alternate */
+.tb-mac { display: flex; gap: 6px; padding-right: var(--s-3); }
+.tb-mac .light {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.3);
+}
+.tb-mac .close { background: #ff5f57; }
+.tb-mac .min   { background: #febc2e; }
+.tb-mac .max   { background: #28c840; }
+
+/* Theme switcher popover */
+.theme-popover {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  padding: var(--s-3);
+  width: 280px;
+}
+.theme-tiles {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--s-2); margin-top: var(--s-2);
+}
+.theme-tile {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  padding: var(--s-2);
+  cursor: pointer;
+  background: var(--bg-panel);
+  text-align: center;
+}
+.theme-tile.sel { border-color: var(--accent); }
+.theme-tile .sw {
+  width: 100%; height: 40px;
+  border-radius: var(--r-xs);
+  margin-bottom: 6px;
+  border: 1px solid var(--border-subtle);
+}
+.theme-tile.dark .sw {
+  background: linear-gradient(135deg, #0B0F17 50%, #131A24 50%);
+}
+.theme-tile.light .sw {
+  background: linear-gradient(135deg, #FFFFFF 50%, #F8F9FB 50%);
+}
+.theme-tile.system .sw {
+  background: linear-gradient(135deg, #0B0F17 50%, #FFFFFF 50%);
+}
+.theme-tile .lbl {
+  font: 500 11px/1 var(--font-sans);
+  color: var(--text-secondary);
+}
+.theme-tile.sel .lbl { color: var(--text-primary); }
+
+/* keyboard hint */
+.kbd {
+  display: inline-flex; align-items: center;
+  font: 500 10px/1 var(--font-mono);
+  background: var(--bg-rail);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 3px 5px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+</style>
+</head>
+<body>
+<div class="doc">
+  <header class="doc-head">
+    <div class="eyebrow">All-Well · v3 Additions</div>
+    <h1>Five additions to the approved mockup</h1>
+    <p>
+      Functional areas surfaced during the PyQt6 port that the v2 mockup didn't address.
+      All controls reuse the v2 token system (colors, type, spacing, radii) — only one new token group is introduced: <code>--pub-*</code> for the white publication-preview surface.
+    </p>
+    <nav class="doc-toc">
+      <a href="#a1"><span>01</span>Plot theme &amp; export</a>
+      <a href="#a2"><span>02</span>SEM/SD · FOV/Spread</a>
+      <a href="#a3"><span>03</span>Saved selections</a>
+      <a href="#a4"><span>04</span>Color picker · LUT</a>
+      <a href="#a5"><span>05</span>Titlebar decision</a>
+    </nav>
+  </header>
+
+  <!-- =========================================================================
+       §1 — Plot theme & export
+       ========================================================================= -->
+  <section class="add" id="a1">
+    <div class="add-head">
+      <div class="add-num">01</div>
+      <div>
+        <h2>Plot theme — dark in-app, light on export</h2>
+        <p>
+          Two concerns, one mechanism. The plot canvas always renders in the dark theme that integrates with the app chrome. A <b>persistent toggle in the figure header</b> lets the user preview the publication theme in place; the <b>export dialog</b> then defaults to that theme but lets the user override per export.
+        </p>
+      </div>
+      <div class="add-status"><span class="d"></span>New control</div>
+    </div>
+    <div class="split">
+      <div>
+        <!-- mockup: figure card with theme toggle in header -->
+        <div class="mockup-label">Figure card · Screen (default)</div>
+        <div class="figure-card" style="margin-bottom: var(--s-4);">
+          <div class="head">
+            <h3>Trace · channel W15</h3>
+            <span class="chip"><span class="d" style="background: var(--success)"></span>96 wells</span>
+            <span class="grow"></span>
+            <span class="theme-toggle" role="tablist" aria-label="Plot theme preview">
+              <button class="on" aria-selected="true"><i data-lucide="moon"></i>Screen</button>
+              <button><i data-lucide="sun"></i>Publication</button>
+            </span>
+          </div>
+          <div class="fig-canvas-dark">
+            <svg class="plot-svg" viewBox="0 0 880 170" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="bb1" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#5B9BF8" stop-opacity=".25"/><stop offset="100%" stop-color="#5B9BF8" stop-opacity="0"/></linearGradient>
+              </defs>
+              <g stroke="#1F2733" stroke-width="1">
+                <line x1="60" y1="20"  x2="868" y2="20"/>
+                <line x1="60" y1="60"  x2="868" y2="60"/>
+                <line x1="60" y1="100" x2="868" y2="100"/>
+                <line x1="60" y1="140" x2="868" y2="140"/>
+              </g>
+              <line x1="60" y1="20" x2="60" y2="155" stroke="#3A4658"/>
+              <line x1="60" y1="155" x2="868" y2="155" stroke="#3A4658"/>
+              <line x1="60" y1="80" x2="868" y2="80" stroke="#F5A524" stroke-dasharray="6 4" stroke-width="1.5"/>
+              <text x="68" y="76" font-family="Inter" font-size="10" fill="#F5A524" font-weight="600">threshold · 50 AU</text>
+              <path d="M125,55 L227,75 L329,72 L431,78 L533,85 L635,78 L737,85 L839,90 L839,155 L60,155 L60,90 Z" fill="url(#bb1)" opacity=".7"/>
+              <polyline points="125,55 227,75 329,72 431,78 533,85 635,78 737,85 839,90" fill="none" stroke="#5B9BF8" stroke-width="2"/>
+              <polyline points="125,68 227,90 329,86 431,90 533,96 635,90 737,96 839,100" fill="none" stroke="#F26B6B" stroke-width="2"/>
+              <g font-family="JetBrains Mono" font-size="9" fill="#5F6B7C">
+                <text x="125" y="168">0s</text><text x="329" y="168">30s</text><text x="533" y="168">60s</text><text x="737" y="168">90s</text>
+                <text x="38" y="143">0</text><text x="32" y="103">25</text><text x="32" y="63">50</text><text x="32" y="23">75</text>
+              </g>
+            </svg>
+          </div>
+          <div class="toolbar">
+            <div class="group">
+              <button title="Home"><i data-lucide="house"></i></button>
+              <button title="Back"><i data-lucide="chevron-left"></i></button>
+              <button title="Forward"><i data-lucide="chevron-right"></i></button>
+            </div>
+            <div class="group">
+              <button title="Pan"><i data-lucide="move"></i></button>
+              <button class="on" title="Zoom"><i data-lucide="zoom-in"></i></button>
+            </div>
+            <div class="group">
+              <button title="Configure"><i data-lucide="settings-2"></i></button>
+              <button title="Save figure"><i data-lucide="download"></i></button>
+            </div>
+            <span class="coords">x = 47.20  ·  y = 28.4</span>
+          </div>
+        </div>
+
+        <div class="mockup-label">Same card · Publication preview toggled on</div>
+        <div class="figure-card" style="margin-bottom: var(--s-4);">
+          <div class="head">
+            <h3>Trace · channel W15</h3>
+            <span class="chip"><span class="d" style="background: var(--warn)"></span>preview only</span>
+            <span class="grow"></span>
+            <span class="theme-toggle">
+              <button><i data-lucide="moon"></i>Screen</button>
+              <button class="on" aria-selected="true"><i data-lucide="sun"></i>Publication</button>
+            </span>
+          </div>
+          <div class="fig-canvas-light">
+            <svg class="plot-svg" viewBox="0 0 880 170" preserveAspectRatio="none">
+              <g stroke="#E5E7EB" stroke-width="1">
+                <line x1="60" y1="20"  x2="868" y2="20"/>
+                <line x1="60" y1="60"  x2="868" y2="60"/>
+                <line x1="60" y1="100" x2="868" y2="100"/>
+                <line x1="60" y1="140" x2="868" y2="140"/>
+              </g>
+              <line x1="60" y1="20" x2="60" y2="155" stroke="#4C5360" stroke-width="1.2"/>
+              <line x1="60" y1="155" x2="868" y2="155" stroke="#4C5360" stroke-width="1.2"/>
+              <line x1="60" y1="80" x2="868" y2="80" stroke="#C77E0A" stroke-dasharray="6 4" stroke-width="1.5"/>
+              <text x="68" y="76" font-family="Inter" font-size="10" fill="#8B5A07" font-weight="600">threshold · 50 AU</text>
+              <polyline points="125,55 227,75 329,72 431,78 533,85 635,78 737,85 839,90" fill="none" stroke="#1F4FB0" stroke-width="2"/>
+              <polyline points="125,68 227,90 329,86 431,90 533,96 635,90 737,96 839,100" fill="none" stroke="#B02C2C" stroke-width="2"/>
+              <g font-family="JetBrains Mono" font-size="9" fill="#4C5360">
+                <text x="125" y="168">0s</text><text x="329" y="168">30s</text><text x="533" y="168">60s</text><text x="737" y="168">90s</text>
+                <text x="38" y="143">0</text><text x="32" y="103">25</text><text x="32" y="63">50</text><text x="32" y="23">75</text>
+              </g>
+            </svg>
+          </div>
+          <div class="toolbar">
+            <div class="group">
+              <button><i data-lucide="house"></i></button>
+              <button><i data-lucide="chevron-left"></i></button>
+              <button><i data-lucide="chevron-right"></i></button>
+            </div>
+            <div class="group">
+              <button><i data-lucide="move"></i></button>
+              <button class="on"><i data-lucide="zoom-in"></i></button>
+            </div>
+            <div class="group">
+              <button><i data-lucide="settings-2"></i></button>
+              <button><i data-lucide="download"></i></button>
+            </div>
+            <span class="coords">x = 47.20  ·  y = 28.4</span>
+          </div>
+        </div>
+
+        <div class="mockup-label">Export dialog · theme selection</div>
+        <div class="dialog">
+          <div class="head">
+            <i data-lucide="download" style="width:14px;height:14px;color:var(--text-secondary)"></i>
+            <h4>Export figure</h4>
+            <span class="close"><button class="btn ghost icon"><i data-lucide="x"></i></button></span>
+          </div>
+          <div class="body">
+            <div class="row">
+              <label>Theme</label>
+              <div class="radio-group">
+                <label class="opt sel">
+                  <span class="dot"></span>
+                  <span><b>Publication</b><span class="desc">White background, dark text — for papers &amp; slides</span></span>
+                  <span class="preview" style="background:#FFFFFF; border-color:#E5E7EB"></span>
+                </label>
+                <label class="opt">
+                  <span class="dot"></span>
+                  <span><b>Screen</b><span class="desc">Dark background — matches the in-app view</span></span>
+                  <span class="preview" style="background:#0B0F17; border-color:#1B2331"></span>
+                </label>
+                <label class="opt">
+                  <span class="dot"></span>
+                  <span><b>Transparent</b><span class="desc">Axes &amp; traces only — for composite figures</span></span>
+                  <span class="preview" style="background:
+                    repeating-conic-gradient(#2A3343 0% 25%, transparent 0% 50%) 50% / 8px 8px"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row">
+              <label>Format</label>
+              <span class="seg">
+                <button class="on">PNG</button>
+                <button>SVG</button>
+                <button>PDF</button>
+                <button>EPS</button>
+              </span>
+            </div>
+            <div class="row">
+              <label>Size</label>
+              <span style="display:flex;gap:6px;align-items:center;font:500 12px/1 var(--font-mono);color:var(--text-secondary)">
+                <span class="chip">7.0 × 4.5 in</span>
+                <span class="chip">300 dpi</span>
+                <span class="chip">2100 × 1350 px</span>
+              </span>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn ghost">Cancel</button>
+            <button class="btn primary"><i data-lucide="download"></i>Export</button>
+          </div>
+        </div>
+      </div>
+      <aside class="annot">
+        <h4>How it behaves</h4>
+        <ul>
+          <li><b>Screen</b> is the default and the canvas state. The toggle never persists between sessions — opening a file always lands on Screen.</li>
+          <li><b>Publication</b> is a <i>preview</i>: the canvas re-renders white, fonts switch to publication-safe weights, axes thicken to 1.2 px, the trace palette shifts to higher-contrast publication variants (deeper blue, deeper red).</li>
+          <li>While Publication is active, the figure header shows a <b>"preview only"</b> warning chip so the user is never confused about why everything is white.</li>
+          <li>The export dialog reads the current preview state — if Publication is on, it pre-selects "Publication" so a one-click export gives what you see.</li>
+          <li><b>Transparent</b> exists only in the export dialog (not as a preview) because there's no useful canvas state for it.</li>
+        </ul>
+        <div class="note">
+          <b>Implementation note.</b> Matplotlib's <code>rcParams</code> is keyed to the theme; toggling the segmented control swaps <code>rcParams</code> and calls <code>canvas.draw_idle()</code>. The export reuses the same rcParams stack, so export and preview are guaranteed to match.
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       §2 — SEM/SD, FOV/Spread
+       ========================================================================= -->
+  <section class="add" id="a2">
+    <div class="add-head">
+      <div class="add-num">02</div>
+      <div>
+        <h2>Statistics: SEM/SD &amp; FOV/Spread</h2>
+        <p>
+          These lived in the old matplotlib toolbar and have no obvious new home. They're <b>display</b> options for aggregated data, not navigation. They belong with other display controls in the Properties panel — and get a quick-access popover in the figure header for users who reach for them constantly.
+        </p>
+      </div>
+      <div class="add-status"><span class="d"></span>Relocated</div>
+    </div>
+    <div class="split">
+      <div>
+        <div class="mockup-label">Properties panel · new "Statistics" section</div>
+        <div class="mockup" style="background: var(--bg-rail); padding: 0; display: flex; gap: var(--s-5); align-items: flex-start;">
+          <div class="prop-panel" style="border: none">
+            <div class="prop-section">
+              <div class="prop-head">
+                <span class="chev"><i data-lucide="chevron-down"></i></span>
+                <span class="title">Statistics</span>
+                <span class="preview">SEM · spread</span>
+              </div>
+              <div class="prop-body">
+                <div class="prop-row">
+                  <label>Error bars</label>
+                  <span class="seg">
+                    <button>None</button>
+                    <button class="on"><span class="error-preview"><span class="cap"></span><span class="stem"></span><span class="cap"></span></span>SEM</button>
+                    <button><span class="error-preview"><span class="cap"></span><span class="stem"></span><span class="cap"></span></span>SD</button>
+                    <button>95% CI</button>
+                  </span>
+                </div>
+                <div class="prop-row">
+                  <label>Across</label>
+                  <span class="seg">
+                    <button class="on">Replicates</button>
+                    <button>FOV</button>
+                  </span>
+                </div>
+                <div class="prop-row">
+                  <label>Show</label>
+                  <span class="seg">
+                    <button>Mean</button>
+                    <button class="on">Mean + spread</button>
+                    <button>All points</button>
+                  </span>
+                </div>
+                <div class="prop-row">
+                  <label>n shown</label>
+                  <span style="display:flex;align-items:center;gap:6px"><input type="checkbox" checked style="accent-color: var(--accent)"/><span style="font-size:var(--fs-small);color:var(--text-secondary)">in legend &amp; tooltips</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="prop-section">
+              <div class="prop-head">
+                <span class="chev"><i data-lucide="chevron-right"></i></span>
+                <span class="title">Appearance</span>
+                <span class="preview"><span class="d" style="width:10px;height:10px;border-radius:50%;background:var(--trace-1);display:inline-block"></span></span>
+              </div>
+            </div>
+          </div>
+
+          <div style="position: relative;">
+            <div class="mockup-label">Quick popover · figure header "stats" chip</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--s-3);">
+              <span class="chip on"><i data-lucide="sigma" style="width:11px;height:11px"></i>Stats · SEM</span>
+              <span style="font-size:11px;color:var(--text-muted)">↓ click opens</span>
+            </div>
+            <div class="popover">
+              <h6>Statistics</h6>
+              <div class="row">
+                <label>Bars</label>
+                <span class="seg">
+                  <button>—</button>
+                  <button class="on">SEM</button>
+                  <button>SD</button>
+                </span>
+              </div>
+              <div class="row">
+                <label>Across</label>
+                <span class="seg">
+                  <button class="on">Reps</button>
+                  <button>FOV</button>
+                </span>
+              </div>
+              <div class="row" style="margin-bottom:0">
+                <label>Show</label>
+                <span class="seg">
+                  <button>μ</button>
+                  <button class="on">μ ± σ</button>
+                  <button>raw</button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="annot">
+        <h4>Two surfaces, one source of truth</h4>
+        <ul>
+          <li><b>Primary home:</b> a new "Statistics" section in the Properties panel, between "Data" and "Appearance". Closed by default once configured.</li>
+          <li><b>Live preview value</b> in the collapsed header (<i>"SEM · spread"</i>) tells you the current state without expanding.</li>
+          <li><b>Quick popover:</b> a "Stats · SEM" chip in the figure header opens the same three controls in a compact popover. Use when you toggle constantly during exploration.</li>
+          <li><b>Across · Replicates / FOV:</b> renamed from "FOV/Spread" — the old term conflated the data axis (FOV vs replicates) with the display style (spread vs bars). Now the data axis is the <i>Across</i> control and the display style is <i>Show</i>.</li>
+          <li>Keyboard: <span class="kbd">E</span> cycles error-bar types, <span class="kbd">⇧E</span> toggles Replicates ↔ FOV. Discoverable via tooltips on the segmented buttons.</li>
+        </ul>
+        <div class="note">
+          <b>Why move from the toolbar?</b> The toolbar is for <i>navigation</i> (home/pan/zoom/save) — actions that take the figure somewhere. Stats toggles change what the data <i>says</i>. Mixing them confused users who treated SEM/SD like a pan tool ("how do I turn it off?"). Separating navigation from display fixes that.
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       §3 — Saved selections panel
+       ========================================================================= -->
+  <section class="add" id="a3">
+    <div class="add-head">
+      <div class="add-num">03</div>
+      <div>
+        <h2>Saved selections — unified panel</h2>
+        <p>
+          Replaces the legacy "replicate sets" and "bar groups" panels with one ordered list. Every saved selection has: a visibility toggle, color, name, well count, sub-item chips, and a kebab menu. Drag to reorder; rename inline; right-click for full actions.
+        </p>
+      </div>
+      <div class="add-status"><span class="d"></span>Replaces 2 panels</div>
+    </div>
+    <div class="split">
+      <div>
+        <div class="mockup-label">Selections panel · default state</div>
+        <div class="mockup" style="background: var(--bg-app); padding: var(--s-4); display: flex; gap: var(--s-5); align-items: flex-start;">
+          <div class="sel-panel">
+            <div class="ph">
+              <h6 class="h6">Saved selections</h6>
+              <span class="grow"></span>
+              <button class="btn ghost icon" title="Sort"><i data-lucide="arrow-up-down"></i></button>
+              <button class="btn ghost icon" title="Collapse all"><i data-lucide="chevrons-down-up"></i></button>
+            </div>
+            <div class="sel-list">
+              <!-- expanded -->
+              <div class="sel-row sel">
+                <span class="grip"><i data-lucide="grip-vertical"></i></span>
+                <button class="eye" title="Visible"><i data-lucide="eye"></i></button>
+                <span class="dot" style="background: var(--trace-1)"></span>
+                <span class="name">Control · DMSO</span>
+                <span class="count">12</span>
+                <button class="kebab"><i data-lucide="ellipsis"></i></button>
+              </div>
+              <div class="sel-expand">
+                <span class="well-chip"><span class="d" style="background:var(--trace-1)"></span>A01</span>
+                <span class="well-chip"><span class="d" style="background:var(--trace-1)"></span>A02</span>
+                <span class="well-chip"><span class="d" style="background:var(--trace-1)"></span>A03</span>
+                <span class="well-chip"><span class="d" style="background:var(--trace-1)"></span>B01</span>
+                <span class="well-chip"><span class="d" style="background:var(--trace-1)"></span>B02</span>
+                <span class="well-chip"><span class="d" style="background:var(--trace-1)"></span>B03</span>
+                <span class="well-chip">+6</span>
+                <span class="well-chip add">+ add</span>
+              </div>
+
+              <div class="sel-row">
+                <span class="grip"><i data-lucide="grip-vertical"></i></span>
+                <button class="eye"><i data-lucide="eye"></i></button>
+                <span class="dot" style="background: var(--trace-2)"></span>
+                <span class="name">Drug A · 10µM</span>
+                <span class="count">8</span>
+                <button class="kebab"><i data-lucide="ellipsis"></i></button>
+              </div>
+
+              <div class="sel-row">
+                <span class="grip"><i data-lucide="grip-vertical"></i></span>
+                <button class="eye"><i data-lucide="eye"></i></button>
+                <span class="dot" style="background: var(--trace-3)"></span>
+                <span class="name">Drug A · 30µM</span>
+                <span class="count">8</span>
+                <button class="kebab"><i data-lucide="ellipsis"></i></button>
+              </div>
+
+              <!-- inline rename -->
+              <div class="sel-row editing">
+                <span class="grip"><i data-lucide="grip-vertical"></i></span>
+                <button class="eye"><i data-lucide="eye"></i></button>
+                <span class="dot" style="background: var(--trace-4)"></span>
+                <span class="name" contenteditable="false">Drug B · 10µM_v2|</span>
+                <span class="count">8</span>
+                <button class="kebab"><i data-lucide="ellipsis"></i></button>
+              </div>
+
+              <!-- hidden -->
+              <div class="sel-row hidden">
+                <span class="grip"><i data-lucide="grip-vertical"></i></span>
+                <button class="eye"><i data-lucide="eye-off"></i></button>
+                <span class="dot" style="background: var(--text-faint)"></span>
+                <span class="name">Outliers · excluded</span>
+                <span class="count">4</span>
+                <button class="kebab"><i data-lucide="ellipsis"></i></button>
+              </div>
+
+              <!-- dragging -->
+              <div class="sel-row" style="opacity:.5;outline:1px dashed var(--accent);outline-offset:-1px">
+                <span class="grip" style="color:var(--accent)"><i data-lucide="grip-vertical"></i></span>
+                <button class="eye"><i data-lucide="eye"></i></button>
+                <span class="dot" style="background: #b06bfd"></span>
+                <span class="name">Vehicle wash-in</span>
+                <span class="count">6</span>
+                <button class="kebab"><i data-lucide="ellipsis"></i></button>
+              </div>
+            </div>
+            <div class="foot">
+              <button class="btn"><i data-lucide="plus"></i>From selection</button>
+              <button class="btn ghost"><i data-lucide="upload"></i>Import…</button>
+            </div>
+          </div>
+
+          <!-- context menu -->
+          <div style="margin-top: 90px;">
+            <div class="mockup-label">Right-click on a row</div>
+            <div class="menu">
+              <button><i data-lucide="pencil"></i>Rename<span class="k">F2</span></button>
+              <button><i data-lucide="palette"></i>Change color…</button>
+              <button><i data-lucide="copy"></i>Duplicate<span class="k">⌘D</span></button>
+              <button><i data-lucide="eye-off"></i>Hide<span class="k">H</span></button>
+              <hr/>
+              <button><i data-lucide="arrow-up"></i>Move up<span class="k">⌥↑</span></button>
+              <button><i data-lucide="arrow-down"></i>Move down<span class="k">⌥↓</span></button>
+              <hr/>
+              <button><i data-lucide="download"></i>Export selection…</button>
+              <button class="danger"><i data-lucide="trash-2"></i>Delete<span class="k">⌫</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="annot">
+        <h4>Replaces replicate-set &amp; bar-group</h4>
+        <ul>
+          <li>One panel, one mental model. A saved selection <i>is</i> a replicate set; bar plots simply render selections side-by-side in this order.</li>
+          <li><b>Drag handle (left):</b> reorder. Order here = order in bar plots and legend. <span class="kbd">⌥↑/↓</span> as a keyboard alternative.</li>
+          <li><b>Eye toggle:</b> hides the selection from all plots without deleting it. Hidden rows fade, strike through the name, and pin to the bottom of the list.</li>
+          <li><b>Color dot:</b> click to open the curated color row + free-form picker (see §4). Hidden selections always show <code>text-faint</code> until shown again.</li>
+          <li><b>Inline rename:</b> double-click the name or press <span class="kbd">F2</span>. Esc cancels, Enter commits.</li>
+          <li><b>Expand chevron:</b> the row itself expands to show <b>sub-item chips</b> — each well in the selection, with a per-well dot. <i>+ add</i> chip lets you append directly without going back to the plate.</li>
+          <li><b>Kebab / right-click:</b> rename, recolor, duplicate, hide, reorder, export-to-CSV, delete (with confirmation).</li>
+          <li><b>Footer actions:</b> <i>From selection</i> turns the current plate selection into a new saved row. <i>Import</i> reads a CSV with <code>name,wells,color</code> columns.</li>
+        </ul>
+        <div class="note">
+          <b>Migration.</b> Existing files with separate <code>replicate_sets</code> and <code>bar_groups</code> blobs merge into one <code>selections</code> list on load. Bar-group ordering becomes selection order; replicate-set names become selection names; conflicts append <code>_v2</code> (and the inline-rename mockup above shows what that looks like in practice).
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       §4 — Color picker + LUT selector
+       ========================================================================= -->
+  <section class="add" id="a4">
+    <div class="add-head">
+      <div class="add-num">04</div>
+      <div>
+        <h2>Color picker &amp; LUT selector</h2>
+        <p>
+          Two related but distinct controls. Review-image <b>colors</b> need a free-form picker (curated palette + custom HSV picker + recents). Review-image <b>LUTs</b> (lookup tables / colormaps) are a long, categorized list that benefits from search and inline preview strips.
+        </p>
+      </div>
+      <div class="add-status"><span class="d"></span>New + extended</div>
+    </div>
+
+    <div class="split">
+      <div>
+        <div class="mockup-label">Color picker · curated row + "Custom" tile</div>
+        <div class="mockup" style="display: flex; gap: var(--s-5); align-items: flex-start;">
+          <div style="flex:1;min-width:0">
+            <div class="prop-row" style="grid-template-columns: 88px 1fr; margin-bottom: var(--s-3);">
+              <label style="font: 500 var(--fs-small)/1 var(--font-sans); color: var(--text-secondary);">Trace color</label>
+              <div>
+                <div class="swatch-row">
+                  <div class="swatch" style="background: var(--trace-1)"></div>
+                  <div class="swatch sel" style="background: var(--trace-2)"></div>
+                  <div class="swatch" style="background: var(--trace-3)"></div>
+                  <div class="swatch" style="background: var(--trace-4)"></div>
+                  <div class="swatch" style="background: #b06bfd"></div>
+                  <div class="swatch" style="background: #14b8a6"></div>
+                  <div class="swatch custom" title="Custom"></div>
+                </div>
+                <div style="margin-top:6px;font:500 11px/1.4 var(--font-mono);color:var(--text-muted);">
+                  #F26B6B  ·  hsl(0, 84%, 68%)
+                </div>
+              </div>
+            </div>
+            <div style="display:inline-block">
+              <div class="mockup-label">Custom… opens free-form picker</div>
+              <div class="picker">
+                <div class="sv"><div class="knob"></div></div>
+                <div class="hue"><div class="knob"></div></div>
+                <div class="fields">
+                  <div class="field"><label>Hex</label><input value="#5B9BF8"/></div>
+                  <div class="field"><label>Alpha</label><input value="100%"/></div>
+                  <div class="field"><label>H</label><input value="212"/></div>
+                  <div class="field"><label>S</label><input value="92"/></div>
+                  <div class="field"><label>V</label><input value="97"/></div>
+                  <div class="field"><label>L</label><input value="67"/></div>
+                </div>
+                <div class="recent">
+                  <div class="h6" style="margin-bottom: 4px; font-size: 10px;">Recents</div>
+                  <div class="swatch-row">
+                    <div class="swatch" style="background: #5B9BF8; width:18px;height:18px"></div>
+                    <div class="swatch" style="background: #F26B6B; width:18px;height:18px"></div>
+                    <div class="swatch" style="background: #4ADE80; width:18px;height:18px"></div>
+                    <div class="swatch" style="background: #b06bfd; width:18px;height:18px"></div>
+                    <div class="swatch" style="background: #14b8a6; width:18px;height:18px"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mockup-label" style="margin-top: var(--s-5);">LUT selector · searchable, categorized</div>
+        <div class="mockup" style="display:flex;gap:var(--s-5);align-items:flex-start">
+          <div style="flex:1">
+            <div class="prop-row" style="grid-template-columns: 88px 1fr; margin-bottom: var(--s-3);">
+              <label style="font: 500 var(--fs-small)/1 var(--font-sans); color: var(--text-secondary);">Image LUT</label>
+              <div style="display:flex;align-items:center;gap:var(--s-2)">
+                <button class="btn" style="display:flex;align-items:center;gap:8px;padding-right:var(--s-2)">
+                  <span class="strip lut-viridis" style="width:48px;height:12px;border-radius:2px;display:inline-block"></span>
+                  <span style="font-family:var(--font-mono);font-size:11px">viridis</span>
+                  <i data-lucide="chevron-down" style="width:13px;height:13px;color:var(--text-muted);margin-left:4px"></i>
+                </button>
+                <button class="btn ghost icon" title="Reverse"><i data-lucide="arrow-left-right"></i></button>
+                <button class="btn ghost icon" title="Reset"><i data-lucide="rotate-ccw"></i></button>
+              </div>
+            </div>
+            <div class="lut-select">
+              <div class="head">
+                <i data-lucide="search"></i>
+                <input placeholder="Find LUT…" value="vir"/>
+                <span style="font:500 10px/1 var(--font-mono);color:var(--text-faint)">3 / 27</span>
+              </div>
+              <div class="body">
+                <div class="lut-cat">Perceptual · sequential</div>
+                <div class="lut-row sel">
+                  <span class="strip lut-viridis"></span>
+                  <span class="name">viridis</span>
+                  <span class="check"><i data-lucide="check"></i></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-plasma"></span>
+                  <span class="name">plasma</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-magma"></span>
+                  <span class="name">magma</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-inferno"></span>
+                  <span class="name">inferno</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-cividis"></span>
+                  <span class="name">cividis</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-rocket"></span>
+                  <span class="name">rocket</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-mako"></span>
+                  <span class="name">mako</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-cat">Diverging</div>
+                <div class="lut-row">
+                  <span class="strip lut-rdbu"></span>
+                  <span class="name">RdBu_r</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-piyg"></span>
+                  <span class="name">PiYG</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-coolwarm"></span>
+                  <span class="name">coolwarm</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-cat">Categorical</div>
+                <div class="lut-row">
+                  <span class="strip lut-tab10"></span>
+                  <span class="name">tab10</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-row">
+                  <span class="strip lut-set2"></span>
+                  <span class="name">Set2</span>
+                  <span class="check"></span>
+                </div>
+                <div class="lut-cat">Cyclic</div>
+                <div class="lut-row">
+                  <span class="strip lut-twilight"></span>
+                  <span class="name">twilight</span>
+                  <span class="check"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <aside class="annot">
+        <h4>Picker · how it composes</h4>
+        <ul>
+          <li><b>Curated row first.</b> Six brand-matched swatches cover ~90% of use. Selected swatch gets a 2-px accent outline (offset 2 px).</li>
+          <li><b>Custom tile.</b> The conic-gradient + "+" tile opens the free-form picker. It's the last item in the row so the curated set stays a quick-pick.</li>
+          <li><b>Picker structure.</b> SV square (saturation × value) → hue slider → numeric fields (Hex + HSL + Alpha) → recents row. No eyedropper — recents covers that ground without OS-permission complexity.</li>
+          <li><b>Recents</b> persist per dataset, capped at 8. Click any recent to apply.</li>
+        </ul>
+        <h4 style="margin-top: var(--s-4)">LUT selector · how it composes</h4>
+        <ul>
+          <li><b>Trigger</b> is a button showing the current LUT's gradient strip + name. Two ghost icons sit beside it: <i>reverse</i> (flips the LUT) and <i>reset</i> (back to default for this channel type).</li>
+          <li><b>Open state</b> is a popover with a search input at the top and four categories: <i>Perceptual</i>, <i>Diverging</i>, <i>Categorical</i>, <i>Cyclic</i>. Search filters across all categories live.</li>
+          <li><b>Each row</b>: 60-px gradient strip, monospace name, checkmark for the active LUT. The strip is the real LUT — not a sample image — so what you see is what you'll get on the image.</li>
+          <li><b>Match count</b> in the header ("3 / 27") gives feedback when the search filter is narrow.</li>
+        </ul>
+        <div class="note">
+          <b>Why split picker from LUT?</b> Picking a color for a trace is single-value. Picking a LUT is choosing a function (intensity → color). Different problems, different UI affordances. Reusing the curated row for LUTs would force tradeoffs that hurt both.
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       §5 — Titlebar decision
+       ========================================================================= -->
+  <section class="add" id="a5">
+    <div class="add-head">
+      <div class="add-num">05</div>
+      <div>
+        <h2>Titlebar — keep custom, finish affordances</h2>
+        <p>
+          Recommendation: <b>keep the custom titlebar</b>. The breadcrumb + file chip + save-status dot are integral to the design language — surrendering them to a native bar fragments the chrome. Below: every previously-missing affordance specified in the v2 vocabulary.
+        </p>
+      </div>
+      <div class="add-status"><span class="d"></span>Decision + spec</div>
+    </div>
+
+    <div class="split">
+      <div>
+        <div class="mockup-label">Titlebar · Windows / Linux layout (controls right)</div>
+        <div class="mockup" style="padding:var(--s-4)">
+          <div class="titlebar">
+            <div class="resize-edge"></div>
+            <div class="tb-brand">
+              <button class="logo" title="App menu — open dataset, preferences…"></button>
+              <b>All-Well</b>
+            </div>
+            <div class="tb-crumb">
+              <span>Workspace</span>
+              <span class="sep">·</span>
+              <span>2025-Q2 · Drug Screen</span>
+              <span class="sep">/</span>
+              <span class="file"><span class="dot" title="All changes saved"></span>plate-042.awd</span>
+            </div>
+            <div class="tb-actions">
+              <button class="btn ghost"><i data-lucide="folder-open"></i>Open</button>
+              <button class="btn ghost icon" title="Theme"><i data-lucide="sun-moon"></i></button>
+              <button class="btn ghost icon" title="Settings"><i data-lucide="settings"></i></button>
+              <button class="btn primary"><i data-lucide="share-2"></i>Share</button>
+            </div>
+            <div class="tb-window">
+              <button title="Minimize"><i data-lucide="minus"></i></button>
+              <button title="Maximize"><i data-lucide="square"></i></button>
+              <button class="close" title="Close"><i data-lucide="x"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mockup-label">Titlebar · macOS layout (traffic lights left, no min/max in tb)</div>
+        <div class="mockup" style="padding:var(--s-4)">
+          <div class="titlebar" style="grid-template-columns: auto 260px 1fr auto;">
+            <div class="resize-edge"></div>
+            <div class="tb-mac" style="border-right:1px solid var(--border-subtle);padding-right:var(--s-3)">
+              <span class="light close"></span>
+              <span class="light min"></span>
+              <span class="light max"></span>
+            </div>
+            <div class="tb-brand">
+              <button class="logo" style="margin-left:0"></button>
+              <b>All-Well</b>
+            </div>
+            <div class="tb-crumb">
+              <span>Workspace</span>
+              <span class="sep">·</span>
+              <span>2025-Q2 · Drug Screen</span>
+              <span class="sep">/</span>
+              <span class="file"><span class="dot"></span>plate-042.awd</span>
+            </div>
+            <div class="tb-actions">
+              <button class="btn ghost"><i data-lucide="folder-open"></i>Open</button>
+              <button class="btn ghost icon" title="Theme"><i data-lucide="sun-moon"></i></button>
+              <button class="btn ghost icon" title="Settings"><i data-lucide="settings"></i></button>
+              <button class="btn primary"><i data-lucide="share-2"></i>Share</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mockup-label">Theme switcher popover (anchored to sun-moon icon)</div>
+        <div class="mockup" style="padding:var(--s-4)">
+          <div class="theme-popover">
+            <div class="h6" style="margin-bottom: 4px">Appearance</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">App chrome only — plot theme is separate (see §1).</div>
+            <div class="theme-tiles">
+              <div class="theme-tile dark sel"><div class="sw"></div><div class="lbl">Dark</div></div>
+              <div class="theme-tile light"><div class="sw"></div><div class="lbl">Light</div></div>
+              <div class="theme-tile system"><div class="sw"></div><div class="lbl">System</div></div>
+            </div>
+            <hr style="margin: var(--s-3) 0; border: none; border-top: 1px solid var(--border-subtle);"/>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--s-2)">
+              <span style="font:500 var(--fs-small)/1 var(--font-sans);color:var(--text-secondary)">High contrast</span>
+              <span class="seg">
+                <button class="on">Off</button>
+                <button>On</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="annot">
+        <h4>Why keep custom</h4>
+        <ul>
+          <li>The titlebar carries three load-bearing affordances — <b>breadcrumb</b>, <b>file chip with save-state dot</b>, <b>primary action (Share)</b>. None of these can live in a native bar without splitting the chrome.</li>
+          <li>The dark theme is the brand. A platform-styled bar at the top breaks the design's identity on every platform differently.</li>
+          <li>Native bars vary too much across platforms (different fonts, button styles, draggable areas) to design once.</li>
+        </ul>
+        <h4 style="margin-top:var(--s-4)">Missing affordances — now specified</h4>
+        <ul>
+          <li><b>Min / max / close.</b> Windows/Linux: 28-px icon buttons in a separator-divided group at the far right. Hovered "close" turns danger-red. macOS: traffic lights on the far left in their native colors; min/max are not in the bar (they live on the lights).</li>
+          <li><b>Resize grips.</b> 4-px transparent strip along the top edge (<code>ns-resize</code> cursor), 6-px on each side (<code>ew-resize</code>), 8-px corners (<code>nwse/nesw</code>). In Qt: invisible child widgets calling <code>windowHandle().startSystemResize(edge)</code>.</li>
+          <li><b>Open dataset.</b> A ghost <i>Open</i> button in the actions area is the primary path. <span class="kbd">⌘O</span> is the keyboard path. The brand-logo button (with the small ▾) is the secondary path — it opens an app menu containing Open, Recent files, Preferences, About, Quit.</li>
+          <li><b>Theme switcher.</b> A sun/moon icon button in the actions area opens the popover shown left. Three tiles (Dark · Light · System) + a "High contrast" toggle. Persists to user settings.</li>
+          <li><b>Drag area.</b> Anywhere in the titlebar that isn't a button or input. Standard chrome behavior: double-click to maximize, drag to move via <code>startSystemMove()</code>.</li>
+        </ul>
+        <div class="note">
+          <b>Fallback.</b> If accessibility audit reveals that the custom bar misbehaves with a screen reader or platform-specific power-user tools (window snapping on Windows, Mission Control gestures on macOS), the v2 titlebar can degrade to native by setting <code>Qt.FramelessWindowHint = False</code> — the breadcrumb and actions move to a second 36-px strip below the OS bar. Mockup for that fallback exists in the PyQt6 notes appendix.
+        </div>
+      </aside>
+    </div>
+  </section>
+
+</div>
+<script>
+  if (window.lucide && lucide.createIcons) lucide.createIcons();
+</script>
+</body>
+</html>

@@ -73,6 +73,21 @@ These are categorical colors keyed to **wells** on the plate. Well A01 always ge
 | `--plot-grid`  | `#1F2733` | Gridlines inside the matplotlib-style figure.        |
 | `--plot-spine` | `#3A4658` | Axis spines (left & bottom).                         |
 
+### 1.7b Publication-preview surface (NEW in v3 — see Additions §1)
+
+Used when the user toggles **Publication preview** in the figure header, and as the default background for **exported** figures. This is a *plot-canvas* theme, not an app-chrome theme — the surrounding panel stays dark even while the figure interior is white. In matplotlib, swap `rcParams` (`figure.facecolor`, `axes.facecolor`, `axes.edgecolor`, `xtick/ytick.color`, `text.color`, `grid.color`) to these values.
+
+| Token              | Hex       | Purpose                                                                     |
+|--------------------|-----------|-----------------------------------------------------------------------------|
+| `--pub-bg`         | `#FFFFFF` | Figure facecolor — pure white for print/paper.                              |
+| `--pub-bg-subtle`  | `#F8F9FB` | Off-white for axes facecolor when a slight inset reads better than pure white.|
+| `--pub-text`       | `#1A1D24` | Title/label text on the white surface.                                      |
+| `--pub-text-muted` | `#4C5360` | Tick labels, secondary annotations.                                         |
+| `--pub-grid`       | `#E5E7EB` | Gridlines in publication mode.                                              |
+| `--pub-spine`      | `#4C5360` | Axis spines in publication mode (slightly heavier than `--pub-text-muted` to anchor the plot). |
+
+Publication-mode trace colors are darkened variants of `--trace-*` (deeper blue `#1F4FB0`, deeper red `#B02C2C`, etc.) chosen for AA contrast against `--pub-bg`. Maintain a parallel `TRACE_PUB = [...]` list in `tokens.py`.
+
 ### 1.8 Selected-well gradients (NOT plain colors — for fidelity)
 
 Selected wells use radial gradients to read as "lit chips". Each trace has its own 3-stop gradient. In PyQt6 use `QRadialGradient` centered at 35% / 30% with the same three stops.
