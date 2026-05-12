@@ -582,8 +582,12 @@ the migration self-test still `ALL PASS`.
   group/rep then Save → reopen** (the Stage-A save fix must persist the edit),
   confirm `pipeline_info.json.pre-v2-backup` exists and restores cleanly;
   `python well_viewer/_selftest_migration.py` → `ALL PASS`.
-- **`batch_export/*`** — `base_panel.py` still has `WELL_COLORS[gi % len]` /
-  `WELL_COLORS[mi % len]` colour assignments (4 sites) — next colour cluster.
+- ~~`batch_export/*` colours~~ — **done**: `base_panel.py`'s plate map, single-well
+  refresh, group cards, and per-member overlay traces now use
+  `self._app._rank_color_rset` / `_rank_color_well` (last-group-wins for shared
+  wells); `scatter_panel.py` needs no change (it forwards through the now
+  rank-aware scatter collectors). `WELL_COLORS` is left imported-but-unused in
+  `base_panel.py`.
 - **Statistics-tab *widget* styling** — the Statistics tab still uses the
   *legacy* `_stats_map_btns` QPushButton plate (themed to match `#WellButton`
   in `theme.qss()`), **not** the v2 `widgets.WellPlateSelector` that the left

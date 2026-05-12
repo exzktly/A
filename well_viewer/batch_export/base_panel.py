@@ -470,9 +470,9 @@ class BatchExportPanel(QWidget):
         btn = self._map_btns.get(tok)
         if btn is None or tok not in self._app._well_paths:
             return
-        for gi, g in enumerate(self._groups):
+        for g in self._groups:
             if tok in g.wells:
-                c = WELL_COLORS[gi % len(WELL_COLORS)]
+                c = self._app._rank_color_rset(g)  # decision #1: colour by well-position rank
                 btn.set_colors(c, _CLR_WHITE)
                 return
         btn.set_colors(get_color("BG_CELL"), get_color("TXT_PRI"))
@@ -480,10 +480,10 @@ class BatchExportPanel(QWidget):
     def _refresh_map(self) -> None:
         avail = set(self._app._well_paths.keys())
         tok_color: Dict[str, str] = {}
-        for gi, grp in enumerate(self._groups):
-            c = WELL_COLORS[gi % len(WELL_COLORS)]
+        for grp in self._groups:
+            c = self._app._rank_color_rset(grp)  # decision #1: colour by well-position rank
             for w in grp.wells:
-                tok_color.setdefault(w, c)
+                tok_color[w] = c   # last group wins — matches the main-viewer plates
         active_wells: set = set()
         grp = self._active_group()
         if grp:
@@ -527,7 +527,7 @@ class BatchExportPanel(QWidget):
 
     def _build_group_card(self, gi: int, grp: BarGroup) -> QWidget:
         is_sel = (gi == self._active_grp)
-        color = WELL_COLORS[gi % len(WELL_COLORS)]
+        color = self._app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         card = QFrame()
         card.setFrameShape(QFrame.StyledPanel)
         if is_sel:
@@ -1098,7 +1098,9 @@ class BatchExportPanel(QWidget):
         _cell_area_threshold = self._app._get_cell_area_threshold()
         _fluor_gates = self._app._get_all_fluor_gates()
         for mi, (member_type, member_key, valid_wells, display_name) in enumerate(members):
-            color = WELL_COLORS[mi % len(WELL_COLORS)]
+            # decision #1: each member coloured by its own well-position rank.
+            color = (self._app._rank_color_rset(member_key) if member_type == "replicate"
+                     else self._app._rank_color_well(member_key))
             if member_type == "replicate":
                 rset = member_key
                 fluor_chunks: list = []
