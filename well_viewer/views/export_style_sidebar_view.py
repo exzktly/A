@@ -30,11 +30,21 @@ from well_viewer.figure_export_editor import (
     apply_export_style_to_current,
 )
 
+# v2 chrome: this panel is composed from the custom widgets in ``widgets/``
+# (CollapsibleSection, ToggleSwitch) plus theme-styled stock widgets. The
+# binding layer (_bind_getter_setter / _getters / _setters / _persist /
+# apply_export_style_to_current) is unchanged — only the layout was re-skinned.
+import theme
+from widgets.collapsible_section import CollapsibleSection
+from widgets.toggle_switch import ToggleSwitch
+
 
 class ExportStyleSidebar(QWidget):
     def __init__(self, app, parent, fig, canvas, default_name: str):
         super().__init__(parent)
-        self.setObjectName("Card")
+        self.setObjectName("PropertyPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(f"#PropertyPanel {{ background-color: {theme.Colors.rail}; }}")
         self._app = app
         self._fig = fig
         self._canvas = canvas
@@ -45,7 +55,7 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(260)
+        self.setFixedWidth(296)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
@@ -72,319 +82,302 @@ class ExportStyleSidebar(QWidget):
             widget.textChanged.connect(lambda _t: self._on_fields_changed())
 
     def _build_ui(self) -> None:
+        sp = theme.Spacing
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(4)
+        root.setContentsMargins(sp.sm, sp.sm, sp.sm, sp.sm)
+        root.setSpacing(sp.sm)
 
+        # ── header ──────────────────────────────────────────────────────────
         hdr = QWidget(self)
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Export Style", hdr)
-        title.setProperty("role", "section")
+        hl.setContentsMargins(sp.xs, 0, 0, 0)
+        title = QLabel("Properties", hdr)
+        title.setObjectName("Heading")
         hl.addWidget(title)
         hl.addStretch(1)
-        close_btn = QPushButton("◂", hdr)
-        close_btn.setProperty("variant", "secondary")
+        close_btn = QPushButton("‹", hdr)
+        close_btn.setObjectName("Ghost")
         close_btn.setFixedWidth(28)
+        close_btn.setToolTip("Hide this panel")
         close_btn.clicked.connect(lambda _=False: self._close_dock())
         hl.addWidget(close_btn)
         root.addWidget(hdr)
 
+        # ── scrollable stack of CollapsibleSections ─────────────────────────
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         body = QWidget()
-        body.setObjectName("Card")
-        grid = QGridLayout(body)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(3)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(sp.sm)
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
 
-        row = 0
+        # Per-section grid bookkeeping: {section: [grid, next_row]}.
+        grids: dict[CollapsibleSection, list] = {}
 
-        def add_row(label: str, widget: QWidget, key: str | None = None) -> None:
-            nonlocal row
-            grid.addWidget(QLabel(label), row, 0)
-            grid.addWidget(widget, row, 1)
+        def section(name: str, *, expanded: bool = True) -> CollapsibleSection:
+            sec = CollapsibleSection(name, expanded=expanded)
+            grid = QGridLayout()
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setHorizontalSpacing(sp.sm)
+            grid.setVerticalSpacing(sp.xs)
+            grid.setColumnStretch(1, 1)
+            sec.addLayout(grid)
+            grids[sec] = [grid, 0]
+            body_layout.addWidget(sec)
+            return sec
+
+        def add_row(sec: CollapsibleSection, label: str, widget: QWidget,
+                    key: str | None = None) -> None:
+            grid, r = grids[sec]
+            if label:
+                grid.addWidget(QLabel(label), r, 0)
+                grid.addWidget(widget, r, 1)
+            else:
+                grid.addWidget(widget, r, 0, 1, 2)
             if key is not None:
                 self._bind_getter_setter(key, widget)
-            row += 1
+            grids[sec][1] = r + 1
 
-        self._profile_combo = QComboBox(body)
+        def add_full(sec: CollapsibleSection, widget: QWidget) -> None:
+            grid, r = grids[sec]
+            grid.addWidget(widget, r, 0, 1, 2)
+            grids[sec][1] = r + 1
+
+        def hrow(*items, spacing: int | None = None) -> QWidget:
+            host = QWidget()
+            hb = QHBoxLayout(host)
+            hb.setContentsMargins(0, 0, 0, 0)
+            hb.setSpacing(spacing if spacing is not None else sp.md)
+            for w in items:
+                hb.addWidget(w)
+            hb.addStretch(1)
+            return host
+
+        # ── Profile & Format ────────────────────────────────────────────────
+        s_profile = section("Profile & Format", expanded=True)
+        self._profile_combo = QComboBox()
         self._profile_combo.addItems(_get_all_profile_names(self._app))
         self._profile_combo.setCurrentText(str(self._prefs.get("export_profile", "Custom")))
         self._profile_combo.currentTextChanged.connect(lambda _t: self._on_profile_selected())
-        add_row("Profile", self._profile_combo, "export_profile")
-
-        fmt_cb = QComboBox(body)
+        add_row(s_profile, "Profile", self._profile_combo, "export_profile")
+        fmt_cb = QComboBox()
         fmt_cb.addItems(["png", "svg", "pdf", "eps"])
         fmt_cb.setCurrentText(str(self._prefs["format"]))
-        add_row("Format", fmt_cb, "format")
+        add_row(s_profile, "Format", fmt_cb, "format")
 
-        # Per-axis overrides for xlim/ylim/log scale so each axis keeps its
-        # own values when the user flips the Axis # dropdown. The flat
-        # ``_prefs`` keys reflect whatever axis is currently selected.
+        # Per-axis xlim/ylim/log buckets so each axis keeps its own values when
+        # the Axis # dropdown is flipped. Unchanged from the legacy panel — the
+        # flat ``_prefs`` keys reflect whatever axis is currently selected.
         self._axis_keys = (
             "x_lim_min", "x_lim_max", "y_lim_min", "y_lim_max",
             "x_log", "y_log",
         )
-        self._axis_buckets: dict[str, dict] = dict(
-            self._prefs.get("axis_buckets") or {}
-        )
+        self._axis_buckets: dict[str, dict] = dict(self._prefs.get("axis_buckets") or {})
         self._current_axis = str(self._prefs.get("axis_target", "All"))
         self._axis_buckets.setdefault(
-            self._current_axis,
-            {k: self._prefs.get(k) for k in self._axis_keys},
+            self._current_axis, {k: self._prefs.get(k) for k in self._axis_keys},
         )
 
-        axis_cb = QComboBox(body)
+        # ── Axes (incl. ticks) ──────────────────────────────────────────────
+        s_axes = section("Axes", expanded=True)
+        axis_cb = QComboBox()
         axis_cb.addItems(["All", *[str(i + 1) for i in range(len(self._fig.axes))]])
         axis_cb.setCurrentText(self._current_axis)
-        # NOTE: bind for getter/setter only — the apply chain is handled by
-        # the dedicated handler below so a dropdown switch doesn't push the
-        # currently displayed limits onto the newly selected axis.
-        grid.addWidget(QLabel("Axis #"), row, 0)
-        grid.addWidget(axis_cb, row, 1)
+        # Getter/setter only (no auto-apply): switching the target axis must
+        # not push the currently displayed limits onto the new one.
+        add_row(s_axes, "Axis #", axis_cb)
         self._getters["axis_target"] = axis_cb.currentText
         self._setters["axis_target"] = lambda v, w=axis_cb: w.setCurrentText(str(v))
         axis_cb.currentTextChanged.connect(lambda t: self._on_axis_target_changed(t))
-        row += 1
-
         for key, label, lo, hi in [
-            ("axis_label_size", "Axis", 1, 96),
-            ("tick_label_size", "Ticks", 1, 96),
-            ("title_size", "Title", 1, 128),
-            ("x_tick_angle", "X°", 0, 90),
+            ("axis_label_size", "Axis label size", 1, 96),
+            ("tick_label_size", "Tick label size", 1, 96),
+            ("title_size", "Title size", 1, 128),
+            ("x_tick_angle", "X tick angle°", 0, 90),
         ]:
-            sp = QSpinBox(body)
-            sp.setRange(lo, hi)
-            sp.setValue(int(self._prefs[key]))
-            add_row(label, sp, key)
-
-        cb = QCheckBox(body)
-        cb.setChecked(bool(self._prefs["legend_show"]))
-        add_row("Legend", cb, "legend_show")
-
-        sp = QSpinBox(body)
-        sp.setRange(6, 24)
-        sp.setValue(int(self._prefs["legend_font_size"]))
-        add_row("Leg size", sp, "legend_font_size")
-
-        loc_cb = QComboBox(body)
-        loc_cb.addItems(["best", "upper right", "upper left", "lower right", "lower left"])
-        loc_cb.setCurrentText(str(self._prefs["legend_loc"]))
-        add_row("Leg loc", loc_cb, "legend_loc")
-
-        for key, label, lo, hi, step in [
-            ("line_width", "Line w", 0.1, 8.0, 0.1),
-            ("marker_size", "Mkr sz", 0.0, 20.0, 0.5),
-            ("marker_edge_width", "Mkr edge", 0.0, 5.0, 0.1),
-        ]:
-            dsp = QDoubleSpinBox(body)
-            dsp.setRange(lo, hi)
-            dsp.setSingleStep(step)
-            dsp.setValue(float(self._prefs[key]))
-            add_row(label, dsp, key)
-
-        gshow = QCheckBox(body)
-        gshow.setChecked(bool(self._prefs["grid_show"]))
-        add_row("Grid", gshow, "grid_show")
-
-        galpha = QDoubleSpinBox(body)
-        galpha.setRange(0.0, 1.0)
-        galpha.setSingleStep(0.05)
-        galpha.setValue(float(self._prefs["grid_alpha"]))
-        add_row("Grid α", galpha, "grid_alpha")
-
-        gstyle = QComboBox(body)
-        gstyle.addItems(["-", "--", ":", "-."])
-        gstyle.setCurrentText(str(self._prefs["grid_style"]))
-        add_row("Grid ls", gstyle, "grid_style")
-
-        for lim_key, label in [("x_lim", "X lim"), ("y_lim", "Y lim")]:
-            row_widget = QWidget(body)
-            rl = QHBoxLayout(row_widget)
-            rl.setContentsMargins(0, 0, 0, 0)
-            lo_edit = QLineEdit(str(self._prefs[f"{lim_key}_min"]), row_widget)
-            lo_edit.setFixedWidth(60)
-            rl.addWidget(lo_edit)
-            rl.addWidget(QLabel("…", row_widget))
-            hi_edit = QLineEdit(str(self._prefs[f"{lim_key}_max"]), row_widget)
-            hi_edit.setFixedWidth(60)
-            rl.addWidget(hi_edit)
-            self._bind_getter_setter(f"{lim_key}_min", lo_edit)
-            self._bind_getter_setter(f"{lim_key}_max", hi_edit)
-            grid.addWidget(QLabel(label), row, 0)
-            grid.addWidget(row_widget, row, 1)
-            row += 1
-
-        scale_row = QWidget(body)
-        srl = QHBoxLayout(scale_row)
-        srl.setContentsMargins(0, 0, 0, 0)
-        xlog_cb = QCheckBox("X log", scale_row)
-        xlog_cb.setChecked(bool(self._prefs["x_log"]))
-        srl.addWidget(xlog_cb)
-        ylog_cb = QCheckBox("Y log", scale_row)
-        ylog_cb.setChecked(bool(self._prefs["y_log"]))
-        srl.addWidget(ylog_cb)
-        self._bind_getter_setter("x_log", xlog_cb)
-        self._bind_getter_setter("y_log", ylog_cb)
-        grid.addWidget(QLabel("Scale"), row, 0)
-        grid.addWidget(scale_row, row, 1)
-        row += 1
-
-        tick_row = QWidget(body)
-        trl = QHBoxLayout(tick_row)
-        trl.setContentsMargins(0, 0, 0, 0)
-        maj_cb = QCheckBox("Major", tick_row)
+            spin = QSpinBox()
+            spin.setRange(lo, hi)
+            spin.setValue(int(self._prefs[key]))
+            add_row(s_axes, label, spin, key)
+        maj_cb = ToggleSwitch("Major")
         maj_cb.setChecked(bool(self._prefs["tick_major"]))
-        trl.addWidget(maj_cb)
-        min_cb = QCheckBox("Minor", tick_row)
+        min_cb = ToggleSwitch("Minor")
         min_cb.setChecked(bool(self._prefs["tick_minor"]))
-        trl.addWidget(min_cb)
         self._bind_getter_setter("tick_major", maj_cb)
         self._bind_getter_setter("tick_minor", min_cb)
-        grid.addWidget(QLabel("Tick vis"), row, 0)
-        grid.addWidget(tick_row, row, 1)
-        row += 1
-
-        tlen = QDoubleSpinBox(body)
+        add_row(s_axes, "Tick visibility", hrow(maj_cb, min_cb))
+        tlen = QDoubleSpinBox()
         tlen.setRange(0.0, 20.0)
         tlen.setSingleStep(0.5)
         tlen.setValue(float(self._prefs["tick_length"]))
-        add_row("Tick len", tlen, "tick_length")
-
-        tdir = QComboBox(body)
+        add_row(s_axes, "Tick length", tlen, "tick_length")
+        tdir = QComboBox()
         tdir.addItems(["out", "in", "inout"])
         tdir.setCurrentText(str(self._prefs["tick_direction"]))
-        add_row("Tick dir", tdir, "tick_direction")
+        add_row(s_axes, "Tick direction", tdir, "tick_direction")
 
-        lay_row = QWidget(body)
-        lrl = QHBoxLayout(lay_row)
-        lrl.setContentsMargins(0, 0, 0, 0)
-        tight_cb = QCheckBox("Tight", lay_row)
+        # ── Legend ──────────────────────────────────────────────────────────
+        s_leg = section("Legend", expanded=False)
+        leg_show = ToggleSwitch("Show legend")
+        leg_show.setChecked(bool(self._prefs["legend_show"]))
+        add_row(s_leg, "", leg_show, "legend_show")
+        leg_sz = QSpinBox()
+        leg_sz.setRange(6, 24)
+        leg_sz.setValue(int(self._prefs["legend_font_size"]))
+        add_row(s_leg, "Font size", leg_sz, "legend_font_size")
+        leg_loc = QComboBox()
+        leg_loc.addItems(["best", "upper right", "upper left", "lower right", "lower left"])
+        leg_loc.setCurrentText(str(self._prefs["legend_loc"]))
+        add_row(s_leg, "Location", leg_loc, "legend_loc")
+
+        # ── Lines & Markers ─────────────────────────────────────────────────
+        s_lm = section("Lines & Markers", expanded=False)
+        for key, label, lo, hi, step in [
+            ("line_width", "Line width", 0.1, 8.0, 0.1),
+            ("marker_size", "Marker size", 0.0, 20.0, 0.5),
+            ("marker_edge_width", "Marker edge width", 0.0, 5.0, 0.1),
+        ]:
+            dsp = QDoubleSpinBox()
+            dsp.setRange(lo, hi)
+            dsp.setSingleStep(step)
+            dsp.setValue(float(self._prefs[key]))
+            add_row(s_lm, label, dsp, key)
+
+        # ── Grid ────────────────────────────────────────────────────────────
+        s_grid = section("Grid", expanded=False)
+        g_show = ToggleSwitch("Show grid")
+        g_show.setChecked(bool(self._prefs["grid_show"]))
+        add_row(s_grid, "", g_show, "grid_show")
+        g_alpha = QDoubleSpinBox()
+        g_alpha.setRange(0.0, 1.0)
+        g_alpha.setSingleStep(0.05)
+        g_alpha.setValue(float(self._prefs["grid_alpha"]))
+        add_row(s_grid, "Opacity", g_alpha, "grid_alpha")
+        g_style = QComboBox()
+        g_style.addItems(["-", "--", ":", "-."])
+        g_style.setCurrentText(str(self._prefs["grid_style"]))
+        add_row(s_grid, "Line style", g_style, "grid_style")
+
+        # ── Limits & Scale ──────────────────────────────────────────────────
+        s_lim = section("Limits & Scale", expanded=False)
+        for lim_key, label in [("x_lim", "X limits"), ("y_lim", "Y limits")]:
+            lo_edit = QLineEdit(str(self._prefs[f"{lim_key}_min"]))
+            lo_edit.setMaximumWidth(76)
+            hi_edit = QLineEdit(str(self._prefs[f"{lim_key}_max"]))
+            hi_edit.setMaximumWidth(76)
+            self._bind_getter_setter(f"{lim_key}_min", lo_edit)
+            self._bind_getter_setter(f"{lim_key}_max", hi_edit)
+            add_row(s_lim, label, hrow(lo_edit, QLabel("…"), hi_edit, spacing=sp.xs))
+        xlog_cb = ToggleSwitch("X log")
+        xlog_cb.setChecked(bool(self._prefs["x_log"]))
+        ylog_cb = ToggleSwitch("Y log")
+        ylog_cb.setChecked(bool(self._prefs["y_log"]))
+        self._bind_getter_setter("x_log", xlog_cb)
+        self._bind_getter_setter("y_log", ylog_cb)
+        add_row(s_lim, "Log scale", hrow(xlog_cb, ylog_cb))
+
+        # ── Layout (+ draw order) ───────────────────────────────────────────
+        s_layout = section("Layout", expanded=False)
+        tight_cb = ToggleSwitch("Tight")
         tight_cb.setChecked(bool(self._prefs["layout_tight"]))
-        lrl.addWidget(tight_cb)
-        cons_cb = QCheckBox("Constrained", lay_row)
+        cons_cb = ToggleSwitch("Constrained")
         cons_cb.setChecked(bool(self._prefs["layout_constrained"]))
-        lrl.addWidget(cons_cb)
         self._bind_getter_setter("layout_tight", tight_cb)
         self._bind_getter_setter("layout_constrained", cons_cb)
-        grid.addWidget(QLabel("Layout"), row, 0)
-        grid.addWidget(lay_row, row, 1)
-        row += 1
+        add_row(s_layout, "Figure layout", hrow(tight_cb, cons_cb))
 
-        # ── Reorder panel — replicate-set OR well draw order with Apply.
-        # Only one of the two lists is shown at a time, mirroring the
-        # branching in the line/bar/scatter renderers: when rep-sets are
-        # active the rep-set list drives color order; otherwise the well
-        # list does. The heatmap fig is bound to the editor too but its
-        # colors are positional, so the section stays hidden there.
-        # Items show sample-definition labels (well_labels / replicate
-        # display labels) but carry the underlying token / rep-set name
-        # in Qt.UserRole for the apply step.
+        # Replicate-set OR well draw-order lists (only one shows at a time,
+        # exactly as before). Behaviour lives in _move_list_item /
+        # _apply_line_order / _refresh_line_order_lists — unchanged. Items
+        # display sample-definition labels and carry the underlying token /
+        # rep-set name in Qt.UserRole for the apply step.
         self._line_order_rsets_list: QListWidget | None = None
         self._line_order_wells_list: QListWidget | None = None
         self._line_order_rsets_section: QWidget | None = None
         self._line_order_wells_section: QWidget | None = None
         if self._supports_well_order():
-            rs_section = QWidget(body)
-            rs_layout = QVBoxLayout(rs_section)
-            rs_layout.setContentsMargins(0, 0, 0, 0)
-            rs_layout.addWidget(QLabel("Replicate Set Order"))
-            rs_list = QListWidget(rs_section)
-            rs_list.setSelectionMode(QAbstractItemView.SingleSelection)
-            rs_list.setMaximumHeight(120)
-            rs_layout.addWidget(rs_list)
-            rs_btns = QWidget(rs_section)
-            rs_btn_l = QHBoxLayout(rs_btns)
-            rs_btn_l.setContentsMargins(0, 0, 0, 0)
-            up_rs = QPushButton("▲ Up", rs_btns)
-            up_rs.setProperty("variant", "secondary")
-            up_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, -1))
-            rs_btn_l.addWidget(up_rs)
-            down_rs = QPushButton("▼ Down", rs_btns)
-            down_rs.setProperty("variant", "secondary")
-            down_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, +1))
-            rs_btn_l.addWidget(down_rs)
-            apply_rs = QPushButton("Apply", rs_btns)
-            apply_rs.setProperty("variant", "primary")
-            apply_rs.clicked.connect(lambda _=False: self._apply_line_order())
-            rs_btn_l.addWidget(apply_rs)
-            rs_btn_l.addStretch(1)
-            rs_layout.addWidget(rs_btns)
-            grid.addWidget(rs_section, row, 0, 1, 2)
-            self._line_order_rsets_list = rs_list
-            self._line_order_rsets_section = rs_section
-            row += 1
+            def _order_block(heading: str, list_widget: QListWidget) -> QWidget:
+                block = QWidget()
+                bl = QVBoxLayout(block)
+                bl.setContentsMargins(0, sp.xs, 0, 0)
+                bl.setSpacing(sp.xs)
+                bl.addWidget(QLabel(heading))
+                list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+                list_widget.setMaximumHeight(140)
+                bl.addWidget(list_widget)
+                btns = QWidget(block)
+                bbl = QHBoxLayout(btns)
+                bbl.setContentsMargins(0, 0, 0, 0)
+                bbl.setSpacing(sp.xs)
+                up = QPushButton("▲")
+                up.setObjectName("Ghost")
+                up.setToolTip("Move up")
+                up.clicked.connect(lambda _=False, lw=list_widget: self._move_list_item(lw, -1))
+                down = QPushButton("▼")
+                down.setObjectName("Ghost")
+                down.setToolTip("Move down")
+                down.clicked.connect(lambda _=False, lw=list_widget: self._move_list_item(lw, +1))
+                apply_b = QPushButton("Apply")
+                apply_b.setObjectName("Primary")
+                apply_b.clicked.connect(lambda _=False: self._apply_line_order())
+                bbl.addWidget(up)
+                bbl.addWidget(down)
+                bbl.addWidget(apply_b)
+                bbl.addStretch(1)
+                bl.addWidget(btns)
+                return block
 
-            w_section = QWidget(body)
-            w_layout = QVBoxLayout(w_section)
-            w_layout.setContentsMargins(0, 0, 0, 0)
-            w_layout.addWidget(QLabel("Well Order"))
-            w_list = QListWidget(w_section)
-            w_list.setSelectionMode(QAbstractItemView.SingleSelection)
-            w_list.setMaximumHeight(120)
-            w_layout.addWidget(w_list)
-            w_btns = QWidget(w_section)
-            w_btn_l = QHBoxLayout(w_btns)
-            w_btn_l.setContentsMargins(0, 0, 0, 0)
-            up_w = QPushButton("▲ Up", w_btns)
-            up_w.setProperty("variant", "secondary")
-            up_w.clicked.connect(lambda _=False: self._move_list_item(w_list, -1))
-            w_btn_l.addWidget(up_w)
-            down_w = QPushButton("▼ Down", w_btns)
-            down_w.setProperty("variant", "secondary")
-            down_w.clicked.connect(lambda _=False: self._move_list_item(w_list, +1))
-            w_btn_l.addWidget(down_w)
-            apply_w = QPushButton("Apply", w_btns)
-            apply_w.setProperty("variant", "primary")
-            apply_w.clicked.connect(lambda _=False: self._apply_line_order())
-            w_btn_l.addWidget(apply_w)
-            w_btn_l.addStretch(1)
-            w_layout.addWidget(w_btns)
-            grid.addWidget(w_section, row, 0, 1, 2)
+            rs_list = QListWidget()
+            rs_block = _order_block("Replicate set order", rs_list)
+            add_full(s_layout, rs_block)
+            self._line_order_rsets_list = rs_list
+            self._line_order_rsets_section = rs_block
+
+            w_list = QListWidget()
+            w_block = _order_block("Well order", w_list)
+            add_full(s_layout, w_block)
             self._line_order_wells_list = w_list
-            self._line_order_wells_section = w_section
-            row += 1
+            self._line_order_wells_section = w_block
             self._refresh_line_order_lists()
 
-        # ── Clipboard copy row
-        clip = QWidget(body)
-        cl = QHBoxLayout(clip)
-        cl.setContentsMargins(0, 8, 0, 0)
-        copy_png_btn = QPushButton("Copy PNG", clip)
-        copy_png_btn.setProperty("variant", "secondary")
+        body_layout.addStretch(1)
+
+        # ── footer: copy / reset / save / export ────────────────────────────
+        footer = QWidget(self)
+        fl = QVBoxLayout(footer)
+        fl.setContentsMargins(0, sp.sm, 0, 0)
+        fl.setSpacing(sp.xs)
+        copy_row = QHBoxLayout()
+        copy_row.setContentsMargins(0, 0, 0, 0)
+        copy_row.setSpacing(sp.xs)
+        copy_png_btn = QPushButton("Copy PNG")
+        copy_png_btn.setObjectName("Ghost")
         copy_png_btn.clicked.connect(lambda _=False: self._copy_png())
-        cl.addWidget(copy_png_btn)
-        copy_svg_btn = QPushButton("Copy SVG", clip)
-        copy_svg_btn.setProperty("variant", "secondary")
+        copy_svg_btn = QPushButton("Copy SVG")
+        copy_svg_btn.setObjectName("Ghost")
         copy_svg_btn.clicked.connect(lambda _=False: self._copy_svg())
-        cl.addWidget(copy_svg_btn)
-        grid.addWidget(clip, row, 0, 1, 2)
-        row += 1
-
-        btns = QWidget(body)
-        bl = QHBoxLayout(btns)
-        bl.setContentsMargins(0, 8, 0, 0)
-        reset_btn = QPushButton("Reset", btns)
-        reset_btn.setProperty("variant", "secondary")
+        copy_row.addWidget(copy_png_btn)
+        copy_row.addWidget(copy_svg_btn)
+        copy_row.addStretch(1)
+        fl.addLayout(copy_row)
+        act_row = QHBoxLayout()
+        act_row.setContentsMargins(0, 0, 0, 0)
+        act_row.setSpacing(sp.xs)
+        reset_btn = QPushButton("Reset")
         reset_btn.clicked.connect(lambda _=False: self._reset_defaults())
-        bl.addWidget(reset_btn)
-        save_btn = QPushButton("Save Preset", btns)
-        save_btn.setProperty("variant", "secondary")
+        save_btn = QPushButton("Save Preset")
         save_btn.clicked.connect(lambda _=False: self._save_preset())
-        bl.addWidget(save_btn)
-        exp_btn = QPushButton("Export…", btns)
-        exp_btn.setProperty("variant", "primary")
+        exp_btn = QPushButton("Export…")
+        exp_btn.setObjectName("Primary")
         exp_btn.clicked.connect(lambda _=False: self._export())
-        bl.addWidget(exp_btn)
-        grid.addWidget(btns, row, 0, 1, 2)
-        row += 1
-
-        grid.setColumnStretch(1, 1)
+        act_row.addWidget(reset_btn)
+        act_row.addWidget(save_btn)
+        act_row.addWidget(exp_btn)
+        fl.addLayout(act_row)
+        root.addWidget(footer)
 
     def _on_profile_selected(self) -> None:
         if self._updating:
