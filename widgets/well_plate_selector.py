@@ -46,12 +46,15 @@ _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
-from PySide6.QtCore import Property, QEvent, QRectF, QSize, Qt, Signal  # noqa: E402
+from PySide6.QtCore import (  # noqa: E402
+    Property, QEvent, QMimeData, QPoint, QRectF, QSize, Qt, Signal,
+)
 from PySide6.QtGui import (  # noqa: E402
-    QBrush, QColor, QPainter, QPen, QRadialGradient,
+    QBrush, QColor, QDrag, QPainter, QPen, QRadialGradient,
 )
 from PySide6.QtWidgets import (  # noqa: E402
-    QHBoxLayout, QPushButton, QSizePolicy, QToolTip, QVBoxLayout, QWidget,
+    QApplication, QHBoxLayout, QPushButton, QSizePolicy, QToolTip,
+    QVBoxLayout, QWidget,
 )
 
 import theme  # noqa: E402
@@ -108,6 +111,7 @@ class _PlateGrid(QWidget):
     rowHeaderActivated = Signal(str)       # row letter, e.g. "A"
     columnHeaderActivated = Signal(str)    # zero-padded column, e.g. "01"
     wellActivated = Signal(str)            # well id, e.g. "A07" (passive mode)
+    wellDropped = Signal(str, str)         # (well id under cursor, payload token)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -128,7 +132,12 @@ class _PlateGrid(QWidget):
         self._rc_selectable = True
         self._single_select = False
         self._tooltip_provider = None          # Callable[[str], str] | None
-        # Transient hover / drag state.
+        # Drag-source / drop-sink config (heatmap-layout DnD).
+        self._drag_mime: str | None = None     # when set, a press starts a QDrag
+        self._accept_mime: str | None = None   # when set, the grid accepts drops
+        self._drag_press_pos: QPoint | None = None
+        self._drag_press_cell: tuple[int, int] | None = None
+        # Transient hover / drag-select state.
         self._hover_cell: tuple[int, int] | None = None
         self._hover_row: int | None = None
         self._hover_col: int | None = None
@@ -281,6 +290,21 @@ class _PlateGrid(QWidget):
     def set_tooltip_provider(self, provider) -> None:
         self._tooltip_provider = provider
 
+    def set_drag_mime(self, mime: str | None) -> None:
+        """When *mime* is set, pressing a well and dragging past the platform
+        drag distance starts a ``QDrag`` carrying that well's id under *mime*
+        (and clicks no longer toggle selection — the well is a drag source)."""
+        self._drag_mime = mime or None
+        if not self._drag_mime:
+            self._drag_press_pos = None
+            self._drag_press_cell = None
+
+    def set_accept_drop_mime(self, mime: str | None) -> None:
+        """When *mime* is set, the grid accepts drops carrying *mime* and emits
+        ``wellDropped(well_id_under_cursor, payload)`` on drop."""
+        self._accept_mime = mime or None
+        self.setAcceptDrops(bool(self._accept_mime))
+
     # ── selection helpers ────────────────────────────────────────────────
     def _recolor(self) -> None:
         palette_n = len(theme.Colors.trace)
@@ -422,6 +446,13 @@ class _PlateGrid(QWidget):
         r, c = hit[1], hit[2]
         if not self._is_enabled((r, c)):
             return
+        if self._drag_mime:
+            # Drag-source mode: capture the press, don't toggle; a QDrag is
+            # started on the first move beyond the platform drag distance.
+            self._drag_press_pos = event.position().toPoint()
+            self._drag_press_cell = (r, c)
+            event.accept()
+            return
         if self._mode == "passive":
             self.wellActivated.emit(_well_id(r, c))
             return
@@ -435,6 +466,23 @@ class _PlateGrid(QWidget):
             self.toggle_well(r, c)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if (self._drag_mime and self._drag_press_pos is not None
+                and (event.buttons() & Qt.LeftButton)):
+            moved = (event.position().toPoint() - self._drag_press_pos).manhattanLength()
+            if moved >= QApplication.startDragDistance():
+                cell = self._drag_press_cell
+                self._drag_press_pos = None
+                self._drag_press_cell = None
+                if cell is not None:
+                    wid = _well_id(cell[0], cell[1])
+                    mime = QMimeData()
+                    mime.setData(self._drag_mime, wid.encode("utf-8"))
+                    drag = QDrag(self)
+                    drag.setMimeData(mime)
+                    drag.exec(Qt.MoveAction | Qt.CopyAction)
+                event.accept()
+                return
+
         pos = event.position()
         hit = self._hit(pos.x(), pos.y())
         cell = row = col = None
@@ -455,11 +503,41 @@ class _PlateGrid(QWidget):
                 self.toggle_well(cell[0], cell[1], force=self._drag_adding)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_press_pos = None
+        self._drag_press_cell = None
         if self._drag_active:
             self._drag_active = False
             self._drag_visited = set()
             self.selectionDragFinished.emit()
         super().mouseReleaseEvent(event)
+
+    # ── drop sink (heatmap-layout DnD) ───────────────────────────────────
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if self._accept_mime and event.mimeData().hasFormat(self._accept_mime):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if self._accept_mime and event.mimeData().hasFormat(self._accept_mime):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        if not (self._accept_mime and event.mimeData().hasFormat(self._accept_mime)):
+            super().dropEvent(event)
+            return
+        try:
+            pt = event.position().toPoint()
+        except AttributeError:  # very old Qt fallback
+            pt = event.pos()
+        hit = self._hit(pt.x(), pt.y())
+        well_id = _well_id(hit[1], hit[2]) if (hit is not None and hit[0] == "well") else ""
+        token = bytes(event.mimeData().data(self._accept_mime)).decode("utf-8", "ignore").strip()
+        if token:
+            self.wellDropped.emit(well_id, token)
+        event.acceptProposedAction()
 
     def leaveEvent(self, _event) -> None:  # noqa: N802
         if (self._hover_cell, self._hover_row, self._hover_col) != (None, None, None):
@@ -567,6 +645,7 @@ class WellPlateSelector(QWidget):
     rowHeaderActivated = Signal(str)
     columnHeaderActivated = Signal(str)
     wellActivated = Signal(str)
+    wellDropped = Signal(str, str)         # (well id under cursor, payload token)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -584,6 +663,7 @@ class WellPlateSelector(QWidget):
         self._grid.rowHeaderActivated.connect(self.rowHeaderActivated)
         self._grid.columnHeaderActivated.connect(self.columnHeaderActivated)
         self._grid.wellActivated.connect(self.wellActivated)
+        self._grid.wellDropped.connect(self.wellDropped)
         root.addWidget(self._grid, 1)
 
         self._actions = QHBoxLayout()
@@ -674,6 +754,16 @@ class WellPlateSelector(QWidget):
 
     def setWellTooltipProvider(self, provider) -> None:
         self._grid.set_tooltip_provider(provider)
+
+    def setDragMime(self, mime: str | None) -> None:
+        """Make wells drag *sources*: a press+drag exports the well id under
+        *mime* (and clicks stop toggling selection). Pass ``None`` to disable."""
+        self._grid.set_drag_mime(mime)
+
+    def setAcceptDropMime(self, mime: str | None) -> None:
+        """Accept drops carrying *mime*; emit ``wellDropped(well_id, payload)``
+        on drop. Pass ``None`` to disable."""
+        self._grid.set_accept_drop_mime(mime)
 
     def setActionsVisible(self, visible: bool) -> None:
         """Show/hide the built-in All / Invert / Clear button row (a host with

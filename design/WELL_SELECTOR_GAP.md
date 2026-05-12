@@ -230,3 +230,129 @@ Still TODO before the rail swap:
 ⚠️ The widget changes here were checked with `python -m py_compile` only — run
 `python widgets/well_plate_selector.py` and `python widgets/gallery.py` to QA
 the new enabled/colour/drag-select behaviour before building on it.
+
+---
+
+## 6. G6 + G7 — done (widget side)
+
+Landed in `widgets/well_plate_selector.py`:
+
+- **G6 — drag *source*:** `setDragMime(mime: str|None)`. When set, pressing a
+  well and dragging past `QApplication.startDragDistance()` starts a `QDrag`
+  carrying that well's id (e.g. `"A07"`) under *mime*; clicks no longer toggle
+  selection while in this mode (mirrors the legacy `WellButton.set_drag_mime`).
+  Replaces the `WellButton.set_drag_mime(WELL_MIME)` calls at
+  `runtime_app.py:5052/5059` once the sidebar migrates.
+- **G7 — drop *sink*:** `setAcceptDropMime(mime: str|None)` →
+  `setAcceptDrops(True)` + `dragEnter/dragMove/dropEvent`; on drop the grid
+  hit-tests the cursor to a well and emits `wellDropped(well_id, payload_token)`.
+  Replaces `WellButton.set_drop_handler(WELL_MIME, _make_drop(tok))` at
+  `runtime_app.py:5055`.
+
+Both checked with `python -m py_compile` only.
+
+---
+
+## 7. G10 — full migration plan (NOT executed here — and why)
+
+**Why not done in this pass.** "Delete `WellButton` / `build_plate_grid` and
+rewrite `_refresh_sidebar_map_now`" is *not* a left-rail change — `build_plate_grid`
+backs **seven** plate-maps and is wired in from runtime_app:
+
+| Plate-map | Built in | Per-well dict |
+|---|---|---|
+| Left rail (line picker) | `views/sidebar_view.build_sidebar` | `app._sidebar_btns` |
+| Bar-group selector | `views/bar_group_panel_view` | `app._bar_map_btns` |
+| Stats picker | `views/stats_view` | `app._stats_map_btns` |
+| Image-table picker | `views/image_table_picker_view` | (local) |
+| Replicate-set picker | `views/replicate_panel_view` | `app._rep_map_btns` |
+| Preview picker | `views/preview_view` | `app._sidebar_preview_btns` |
+| (2 more) | `runtime_app.py:1072 / :1287` pass `build_plate_grid_fn=…` into controllers | — |
+
+`WellButton` is also imported as `WellLabel` (`runtime_app.py:372`). And
+`_refresh_sidebar_map_now` + the shared `_plate_drag_*` engine are used by both
+the line sidebar (`_sidebar_btns`) and the bar sidebar. So a faithful "delete
+`WellButton`" touches all seven maps + the bar-plot picker + the heatmap layout
+flow — a multi-PR effort, every step of which needs the GUI to verify (this
+environment has no PySide6). Bundling it into "port the left rail" would be a
+large, unreviewable, unverifiable diff. The plan below is the intended sequence;
+each numbered step should be its own commit with a manual QA pass.
+
+### Step 0 — finish the widget side (mostly done)
+G2/G3/G5/G8/G9/G12 + G6/G7 are landed. Remaining widget niceties to add if a
+consumer needs them: a `setWellTooltipProvider` that pulls sample/treatment
+metadata; a way to render the count text inside the widget (or keep it external,
+as today).
+
+### Step 1 — left-rail swap (the G10 core), behind nothing
+1. In `views/sidebar_view.build_sidebar`: replace the `build_plate_grid(...)`
+   call + `app._sidebar_btns` dict + `_make_btn_handlers` mouse-override block
+   with a single `WellPlateSelector` stored as `app._sidebar_plate`. Configure:
+   `setActionsVisible(False)` (the rail keeps its own "All"/"None"),
+   `setDragSelectEnabled(True)`.
+2. Rewrite `WellViewerApp._refresh_sidebar_map_now` (`runtime_app.py:3132`): drop
+   the `for tok, btn in self._sidebar_btns.items(): …set_state…` loop; instead
+   compute, per loaded/rep-set state, a `{well_id: color|None}` map and an
+   `enabled` set, and call `app._sidebar_plate.setEnabledWells(...)` +
+   `setWellColors(...)`. Per-well mode: selected → `Colors.accent`, else `None`
+   (neutral). Rep-set mode: member → that set's `WELL_COLORS[i]`, hidden →
+   `"muted:<hex>"`, unassigned → `None`; **and** `setSelectionMode("passive")`
+   (so plate clicks become rep-visibility toggles, not selection edits) — flip
+   back to `"select"` when `app._rep_sets` is empty. Keep the `_sel_count_lbl` /
+   `_line_group_hint` text logic exactly as is.
+3. Rewire `selection_controller`:
+   - `sb_press/sb_drag/sb_release` and `sidebar_tok_at` go away for the rail.
+     Instead connect `app._sidebar_plate.selectionChanged(list)` →
+     `app._selected_wells = set(ids); app._on_plate_sel_change()`, and
+     `selectionDragFinished` → a single `app._refresh_after_selection_change()`
+     (so a 12-cell drag does one refresh, not twelve).
+   - Connect `wellActivated(id)` (fires only in passive/rep-set mode) →
+     `app._sb_rep_toggle_for_well(id)` (new thin wrapper around the existing
+     rep-hidden toggle from `plate_drag_apply`'s rep branch + `_sb_on_rep_change`).
+   - Connect `rowHeaderActivated(letter)` → `app._select_row(letter)` and
+     `columnHeaderActivated(col)` → `app._select_col(col)`. `_select_row` /
+     `_select_col` already branch on rep-sets, so they work for both modes — but
+     in *select* mode the widget *also* toggled the row internally, so either
+     (a) leave header handling entirely to the app and call
+     `setRowColumnSelectable(False)` so the widget doesn't double-toggle, then
+     re-sync the widget from `app._selected_wells` after `_select_row`; **or**
+     (b) (cleaner) keep `setRowColumnSelectable(True)` and have `_select_row`
+     read the widget's resulting selection rather than mutating
+     `_selected_wells` itself. Pick (b) for the per-well case; for the rep-set
+     case the widget is in `"passive"` mode so it doesn't toggle and the app's
+     rep-branch runs as today.
+   - smFISH gating: `setRowColumnSelectable(False)` + `setSingleSelectionMode(True)`
+     when the active tab is "smFISH" (in `_on_tab_change`), restoring otherwise —
+     replaces `_row_col_select_disabled` + the `on_plate_sel_change` clamp.
+4. Heatmap drag: in `runtime_app.py:5034–5062`, replace the
+   `for tok, btn in self._sidebar_btns…: btn.set_drag_mime / set_drop_handler`
+   loop with `app._sidebar_plate.setDragMime(WELL_MIME)` /
+   `setDragMime(None)` and `setAcceptDropMime(WELL_MIME)` /
+   `setAcceptDropMime(None)`, and connect `app._sidebar_plate.wellDropped(id, tok)`
+   → the existing `_make_drop` logic (drop the dragged-out well back into the
+   selection). The heatmap-layout *table* side is unchanged (it already accepts
+   the `WELL_MIME` payload).
+5. Delete the now-dead bits *for the rail only*: `app._sidebar_btns`,
+   `_make_btn_handlers`, `_tok_under_cursor`, `sb_press/sb_drag/sb_release` (and
+   their `selection_controller` counterparts), `sidebar_tok_at`. Keep
+   `WellButton` / `build_plate_grid` — the other six maps still use them.
+6. **QA pass (required):** per-well click + drag-select; the count label;
+   no-data wells un-selectable; row/col quick-select (per-well); rep-set mode —
+   membership colours, click-to-toggle-visibility, the "N/M set(s) visible"
+   text, row/col toggling a set; smFISH single-well clamp + suppressed headers;
+   heatmap-layout drag-out-and-return; theme switch repaint.
+
+### Steps 2–7 — the other plate-maps, one per commit
+Repeat the Step-1 pattern (swap `build_plate_grid` → `WellPlateSelector`,
+rewrite that map's recolour function to `setWellColors`/`setEnabledWells`,
+rewire its handlers) for, in rough order of independence: image-table picker →
+preview picker → stats picker → replicate-set picker → bar-group selector →
+the two `build_plate_grid_fn` consumers. Each is small individually; the
+bar-group one shares the `_plate_drag_*` engine with the rail, so do it after
+the rail's drag handling is proven.
+
+### Step 8 — remove the legacy widget
+Once *all* maps are migrated: delete `well_viewer/views/well_button.py`
+(`WellButton` + `build_plate_grid` + `_HeaderClickLabel`), the `WellLabel`
+import, `runtime_app._plate_apply_*` / `_style_plate_button` / `_mute_color` /
+`_plate_theme_colors`, and the `_plate_drag_*` engine. Final QA across every tab.
