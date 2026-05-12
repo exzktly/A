@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget,
 )
 
-from ui.theme import THEMES, ThemeManager, build_stylesheet, set_theme
+import theme as theme_v2
+from ui.theme import THEMES, ThemeManager, set_theme
 
 # Global tab-scoped debug toggles.
 REVIEW_TAB_DEBUG = False
@@ -57,10 +58,13 @@ class AllWellApp(QMainWindow):
             QTimer.singleShot(150, lambda: self._review._load_path(data_path))
 
     # ── UI construction ──────────────────────────────────────────────────
-    def _apply_stylesheet(self, theme_name: str) -> None:
+    def _apply_stylesheet(self, theme_name: str | None = None) -> None:
+        # Single source of truth for the app stylesheet (see theme.py /
+        # design/PHASE_4_DIAGNOSIS.md). The legacy ui/theme per-theme QSS is no
+        # longer applied; ui/theme is kept only for its color constants.
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(build_stylesheet(theme_name))
+            app.setStyleSheet(theme_v2.qss())
 
     def _build_ui(self) -> None:
         from analyze_tab import AnalyzeTab
@@ -296,10 +300,8 @@ def main() -> None:
                     help="Pre-load a results directory into the Review tab on startup.")
     args = ap.parse_args()
 
-    import theme
-
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setStyleSheet(theme.qss())
+    app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()
     sys.exit(app.exec())

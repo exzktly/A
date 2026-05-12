@@ -2932,12 +2932,18 @@ class WellViewerApp(QWidget):
         _build_bottom_view(self)
 
     def _apply_theme(self) -> None:
-        """Apply QSS stylesheet for the active theme."""
+        """Apply the application-wide stylesheet.
+
+        Single source of truth is the repo-root ``theme`` module (see
+        ``design/PHASE_4_DIAGNOSIS.md``). Previously this re-applied the legacy
+        ``ui/theme`` per-theme QSS, which clobbered ``theme.qss()`` whenever a
+        ``WellViewerApp`` was constructed (including embedded under AllWell).
+        """
         try:
-            from ui.theme import build_stylesheet  # type: ignore
+            import theme  # type: ignore
             app = QApplication.instance()
             if app is not None:
-                app.setStyleSheet(build_stylesheet(self._theme_name))
+                app.setStyleSheet(theme.qss())
         except Exception:
             pass
 
