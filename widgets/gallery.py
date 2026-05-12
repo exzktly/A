@@ -427,17 +427,33 @@ def _build_color_picker_popover():
 
 def _build_saved():
     from widgets.saved_selections_list import SavedSelectionsList
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
     lst = SavedSelectionsList()
     tr = theme.Colors.trace
-    lst.setEntries([
-        ("Control", tr[0], 6),
-        ("Drug A — 1µM", tr[1], 6),
-        ("Drug A — 10µM", tr[2], 6),
-        ("Untreated", theme.Colors.text_muted, 3),
+    lst.setSelections([
+        {"id": "aaaa1111", "name": "Control", "color": tr[0], "hidden": False,
+         "wells": ["A01", "A02", "A03", "B01", "B02", "B03"],
+         "replicates": [["A01", "A02", "A03"], ["B01", "B02", "B03"]], "source": "bar_group"},
+        {"id": "bbbb2222", "name": "Drug A — 1µM", "color": tr[1], "hidden": False,
+         "wells": ["C01", "C02", "C03"], "replicates": [["C01", "C02", "C03"]], "source": "rep_set"},
+        {"id": "cccc3333", "name": "Drug A — 10µM", "color": tr[2], "hidden": False,
+         "wells": ["D01", "D02", "D03"], "replicates": None, "source": "user"},
+        {"id": "dddd4444", "name": "Untreated", "color": theme.Colors.text_muted, "hidden": True,
+         "wells": ["E01", "E02"], "replicates": None, "source": "import"},
     ])
-    lst.setCurrentIndex(0)
-    lst.setMinimumHeight(150)
-    return lst
+    lst.setCurrentId("bbbb2222")
+    lst.setMinimumHeight(220)
+    v.addWidget(lst, 1)
+    out = QLabel("(rename · recolour · reorder via handle/kebab · hide · expand)")
+    out.setObjectName("Caption")
+    out.setWordWrap(True)
+    v.addWidget(out)
+    lst.selectionsChanged.connect(
+        lambda items: out.setText("order: " + " · ".join(i["name"] for i in items)))
+    return host
 
 
 def _build_hover_overlay():
