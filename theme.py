@@ -259,6 +259,31 @@ QPushButton#Ghost:hover, QToolButton#Ghost:hover {{
     background-color: {c.panel};
 }}
 
+/* ── Plate-map well buttons (legacy WellButton grid) ──────────────────── */
+/* Used by the picker grids that still use ``WellButton`` / ``build_plate_grid``
+   (Statistics / Image Table / Segmentation / Sample Definitions / Bar Plots).
+   Driven by ``WellButton.set_state(...)`` via the dynamic ``state`` property;
+   the per-widget overrides in ``WellViewerApp._style_plate_button`` (Stats /
+   bar pickers) take precedence for those grids. Keep the 18px box in sync with
+   ``well_viewer.views.well_button.WELL_SIZE``. */
+QPushButton#WellButton {{
+    min-width: 18px; min-height: 18px; max-width: 18px; max-height: 18px;
+    padding: 0;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    background-color: {c.panel_elevated};
+}}
+QPushButton#WellButton[state="empty"]      {{ background-color: {c.panel};         border: 1px solid transparent; }}
+QPushButton#WellButton[state="available"]  {{ background-color: {c.panel_elevated}; border: 1px solid {c.border}; }}
+QPushButton#WellButton[state="selected"]   {{ background-color: {c.accent};         border: 1px solid {c.accent_pressed}; }}
+QPushButton#WellButton[state="active"]     {{ background-color: {c.accent};         border: 1px solid {c.accent_pressed}; }}
+QPushButton#WellButton[state="rep_hidden"] {{ background-color: {c.panel};          border: 1px solid {c.border_subtle}; }}
+QPushButton#WellButton[state="group"]      {{ background-color: {c.success};        border: 1px solid {c.success}; }}
+QPushButton#WellButton[state="warn"]       {{ background-color: {c.warn};           border: 1px solid {c.warn}; }}
+QPushButton#WellButton[state="danger"]     {{ background-color: {c.danger};         border: 1px solid {c.danger}; }}
+QPushButton#WellButton:hover               {{ background-color: {c.hover}; }}
+QPushButton#WellButton:disabled            {{ background-color: {c.panel};          border: 1px solid transparent; }}
+
 /* ── Text inputs / steppers ──────────────────────────────────────────── */
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox {{
     background-color: {c.panel_elevated};

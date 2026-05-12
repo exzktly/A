@@ -167,50 +167,13 @@ class WellButton(QPushButton):
         event.acceptProposedAction()
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
-        # Render the QSS-styled base first (fill + smooth black border).
+        # v2 wells are flat: the fill + 1px themed border come from the
+        # QSS (``QPushButton#WellButton[state="…"]`` in ``theme.qss()``, or the
+        # per-widget override set by ``WellViewerApp._style_plate_button``). The
+        # legacy 3D emboss/depress cue was dropped to match the new design and
+        # the ``widgets.WellPlateSelector`` look. ``_emboss`` / ``set_emboss``
+        # are kept (callers still set them) but no longer painted.
         super().paintEvent(event)
-
-        if self._emboss == "none" or not self.isEnabled():
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        # Paint a highlight arc on one half and a shadow arc on the other to
-        # simulate a raised (unselected) or sunken (selected) 3D edge just
-        # inside the black border. Inset so the arcs sit inside the border.
-        inset = 2.0
-        rect = QRectF(inset, inset,
-                      float(self.width()) - 2 * inset,
-                      float(self.height()) - 2 * inset)
-
-        if self._emboss == "depressed":
-            # Shadow along the top-left quadrant,
-            # highlight along the bottom-right quadrant.
-            top_color = QColor(0, 0, 0, 190)
-            bot_color = QColor(255, 255, 255, 110)
-        else:
-            # Raised: highlight along the top-left quadrant,
-            # shadow along the bottom-right quadrant.
-            top_color = QColor(255, 255, 255, 210)
-            bot_color = QColor(0, 0, 0, 150)
-
-        pen = QPen()
-        pen.setWidthF(1.6)
-        pen.setCapStyle(Qt.FlatCap)
-
-        # Qt arc angles are in 1/16th of a degree, measured CCW from 3 o'clock.
-        # Top-left quadrant spans 90°–180° (upper-left arc of the circle).
-        pen.setColor(top_color)
-        painter.setPen(pen)
-        painter.drawArc(rect, 90 * 16, 90 * 16)
-
-        # Bottom-right quadrant spans 270°–360° (lower-right arc).
-        pen.setColor(bot_color)
-        painter.setPen(pen)
-        painter.drawArc(rect, 270 * 16, 90 * 16)
-
-        painter.end()
 
 
 class _HeaderClickLabel(QLabel):
@@ -271,7 +234,7 @@ def build_plate_grid(
             lbl = _HeaderClickLabel(text, parent, lambda c=col: on_col_click(c))
         else:
             lbl = QLabel(text, parent)
-        lbl.setObjectName("Muted")
+        lbl.setObjectName("Caption")
         lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl, col_header_row, ci + 1)
 
@@ -281,7 +244,7 @@ def build_plate_grid(
             rl = _HeaderClickLabel(row_ltr, parent, lambda r=row_ltr: on_row_click(r))
         else:
             rl = QLabel(row_ltr, parent)
-        rl.setObjectName("Muted")
+        rl.setObjectName("Caption")
         rl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(rl, ri + row_start, 0)
         for ci, col in enumerate(_PLATE_COLS):

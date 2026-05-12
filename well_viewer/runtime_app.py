@@ -3291,13 +3291,11 @@ class WellViewerApp(QWidget):
         disabled_fg = disabledforeground or fg
         # 1px border matching the design-system tokens. Wells with no data
         # get a transparent border; wells with data get a themed border.
-        # The embossed/depressed 3D cue is painted by WellButton.paintEvent —
-        # QSS outset/inset collapses to solid once border-radius is set.
-        from ui.theme import get_color
+        import theme as _v2theme
         if not is_enabled:
             border = "1px solid transparent"
         else:
-            border = f"1px solid {get_color('BORDER')}"
+            border = f"1px solid {_v2theme.Colors.border}"
         # Drive the paint-event-based 3D cue.
         if hasattr(btn, "set_emboss"):
             if not is_enabled:
@@ -3354,22 +3352,21 @@ class WellViewerApp(QWidget):
         )
 
     def _plate_theme_colors(self) -> tuple:
-        from ui.theme import get_color
-        # Use the canonical "available well" colour so unselected wells in
-        # every plate-map (line/bar/stats sidebar) match the QSS-driven
-        # WellButton[state="available"] swatch used by the preview and
-        # image-table pickers — they were diverging on the dark theme,
-        # where button_bg differs from CLR_AVAIL_WELL.
-        return (
-            get_color("CLR_AVAIL_WELL"),
-            get_color("button_text"),
-            get_color("button_text_disabled"),
-        )
+        # v2 plate-map palette: available wells use the elevated-control fill,
+        # matching ``QPushButton#WellButton[state="available"]`` in
+        # ``theme.qss()`` (used by the preview / image-table pickers).
+        import theme as _v2theme
+        c = _v2theme.Colors
+        return (c.panel_elevated, c.text_secondary, c.text_faint)
 
     def _plate_apply_disabled(self, btn, bg: str, fg: str, fg_disabled: str) -> None:
+        # No-data wells recede onto the (darker) panel fill, like
+        # ``WellPlateSelector``'s disabled rendering.
+        import theme as _v2theme
+        dis_bg = _v2theme.Colors.panel
         self._style_plate_button(
-            btn, bg=bg, fg=fg_disabled, state="disabled", cursor="arrow",
-            activebackground=bg, activeforeground=fg,
+            btn, bg=dis_bg, fg=fg_disabled, state="disabled", cursor="arrow",
+            activebackground=dis_bg, activeforeground=fg,
             disabledforeground=fg_disabled, relief="flat",
         )
 
