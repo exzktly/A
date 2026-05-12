@@ -239,6 +239,13 @@ def _build_swatches():
     luts = ColorSwatchRow(["#FFFFFF", "#5B9BF8", "#4ADE80", "#F26B6B", "#F5A524"])
     luts.setCurrentIndex(2)
     v.addWidget(luts)
+    cust = ColorSwatchRow(allow_custom=True, recents=["#9B59B6", "#1ABC9C", "#E67E22"])
+    cust.setCurrentColor("#9B59B6")
+    v.addWidget(cust)
+    out = QLabel("(curated · recents · Custom tile → picker)")
+    out.setObjectName("Caption")
+    v.addWidget(out)
+    cust.colorPicked.connect(lambda c: out.setText(f"picked: {c.name().upper()}"))
     return host
 
 
