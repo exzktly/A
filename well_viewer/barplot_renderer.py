@@ -246,11 +246,8 @@ def draw_grouped_bar_mode(
     use_groups, items, _ = app._collect_bar_items(target_t)
     if use_groups:
         by_key = {r.name: r for r in active_rsets}
-        all_set_idx = {r.name: i for i, r in enumerate(getattr(app, "_rep_sets", []))}
-        color_by_key = {
-            r.name: WELL_COLORS[all_set_idx.get(r.name, i) % len(WELL_COLORS)]
-            for i, r in enumerate(active_rsets)
-        }
+        # decision #1: a rep-set's bar is coloured by its lowest well's rank.
+        color_by_key = {r.name: app._rank_color_rset(r) for r in active_rsets}
         per_fov_spread = app._use_fov_spread_active()
         ordered = []
         for key in app._bar_current_keys():
@@ -290,6 +287,10 @@ def draw_grouped_bar_mode(
         draw_items = [key_to_item[k] for k in ordered_keys]
         xlabels = [app._bar_well_display_label(lbl) for lbl, *_ in draw_items]
 
+    # decision #1: per-well bars are coloured by each well's position rank
+    # (group bars carry their own colour in the item tuple already).
+    per_well_colors = (WELL_COLORS if use_groups
+                       else ([app._rank_color_well(lbl) for lbl, *_ in draw_items] or WELL_COLORS))
     _render_bar_items(
         ax_mean=ax_mean,
         ax_frac=ax_frac,
@@ -298,7 +299,7 @@ def draw_grouped_bar_mode(
         items=draw_items,
         xlabels=xlabels,
         threshold=threshold,
-        well_colors=WELL_COLORS,
+        well_colors=per_well_colors,
         warn_color=WARN,
         border_color=BORDER,
         placeholder_color=CLR_PLACEHOLDER,

@@ -555,10 +555,39 @@ that runs without a display.
    shadow but no longer affects `_selections` — consistent with the contract
    (stored wells may legitimately not be in the current dataset).
 
+### Decision-#1 colour ("the plate is the legend") — **done early** (code, not runtime-verified)
+
+Landed ahead of Stages B/C because it's low-risk (presentational) and the
+headline user-visible change. `runtime_app.py` gained `_rank_color_well(tok)` /
+`_rank_color_rset(rset_or_group)` (rank = row-major plate position; a rep-set /
+group takes its lowest well's rank colour, so all its wells + its line/bar
+trace share one colour). Every `WELL_COLORS[index % len]` colour assignment in
+the **main viewer** now goes through them: the replicate-panel plate map
+(`_rep_refresh_map`), the left-rail sidebar plate (`_refresh_sidebar_map_now`,
+incl. per-well mode — selected wells now show their rank colour, not flat
+accent), the per-cell violin/beeswarm + per-well `n`-bars (`runtime_app`), the
+bar plot (`barplot_renderer._render_canonical` group bars **and** per-well
+bars; `barplot_controller.collect_bar_items`), the line/CDF plots
+(`lineplot_controller`, both rep-set and per-well paths), and the Statistics
+tab's plate map + group cards (`stats_controller`). `_rep_color_for` is now
+rank-based too. **Not yet converted:** `scatter_controller` colours and the
+`batch_export/*` panels — next cluster (Stage B-3 / B-5). `py_compile` clean;
+the migration self-test still `ALL PASS`.
+
 ### Still to do
-- **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app, eyeball
-  bar/line plots & the group/rep lists, Save → reopen, confirm `.pre-v2-backup`
-  exists and restores cleanly; `python well_viewer/_selftest_migration.py` → `ALL PASS`.
-- **Stages B / C / D** per §7 (switch consumers cluster-by-cluster → views →
-  drop the shadow; decision-#1 render-time colour-by-rank for the unstructured
-  selected-wells case lands in Stage C).
+- **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball
+  the bar/line/stats plots & plate maps (colours **will** look different now —
+  by plate position, decision #1; verify they're *consistent* across plate ↔
+  line ↔ bar ↔ stats), the group/rep lists, **edit a group/rep then Save →
+  reopen** (the Stage-A save fix must persist the edit), confirm
+  `pipeline_info.json.pre-v2-backup` exists and restores cleanly;
+  `python well_viewer/_selftest_migration.py` → `ALL PASS`.
+- **Stage B (rest)** — switch the remaining read-only consumers (`scatter_controller`,
+  `batch_export/*`, and the `runtime_app` rep-set helpers) to the unified model;
+  **Stage C** — flip the mutation paths (`grouping_controller`, `selection_controller`,
+  the `runtime_app` rep/group dialogs) to mutate `_selections` directly (so
+  `sync_selections_from_legacy` becomes a no-op), and swap the rep-set/group
+  view widgets for `widgets.SavedSelectionsList`; **Stage D** — delete the
+  legacy `_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp`
+  shadow + `from_legacy_appstate` + `sync_selections_from_legacy`. Each as its
+  own commit, with your runtime QA between.

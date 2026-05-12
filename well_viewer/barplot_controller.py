@@ -86,7 +86,7 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
         items: list = []
         per_fov_spread = app._use_fov_spread_active()
         for idx, rset in enumerate(active_rsets):
-            color = well_colors[idx % len(well_colors)]
+            color = app._rank_color_rset(rset)  # decision #1: colour by well-position rank
             label = app._replicate_display_label(rset)
             if per_fov_spread:
                 # Pool every FOV across all wells in the rep set; SD/SEM is

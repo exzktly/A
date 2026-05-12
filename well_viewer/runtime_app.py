@@ -326,6 +326,7 @@ _logger = logging.getLogger("well_viewer")
 CLR_ACCENT_DARK = ACCENT_DARK
 
 from well_viewer.plate_layout import WELL_COLORS
+from well_viewer.selections_model import well_rank as _sel_well_rank
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
@@ -1551,7 +1552,7 @@ class WellViewerApp(QWidget):
         tok_color: Dict[str, str] = {}
         tok_active: Dict[str, bool] = {}
         for si, rset in enumerate(self._rep_sets):
-            c = WELL_COLORS[si % len(WELL_COLORS)]
+            c = self._rank_color_rset(rset)
             for tok in rset.wells:
                 tok_color[tok] = c
                 tok_active[tok] = (si == self._active_rep_idx)
@@ -1563,7 +1564,7 @@ class WellViewerApp(QWidget):
         if has_grp_active:
             grp = self._bar_groups[self._bar_active_grp]
             grp_solo_toks = set(grp.solo_wells)
-            grp_color = WELL_COLORS[self._bar_active_grp % len(WELL_COLORS)]
+            grp_color = self._rank_color_rset(grp)
         has_active = has_rep_active or has_grp_active
 
         for tok, btn in self._rep_map_btns.items():
@@ -2396,12 +2397,27 @@ class WellViewerApp(QWidget):
     def _bg_on_well_change(self) -> None:
         _gc_bg_on_well_change(self)
 
+    # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
+    # group is coloured by *well-position rank*, so the same well always gets the
+    # same colour everywhere (plate maps, line/bar/stats plots). See
+    # design/OPEN_DECISIONS.md #1 and design/SELECTIONS_MODEL_CONTRACT.md.
+    def _rank_color_well(self, tok) -> str:
+        return WELL_COLORS[_sel_well_rank(tok) % len(WELL_COLORS)]
+
+    def _rank_color_rset(self, rset) -> str:
+        """Colour for a ReplicateSet / BarGroup — the rank colour of its lowest
+        well, so all of its wells (and its line/bar trace) share one colour."""
+        wells = getattr(rset, "wells", None) or []
+        ranks = [_sel_well_rank(w) for w in wells]
+        ranks = [r for r in ranks if r < (1 << 30)]
+        return WELL_COLORS[(min(ranks) if ranks else 0) % len(WELL_COLORS)]
+
     def _rep_color_for(self, lbl: str) -> Optional[str]:
-        """Return the WELL_COLORS colour for the ReplicateSet that owns *lbl*,
-        or None if the well is not assigned to any set."""
-        for si, rset in enumerate(getattr(self, "_rep_sets", [])):
+        """Return the colour for the ReplicateSet that owns *lbl*, or None if the
+        well is not assigned to any set."""
+        for rset in getattr(self, "_rep_sets", []):
             if lbl in rset.wells:
-                return WELL_COLORS[si % len(WELL_COLORS)]
+                return self._rank_color_rset(rset)
         return None
 
     def _bar_refresh_map(self) -> None:
@@ -3157,7 +3173,7 @@ class WellViewerApp(QWidget):
         colors: Dict[str, object] = {}
         if rep_mode:
             for si, rset in enumerate(rep_sets):
-                full_c = WELL_COLORS[si % len(WELL_COLORS)]
+                full_c = self._rank_color_rset(rset)
                 shade = self._mute_color(full_c) if (si in self._rep_hidden) else full_c
                 for tok in rset.wells:
                     if tok in self._well_paths:
@@ -3165,7 +3181,7 @@ class WellViewerApp(QWidget):
         else:
             for tok in self._selected_wells:
                 if tok in self._well_paths:
-                    colors[tok] = ACCENT
+                    colors[tok] = self._rank_color_well(tok)
 
         # smFISH suppresses row/col header selection and forces single-well.
         smfish = False
@@ -5612,8 +5628,7 @@ class WellViewerApp(QWidget):
                 rset = rset_by_name.get(key)
                 if rset is None:
                     continue
-                color_idx = all_set_idx.get(key, si)
-                color = WELL_COLORS[color_idx % len(WELL_COLORS)]
+                color = self._rank_color_rset(rset)
                 valid = [w for w in rset.wells if w in self._well_paths]
                 for w in valid:
                     plot_wells.append(w)
@@ -5621,7 +5636,7 @@ class WellViewerApp(QWidget):
                     plot_labels.append(f"{self._well_display_label(w)}\n[{rset.name}]")
         else:
             plot_wells = [k for k in ordered_keys if k in self._well_paths]
-            plot_colors = [WELL_COLORS[i % len(WELL_COLORS)] for i in range(len(plot_wells))]
+            plot_colors = [self._rank_color_well(w) for w in plot_wells]
             plot_labels = [self._well_display_label(w) for w in plot_wells]
         if _debug_flags.review_bar_debug_enabled():
             mode = "violin" if self._bar_violin else "beeswarm"
@@ -5685,7 +5700,7 @@ class WellViewerApp(QWidget):
                 per_fov_spread=per_fov_spread,
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
+            color = colors[i % len(colors)] if colors else self._rank_color_well(lbl)
             if matched:
                 pt = matched[0]
                 if per_fov_spread:

@@ -363,8 +363,8 @@ def stats_refresh_map(app) -> None:
     bg, fg, fg_disabled = app._plate_theme_colors()
     avail = set(app._well_paths.keys())
     tok_color: dict = {}
-    for gi, grp in enumerate(app._stats_groups):
-        c = WELL_COLORS[gi % len(WELL_COLORS)]
+    for grp in app._stats_groups:
+        c = app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         for w in grp.wells:
             tok_color.setdefault(w, c)
     grp = stats_active_group(app)
@@ -397,7 +397,7 @@ def stats_refresh_group_list(app) -> None:
         return
     for gi, grp in enumerate(app._stats_groups):
         is_sel = (gi == app._stats_active_grp)
-        color = WELL_COLORS[gi % len(WELL_COLORS)]
+        color = app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         card = QFrame()
         card.setObjectName("StatsGroupCard")
         if is_sel:

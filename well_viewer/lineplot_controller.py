@@ -96,13 +96,9 @@ def redraw_line_plots(
             key=lambda r: getattr(r, "name", ""),
         )
         for idx, rset in enumerate(ordered_rsets):
-            # Keep line-plot colors aligned with the sidebar well-picker colors:
-            # color index must come from the full replicate-set list, not the
-            # visible subset order.
-            set_idx = next((si for si, rs in enumerate(all_rsets) if rs is rset), None)
-            if set_idx is None:
-                set_idx = next((si for si, rs in enumerate(all_rsets) if getattr(rs, "name", None) == rset.name), idx)
-            color = well_colors[set_idx % len(well_colors)]
+            # decision #1: line-plot trace colour = the rep-set's well-position
+            # rank colour, so it matches the sidebar plate and the bar plot.
+            color = app._rank_color_rset(rset)
             valid_wells = [w for w in rset.wells if w in app._well_paths]
             all_tps: set = set()
             all_fluor_vals_rset = []
@@ -150,7 +146,7 @@ def redraw_line_plots(
             key=lambda x: x,
         )
         for i, label in enumerate(ordered_selected):
-            color = well_colors[i % len(well_colors)]
+            color = app._rank_color_well(label)  # decision #1: colour by well-position rank
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
             pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
