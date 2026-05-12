@@ -1,6 +1,11 @@
 # `SavedSelectionsList` composition extension — spec (Phase 6.5.12)
 
-> **Status:** proposed (2026-05-12) — **awaiting approval.** Nothing implemented.
+> **Status:** approved 2026-05-12 (incl. the §5 "widget stays permissive" call);
+> **built** (code, not runtime-verified — `widgets/saved_selections_list.py` +
+> the gallery card + `__main__`; `py_compile` clean). Pending: your runtime QA
+> of the gallery card / `__main__`, then Phase 8.0 Stage C (view swap →
+> mutation flip → Stage D). The text below is the as-built spec; minor
+> as-built deviations are noted inline.
 > The user reframed this as "the 6.5.10 widget round we missed"; numbered here
 > **6.5.12** to avoid clashing with the already-completed 6.5.10 (`PlotCard`
 > extension). It is the prerequisite that *unblocks* Phase 8.0 Stage C (swap the
@@ -120,11 +125,14 @@ condition's N replicates" — the common `rep_set` case).
   doesn't overflow horizontally. (If implementing a flow layout is too much,
   fall back to a horizontal `QScrollArea` strip per sub-list — `bar_group_panel_view`
   already does the single-line thing; acceptable.)
-- A chip's tiny context menu (right-click, or a `⋮` on hover) offers **"Move to
-  new replicate"** (pull just this well into its own sub-list) and, when there
-  are ≥ 2 sub-lists, **"Move to R1 / R2 / …"**. This covers arbitrary
-  re-partitioning without needing chip drag-and-drop (which is the stretch goal,
-  see §5).
+- A chip's menu offers **"✕ Remove"**, **"Move to new replicate"** (pull just
+  this well into its own sub-list), **"Move to R1 / R2 / …"** (each other
+  sub-list), and **"Make solo"** (if the well is currently in a sub-list). This
+  covers arbitrary re-partitioning without needing chip drag-and-drop (the
+  stretch goal, see §5). *(As built: rather than a hover-`×` plus a separate
+  right-click menu, the chip is a `QToolButton` whose **click** opens this menu
+  — one widget, one gesture, every action reachable; equivalent functionally,
+  slightly fewer affordances on screen.)*
 
 ### 2.3 The `Rk:` sub-list rows
 

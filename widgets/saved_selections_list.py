@@ -10,24 +10,38 @@ Per row: drag handle (drag-to-reorder) · visibility eye · colour dot (opens a
 ``ColorSwatchRow`` recolour popover) · inline-renamable name · count chip
 (``len(wells)``) · kebab → ``QMenu`` (Rename / Recolour / Duplicate / Hide /
 Move up / Move down / Export / Delete). Clicking the row body activates it;
-clicking the chevron expands it to a read-only ``ChipGroup`` of well chips.
-Hidden rows fade + strike-through and sink to the bottom of the *displayed*
-order (their stored position is preserved). Footer: *From selection* + *Import…*.
+clicking the chevron expands it to the selection's well chips.
+
+**Composition (Phase 6.5.12, opt-in via ``setComposable(True)``):** the expanded
+row becomes editable — replicate sub-lists (``R1:/R2:/solo:``) with *ungroup*
+(``⊟``) / *group-solo* (``⊞``) buttons, each chip a click-menu (Remove · Move to
+new replicate · Move to R*k* · Make solo), and a ``+ wells…`` button that opens
+a ``Popover`` hosting a ``WellPlateSelector`` (multi-select). See
+``design/SAVED_SELECTIONS_COMPOSITION_SPEC.md``. The widget does *not* enforce
+cross-selection well exclusivity (a well may live in many selections — that's how
+bar-plot conditions overlap).
 
 API
 ---
 * ``setSelections(list[dict])`` / ``selections() -> list[dict]``
 * ``setCurrentId(str)`` / ``currentId() -> str``
+* ``setComposable(bool)`` / ``isComposable()``; ``setEnabledWells(iter)`` /
+  ``enabledWells()``; ``setWellPlateFactory(callable|None)``
+* ``setSelectionWells(id, wells)`` / ``setSelectionReplicates(id, reps|None)``
+  (host → widget; no signal)
 * signals: ``entryActivated(str)``, ``entryRenamed(str, str)``,
   ``entryRecoloured(str, str)``, ``entryVisibilityToggled(str, bool)``,
   ``entryDuplicated(str, str)``, ``entryDeleted(str)``,
   ``entryExportRequested(str)``, ``orderChanged(list)``,
-  ``addFromSelectionRequested()``, ``importRequested()``, ``selectionsChanged(list)``
+  ``addFromSelectionRequested()``, ``importRequested()``,
+  ``wellsChanged(str, list)``, ``replicatesChanged(str, list)``,
+  ``selectionsChanged(list)``
 """
 
 from __future__ import annotations
 
 import os as _os
+import re as _re
 import sys as _sys
 import uuid as _uuid
 
@@ -45,16 +59,70 @@ from PySide6.QtWidgets import (  # noqa: E402
 import theme  # noqa: E402
 
 _HANDLE = "⠇"   # ⠇-ish drag dots
-_EYE_ON = "◉"   # ◉
-_EYE_OFF = "○"  # ○
-_KEBAB = "⋯"    # ⋯
-_CHEV_C = "▸"   # ▸
-_CHEV_O = "▾"   # ▾
+_EYE_ON = "◉"
+_EYE_OFF = "○"
+_KEBAB = "⋯"
+_CHEV_C = "▸"
+_CHEV_O = "▾"
+
+_PLATE_ROWS = "ABCDEFGH"
+_ALL_WELLS = [f"{r}{c:02d}" for r in _PLATE_ROWS for c in range(1, 13)]
+_TOKEN_RE = _re.compile(r"^([A-Ha-h])\s*0*([1-9]|1[0-2])$")
 
 
 def _hex6(c) -> str:
     qc = QColor(c)
     return qc.name(QColor.HexRgb).upper() if qc.isValid() else "#888888"
+
+
+def _norm_token(w) -> str | None:
+    if not isinstance(w, str):
+        return None
+    m = _TOKEN_RE.match(w.strip())
+    return f"{m.group(1).upper()}{int(m.group(2)):02d}" if m else None
+
+
+def _well_rank(w) -> int:
+    t = _norm_token(w)
+    if t is None:
+        return 1 << 30
+    return _PLATE_ROWS.index(t[0]) * 12 + (int(t[1:]) - 1)
+
+
+def _dedup(seq):
+    seen, out = set(), []
+    for x in seq:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def _clean_wells(seq) -> list[str]:
+    if not isinstance(seq, (list, tuple)):
+        return []
+    return _dedup(t for t in (_norm_token(w) for w in seq) if t)
+
+
+def _clean_reps(reps, *, allowed: set) -> list[list[str]] | None:
+    """De-overlap + restrict to ``allowed``; ``None`` for an empty result."""
+    if not reps:
+        return None
+    seen: set = set()
+    out: list[list[str]] = []
+    for sub in reps:
+        if not isinstance(sub, (list, tuple)):
+            continue
+        kept = []
+        for w in sub:
+            t = _norm_token(w)
+            if t is None or t in seen or t not in allowed:
+                continue
+            seen.add(t)
+            kept.append(t)
+        if kept:
+            out.append(kept)
+    return out or None
 
 
 class _SelectionRow(QFrame):
@@ -65,6 +133,7 @@ class _SelectionRow(QFrame):
     kebabRequested = Signal(str, QWidget)
     expandToggled = Signal(str, bool)
     dragMoveBy = Signal(str, int)            # (id, net ± rows) — emitted on release
+    compositionEdited = Signal(str, list, object)   # (id, wells, replicates|None)
 
     def __init__(self, sel: dict, parent=None) -> None:
         super().__init__(parent)
@@ -72,7 +141,13 @@ class _SelectionRow(QFrame):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._id = sel["id"]
         self._expanded = False
-        c = theme.Colors
+        self._wells: list[str] = list(sel.get("wells") or [])
+        self._replicates = sel.get("replicates")
+        self._composable = False
+        self._enabled_wells: list[str] = []
+        self._plate_factory = None
+        self._compose_pop = None
+        self._compose_btn: QToolButton | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -159,7 +234,6 @@ class _SelectionRow(QFrame):
         return f"""
         QFrame#SelectionRow {{ background: transparent; border-radius: {r.sm}px; }}
         QFrame#SelectionRow[current="true"] {{ background-color: {c.accent_dim}; }}
-        QFrame#SelectionRow[hiddenRow="true"] {{ }}
         QToolButton#RowGhost {{ border: none; background: transparent; color: {c.text_secondary};
             padding: 0 2px; }}
         QToolButton#RowGhost:hover {{ color: {c.text_primary}; }}
@@ -170,18 +244,29 @@ class _SelectionRow(QFrame):
         QLabel#RowName[hiddenRow="true"] {{ color: {c.text_muted}; }}
         QLabel#RowCount {{ color: {c.text_secondary}; background-color: {c.panel_elevated};
             border: 1px solid {c.border_subtle}; border-radius: {r.xs}px; padding: 0 6px; }}
+        QLabel#RepLabel {{ color: {c.text_faint}; font-size: {theme.Typography.caption_size}px; }}
+        QToolButton#RowChip {{ color: {c.text_primary}; background-color: {c.panel_elevated};
+            border: 1px solid {c.border_subtle}; border-radius: {r.xs}px; padding: 1px 6px; }}
+        QToolButton#RowChip:hover {{ border-color: {c.accent}; }}
+        QToolButton#RepBtn {{ border: 1px solid {c.border_subtle}; border-radius: {r.xs}px;
+            background: transparent; color: {c.text_secondary}; padding: 0 4px; }}
+        QToolButton#RepBtn:hover {{ color: {c.text_primary}; border-color: {c.border}; }}
         """
 
     # ── populate / refresh ───────────────────────────────────────────────
-    def update_from(self, sel: dict, *, current: bool) -> None:
+    def update_from(self, sel: dict, *, current: bool, composable: bool = False,
+                    enabled_wells=None, plate_factory=None) -> None:
         self._id = sel["id"]
+        self._composable = bool(composable)
+        if enabled_wells is not None:
+            self._enabled_wells = list(enabled_wells)
+        self._plate_factory = plate_factory
         hidden = bool(sel.get("hidden"))
         self._name.setText(str(sel.get("name", "")))
-        if hidden:
-            f = self._name.font(); f.setStrikeOut(True); self._name.setFont(f)
-        else:
-            f = self._name.font(); f.setStrikeOut(False); self._name.setFont(f)
-        self._chip.setText(str(len(sel.get("wells") or [])))
+        f = self._name.font(); f.setStrikeOut(hidden); self._name.setFont(f)
+        self._wells = list(sel.get("wells") or [])
+        self._replicates = sel.get("replicates")
+        self._chip.setText(str(len(self._wells)))
         col = _hex6(sel.get("color"))
         self._dot.setStyleSheet(
             f"QToolButton#RowDot {{ background-color: {col}; border: 1px solid {theme.Colors.border};"
@@ -192,37 +277,287 @@ class _SelectionRow(QFrame):
         self._eye.setToolTip("Hidden — click to show" if hidden else "Visible — click to hide")
         self._eye.blockSignals(False)
         self.setProperty("current", "true" if current else "false")
-        self.setProperty("hiddenRow", "true" if hidden else "false")
         self._name.setProperty("hiddenRow", "true" if hidden else "false")
         op = 0.55 if hidden else 1.0
         self.setStyleSheet(self._qss())
-        self.setWindowOpacity(1.0)
         for w in (self._name, self._chip, self._handle, self._chev):
             w.setStyleSheet(f"opacity: {op};")
-        # rebuild well chips (only matters while expanded)
-        self._wells = list(sel.get("wells") or [])
         if self._expanded:
             self._fill_chips()
         self.style().unpolish(self); self.style().polish(self)
 
-    def _fill_chips(self) -> None:
+    # ── expanded body ────────────────────────────────────────────────────
+    def _clear_chips(self) -> None:
         while self._chips_inner.count():
             it = self._chips_inner.takeAt(0)
             if it.widget():
                 it.widget().deleteLater()
+
+    def _fill_chips(self) -> None:
+        self._clear_chips()
+        box = QWidget(self._chips_host)
+        bv = QVBoxLayout(box)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(2)
+        if not self._composable:
+            self._build_readonly(bv, box)
+        else:
+            self._build_composable(bv, box)
+        self._chips_inner.addWidget(box)
+        self._chips_inner.addStretch(1)
+
+    def _build_readonly(self, bv: QVBoxLayout, parent: QWidget) -> None:
         try:
             from widgets.chip_group import ChipGroup
             cg = ChipGroup(exclusive=False)
             for w in self._wells:
                 cg.addChip(w, data=w)
             cg.setEnabled(False)
-            self._chips_inner.addWidget(cg)
+            bv.addWidget(cg)
         except Exception:
-            lbl = QLabel(", ".join(self._wells) or "(no wells)")
+            lbl = QLabel(", ".join(self._wells) or "(no wells)", parent)
             lbl.setObjectName("Caption")
             lbl.setWordWrap(True)
-            self._chips_inner.addWidget(lbl)
-        self._chips_inner.addStretch(1)
+            bv.addWidget(lbl)
+
+    def _chip_strip(self, label: str, wells, *, in_sub: int | None,
+                    parent: QWidget, trailing: QWidget | None = None) -> QWidget:
+        w = QWidget(parent)
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(3)
+        if label:
+            lab = QLabel(label, w)
+            lab.setObjectName("RepLabel")
+            h.addWidget(lab)
+        for tok in wells:
+            h.addWidget(self._make_chip(tok, in_sub=in_sub, parent=w))
+        h.addStretch(1)
+        if trailing is not None:
+            h.addWidget(trailing)
+        return w
+
+    def _build_composable(self, bv: QVBoxLayout, parent: QWidget) -> None:
+        reps = self._replicates if isinstance(self._replicates, list) else None
+        if not self._wells:
+            lbl = QLabel("(no wells — use “+ wells…”)", parent)
+            lbl.setObjectName("Caption")
+            bv.addWidget(lbl)
+        elif reps is not None:
+            assigned: set = set()
+            for k, sub in enumerate(reps):
+                ung = QToolButton(parent)
+                ung.setObjectName("RepBtn")
+                ung.setText("⊟")
+                ung.setToolTip("Ungroup this replicate (its wells become solo)")
+                ung.clicked.connect(lambda _=False, kk=k: self._ungroup_sublist(kk))
+                bv.addWidget(self._chip_strip(f"R{k + 1}:", sub, in_sub=k,
+                                              parent=parent, trailing=ung))
+                assigned |= set(sub)
+            solo = [w for w in self._wells if w not in assigned]
+            if solo:
+                grp = QToolButton(parent)
+                grp.setObjectName("RepBtn")
+                grp.setText("⊞")
+                grp.setToolTip("Bundle the solo wells into a new replicate")
+                grp.clicked.connect(lambda _=False: self._group_solo())
+                bv.addWidget(self._chip_strip("solo:", solo, in_sub=None,
+                                              parent=parent, trailing=grp))
+        else:
+            mk = QToolButton(parent)
+            mk.setObjectName("RepBtn")
+            mk.setText("⊞")
+            mk.setToolTip("Treat all of these wells as one condition's replicates")
+            mk.clicked.connect(lambda _=False: self._make_replicate_all())
+            bv.addWidget(self._chip_strip("wells:", self._wells, in_sub=None,
+                                          parent=parent, trailing=mk))
+        # + wells…
+        addw = QToolButton(parent)
+        addw.setObjectName("RepBtn")
+        addw.setText("+ wells…")
+        addw.setCursor(Qt.PointingHandCursor)
+        addw.clicked.connect(self._open_compose_popover)
+        self._compose_btn = addw
+        roww = QWidget(parent)
+        hl = QHBoxLayout(roww)
+        hl.setContentsMargins(0, 2, 0, 0)
+        hl.addWidget(addw)
+        hl.addStretch(1)
+        bv.addWidget(roww)
+
+    def _make_chip(self, token: str, *, in_sub: int | None, parent: QWidget) -> QToolButton:
+        b = QToolButton(parent)
+        b.setObjectName("RowChip")
+        b.setText(token)
+        b.setCursor(Qt.PointingHandCursor)
+
+        def _menu():
+            m = QMenu(b)
+            m.addAction("✕ Remove").triggered.connect(
+                lambda _=False, t=token: self._remove_well(t))
+            reps = self._replicates if isinstance(self._replicates, list) else []
+            m.addSeparator()
+            m.addAction("→ Move to new replicate").triggered.connect(
+                lambda _=False, t=token: self._move_well_to_new(t))
+            for j in range(len(reps)):
+                if j == in_sub:
+                    continue
+                m.addAction(f"→ Move to R{j + 1}").triggered.connect(
+                    lambda _=False, t=token, jj=j: self._move_well_to_sub(t, jj))
+            if in_sub is not None:
+                m.addAction("→ Make solo").triggered.connect(
+                    lambda _=False, t=token: self._make_well_solo(t))
+            m.exec(b.mapToGlobal(QPoint(0, b.height())))
+        b.clicked.connect(_menu)
+        return b
+
+    # ── composition mutations (mutate _wells/_replicates, then emit) ─────
+    def _emit_composition(self) -> None:
+        self.compositionEdited.emit(self._id, list(self._wells),
+                                    [list(s) for s in self._replicates]
+                                    if isinstance(self._replicates, list) else None)
+
+    def _normalised_reps(self):
+        reps = self._replicates if isinstance(self._replicates, list) else None
+        if reps is None:
+            return None
+        out = [list(s) for s in reps if s]
+        return out or None
+
+    def _remove_well(self, token: str) -> None:
+        self._wells = [w for w in self._wells if w != token]
+        if isinstance(self._replicates, list):
+            self._replicates = [[w for w in s if w != token] for s in self._replicates]
+        self._replicates = self._normalised_reps()
+        self._fill_chips()
+        self._emit_composition()
+
+    def _move_well_to_new(self, token: str) -> None:
+        if token not in self._wells:
+            return
+        reps = [[w for w in s if w != token] for s in (self._replicates or [])]
+        reps.append([token])
+        self._replicates = [s for s in reps if s] or None
+        self._fill_chips()
+        self._emit_composition()
+
+    def _move_well_to_sub(self, token: str, k: int) -> None:
+        if token not in self._wells or not isinstance(self._replicates, list):
+            return
+        new = []
+        for i, s in enumerate(self._replicates):
+            s2 = [w for w in s if w != token]
+            if i == k and token not in s2:
+                s2.append(token)
+            new.append(s2)
+        self._replicates = [s for s in new if s] or None
+        self._fill_chips()
+        self._emit_composition()
+
+    def _make_well_solo(self, token: str) -> None:
+        if not isinstance(self._replicates, list):
+            return
+        self._replicates = [[w for w in s if w != token] for s in self._replicates]
+        self._replicates = self._normalised_reps()
+        self._fill_chips()
+        self._emit_composition()
+
+    def _ungroup_sublist(self, k: int) -> None:
+        if not isinstance(self._replicates, list) or not (0 <= k < len(self._replicates)):
+            return
+        self._replicates = [s for i, s in enumerate(self._replicates) if i != k] or None
+        self._fill_chips()
+        self._emit_composition()
+
+    def _group_solo(self) -> None:
+        assigned = {w for s in (self._replicates or []) for w in s}
+        solo = [w for w in self._wells if w not in assigned]
+        if not solo:
+            return
+        self._replicates = (self._replicates or []) + [solo]
+        self._fill_chips()
+        self._emit_composition()
+
+    def _make_replicate_all(self) -> None:
+        if isinstance(self._replicates, list) or not self._wells:
+            return
+        self._replicates = [list(self._wells)]
+        self._fill_chips()
+        self._emit_composition()
+
+    def _open_compose_popover(self) -> None:
+        from widgets.popover import Popover
+        plate = None
+        if callable(self._plate_factory):
+            try:
+                plate = self._plate_factory()
+            except Exception:
+                plate = None
+        if plate is None:
+            from widgets.well_plate_selector import WellPlateSelector
+            plate = WellPlateSelector()
+        try:
+            plate.setActionsVisible(False)
+        except Exception:
+            pass
+        enabled = list(self._enabled_wells) or list(_ALL_WELLS)
+        plate.setEnabledWells(enabled)
+        try:
+            plate.setSelectionMode("select")
+            plate.setRowColumnSelectable(True)
+            plate.setSingleSelectionMode(False)
+        except Exception:
+            pass
+        plate.setSelectedWellIds([w for w in self._wells if w in set(enabled)])
+        state = {"ids": [w for w in self._wells if w in set(enabled)]}
+        try:
+            plate.selectionChanged.connect(lambda ids: state.__setitem__("ids", list(ids)))
+        except Exception:
+            pass
+
+        content = QWidget()
+        cv = QVBoxLayout(content)
+        cv.setContentsMargins(theme.Spacing.sm, theme.Spacing.sm,
+                              theme.Spacing.sm, theme.Spacing.sm)
+        cv.setSpacing(theme.Spacing.sm)
+        cv.addWidget(QLabel("Choose wells for this selection"))
+        cv.addWidget(plate, 1)
+        br = QHBoxLayout()
+        br.addStretch(1)
+        cancel = QPushButton("Cancel")
+        okb = QPushButton("OK")
+        okb.setObjectName("Primary")
+        br.addWidget(cancel)
+        br.addWidget(okb)
+        cv.addLayout(br)
+
+        pop = Popover(self)
+        pop.setContentWidget(content)
+        self._compose_pop = pop
+        enabled_set = set(enabled)
+
+        def _commit():
+            picked = sorted({w for w in state["ids"] if w in enabled_set}, key=_well_rank)
+            self._wells = picked
+            if isinstance(self._replicates, list):
+                pset = set(picked)
+                self._replicates = self._normalised_reps_pruned(pset)
+            pop.close()
+            self._fill_chips()
+            self._emit_composition()
+
+        okb.clicked.connect(_commit)
+        cancel.clicked.connect(pop.close)
+        anchor = self._compose_btn or self._chev
+        pop.popup(anchor, side="bottom", align="start")
+
+    def _normalised_reps_pruned(self, allowed: set):
+        reps = self._replicates if isinstance(self._replicates, list) else None
+        if reps is None:
+            return None
+        out = [[w for w in s if w in allowed] for s in reps]
+        out = [s for s in out if s]
+        return out or None
 
     # ── interactions ─────────────────────────────────────────────────────
     def _on_body_press(self, event) -> None:
@@ -232,8 +567,10 @@ class _SelectionRow(QFrame):
     def _toggle_expand(self) -> None:
         self._expanded = not self._expanded
         self._chev.setText(_CHEV_O if self._expanded else _CHEV_C)
-        if self._expanded and self._chips_inner.count() == 0:
+        if self._expanded:
             self._fill_chips()
+        else:
+            self._clear_chips()
         self._chips_host.setVisible(self._expanded)
         self.expandToggled.emit(self._id, self._expanded)
 
@@ -243,7 +580,6 @@ class _SelectionRow(QFrame):
         self._editor = QLineEdit(self._name.text(), self._top)
         self._editor.setObjectName("RowEditor")
         self._editor.selectAll()
-        # swap the label out for the editor in the layout
         lay = self._top.layout()
         idx = lay.indexOf(self._name)
         self._name.setVisible(False)
@@ -298,6 +634,8 @@ class SavedSelectionsList(QWidget):
     orderChanged = Signal(list)                    # [id, …] in stored order
     addFromSelectionRequested = Signal()
     importRequested = Signal()
+    wellsChanged = Signal(str, list)               # (id, wells)
+    replicatesChanged = Signal(str, list)          # (id, replicates) — [] for "no structure"
     selectionsChanged = Signal(list)
 
     def __init__(self, parent=None) -> None:
@@ -307,6 +645,9 @@ class SavedSelectionsList(QWidget):
         self._current_id: str = ""
         self._rows: dict[str, _SelectionRow] = {}
         self._recolour_pop = None
+        self._composable = False
+        self._enabled_wells: list[str] = list(_ALL_WELLS)
+        self._well_plate_factory = None
 
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
@@ -368,6 +709,42 @@ class SavedSelectionsList(QWidget):
 
     def currentId(self) -> str:
         return self._current_id
+
+    # ── composition config ───────────────────────────────────────────────
+    def setComposable(self, on: bool) -> None:
+        on = bool(on)
+        if on != self._composable:
+            self._composable = on
+            self._rebuild()
+
+    def isComposable(self) -> bool:
+        return self._composable
+
+    def setEnabledWells(self, wells) -> None:
+        self._enabled_wells = _clean_wells(wells) or list(_ALL_WELLS)
+        self._refresh_rows()
+
+    def enabledWells(self) -> list[str]:
+        return list(self._enabled_wells)
+
+    def setWellPlateFactory(self, factory) -> None:
+        self._well_plate_factory = factory if callable(factory) else None
+        self._refresh_rows()
+
+    def setSelectionWells(self, sel_id: str, wells) -> None:
+        s = self._by_id(sel_id)
+        if s is None:
+            return
+        s["wells"] = _clean_wells(wells)
+        s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(s["wells"]))
+        self._refresh_rows()
+
+    def setSelectionReplicates(self, sel_id: str, reps) -> None:
+        s = self._by_id(sel_id)
+        if s is None:
+            return
+        s["replicates"] = _clean_reps(reps, allowed=set(s.get("wells") or []))
+        self._refresh_rows()
 
     # ── helpers ──────────────────────────────────────────────────────────
     @staticmethod
@@ -436,9 +813,12 @@ class SavedSelectionsList(QWidget):
         return ([s for s in self._selections if not s["hidden"]]
                 + [s for s in self._selections if s["hidden"]])
 
+    def _row_kwargs(self) -> dict:
+        return dict(composable=self._composable, enabled_wells=self._enabled_wells,
+                    plate_factory=self._well_plate_factory)
+
     # ── view build ───────────────────────────────────────────────────────
     def _rebuild(self) -> None:
-        # remove existing row widgets (keep the trailing stretch)
         while self._vbox.count() > 1:
             it = self._vbox.takeAt(0)
             if it.widget():
@@ -452,7 +832,8 @@ class SavedSelectionsList(QWidget):
             row.renameCommitted.connect(self._on_renamed)
             row.kebabRequested.connect(self._on_kebab)
             row.dragMoveBy.connect(self._on_drag_move)
-            row.update_from(s, current=(s["id"] == self._current_id))
+            row.compositionEdited.connect(self._on_composition_edited)
+            row.update_from(s, current=(s["id"] == self._current_id), **self._row_kwargs())
             self._vbox.insertWidget(self._vbox.count() - 1, row)
             self._rows[s["id"]] = row
 
@@ -460,13 +841,13 @@ class SavedSelectionsList(QWidget):
         for s in self._selections:
             row = self._rows.get(s["id"])
             if row is not None:
-                row.update_from(s, current=(s["id"] == self._current_id))
+                row.update_from(s, current=(s["id"] == self._current_id), **self._row_kwargs())
 
     def _refresh_current(self) -> None:
         for sid, row in self._rows.items():
             s = self._by_id(sid)
             if s is not None:
-                row.update_from(s, current=(sid == self._current_id))
+                row.update_from(s, current=(sid == self._current_id), **self._row_kwargs())
 
     def _emit_changed(self) -> None:
         self.selectionsChanged.emit(self.selections())
@@ -483,7 +864,7 @@ class SavedSelectionsList(QWidget):
         if s is None:
             return
         s["hidden"] = bool(hidden)
-        self._rebuild()                       # display order changes
+        self._rebuild()
         self.entryVisibilityToggled.emit(sel_id, s["hidden"])
         self._emit_changed()
 
@@ -497,6 +878,20 @@ class SavedSelectionsList(QWidget):
         s["name"] = final
         self._refresh_rows()
         self.entryRenamed.emit(sel_id, final)
+        self._emit_changed()
+
+    def _on_composition_edited(self, sel_id: str, wells, reps) -> None:
+        s = self._by_id(sel_id)
+        if s is None:
+            return
+        s["wells"] = list(wells)
+        s["replicates"] = ([list(x) for x in reps] if isinstance(reps, (list, tuple)) and reps
+                           else None)
+        row = self._rows.get(sel_id)
+        if row is not None:
+            row.update_from(s, current=(sel_id == self._current_id), **self._row_kwargs())
+        self.wellsChanged.emit(sel_id, list(s["wells"]))
+        self.replicatesChanged.emit(sel_id, [list(x) for x in (s["replicates"] or [])])
         self._emit_changed()
 
     def _on_recolour_requested(self, sel_id: str, anchor: QWidget) -> None:
@@ -607,13 +1002,14 @@ class SavedSelectionsList(QWidget):
         self._emit_changed()
 
     def _on_drag_move(self, sel_id: str, steps: int) -> None:
-        # Deferred: the originating row widget is destroyed inside _rebuild().
         QTimer.singleShot(0, lambda: self._move(sel_id, steps))
 
 
 # ── standalone visual test ──────────────────────────────────────────────────
 if __name__ == "__main__":
-    from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget as _QW
+    from PySide6.QtWidgets import (
+        QApplication, QCheckBox, QHBoxLayout as _HB, QLabel, QVBoxLayout, QWidget as _QW,
+    )
 
     app = QApplication.instance() or QApplication(_sys.argv)
     app.setStyleSheet(theme.qss())
@@ -625,15 +1021,17 @@ if __name__ == "__main__":
     lay.setContentsMargins(pad, pad, pad, pad)
     lay.setSpacing(theme.Spacing.md)
 
-    title = QLabel("SavedSelectionsList (editable)")
+    title = QLabel("SavedSelectionsList (editable + composable)")
     title.setObjectName("Title")
     lay.addWidget(title)
 
     lst = SavedSelectionsList()
+    lst.setEnabledWells(_ALL_WELLS)
+    lst.setComposable(True)
     tr = theme.Colors.trace
     lst.setSelections([
         {"id": "aaaa1111", "name": "Control", "color": tr[0], "hidden": False,
-         "wells": ["A01", "A02", "A03", "B01", "B02", "B03"],
+         "wells": ["A01", "A02", "A03", "B01", "B02", "B03", "C03"],
          "replicates": [["A01", "A02", "A03"], ["B01", "B02", "B03"]], "source": "bar_group"},
         {"id": "bbbb2222", "name": "Drug A — 1µM", "color": tr[1], "hidden": False,
          "wells": ["C01", "C02", "C03"], "replicates": [["C01", "C02", "C03"]], "source": "rep_set"},
@@ -643,10 +1041,18 @@ if __name__ == "__main__":
          "wells": ["E01", "E02"], "replicates": None, "source": "import"},
     ])
     lst.setCurrentId("bbbb2222")
-    lst.setMinimumHeight(260)
+    lst.setMinimumHeight(300)
     lay.addWidget(lst, 1)
 
-    echo = QLabel("(interact — rename / recolour / reorder / hide / delete)")
+    row = _HB()
+    cb = QCheckBox("composable")
+    cb.setChecked(True)
+    cb.toggled.connect(lst.setComposable)
+    row.addWidget(cb)
+    row.addStretch(1)
+    lay.addLayout(row)
+
+    echo = QLabel("(expand a row → edit chips / replicates / + wells…)")
     echo.setObjectName("Secondary")
     echo.setWordWrap(True)
     lay.addWidget(echo)
@@ -656,9 +1062,11 @@ if __name__ == "__main__":
     lst.entryVisibilityToggled.connect(lambda i, h: echo.setText(f"{i} hidden={h}"))
     lst.orderChanged.connect(lambda ids: echo.setText("order → " + ", ".join(ids)))
     lst.entryDeleted.connect(lambda i: echo.setText(f"deleted → {i}"))
+    lst.wellsChanged.connect(lambda i, w: echo.setText(f"wells[{i}] → {w}"))
+    lst.replicatesChanged.connect(lambda i, r: echo.setText(f"replicates[{i}] → {r}"))
     lst.addFromSelectionRequested.connect(lambda: echo.setText("from-selection requested"))
     lst.importRequested.connect(lambda: echo.setText("import requested"))
 
-    root.resize(440, 420)
+    root.resize(480, 480)
     root.show()
     _sys.exit(app.exec())

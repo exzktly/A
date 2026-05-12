@@ -613,12 +613,24 @@ clean; self-test `ALL PASS` (incl. an id-reuse round-trip smoke).
   plates to `WellPlateSelector` is the deferred WellSelector migration
   (`WELL_SELECTOR_GAP.md` Steps 2–8) — its own cluster, not part of the
   colour work.
+- **Phase 6.5.12 (`SavedSelectionsList` composition extension)** — **done** (code,
+  not runtime-verified): `setComposable(True)` + editable replicate sub-lists +
+  per-chip move-menu + `+ wells…` `WellPlateSelector` popover + `setEnabledWells`
+  / `setWellPlateFactory` / `setSelectionWells` / `setSelectionReplicates` +
+  `wellsChanged` / `replicatesChanged` signals. See
+  `design/SAVED_SELECTIONS_COMPOSITION_SPEC.md`. **This unblocks Stage C** — the
+  view swap no longer loses group/rep composition.
 - **Stage B (rest)** — switch the remaining read-only consumers (`batch_export/*`,
-  the `runtime_app` rep-set helpers) to the unified model; **Stage C** — flip
-  the mutation paths (`grouping_controller`, `selection_controller`, the
-  `runtime_app` rep/group dialogs) to mutate `_selections` directly (so
-  `sync_selections_from_legacy` becomes a no-op), and swap the rep-set/group
-  view widgets for `widgets.SavedSelectionsList`; **Stage D** — delete the
-  legacy `_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp`
+  the `runtime_app` rep-set helpers) to the unified model; **Stage C** (now
+  unblocked by 6.5.12) — flip the mutation paths (`grouping_controller`,
+  `selection_controller`, the `runtime_app` rep/group dialogs) to mutate
+  `_selections` directly (so `sync_selections_from_legacy` becomes a no-op), and
+  swap the Sample-Definitions rep-set/group view widgets for
+  `widgets.SavedSelectionsList` in composable mode (wiring `wellsChanged` /
+  `replicatesChanged` / `entry*` / `orderChanged` to the mutators, with an
+  optional "＋ from another selection…" affordance replacing legacy "add member
+  rep-set", and the legacy rep-map plate retargeted to drive the
+  currently-selected selection's `wells`); **Stage D** — delete the legacy
+  `_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp`
   shadow + `from_legacy_appstate` + `sync_selections_from_legacy`. Each as its
   own commit, with your runtime QA between.

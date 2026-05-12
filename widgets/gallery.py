@@ -456,10 +456,12 @@ def _build_saved():
     v.setContentsMargins(0, 0, 0, 0)
     v.setSpacing(theme.Spacing.sm)
     lst = SavedSelectionsList()
+    lst.setEnabledWells([f"{r}{c:02d}" for r in "ABCDEFGH" for c in range(1, 13)])
+    lst.setComposable(True)
     tr = theme.Colors.trace
     lst.setSelections([
         {"id": "aaaa1111", "name": "Control", "color": tr[0], "hidden": False,
-         "wells": ["A01", "A02", "A03", "B01", "B02", "B03"],
+         "wells": ["A01", "A02", "A03", "B01", "B02", "B03", "C03"],
          "replicates": [["A01", "A02", "A03"], ["B01", "B02", "B03"]], "source": "bar_group"},
         {"id": "bbbb2222", "name": "Drug A — 1µM", "color": tr[1], "hidden": False,
          "wells": ["C01", "C02", "C03"], "replicates": [["C01", "C02", "C03"]], "source": "rep_set"},
@@ -469,14 +471,25 @@ def _build_saved():
          "wells": ["E01", "E02"], "replicates": None, "source": "import"},
     ])
     lst.setCurrentId("bbbb2222")
-    lst.setMinimumHeight(220)
+    lst.setMinimumHeight(240)
     v.addWidget(lst, 1)
-    out = QLabel("(rename · recolour · reorder via handle/kebab · hide · expand)")
+    row = QHBoxLayout()
+    row.setSpacing(theme.Spacing.sm)
+    from PySide6.QtWidgets import QCheckBox
+    cb = QCheckBox("composable")
+    cb.setChecked(True)
+    cb.toggled.connect(lst.setComposable)
+    row.addWidget(cb)
+    row.addStretch(1)
+    v.addLayout(row)
+    out = QLabel("(composable: expand a row → edit chips / replicates / + wells…)")
     out.setObjectName("Caption")
     out.setWordWrap(True)
     v.addWidget(out)
     lst.selectionsChanged.connect(
         lambda items: out.setText("order: " + " · ".join(i["name"] for i in items)))
+    lst.wellsChanged.connect(lambda i, w: out.setText(f"wells[{i}] → {w}"))
+    lst.replicatesChanged.connect(lambda i, r: out.setText(f"replicates[{i}] → {r}"))
     return host
 
 
@@ -708,7 +721,7 @@ def build_gallery() -> QWidget:
 
         ("§", "Plate & plot"),
         ("WellPlateSelector", _build_plate, "select/passive modes · colours · header clicks"),
-        ("SavedSelectionsList", _build_saved, "v2 editable: rename · recolour popover · reorder · hide · expand-to-chips"),
+        ("SavedSelectionsList", _build_saved, "v2 editable + composable: rename · recolour · reorder · hide · expand → edit wells/replicates · + wells popover"),
         ("PlotCard", _build_plotcard, "toolbar + coords · figure header + Stat·Error stats popover · screen/publication theme", "wide"),
 
         ("§", "Window chrome"),
