@@ -591,35 +591,53 @@ mutates the shadow directly; **Stage C** will flip that (mutations write
 into the rep-set/group views; **Stage D** removes the shadow. `py_compile`
 clean; self-test `ALL PASS` (incl. an id-reuse round-trip smoke).
 
-### Stage C — sub-cluster 1: which panel? — **two wrong attempts; reverted; awaiting user confirmation**
+### Stage C — sub-cluster 1: the "GROUPS" panel → `SavedSelectionsList` — **done** (code, not runtime-verified)
 
-Attempt 1 (a638943, reverted in 8105e6a) edited `grouping_view.build_group_def_panel`
-— dead (no caller). Attempt 2 (818c3cc, reverted) edited
-`bar_group_panel_view.build_bar_group_panel` (→ `app._sidebar_groups_frame`) —
-also effectively dead: **`app._sidebar_groups_frame` is never made visible**
-(created in `runtime_app.__init__` ~1015, `setVisible(False)` in `_on_tab_change`
-~5028, no `setVisible(True)` anywhere). Both reverted; kept only
-`SavedSelectionsList.updateSelections` and the `WellPlateSelector` "rect"
-drag-mode (committed earlier, not in those reverts).
+*(Two earlier attempts hit dead code — `grouping_view.build_group_def_panel`
+(no caller, a638943, reverted) and `bar_group_panel_view.build_bar_group_panel`
+(→ `app._sidebar_groups_frame`, which is never made visible — 818c3cc, reverted).
+The user confirmed: the live panel is `well_viewer/views/replicate_panel_view.py::
+build_replicate_panel` → `app._sidebar_sample_frame`, the only sidebar frame shown
+on the Sample Definitions tab; its card list is `grouping_view.rep_panel_refresh`
+→ `app._rep_inner`.)*
 
-**What's actually live:** on the **Sample Definitions** tab, `_on_tab_change`
-shows `app._sidebar_sample_frame` (the *only* sidebar frame shown there), built
-by `well_viewer/views/replicate_panel_view.py::build_replicate_panel` — a
-rep-map plate (`app._rep_map_btns`) + a "REPLICATE SETS" header (`+ Add` →
-`app._rep_add`) + quick-replicates dropdowns + a scrollable canvas
-(`app._rep_canvas`/`app._rep_inner`) + a hint that mentions "select a replicate
-set or a group". The **card list** inside `_rep_inner` is rendered by
-`grouping_view.rep_panel_refresh` (iterates `app._rep_sets`, builds rep cards),
-called from `runtime_app._groups_centre_refresh` when the tab is visible. The
-bar-group panels (`grouping_view.build_group_def_panel`,
-`bar_group_panel_view.build_bar_group_panel`) appear to be vestigial v2-redesign
-leftovers — never displayed.
+`replicate_panel_view.build_replicate_panel`: the rep-card scrollable canvas
+(`app._rep_canvas`/`app._rep_inner`) is replaced by a composable
+`widgets.SavedSelectionsList` (`app._rep_list`); the header "REPLICATE SETS" →
+"**GROUPS**" (per the user — groups apply to all plots); the plate map, `+ Add`
+(→ `app._rep_add`), `Clear All`, quick-replicates dropdowns, and the rep-map
+drag handlers are unchanged; the hint text updated.
+`grouping_view.rep_panel_refresh` is rewritten: `_sync_selections_from_legacy()`
+then `lst.updateSelections(app._selections)` (in-place when ids unchanged so an
+expanded row survives) + `lst.setCurrentId(app._current_selection_id)` + honours
+the `_grp_inline_edit_idx` rename request + `_rep_refresh_map()`.
+`grouping_view.wire_selections_list(app, lst)` bridges the widget's signals to
+the legacy mutators via `_sel_legacy_target(sel_id) → ("grp", bar_group_idx) |
+("rep", rep_set_idx)` (the unified `_selections` array is `[bar_groups…, free
+rep_sets…]`): `entryActivated→_rep_select / _bar_select_group`,
+`entryRenamed→set .name + _rebuild_all`, `entryVisibilityToggled→_bar_groups[i].hidden`
+(group) or the `_rep_hidden` set translated to `_rep_sets_loaded()` order + `_sb_on_rep_change`
+(rep-set), `entryDeleted→_rep_delete / _bar_remove_group`,
+`entryDuplicated→deepcopy a ReplicateSet/BarGroup`, `orderChanged→reorder _rep_sets`
+(handled only when there are no bar groups — the common case), `wellsChanged→_rep_rebuild_from`
+(rep-set: set `.wells`, replicate sub-list edits flatten back on round-trip; group:
+one fresh `ReplicateSet "<group> #k"` per sub-list + the rest as `solo_wells`,
+prune/extend `_rep_sets`), `addFromSelectionRequested→_rep_add`,
+`importRequested→_bar_load_groups`. `migrate_v1` / `from_legacy_appstate` gained
+an `active_rep_idx` arg so a clicked rep-set becomes `current_id` (else the
+highlight would jump). `_rep_canvas`/`_rep_inner` removed. `py_compile` clean;
+self-test `ALL PASS`.
 
-So sub-cluster 1's real target is **`replicate_panel_view.build_replicate_panel`
-+ `grouping_view.rep_panel_refresh`** (the list `app._rep_inner`). But three
-wrong guesses is enough — *confirm the live panel with the user* (which list,
-exact section headers, what `+ Add` does, ideally a `grep` result) before the
-next attempt.
+**Known interim limits** (gone after Stage D): (a) editing a rep-set selection's
+*replicate sub-lists* flattens back to one sub-list on the next refresh (a legacy
+`ReplicateSet` only holds `{name, wells}` — true multi-sub-list editing only works
+for the (rare) `bar_group`-source selections, which become `solo_wells`/`"#k"`
+member rep-sets); (b) drag-reorder of the list is only applied when there are no
+bar groups; (c) the same `solo → [[w]]` round-trip quirk as before.
+
+Next: sub-cluster 2 — the mutation flip (mutations write `_selections` directly;
+the legacy shadow becomes *derived from* it; `sync_selections_from_legacy` →
+no-op); sub-cluster 3 = Stage D (delete the shadow + the round-trip helpers).
 
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball

@@ -331,7 +331,8 @@ def _resolve_v1(block: Any):
 
 
 def migrate_v1(block: Any, *, rep_hidden: Optional[Iterable[int]] = None,
-               bar_active_grp: int = -1, loaded_tokens: Optional[Iterable[str]] = None,
+               bar_active_grp: int = -1, active_rep_idx: int = -1,
+               loaded_tokens: Optional[Iterable[str]] = None,
                palette: Optional[Sequence[str]] = None,
                id_factory: Callable[[], str] = _default_id_factory):
     """A v1 ``{rep_sets, groups[, well_labels, notes]}`` block → (selections, current_id).
@@ -368,6 +369,8 @@ def migrate_v1(block: Any, *, rep_hidden: Optional[Iterable[int]] = None,
         loaded_order = list(rep_dicts)
     loaded_index = {id(rd): i for i, rd in enumerate(loaded_order)}
     free = [rd for rd in rep_dicts if id(rd) not in in_group]
+    rep_dict_index = {id(rd): k for k, rd in enumerate(rep_dicts)}   # original _rep_sets order
+    free_sel_index_by_rep_idx: dict[int, int] = {}
     for j, rd in enumerate(free):
         hidden = (id(rd) in loaded_index) and (loaded_index[id(rd)] in rep_hidden_set)
         selections.append(make_selection(
@@ -377,11 +380,15 @@ def migrate_v1(block: Any, *, rep_hidden: Optional[Iterable[int]] = None,
             used_names=used_names, used_ids=used_ids,
             fallback_color_idx=len(group_dicts) + j, palette=palette, id_factory=id_factory,
         ))
+        if id(rd) in rep_dict_index:
+            free_sel_index_by_rep_idx[rep_dict_index[id(rd)]] = len(group_dicts) + j
 
-    # (3) current
+    # (3) current — bar-active group wins; else an active (free) rep-set; else first
     current_id = None
     if 0 <= bar_active_grp < len(group_dicts) and bar_active_grp < len(selections):
         current_id = selections[bar_active_grp]["id"]
+    elif int(active_rep_idx) in free_sel_index_by_rep_idx:
+        current_id = selections[free_sel_index_by_rep_idx[int(active_rep_idx)]]["id"]
     if current_id is None and selections:
         current_id = selections[0]["id"]
     return selections, current_id
@@ -673,6 +680,7 @@ def from_legacy_appstate(app, *, prior_selections: Optional[Sequence[dict]] = No
     bar_groups = list(getattr(app, "_bar_groups", []) or [])
     rep_hidden = set(getattr(app, "_rep_hidden", set()) or set())
     bar_active = int(getattr(app, "_bar_active_grp", -1) or -1)
+    rep_active = int(getattr(app, "_active_rep_idx", -1) or -1)
     well_paths = getattr(app, "_well_paths", {}) or {}
     block = {
         "rep_sets": [{"name": r.name, "wells": list(r.wells)} for r in rep_sets],
@@ -683,7 +691,7 @@ def from_legacy_appstate(app, *, prior_selections: Optional[Sequence[dict]] = No
         } for g in bar_groups],
     }
     selections, current_id = migrate_v1(
-        block, rep_hidden=rep_hidden, bar_active_grp=bar_active,
+        block, rep_hidden=rep_hidden, bar_active_grp=bar_active, active_rep_idx=rep_active,
         loaded_tokens=list(well_paths.keys()) or None,
         palette=palette, id_factory=id_factory)
     if prior_selections:
