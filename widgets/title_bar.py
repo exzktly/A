@@ -1,24 +1,42 @@
-"""TitleBar — the frameless-window chrome strip from the v2 mockup.
+"""TitleBar — the frameless-window chrome strip from the v2 mockup (Phase 6.5.9).
 
-Brand tile + wordmark, a breadcrumb (``Workspace · Project / file.awd`` with a
-mono "file chip"), a live "Saved" :class:`~widgets.status_dot.StatusDot`, then
-right-aligned action :class:`~widgets.icon_button.IconButton`s. Dragging the bar
-moves the window; double-click toggles maximize. Designed to sit at the top of a
-``Qt.FramelessWindowHint`` ``QMainWindow``/``QWidget`` (it works fine inside a
-normal window too — dragging is just inert there).
+Brand tile + wordmark (the brand opens a **brand menu**: Open / Recent /
+Preferences / About / Quit), a breadcrumb (``Workspace · Project / file.awd``
+with a mono "file chip"), a live "Saved" :class:`~widgets.status_dot.StatusDot`,
+then right-aligned widgets: a ghost **Open** button (⌘O), a **theme switcher**
+(sun/moon → a `Popover` of Dark / Light / System tiles + a High-contrast
+toggle), arbitrary action :class:`~widgets.icon_button.IconButton`s, and
+optional **window-control** buttons (min / max / close — close hovers to
+``--danger``; hidden on macOS / in native-frame mode).
+
+Frameless vs. native frame
+--------------------------
+``setFramelessMode(bool)`` flips between:
+
+* **frameless** (default on Win/Linux) — the bar drags the window (system move),
+  double-click maximizes, window-control buttons show, and a
+  :class:`~widgets.window_resize_grips.WindowResizeGrips` is attached to the
+  top-level window for edge/corner resizing.
+* **native** (default on macOS) — the OS draws the frame; the bar shrinks to a
+  ~36 px sub-strip beneath it (breadcrumb + actions only), drag is inert,
+  window-control buttons hide, resize grips detach.
+
+The initial mode is chosen by ``widgets._window_chrome.should_use_frameless()``
+(env ``ALLWELL_FRAMELESS`` → Preferences override → accessibility probe →
+platform default) unless an explicit ``frameless=`` is passed.
 
 API
 ---
-* ``TitleBar(parent=None, *, title="All-Well")``
-* ``setBreadcrumb(parts, file_chip=None)`` — ``parts`` is a list of strings
-  joined by "·"; ``file_chip`` (if given) is appended after a "/" in a mono chip.
-* ``setSaved(bool)`` / ``setSavedText(text)``
-* ``addAction(icon_name, tooltip="") -> IconButton`` — append a right-side button.
-* ``windowButtonsVisible`` — set via ``setShowWindowButtons(bool)`` to add
-  minimize / maximize / close buttons (off by default — many platforms keep the
-  native ones even when frameless via the compositor).
-
-Sizes are font-relative (DPI-aware); colours from ``theme`` tokens.
+* ``TitleBar(parent=None, *, title="All-Well", frameless=None)``
+* ``setBreadcrumb(parts, file_chip=None)`` / ``setSaved(bool)`` / ``setSavedText(text)``
+* ``addAction(icon_name, tooltip="", *, text="") -> IconButton``
+* ``setShowWindowButtons(bool)`` (auto-managed by ``setFramelessMode``)
+* ``setFramelessMode(bool)`` / ``isFramelessMode() -> bool``
+* ``setRecentFiles(list[str])``
+* signals: ``closeRequested``/``minimizeRequested``/``maximizeToggleRequested``,
+  ``openRequested``, ``recentFileRequested(str)``, ``preferencesRequested``,
+  ``aboutRequested``, ``quitRequested``, ``themeChangeRequested(str)``
+  (``"dark"``/``"light"``/``"system"``), ``highContrastToggled(bool)``
 """
 
 from __future__ import annotations
@@ -31,11 +49,13 @@ if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
 from PySide6.QtCore import Qt, Signal  # noqa: E402
+from PySide6.QtGui import QKeySequence, QShortcut  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QHBoxLayout, QLabel, QSizePolicy, QWidget,
+    QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import theme  # noqa: E402
+from widgets._window_chrome import should_use_frameless  # noqa: E402
 from widgets.brand_tile import BrandTile  # noqa: E402
 from widgets.icon_button import IconButton  # noqa: E402
 from widgets.status_dot import StatusDot  # noqa: E402
@@ -45,26 +65,46 @@ class TitleBar(QWidget):
     closeRequested = Signal()
     minimizeRequested = Signal()
     maximizeToggleRequested = Signal()
+    openRequested = Signal()
+    recentFileRequested = Signal(str)
+    preferencesRequested = Signal()
+    aboutRequested = Signal()
+    quitRequested = Signal()
+    themeChangeRequested = Signal(str)      # "dark" | "light" | "system"
+    highContrastToggled = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None, *, title: str = "All-Well") -> None:
+    def __init__(self, parent: QWidget | None = None, *, title: str = "All-Well",
+                 frameless: bool | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("TitleBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._press_offset = None
+        self._recent: list[str] = []
+        self._grips = None
+        self._frameless = bool(should_use_frameless() if frameless is None else frameless)
+        self._theme_pop = None
 
         h = theme.Spacing.sm
         lay = QHBoxLayout(self)
         lay.setContentsMargins(theme.Spacing.md, h, theme.Spacing.sm, h)
         lay.setSpacing(theme.Spacing.sm)
+        self._lay = lay
 
+        # ── brand (clickable → brand menu) ───────────────────────────────
         self._brand = BrandTile(self)
+        self._brand.setCursor(Qt.PointingHandCursor)
+        self._brand.setToolTip("Menu")
+        self._brand.mousePressEvent = self._brand_clicked  # type: ignore[assignment]
         self._wordmark = QLabel(title, self)
         self._wordmark.setObjectName("TitleBarWordmark")
+        self._caret = QLabel("▾", self)
+        self._caret.setObjectName("TitleBarFaint")
         lay.addWidget(self._brand)
         lay.addWidget(self._wordmark)
+        lay.addWidget(self._caret)
 
-        # Breadcrumb area.
+        # ── breadcrumb ───────────────────────────────────────────────────
         self._sep1 = self._dot_sep()
         self._crumbs = QLabel("", self)
         self._crumbs.setObjectName("TitleBarCrumbs")
@@ -74,13 +114,11 @@ class TitleBar(QWidget):
         self._file_chip = QLabel("", self)
         self._file_chip.setObjectName("TitleBarFileChip")
         self._file_chip.setVisible(False)
-        lay.addWidget(self._sep1)
-        lay.addWidget(self._crumbs)
-        lay.addWidget(self._slash)
-        lay.addWidget(self._file_chip)
+        for w in (self._sep1, self._crumbs, self._slash, self._file_chip):
+            lay.addWidget(w)
         self._sep1.setVisible(False)
 
-        # Saved indicator.
+        # ── saved indicator ──────────────────────────────────────────────
         self._saved_dot = StatusDot("success", self,
                                     diameter=max(8, round(self.fontMetrics().height() * 0.5)))
         self._saved_dot.setLabel("Saved")
@@ -88,20 +126,34 @@ class TitleBar(QWidget):
 
         lay.addStretch(1)
 
-        # Action buttons row.
+        # ── ghost Open + ⌘O ──────────────────────────────────────────────
+        self._open_btn = QPushButton("Open", self)
+        self._open_btn.setObjectName("Ghost")
+        self._open_btn.setCursor(Qt.PointingHandCursor)
+        self._open_btn.clicked.connect(self.openRequested)
+        lay.addWidget(self._open_btn)
+        self._open_sc = QShortcut(QKeySequence(QKeySequence.Open), self)
+        self._open_sc.activated.connect(self.openRequested)
+
+        # ── theme switcher ───────────────────────────────────────────────
+        self._theme_btn = IconButton("sun", self, tooltip="Theme")
+        self._theme_btn.clicked.connect(self._open_theme_popover)
+        lay.addWidget(self._theme_btn)
+
+        # ── action buttons row ───────────────────────────────────────────
         self._actions = QHBoxLayout()
         self._actions.setContentsMargins(0, 0, 0, 0)
         self._actions.setSpacing(theme.Spacing.xs)
         lay.addLayout(self._actions)
 
-        # Optional window buttons.
+        # ── window buttons (min / max / close) ───────────────────────────
         self._winbtns = QHBoxLayout()
         self._winbtns.setContentsMargins(0, 0, 0, 0)
         self._winbtns.setSpacing(theme.Spacing.xs)
-        self._btn_min = IconButton("more-horizontal", tooltip="Minimize")  # placeholder glyph
-        self._btn_min.setIconName("chevron-down")
+        self._btn_min = IconButton("chevron-down", tooltip="Minimize")
         self._btn_max = IconButton("grid", tooltip="Maximize / restore")
         self._btn_close = IconButton("x", tooltip="Close")
+        self._btn_close.setObjectName("TitleClose")
         self._btn_min.clicked.connect(self.minimizeRequested)
         self._btn_max.clicked.connect(self.maximizeToggleRequested)
         self._btn_close.clicked.connect(self.closeRequested)
@@ -109,15 +161,14 @@ class TitleBar(QWidget):
             self._winbtns.addWidget(b)
         self._winbtns_host = QWidget(self)
         self._winbtns_host.setLayout(self._winbtns)
-        self._winbtns_host.setVisible(False)
         lay.addWidget(self._winbtns_host)
 
-        # Wire window-control signals to the actual top-level window if any.
         self.closeRequested.connect(self._do_close)
         self.minimizeRequested.connect(self._do_minimize)
         self.maximizeToggleRequested.connect(self._do_toggle_max)
 
         self.setStyleSheet(self._build_qss())
+        self._apply_mode()
 
     # ── API ──────────────────────────────────────────────────────────────
     def setTitle(self, text: str) -> None:
@@ -125,8 +176,7 @@ class TitleBar(QWidget):
 
     def setBreadcrumb(self, parts, file_chip: str | None = None) -> None:
         parts = [str(p) for p in (parts or []) if str(p)]
-        has_any = bool(parts) or bool(file_chip)
-        self._sep1.setVisible(has_any)
+        self._sep1.setVisible(bool(parts) or bool(file_chip))
         self._crumbs.setText("  ·  ".join(parts))
         self._crumbs.setVisible(bool(parts))
         if file_chip:
@@ -150,7 +200,108 @@ class TitleBar(QWidget):
         return btn
 
     def setShowWindowButtons(self, show: bool) -> None:
-        self._winbtns_host.setVisible(bool(show))
+        self._winbtns_host.setVisible(bool(show) and self._frameless and _sys.platform != "darwin")
+
+    def setRecentFiles(self, files) -> None:
+        self._recent = [str(f) for f in (files or []) if str(f)]
+
+    def isFramelessMode(self) -> bool:
+        return self._frameless
+
+    def setFramelessMode(self, frameless: bool) -> None:
+        frameless = bool(frameless)
+        if frameless == self._frameless:
+            return
+        self._frameless = frameless
+        self._apply_mode()
+
+    # ── mode application ─────────────────────────────────────────────────
+    def _apply_mode(self) -> None:
+        native = not self._frameless
+        # window-control buttons: only in frameless mode and not macOS
+        self._winbtns_host.setVisible(self._frameless and _sys.platform != "darwin")
+        # in native mode the bar is a slim sub-strip; in frameless it's the full bar
+        fm = self.fontMetrics().height()
+        if native:
+            self.setFixedHeight(max(30, round(fm * 1.9)))
+        else:
+            self.setMinimumHeight(max(36, round(fm * 2.4)))
+            self.setMaximumHeight(16777215)
+        # resize grips follow the mode
+        self._update_grips()
+
+    def _update_grips(self) -> None:
+        win = self._window()
+        if self._frameless and win is not None:
+            try:
+                from widgets.window_resize_grips import WindowResizeGrips
+                if self._grips is None:
+                    self._grips = WindowResizeGrips(mode="auto", margin=8)
+                self._grips.attach(win)
+            except Exception:
+                self._grips = None
+        elif self._grips is not None:
+            self._grips.detach()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        # The top-level window exists by show time — (re)attach grips now.
+        self._update_grips()
+
+    # ── brand menu ───────────────────────────────────────────────────────
+    def _brand_clicked(self, event) -> None:
+        if event.button() != Qt.LeftButton:
+            return
+        m = QMenu(self)
+        m.addAction("Open…").triggered.connect(self.openRequested)
+        rec = m.addMenu("Open recent")
+        if self._recent:
+            for path in self._recent:
+                rec.addAction(path).triggered.connect(
+                    lambda _checked=False, p=path: self.recentFileRequested.emit(p))
+        else:
+            a = rec.addAction("(no recent files)")
+            a.setEnabled(False)
+        m.addSeparator()
+        m.addAction("Preferences…").triggered.connect(self.preferencesRequested)
+        m.addAction("About All-Well").triggered.connect(self.aboutRequested)
+        m.addSeparator()
+        m.addAction("Quit").triggered.connect(self.quitRequested)
+        m.exec(self._brand.mapToGlobal(self._brand.rect().bottomLeft()))
+
+    # ── theme popover ────────────────────────────────────────────────────
+    def _open_theme_popover(self) -> None:
+        from widgets.popover import Popover
+        try:
+            from widgets.toggle_switch import ToggleSwitch
+        except Exception:
+            ToggleSwitch = None  # type: ignore[assignment]
+        pop = Popover(self)
+        content = QWidget()
+        v = QVBoxLayout(content)
+        v.setContentsMargins(theme.Spacing.sm, theme.Spacing.sm, theme.Spacing.sm, theme.Spacing.sm)
+        v.setSpacing(theme.Spacing.xs)
+        v.addWidget(QLabel("Appearance"))
+        tiles = QHBoxLayout()
+        tiles.setSpacing(theme.Spacing.xs)
+        for label, key in (("Dark", "dark"), ("Light", "light"), ("System", "system")):
+            b = QPushButton(label)
+            b.setObjectName("Ghost")
+            b.clicked.connect(lambda _c=False, k=key: (self.themeChangeRequested.emit(k), pop.close()))
+            tiles.addWidget(b)
+        v.addLayout(tiles)
+        hc_row = QHBoxLayout()
+        hc_row.setSpacing(theme.Spacing.sm)
+        hc_row.addWidget(QLabel("High contrast"))
+        hc_row.addStretch(1)
+        if ToggleSwitch is not None:
+            ts = ToggleSwitch()
+            ts.toggled.connect(self.highContrastToggled)
+            hc_row.addWidget(ts)
+        v.addLayout(hc_row)
+        pop.setContentWidget(content)
+        self._theme_pop = pop
+        pop.popup(self._theme_btn, side="bottom", align="end")
 
     # ── window drag ──────────────────────────────────────────────────────
     def _window(self):
@@ -158,15 +309,14 @@ class TitleBar(QWidget):
         return w if w is not None and w is not self else None
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton and self._frameless:
             win = self._window()
             handle = win.windowHandle() if win is not None else None
             if handle is not None and hasattr(handle, "startSystemMove"):
                 handle.startSystemMove()
             else:
                 self._press_offset = event.globalPosition().toPoint() - (
-                    win.frameGeometry().topLeft() if win else self.pos()
-                )
+                    win.frameGeometry().topLeft() if win else self.pos())
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
@@ -181,7 +331,7 @@ class TitleBar(QWidget):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton and self._frameless:
             self.maximizeToggleRequested.emit()
         super().mouseDoubleClickEvent(event)
 
@@ -236,14 +386,19 @@ class TitleBar(QWidget):
             font-family: {t.family_mono};
             font-size: {t.small_size}px;
         }}
+        QToolButton#TitleClose:hover {{
+            background-color: {c.danger};
+            border-radius: {r.xs}px;
+        }}
         """
 
 
 # ── standalone visual test ──────────────────────────────────────────────────
 if __name__ == "__main__":
     from PySide6.QtWidgets import (
-        QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget as _QW,
+        QApplication, QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget as _QW,
     )
+    from widgets import _window_chrome
 
     app = QApplication.instance() or QApplication(_sys.argv)
     app.setStyleSheet(theme.qss())
@@ -257,20 +412,39 @@ if __name__ == "__main__":
     v.setContentsMargins(0, 0, 0, 0)
     v.setSpacing(0)
 
-    tb = TitleBar(central, title="All-Well")
+    tb = TitleBar(central, title="All-Well", frameless=True)
     tb.setBreadcrumb(["Workspace", "Plate 7"], file_chip="run_2026-05-12.awd")
-    tb.setShowWindowButtons(True)
+    tb.setRecentFiles(["run_2026-05-12.awd", "plate6.awd", "screen-A.awd"])
     tb.addAction("search", "Search (⌘K)")
-    share = tb.addAction("download", "Export", text="Export")
+    tb.addAction("download", "Export", text="Export")
     v.addWidget(tb)
 
-    body = QLabel("(frameless window — drag the title bar, double-click to maximize)")
+    body = QLabel(f"frameless={tb.isFramelessMode()}  ·  "
+                  f"should_use_frameless()={_window_chrome.should_use_frameless()}  "
+                  f"(source: {_window_chrome.frameless_source()})\n\n"
+                  "drag the title bar · double-click to maximize · brand → menu · "
+                  "sun → theme popover · ⌘O = Open")
     body.setObjectName("Secondary")
     body.setAlignment(Qt.AlignCenter)
+    body.setWordWrap(True)
     body.setMinimumHeight(220)
     v.addWidget(body, 1)
-    win.setCentralWidget(central)
 
-    win.resize(820, 360)
+    toggle = QPushButton("Toggle frameless / native sub-strip")
+    toggle.clicked.connect(lambda: (tb.setFramelessMode(not tb.isFramelessMode()),
+                                    body.setText(f"frameless={tb.isFramelessMode()}")))
+    v.addWidget(toggle)
+
+    for sig, name in ((tb.openRequested, "openRequested"),
+                      (tb.preferencesRequested, "preferencesRequested"),
+                      (tb.aboutRequested, "aboutRequested"),
+                      (tb.quitRequested, "quitRequested")):
+        sig.connect(lambda n=name: body.setText(f"signal: {n}"))
+    tb.recentFileRequested.connect(lambda p: body.setText(f"recent: {p}"))
+    tb.themeChangeRequested.connect(lambda k: body.setText(f"theme → {k}"))
+    tb.highContrastToggled.connect(lambda on: body.setText(f"high-contrast → {on}"))
+
+    win.setCentralWidget(central)
+    win.resize(860, 380)
     win.show()
     _sys.exit(app.exec())

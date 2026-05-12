@@ -504,11 +504,40 @@ def _build_plotcard():
 
 def _build_titlebar():
     from widgets.title_bar import TitleBar
-    tb = TitleBar(title="All-Well")
+    from widgets import _window_chrome
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    tb = TitleBar(title="All-Well", frameless=True)
     tb.setBreadcrumb(["Workspace", "Plate 7"], file_chip="run_2026-05-12.awd")
+    tb.setRecentFiles(["run_2026-05-12.awd", "plate6.awd", "screen-A.awd"])
     tb.addAction("search", "Search")
     tb.addAction("download", "Export", text="Export")
-    return tb
+    v.addWidget(tb)
+    out = QLabel(f"should_use_frameless() = {_window_chrome.should_use_frameless()}  "
+                 f"(source: {_window_chrome.frameless_source()})  ·  brand → menu  ·  "
+                 f"sun → theme popover  ·  ⌘O = Open")
+    out.setObjectName("Caption")
+    out.setWordWrap(True)
+    v.addWidget(out)
+    row = QHBoxLayout()
+    row.setSpacing(theme.Spacing.sm)
+    tgl = QPushButton("Toggle frameless / native sub-strip")
+    tgl.clicked.connect(lambda: (tb.setFramelessMode(not tb.isFramelessMode()),
+                                 out.setText(f"frameless mode = {tb.isFramelessMode()}")))
+    row.addWidget(tgl)
+    row.addStretch(1)
+    v.addLayout(row)
+    for sig, name in ((tb.openRequested, "openRequested"),
+                      (tb.preferencesRequested, "preferencesRequested"),
+                      (tb.aboutRequested, "aboutRequested"),
+                      (tb.quitRequested, "quitRequested")):
+        sig.connect(lambda n=name: out.setText(f"signal: {n}"))
+    tb.recentFileRequested.connect(lambda p: out.setText(f"recent: {p}"))
+    tb.themeChangeRequested.connect(lambda k: out.setText(f"theme → {k}"))
+    tb.highContrastToggled.connect(lambda on: out.setText(f"high-contrast → {on}"))
+    return host
 
 
 # ── window ──────────────────────────────────────────────────────────────────
