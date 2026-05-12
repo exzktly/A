@@ -43,7 +43,7 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     hdr_l = QHBoxLayout(hdr)
     hdr_l.setContentsMargins(8, 4, 8, 4)
     layout.addWidget(hdr)
-    hdr_lbl = QLabel("REPLICATE SETS", hdr)
+    hdr_lbl = QLabel("GROUPS", hdr)
     hdr_lbl.setProperty("role", "section")
     hdr_l.addWidget(hdr_lbl)
     hdr_l.addStretch(1)
@@ -126,16 +126,19 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     sep.setFixedHeight(1)
     layout.addWidget(sep)
 
-    sf = QWidget(parent)
-    sf_l = QVBoxLayout(sf)
-    sf_l.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(sf, 1)
-    app._rep_canvas, app._rep_inner = make_scrollable_canvas(sf)
-    sf_l.addWidget(app._rep_canvas)
+    # v2 (Phase 8.0 Stage C): the groups card-list is a widgets.SavedSelectionsList
+    # (composable) over app._selections. (The legacy _rep_canvas/_rep_inner +
+    # grouping_view.rep_panel_refresh card rendering are retired.)
+    from widgets.saved_selections_list import SavedSelectionsList
+    from well_viewer.views.grouping_view import wire_selections_list as _wire
+    app._rep_list = SavedSelectionsList(parent)
+    app._rep_list.setComposable(True)
+    layout.addWidget(app._rep_list, 1)
+    _wire(app, app._rep_list)
 
     hint = QLabel(
-        "Select a replicate set or a group, then drag wells on the map to "
-        "add/remove. Groups add wells as solo members.",
+        "Select a group, then drag wells on the map to add/remove them. "
+        "Expand a group to edit its replicate structure.",
         parent,
     )
     hint.setObjectName("Muted")

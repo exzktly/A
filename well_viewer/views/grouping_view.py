@@ -13,77 +13,210 @@ from well_viewer.ui_helpers import (
     clear_layout as _clear_layout, )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Groups list (the "GROUPS" panel on the Sample Definitions tab) — a
+# widgets.SavedSelectionsList over the unified app._selections model, bridged
+# to the legacy _rep_sets / _bar_groups mutators (Phase 8.0 Stage C).
+#
+# app._selections order is [bar_groups-as-selections..., free rep_sets-as-
+# selections...]; selection i ↔ app._bar_groups[i] for i < len(_bar_groups),
+# else ↔ the (i - len(_bar_groups))-th *free* rep-set (its index in _rep_sets).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _sel_legacy_target(app, sel_id):
+    """→ ("grp", bar_group_idx) | ("rep", rep_set_idx) | (None, -1)."""
+    sels = getattr(app, "_selections", []) or []
+    pos = next((i for i, s in enumerate(sels) if s.get("id") == sel_id), -1)
+    if pos < 0:
+        return (None, -1)
+    bg = getattr(app, "_bar_groups", []) or []
+    if pos < len(bg):
+        return ("grp", pos)
+    j = pos - len(bg)
+    rs = getattr(app, "_rep_sets", []) or []
+    in_group = {id(m) for g in bg for m in getattr(g, "members", [])}
+    free = [i for i, r in enumerate(rs) if id(r) not in in_group]
+    if 0 <= j < len(free):
+        return ("rep", free[j])
+    return (None, -1)
+
+
+def _rep_rebuild_from(app, sel_id, wells, reps) -> None:
+    """Apply an edited (wells, replicates) back to the legacy state.
+
+    For a *rep-set* selection: a ReplicateSet only holds {name, wells}; we set
+    its wells (the next round-trip flattens any replicate sub-list back to one).
+    For a *bar-group* selection: one fresh ReplicateSet "<group> #k" per sub-list,
+    the rest of wells as solo_wells; prune/extend _rep_sets.
+    """
+    from well_viewer.batch_models import ReplicateSet
+    kind, idx = _sel_legacy_target(app, sel_id)
+    wells = list(wells or [])
+    reps = [list(s) for s in (reps or []) if s]
+    if kind == "rep":
+        if 0 <= idx < len(app._rep_sets):
+            app._rep_sets[idx].wells = list(wells)
+            app._rebuild_all()
+        return
+    if kind == "grp":
+        if not (0 <= idx < len(app._bar_groups)):
+            return
+        grp = app._bar_groups[idx]
+        old_members = list(grp.members)
+        new_members = [ReplicateSet(f"{grp.name} #{k + 1}", list(sub)) for k, sub in enumerate(reps)]
+        covered = {w for sub in reps for w in sub}
+        grp.members = new_members
+        grp.solo_wells = [w for w in wells if w not in covered]
+        app._rep_sets = [r for r in app._rep_sets
+                         if r not in old_members or any(r in g.members for g in app._bar_groups)]
+        for m in new_members:
+            if m not in app._rep_sets:
+                app._rep_sets.append(m)
+        app._rebuild_all()
+
+
+def _grp_on_activated(app, sel_id) -> None:
+    kind, idx = _sel_legacy_target(app, sel_id)
+    if kind == "rep":
+        app._rep_select(idx)
+    elif kind == "grp":
+        app._bar_select_group(idx)
+
+
+def _grp_on_renamed(app, sel_id, name) -> None:
+    kind, idx = _sel_legacy_target(app, sel_id)
+    name = (name or "").strip()
+    if not name:
+        return
+    if kind == "rep" and 0 <= idx < len(app._rep_sets):
+        if name != app._rep_sets[idx].name:
+            app._rep_sets[idx].name = name
+            app._rebuild_all()
+    elif kind == "grp" and 0 <= idx < len(app._bar_groups):
+        if name != app._bar_groups[idx].name:
+            app._bar_groups[idx].name = name
+            app._rebuild_all()
+
+
+def _grp_on_visibility(app, sel_id, hidden) -> None:
+    kind, idx = _sel_legacy_target(app, sel_id)
+    hidden = bool(hidden)
+    if kind == "grp" and 0 <= idx < len(app._bar_groups):
+        app._bar_groups[idx].hidden = hidden
+        app._rebuild_all()
+    elif kind == "rep" and 0 <= idx < len(app._rep_sets):
+        # rep-set visibility lives in app._rep_hidden, indexed by _rep_sets_loaded() order
+        rset = app._rep_sets[idx]
+        loaded = app._rep_sets_loaded() if hasattr(app, "_rep_sets_loaded") else []
+        if rset in loaded:
+            li = loaded.index(rset)
+            if hidden:
+                app._rep_hidden.add(li)
+            else:
+                app._rep_hidden.discard(li)
+            if hasattr(app, "_sb_on_rep_change"):
+                app._sb_on_rep_change()
+            else:
+                app._rebuild_all()
+
+
+def _grp_on_deleted(app, sel_id) -> None:
+    kind, idx = _sel_legacy_target(app, sel_id)
+    if kind == "rep":
+        app._rep_delete(idx)
+    elif kind == "grp":
+        app._bar_remove_group(idx)
+
+
+def _grp_on_duplicated(app, new_id, src_id) -> None:
+    import copy as _copy
+    kind, idx = _sel_legacy_target(app, src_id)
+    if kind == "rep" and 0 <= idx < len(app._rep_sets):
+        r2 = _copy.deepcopy(app._rep_sets[idx])
+        r2.name = f"{r2.name} copy"
+        app._rep_sets.insert(idx + 1, r2)
+        app._rebuild_all()
+    elif kind == "grp" and 0 <= idx < len(app._bar_groups):
+        g2 = _copy.deepcopy(app._bar_groups[idx])
+        g2.name = f"{g2.name} copy"
+        app._bar_groups.insert(idx + 1, g2)
+        for m in g2.members:
+            if m not in app._rep_sets:
+                app._rep_sets.append(m)
+        app._rebuild_all()
+
+
+def _grp_on_order(app, ids) -> None:
+    # ids = the new app._selections order. Handle the common case (no bar
+    # groups → selection i ↔ _rep_sets[i]); the mixed groups+rep-sets case is
+    # left for Stage D (the widget keeps its working order until the next
+    # refresh re-syncs).
+    bg = getattr(app, "_bar_groups", []) or []
+    if bg:
+        return
+    rs = list(getattr(app, "_rep_sets", []) or [])
+    pre = list(getattr(app, "_selections", []) or [])
+    id_to_rs = {pre[i]["id"]: rs[i] for i in range(min(len(pre), len(rs)))}
+    new_rs = [id_to_rs[i] for i in ids if i in id_to_rs]
+    for r in rs:
+        if r not in new_rs:
+            new_rs.append(r)
+    if new_rs != rs:
+        app._rep_sets = new_rs
+        app._rebuild_all()
+
+
+def _grp_on_composition(app, sel_id) -> None:
+    lst = getattr(app, "_rep_list", None)
+    if lst is None:
+        return
+    for s in lst.selections():
+        if s.get("id") == sel_id:
+            _rep_rebuild_from(app, sel_id, s.get("wells") or [], s.get("replicates"))
+            return
+
+
+def wire_selections_list(app, lst) -> None:
+    """Connect a SavedSelectionsList's signals to the legacy group/rep mutators."""
+    lst.entryActivated.connect(lambda sid: _grp_on_activated(app, sid))
+    lst.entryRenamed.connect(lambda sid, name: _grp_on_renamed(app, sid, name))
+    lst.entryVisibilityToggled.connect(lambda sid, hidden: _grp_on_visibility(app, sid, hidden))
+    lst.entryDeleted.connect(lambda sid: _grp_on_deleted(app, sid))
+    lst.entryDuplicated.connect(lambda new_id, src_id: _grp_on_duplicated(app, new_id, src_id))
+    lst.orderChanged.connect(lambda ids: _grp_on_order(app, ids))
+    lst.wellsChanged.connect(lambda sid, _w: _grp_on_composition(app, sid))
+    lst.addFromSelectionRequested.connect(app._rep_add)
+    load_cb = getattr(app, "_bar_load_groups", None)
+    if callable(load_cb):
+        lst.importRequested.connect(load_cb)
+
+
 def rep_panel_refresh(app) -> None:
-    if not hasattr(app, "_rep_inner"):
+    """Refresh the GROUPS list (a widgets.SavedSelectionsList over app._selections)."""
+    lst = getattr(app, "_rep_list", None)
+    if lst is None:
         return
-    inner = app._rep_inner
-    inner_layout = inner.layout()
-    if inner_layout is None:
-        inner_layout = QVBoxLayout(inner)
-        inner.setLayout(inner_layout)
-    _clear_layout(inner_layout)
-
-    if not app._rep_sets:
-        msg = QLabel(
-            "No replicate sets defined yet.\nClick + Add to create one.",
-            inner,
-        )
-        msg.setObjectName("Muted")
-        inner_layout.addWidget(msg)
-        inner_layout.addStretch(1)
-        if hasattr(app, "_rep_refresh_map"):
-            app._rep_refresh_map()
-        return
-
-    for si, rset in enumerate(app._rep_sets):
-        is_sel = si == app._active_rep_idx
-        card = QWidget(inner)
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setProperty("variant", "rep_card")
-        card.setProperty("active", "true" if is_sel else "false")
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(6, 4, 6, 4)
-        cl.setSpacing(2)
-
-        name_row = QWidget(card)
-        nr_l = QHBoxLayout(name_row)
-        nr_l.setContentsMargins(0, 0, 0, 0)
-        nr_l.setSpacing(4)
-        name_lbl = QLabel(rset.name, name_row)
-        nr_l.addWidget(name_lbl)
-        n = len(rset.wells)
-        count_lbl = QLabel(f"{n} well{'s' if n != 1 else ''}", name_row)
-        count_lbl.setObjectName("Muted")
-        nr_l.addWidget(count_lbl)
-        nr_l.addStretch(1)
-        cl.addWidget(name_row)
-
-        btn_row = QWidget(card)
-        br_l = QHBoxLayout(btn_row)
-        br_l.setContentsMargins(0, 0, 0, 0)
-        br_l.setSpacing(2)
-        br_l.addStretch(1)
-        br_l.addWidget(btn_card(btn_row, "Rename", lambda i=si: app._rep_rename(i)))
-        br_l.addWidget(btn_danger(btn_row, "✕", lambda i=si: app._rep_delete(i)))
-        cl.addWidget(btn_row)
-
-        if rset.wells:
-            chips = QWidget(card)
-            ch_l = QHBoxLayout(chips)
-            ch_l.setContentsMargins(0, 0, 0, 0)
-            for w in rset.wells:
-                chip = QLabel(w, chips)
-                chip.setProperty("variant", "chip")
-                ch_l.addWidget(chip)
-            ch_l.addStretch(1)
-            cl.addWidget(chips)
-
-        def _select(_e, i=si):
-            app._rep_select(i)
-        card.mousePressEvent = _select
-        inner_layout.addWidget(card)
-
-    inner_layout.addStretch(1)
+    sync = getattr(app, "_sync_selections_from_legacy", None)
+    if callable(sync):
+        sync()
+    try:
+        lst.setEnabledWells(list(getattr(app, "_well_paths", {}).keys()))
+    except Exception:
+        pass
+    lst.updateSelections(list(getattr(app, "_selections", []) or []))
+    cur = getattr(app, "_current_selection_id", None)
+    if cur:
+        lst.setCurrentId(cur)
+    # honour a pending inline-rename request (set by the "Rename" action)
+    idx = getattr(app, "_grp_inline_edit_idx", -1)
+    bg = getattr(app, "_bar_groups", []) or []
+    if 0 <= idx < len(bg):
+        sels = list(getattr(app, "_selections", []) or [])
+        if idx < len(sels):
+            app._grp_inline_edit_idx = -1
+            row = getattr(lst, "_rows", {}).get(sels[idx].get("id"))
+            if row is not None and hasattr(row, "trigger_rename"):
+                QTimer.singleShot(0, row.trigger_rename)
     if hasattr(app, "_rep_refresh_map"):
         app._rep_refresh_map()
 
