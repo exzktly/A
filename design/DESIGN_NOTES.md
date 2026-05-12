@@ -91,30 +91,30 @@ Several conventional modern-web moves were considered and rejected:
 
 ---
 
-## 4b. v3 Additions (mid-port, post-approval)
+## 6. Additions (round 2 — addressing port gaps)
 
-Five functional gaps surfaced once PyQt6 implementation began. Full mockups in `All-Well Additions v3.html`; rationale below.
+Five functional gaps surfaced once PyQt6 implementation began. Full mockups in `All-Well Additions v3.html`; rationale below. Sections 1–5 above remain the v2 reference.
 
-### 4b.1 Plot theme — dark in-app, light on export
+### 6.1 Plot theme — dark in-app, light on export
 **Problem.** Plots must integrate with dark chrome on-screen but ship as white-background figures for publication. Users couldn't preview the publication look without exporting.
 **Solution.** A two-state segmented toggle in each figure header (`Screen` / `Publication`). Publication is a *live preview*, not the canonical state — opening a file always lands on Screen. A "preview only" chip appears whenever Publication is active so users aren't confused by the all-white interior. The export dialog reads the preview state and pre-selects matching theme; "Transparent" is offered as an export-only option.
 **Why not just an export setting.** Users couldn't see what they were going to get. Pre-flighting in the canvas eliminates the export-then-correct loop.
 
-### 4b.2 SEM/SD and FOV/Spread relocated
+### 6.2 SEM/SD and FOV/Spread relocated
 **Problem.** These lived in the matplotlib toolbar and were treated by users as navigation tools ("how do I turn off SEM?"). The toolbar's home/pan/zoom mental model doesn't fit display-of-statistics.
 **Solution.** A new **Statistics** section in the Properties panel, between Data and Appearance. Three controls: `Error bars` (None / SEM / SD / 95% CI), `Across` (Replicates / FOV — renamed from "FOV/Spread" to disambiguate axis from display style), and `Show` (Mean / Mean + spread / All points). A live preview value in the collapsed section header (`SEM · spread`) shows current state without expanding. A quick popover anchored to a "Stats · SEM" chip in the figure header gives one-click access for users who toggle constantly.
 
-### 4b.3 Saved selections — one panel replaces two
+### 6.3 Saved selections — one panel replaces two
 **Problem.** Legacy `replicate-sets` and `bar-groups` panels duplicated state and confused users about ordering.
 **Solution.** A unified `Saved selections` panel. Each row: drag handle · visibility eye · color dot · name (inline-renamable) · count chip · kebab. Rows expand to show sub-item well chips. Drag to reorder (= bar-plot order). Right-click menu covers Rename / Recolor / Duplicate / Hide / Move up-down / Export / Delete. Footer offers `From selection` (current plate → new row) and `Import…` (CSV). Hidden rows fade, strike through, and sink to the bottom.
 **Migration.** On file load, both legacy lists merge into one `selections` array; bar-group order wins for ordering; name conflicts append `_v2`.
 
-### 4b.4 Color picker + LUT selector
+### 6.4 Color picker + LUT selector
 **Problem.** Trace colors needed free-form picking (single value), and review-image LUTs needed a long, categorized list (a function from intensity to color). One control couldn't serve both.
 **Solution — picker.** Curated 6-swatch row + a conic-gradient "Custom" tile that opens a free-form picker (SV square + hue strip + Hex/HSL/Alpha fields + per-dataset recents row, capped at 8). Selected swatch shows a 2-px accent outline.
 **Solution — LUT selector.** Trigger button shows the current LUT's gradient strip + name. Opens a searchable popover with four categories (Perceptual / Diverging / Categorical / Cyclic), each row being a 60-px live gradient strip + monospace name. A reverse-LUT and reset button sit next to the trigger. Match count in the search header (`3 / 27`) gives narrow-filter feedback.
 
-### 4b.5 Titlebar — keep custom, complete the affordances
+### 6.5 Titlebar — keep custom, complete the affordances
 **Decision.** Keep the custom titlebar. It carries three load-bearing elements (breadcrumb, file chip with save-state dot, primary `Share` action) that don't survive a native bar; the dark chrome is identity-defining; native bars vary too much across platforms to design once.
 **Affordances now specified:**
 - Windows/Linux: 28-px min / max / close icon group at far right, separator-divided. Close hovers to `--danger`.
