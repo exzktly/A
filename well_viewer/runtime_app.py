@@ -1838,6 +1838,10 @@ class WellViewerApp(QWidget):
             self._grp_panel_refresh()
             self._label_panel_refresh()
         self._rep_refresh_map()
+        # The "Groups" panel is now a widgets.SavedSelectionsList over
+        # app._selections (Phase 8.0 Stage C) — keep it in sync here too.
+        if hasattr(self, "_bar_rebuild_groups_ui_now"):
+            self._bar_rebuild_groups_ui_now()
 
     def _build_bar_perwell_strip(self, parent) -> None:
         from well_viewer.views.bar_group_panel_view import build_bar_perwell_strip as _v

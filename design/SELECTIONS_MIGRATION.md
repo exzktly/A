@@ -591,31 +591,48 @@ mutates the shadow directly; **Stage C** will flip that (mutations write
 into the rep-set/group views; **Stage D** removes the shadow. `py_compile`
 clean; self-test `ALL PASS` (incl. an id-reuse round-trip smoke).
 
-### Stage C — sub-cluster 1: GROUPS panel → `SavedSelectionsList` — **redo needed** (first attempt hit dead code)
+### Stage C — sub-cluster 1: GROUPS panel → `SavedSelectionsList` — **done** (code, not runtime-verified)
 
-*First attempt (commit a638943) edited `well_viewer/views/grouping_view.py`'s
-`build_group_def_panel` / `grp_panel_refresh` — but those are **dead code** (no
-caller; `runtime_app._build_group_def_panel` exists but is never invoked). The
-**live** group-editing UI is `well_viewer/views/bar_group_panel_view.py`
-(`build_bar_group_panel` / `rebuild_groups_ui_now` / `build_bar_group_row` /
-`build_bar_group_header` / `build_bar_group_chip_rows` /
-`build_bar_group_action_row`), mounted via `centre_view.py` →
-`app._build_bar_group_panel(app._sidebar_groups_frame)`. The live **replicate**
-UI is `well_viewer/views/replicate_panel_view.py` (chrome + the rep-map plate,
-`app._sidebar_sample_frame`) whose card list is `grouping_view.rep_panel_refresh`
-(reads `app._rep_inner`, which `replicate_panel_view` sets — so that part is
-live). `grouping_view.py` was reverted to its original state; only
-`widgets.SavedSelectionsList.updateSelections` (a sound, harmless addition) was
-kept from the attempt.*
+*(First attempt (commit a638943) edited `grouping_view.py`'s `build_group_def_panel`
+/ `grp_panel_refresh`, which are dead code — reverted. The live "Groups" panel
+(on the Sample-Definitions tab's left sidebar) is `bar_group_panel_view.py`
+(`build_bar_group_panel` / `rebuild_groups_ui_now`), mounted via `centre_view.py`
+→ `app._build_bar_group_panel(app._sidebar_groups_frame)`.)*
 
-Redo plan: replace `bar_group_panel_view.rebuild_groups_ui_now`'s card list with
-a composable `SavedSelectionsList` (`app._bar_grp_list`) over the bar-group
-entries of `app._selections`; bridge its signals to the bar-group mutators
-(`app._bar_add_group` / `_bar_remove_group` / `_bar_toggle_group_visibility` /
-`_bar_rename_group` / `_bar_clear_group` / `_bar_active_grp`, and a
-`_rebuild_group_from(j, wells, reps)` for `wellsChanged`). (And later, the
-replicate panel similarly.) — *to be confirmed against the running app's panel
-layout before the redo.*
+`well_viewer/views/bar_group_panel_view.py`: the GROUPS card list is replaced by
+a `widgets.SavedSelectionsList` in **composable** mode (`app._grp_list`),
+populated by `rebuild_groups_ui_now` from the `source=="bar_group"` entries of
+`app._selections` (`updateSelections` — in-place when ids are unchanged, so an
+expanded/in-edit row isn't collapsed by an upstream refresh; the plate map, the
+"+ Add Group" / "Clear All" header, the count label, and the right-drag
+visibility-toggle on the map are all unchanged). `rebuild_groups_ui_now` calls
+`app._sync_selections_from_legacy()` first so `_selections` reflects the live
+legacy state. `_wire_groups_list` bridges the widget's signals to the legacy
+mutators: `entryActivated→_bar_select_group`, `entryRenamed→name + _rebuild_all`,
+`entryVisibilityToggled→hidden + _rebuild_all`, `entryDeleted→_bar_remove_group`,
+`entryDuplicated→deepcopy a BarGroup`, `orderChanged→reorder _bar_groups`,
+`addFromSelectionRequested→_bar_add_group`, `importRequested→_bar_load_groups`,
+and `wellsChanged→_rebuild_group_from(j, wells, reps)` — rewrites `_bar_groups[j]`
+(one fresh `ReplicateSet "<group> #k"` per replicate sub-list, the rest of
+`wells` as `solo_wells`), prunes/extends `_rep_sets`, `_rebuild_all()`.
+`runtime_app._groups_centre_refresh` now also calls `_bar_rebuild_groups_ui_now()`
+so the list refreshes on dataset load / tab switch / any group-or-rep change.
+The count label / help text say "in plots" (groups apply to all plots, not just
+bar). `_bar_grp_inner`/`_bar_grp_canvas` removed; `build_bar_group_row` &
+friends are now dead-but-present. `py_compile` clean; self-test `ALL PASS`.
+
+**Known interim quirks** (gone after Stage D): (a) a group's *solo* wells
+round-trip through the legacy `BarGroup` as **singleton replicate sub-lists**
+(`solo_wells` → `replicate_sets()` → `[[w]]` → `migrate_v1` → `[[w]]`) — per the
+migration contract's `solo → [[w]]` rule, not new behaviour; (b) a group's
+member rep-sets get renamed `"<group> #k"` when the group is edited from the
+list (the unified model has no rep-set names) — already true after a v2
+save/migration, just visible sooner.
+
+Next: sub-cluster 2 — REPLICATE-SETS panel (`replicate_panel_view.py` +
+`grouping_view.rep_panel_refresh`) → `SavedSelectionsList` (and retarget the
+rep-map plate to the selected selection; optional "＋ from another selection…"
+affordance); sub-cluster 3 — the mutation flip; sub-cluster 4 — Stage D.
 
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball

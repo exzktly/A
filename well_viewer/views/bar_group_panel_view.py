@@ -115,18 +115,23 @@ def build_bar_group_panel(app, parent: QWidget) -> None:
     sep2.setFixedHeight(1)
     layout.addWidget(sep2)
 
-    sa, inner = make_scrollable_canvas(parent)
-    layout.addWidget(sa, 1)
-    app._bar_grp_canvas = sa
-    app._bar_grp_inner = inner
+    # v2 (Phase 8.0 Stage C): the groups card-list is a widgets.SavedSelectionsList
+    # (composable) over the bar-group entries of app._selections.
+    from widgets.saved_selections_list import SavedSelectionsList
+    lst = SavedSelectionsList(parent)
+    lst.setComposable(True)
+    app._grp_list = lst
+    layout.addWidget(lst, 1)
+    _wire_groups_list(app, lst)
 
     app._bar_grp_count_lbl = QLabel("No groups defined", parent)
     app._bar_grp_count_lbl.setObjectName("Muted")
     layout.addWidget(app._bar_grp_count_lbl)
 
     help_lbl = QLabel(
-        "Left-drag: add wells to active replicate set  ·  "
-        "Right-click/drag: toggle group bar-plot visibility",
+        "Left-drag on the map: add wells to the active group  ·  "
+        "Right-click/drag: toggle a group's visibility on the plots  ·  "
+        "Expand a group to edit its wells / replicates",
         parent,
     )
     help_lbl.setObjectName("Muted")
@@ -162,25 +167,35 @@ def build_bar_perwell_strip(app, parent: QWidget) -> None:
 
 
 def rebuild_groups_ui_now(app) -> None:
-    """Synchronous card-list rebuild + plate-map recolour."""
+    """Refresh the groups list (a widgets.SavedSelectionsList over the bar-group
+    entries of app._selections) + recolour the plate map + update the count
+    label."""
     app._grp_ui_pending = False
-    inner = app._bar_grp_inner
-    inner_layout = inner.layout()
-    if inner_layout is None:
-        inner_layout = QVBoxLayout(inner)
-        inner.setLayout(inner_layout)
-    while inner_layout.count():
-        item = inner_layout.takeAt(0)
-        w = item.widget()
-        if w is not None:
-            w.setParent(None)
-            w.deleteLater()
-
-    for idx, grp in enumerate(app._bar_groups):
-        app._build_bar_group_row(idx, grp)
+    lst = getattr(app, "_grp_list", None)
+    if lst is not None:
+        sync = getattr(app, "_sync_selections_from_legacy", None)
+        if callable(sync):
+            sync()
+        try:
+            lst.setEnabledWells(list(getattr(app, "_well_paths", {}).keys()))
+        except Exception:
+            pass
+        sels = _grp_bar_selections(app)
+        lst.updateSelections(sels)
+        ai = getattr(app, "_bar_active_grp", -1)
+        if 0 <= ai < len(sels):
+            lst.setCurrentId(sels[ai]["id"])
+        # honour a pending inline-rename request (set by "Rename")
+        idx = getattr(app, "_grp_inline_edit_idx", -1)
+        if 0 <= idx < len(sels):
+            app._grp_inline_edit_idx = -1
+            from PySide6.QtCore import QTimer as _QTimer
+            row = getattr(lst, "_rows", {}).get(sels[idx]["id"])
+            if row is not None and hasattr(row, "trigger_rename"):
+                _QTimer.singleShot(0, row.trigger_rename)
     update_bar_group_count_label(app)
-    inner_layout.addStretch(1)
-    app._bar_refresh_map()
+    if hasattr(app, "_bar_refresh_map"):
+        app._bar_refresh_map()
 
 
 def update_bar_group_count_label(app) -> None:
@@ -192,9 +207,9 @@ def update_bar_group_count_label(app) -> None:
     if n_grps == 0:
         txt = "No groups defined"
     elif n_hid == 0:
-        txt = f"{n_grps} group(s)  ·  all visible in bar plot"
+        txt = f"{n_grps} group(s)  ·  all visible in plots"
     else:
-        txt = f"{n_vis}/{n_grps} visible in bar plot  ·  {n_hid} hidden"
+        txt = f"{n_vis}/{n_grps} visible in plots  ·  {n_hid} hidden"
     app._bar_grp_count_lbl.setText(txt)
 
 
@@ -337,3 +352,127 @@ def build_bar_group_action_row(app, parent_layout: QVBoxLayout, idx: int, row: Q
                           lambda: app._bar_clear_replicates(idx)))
     al.addStretch(1)
     parent_layout.addWidget(act_frame)
+
+
+# ── groups-list ↔ legacy-_bar_groups bridge (Phase 8.0 Stage C, sub-cluster 1) ──
+# The "Groups" panel's card list is now a widgets.SavedSelectionsList over the
+# bar-group entries of app._selections. Its signals are translated here into the
+# existing legacy mutators (which still mutate app._bar_groups / app._rep_sets);
+# app._rebuild_all() then re-syncs app._selections and refreshes the list. The
+# j-th bar-group selection corresponds to app._bar_groups[j].
+
+def _grp_bar_selections(app):
+    return [s for s in getattr(app, "_selections", []) if s.get("source") == "bar_group"]
+
+
+def _grp_idx_for(app, sel_id) -> int:
+    for j, s in enumerate(_grp_bar_selections(app)):
+        if s["id"] == sel_id:
+            return j
+    return -1
+
+
+def _rebuild_group_from(app, j: int, wells, reps) -> None:
+    """Rewrite app._bar_groups[j] to represent the unified-model (wells,
+    replicates) the user just edited: one fresh ReplicateSet "<group> #k" per
+    replicate sub-list, the rest of wells as solo_wells; prune/extend
+    app._rep_sets to keep the legacy "every member is in _rep_sets" invariant."""
+    from well_viewer.batch_models import ReplicateSet
+    if not (0 <= j < len(app._bar_groups)):
+        return
+    grp = app._bar_groups[j]
+    wells = list(wells or [])
+    reps = [list(s) for s in (reps or []) if s]
+    old_members = list(grp.members)
+    new_members = [ReplicateSet(f"{grp.name} #{k + 1}", list(sub)) for k, sub in enumerate(reps)]
+    covered = {w for sub in reps for w in sub}
+    grp.members = new_members
+    grp.solo_wells = [w for w in wells if w not in covered]
+    app._rep_sets = [r for r in app._rep_sets
+                     if r not in old_members or any(r in g.members for g in app._bar_groups)]
+    for m in new_members:
+        if m not in app._rep_sets:
+            app._rep_sets.append(m)
+    app._rebuild_all()
+
+
+def _grp_on_activated(app, sel_id) -> None:
+    j = _grp_idx_for(app, sel_id)
+    if j >= 0:
+        app._bar_select_group(j)
+
+
+def _grp_on_renamed(app, sel_id, name) -> None:
+    j = _grp_idx_for(app, sel_id)
+    if not (0 <= j < len(app._bar_groups)):
+        return
+    name = (name or "").strip()
+    if name and name != app._bar_groups[j].name:
+        app._bar_groups[j].name = name
+        app._rebuild_all()
+
+
+def _grp_on_visibility(app, sel_id, hidden) -> None:
+    j = _grp_idx_for(app, sel_id)
+    if 0 <= j < len(app._bar_groups):
+        app._bar_groups[j].hidden = bool(hidden)
+        app._rebuild_all()
+
+
+def _grp_on_deleted(app, sel_id) -> None:
+    j = _grp_idx_for(app, sel_id)
+    if j >= 0:
+        app._bar_remove_group(j)
+
+
+def _grp_on_duplicated(app, new_id, src_id) -> None:
+    import copy as _copy
+    j = _grp_idx_for(app, src_id)
+    if not (0 <= j < len(app._bar_groups)):
+        return
+    g2 = _copy.deepcopy(app._bar_groups[j])
+    g2.name = f"{g2.name} copy"
+    app._bar_groups.insert(j + 1, g2)
+    for m in g2.members:
+        if m not in app._rep_sets:
+            app._rep_sets.append(m)
+    app._rebuild_all()
+
+
+def _grp_on_order(app, ids) -> None:
+    pre = _grp_bar_selections(app)
+    id_to_j = {s["id"]: j for j, s in enumerate(pre)}
+    new_groups = [app._bar_groups[id_to_j[i]] for i in ids if i in id_to_j]
+    for g in app._bar_groups:
+        if g not in new_groups:
+            new_groups.append(g)
+    if new_groups != app._bar_groups:
+        app._bar_groups = new_groups
+        app._rebuild_all()
+
+
+def _grp_on_composition(app, sel_id) -> None:
+    j = _grp_idx_for(app, sel_id)
+    if j < 0:
+        return
+    lst = getattr(app, "_grp_list", None)
+    if lst is None:
+        return
+    for s in lst.selections():
+        if s.get("id") == sel_id:
+            _rebuild_group_from(app, j, s.get("wells") or [], s.get("replicates"))
+            return
+
+
+def _wire_groups_list(app, lst) -> None:
+    lst.entryActivated.connect(lambda sid: _grp_on_activated(app, sid))
+    lst.entryRenamed.connect(lambda sid, name: _grp_on_renamed(app, sid, name))
+    lst.entryVisibilityToggled.connect(lambda sid, hidden: _grp_on_visibility(app, sid, hidden))
+    lst.entryDeleted.connect(lambda sid: _grp_on_deleted(app, sid))
+    lst.entryDuplicated.connect(lambda new_id, src_id: _grp_on_duplicated(app, new_id, src_id))
+    lst.orderChanged.connect(lambda ids: _grp_on_order(app, ids))
+    lst.wellsChanged.connect(lambda sid, _w: _grp_on_composition(app, sid))
+    lst.addFromSelectionRequested.connect(app._bar_add_group)
+    load_cb = getattr(app, "_bar_load_groups", None)
+    if callable(load_cb):
+        lst.importRequested.connect(load_cb)
