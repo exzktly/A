@@ -64,6 +64,7 @@ class CollapsibleRail(QFrame):
         self._rail_width = max(0, int(width))
         self._collapsed = bool(collapsed)
         self._content: QWidget | None = None
+        self._handle: QWidget | None = None  # built lazily by setEdgeHandle()
 
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(0, 0, 0, 0)
@@ -113,6 +114,72 @@ class CollapsibleRail(QFrame):
     def toggle(self) -> None:
         self.setCollapsed(not self._collapsed)
 
+    # ── edge handle ──────────────────────────────────────────────────────
+    def installEdgeHandle(self) -> QWidget:
+        """Add a small clickable handle on the host's right edge that
+        toggles the rail. Always visible regardless of rail state — when
+        the rail is open the handle sits against its left edge; when
+        collapsed it floats at the host's right edge. Discoverable
+        affordance for "where did the rail go?".
+        """
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QPushButton
+        if self._handle is not None:
+            return self._handle
+        h = QPushButton(self._host)
+        h.setObjectName("RailEdgeHandle")
+        h.setFixedSize(QSize(14, 64))
+        h.setCursor(QCursor(Qt.PointingHandCursor))
+        h.setFocusPolicy(Qt.NoFocus)
+        h.setToolTip("Show / hide the Properties rail")
+        h.setText("▸")  # arrow points inward (toward the rail when collapsed)
+        h.clicked.connect(self.toggle)
+        h.setStyleSheet(self._handle_qss())
+        self._handle = h
+        self._reposition_handle()
+        h.show()
+        h.raise_()
+        return h
+
+    def _handle_qss(self) -> str:
+        c = theme.Colors
+        return f"""
+        QPushButton#RailEdgeHandle {{
+            background-color: {c.panel_elevated};
+            border: 1px solid {c.border_subtle};
+            border-right: 0;
+            border-top-left-radius: 6px;
+            border-bottom-left-radius: 6px;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+            color: {c.text_secondary};
+            font-size: 11px;
+            font-weight: 600;
+        }}
+        QPushButton#RailEdgeHandle:hover {{
+            background-color: {c.hover};
+            color: {c.text_primary};
+        }}
+        """
+
+    def _reposition_handle(self) -> None:
+        if self._handle is None:
+            return
+        host_w = self._host.width()
+        host_h = self._host.height()
+        # When collapsed: handle sits at host's right edge. When expanded:
+        # handle sits at the rail's left edge (= host.width - rail_width).
+        if self._collapsed:
+            x = host_w - self._handle.width()
+            self._handle.setText("◂")
+        else:
+            x = max(0, host_w - self._rail_width - self._handle.width())
+            self._handle.setText("▸")
+        y = max(0, (host_h - self._handle.height()) // 2)
+        self._handle.move(x, y)
+        self._handle.raise_()
+
     def setRailWidth(self, width: int) -> None:
         width = max(0, int(width))
         if width == self._rail_width:
@@ -152,6 +219,7 @@ class CollapsibleRail(QFrame):
     def _on_anim_finished(self) -> None:
         if self._collapsed:
             self.setVisible(False)
+        self._reposition_handle()
         self.collapsedChanged.emit(self._collapsed)
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
@@ -161,6 +229,7 @@ class CollapsibleRail(QFrame):
             self._anchor(animate=False)
             if not self._collapsed:
                 self.raise_()
+            self._reposition_handle()
         return super().eventFilter(obj, event)
 
     def _build_qss(self) -> str:

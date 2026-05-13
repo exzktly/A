@@ -150,8 +150,12 @@ class AllWellApp(QMainWindow):
         # Glyph flips between panel-right-close (expanded) and panel-right-open
         # (collapsed) per the v2 mockup. Wired below to a CollapsibleRail
         # overlay mounted on the central widget.
-        self._rail_toggle_btn = IconButton("panel-right-close")
-        self._rail_toggle_btn.setToolTip("Hide the Properties rail")
+        # Phase 13/14 polish — Properties rail is hidden by default; the
+        # glyph starts in the "open it" state and flips after the user
+        # toggles. We also initialise via _on_rail_collapsed_changed below
+        # once the rail itself is constructed.
+        self._rail_toggle_btn = IconButton("panel-right-open")
+        self._rail_toggle_btn.setToolTip("Show the Properties rail")
         self._rail_toggle_btn.clicked.connect(self._on_rail_toggle_clicked)
         hl.addWidget(self._rail_toggle_btn)
 

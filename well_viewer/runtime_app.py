@@ -1082,7 +1082,12 @@ class WellViewerApp(QWidget):
         # the rail when Analyze is active doesn't matter because the rail
         # is scoped to the Review centre area.
         from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
-        self._properties_rail = _CollapsibleRail(centre, width=332, collapsed=False)
+        # Hidden on launch (user request) — the edge handle on the centre's
+        # right edge is always visible and pokes inward when the rail is
+        # closed so the user can always re-open it. The titlebar
+        # ``panel-right-close`` IconButton is the secondary toggle.
+        self._properties_rail = _CollapsibleRail(centre, width=332, collapsed=True)
+        self._properties_rail.installEdgeHandle()
         # Phase 12: populate the rail with the v2 Properties view (scope
         # segmented + ⌘K search + eight CollapsibleSections, including
         # the new Statistics section per Q4 / DESIGN_NOTES §6.2).
