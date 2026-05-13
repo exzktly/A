@@ -1514,7 +1514,7 @@ class WellViewerApp(QWidget):
         plate.setEnabledWells(list(self._well_paths.keys()))
         colors: Dict[str, str] = {}
         for s in self._selections:
-            c = self._rank_color_wells(s.get("wells"))
+            c = self._sel_color(s)
             for tok in (s.get("wells") or []):
                 if tok in self._well_paths:
                     colors[tok] = c
@@ -2138,9 +2138,27 @@ class WellViewerApp(QWidget):
         ranks = [r for r in ranks if r < (1 << 30)]
         return WELL_COLORS[(min(ranks) if ranks else 0) % len(WELL_COLORS)]
 
+    def _sel_color(self, s) -> str:
+        """Effective colour for a selection dict: explicit ``color`` override
+        first, otherwise the rank-based fallback so groups without a user-set
+        colour stay consistent with their wells."""
+        if not isinstance(s, dict):
+            return self._rank_color_wells(getattr(s, "wells", None))
+        c = s.get("color")
+        if isinstance(c, str) and c.strip():
+            return c.strip()
+        return self._rank_color_wells(s.get("wells"))
+
     def _rank_color_rset(self, rset) -> str:
         """Colour for a ReplicateSet / BarGroup (or anything with a ``wells``
-        attribute) — see :meth:`_rank_color_wells`."""
+        attribute) — honours the per-selection ``color`` override when an entry
+        in ``_selections`` shares its ``name``, otherwise falls back to the
+        rank colour of its lowest well."""
+        name = getattr(rset, "name", None)
+        if name:
+            for s in self._selections:
+                if s.get("name") == name:
+                    return self._sel_color(s)
         return self._rank_color_wells(getattr(rset, "wells", None))
 
     def _rep_color_for(self, lbl: str) -> Optional[str]:
@@ -2148,7 +2166,7 @@ class WellViewerApp(QWidget):
         well is not in any selection."""
         for s in self._selections:
             if lbl in (s.get("wells") or []):
-                return self._rank_color_wells(s.get("wells"))
+                return self._sel_color(s)
         return None
 
     def _build_right_panel(self, parent) -> None:
@@ -2898,7 +2916,7 @@ class WellViewerApp(QWidget):
         colors: Dict[str, object] = {}
         if rep_mode:
             for s in self._selections:
-                full_c = self._rank_color_wells(s.get("wells"))
+                full_c = self._sel_color(s)
                 shade = self._mute_color(full_c) if s.get("hidden") else full_c
                 for tok in (s.get("wells") or []):
                     if tok in self._well_paths:
