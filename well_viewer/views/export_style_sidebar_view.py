@@ -55,7 +55,7 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(440)
+        self.setFixedWidth(460)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
@@ -434,7 +434,7 @@ class ExportStyleSidebar(QWidget):
         ylog_cb.setChecked(bool(self._prefs["y_log"]))
         self._bind_getter_setter("x_log", xlog_cb)
         self._bind_getter_setter("y_log", ylog_cb)
-        add_row(s_lim, "Log scale", hrow(xlog_cb, ylog_cb))
+        add_stacked(s_lim, "Log scale", hrow(xlog_cb, ylog_cb))
 
         def _lim_preview_text() -> str:
             tags = []
@@ -458,7 +458,10 @@ class ExportStyleSidebar(QWidget):
         cons_cb.setChecked(bool(self._prefs["layout_constrained"]))
         self._bind_getter_setter("layout_tight", tight_cb)
         self._bind_getter_setter("layout_constrained", cons_cb)
-        add_row(s_layout, "Figure layout", hrow(tight_cb, cons_cb))
+        # Stacked: "Figure layout" + "Tight + Constrained" toggle pair exceeded
+        # the panel width as a single row, so the trailing "ed" of Constrained
+        # was getting clipped. Label-above-widgets layout matches Stats rows.
+        add_stacked(s_layout, "Figure layout", hrow(tight_cb, cons_cb))
 
         # Replicate-set OR well draw-order lists (only one shows at a time,
         # exactly as before). Behaviour lives in _move_list_item /
