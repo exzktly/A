@@ -981,13 +981,11 @@ class WellViewerApp(QWidget):
         # Companion frames stacked in the sidebar and toggled by
         # _on_tab_change.  All are hidden initially; the tab handler shows
         # the relevant one.
-        self._sidebar_bar_frame = QWidget()
         self._sidebar_preview_frame = QWidget()
         self._sidebar_image_table_frame = QWidget()
         self._sidebar_sample_frame = QWidget()
         self._sidebar_stats_frame = QWidget()
-        for w in (self._sidebar_bar_frame,
-                  self._sidebar_preview_frame, self._sidebar_image_table_frame,
+        for w in (self._sidebar_preview_frame, self._sidebar_image_table_frame,
                   self._sidebar_sample_frame,
                   self._sidebar_stats_frame):
             QVBoxLayout(w).setContentsMargins(0, 0, 0, 0)

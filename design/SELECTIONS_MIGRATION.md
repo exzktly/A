@@ -830,5 +830,6 @@ line ↔ bar ↔ stats ↔ scatter. Phase 8.0 is closed.
   and `WellButton` / `build_plate_grid` / `runtime_app._style_plate_button` / `_plate_apply_*`
   / `_plate_theme_colors` are deleted. (The batch-export panels keep their own `_WellGridButton`
   grid — a separate widget, still out of scope.)
-- Tiny remaining dead bits left in place (harmless, easy to drop later): `_sidebar_bar_frame`
-  (created hidden, never shown) and the module-level `_bar_groups_to_dict` lazy in `runtime_app`.
+
+(The two leftover dead bits previously noted here — `_sidebar_bar_frame` and the
+`_bar_groups_to_dict` lazy in `runtime_app` — have been deleted.)
