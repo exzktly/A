@@ -19,12 +19,6 @@ from well_viewer.persistence import (
 _logger = logging.getLogger("well_viewer")
 
 
-def sync_selections_from_legacy(app) -> None:
-    """No-op (Phase 8.0 Stage C). ``app._selections`` is now the in-memory
-    source of truth, so there's nothing to re-derive before a save."""
-    return
-
-
 def save_to_pipeline_info(app) -> None:
     """Merge well labels + the unified ``selections`` model into pipeline_info.json."""
     from well_viewer.sample_definitions import (
@@ -44,7 +38,6 @@ def save_to_pipeline_info(app) -> None:
             "so writing them is disabled to avoid corrupting the file. See the log.",
         )
         return
-    sync_selections_from_legacy(app)
     notes_edit = getattr(app, "_notes_edit", None)
     notes_text = (
         notes_edit.toPlainText() if notes_edit is not None
@@ -76,9 +69,7 @@ def save_to_pipeline_info(app) -> None:
 
 def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, dict]:
     """Parse a sample_definitions/bar_groups block → set ``app._selections`` (the
-    in-memory source of truth) and derive the legacy ``_rep_sets`` /
-    ``_bar_groups`` / … shadow from it via ``selections_to_legacy``. v1 blocks
-    are migrated by ``from_block``.
+    in-memory source of truth). v1 blocks are migrated by ``from_block``.
 
     Returns ``(applied, well_labels_dict)``. On a malformed block / migration
     failure: logs, leaves the existing state alone, disables v2 writes for the
@@ -104,8 +95,6 @@ def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, d
 
     app._selections = selections
     app._current_selection_id = current_id
-    if hasattr(app, "_sync_legacy_from_selections"):
-        app._sync_legacy_from_selections()
     if set_notes:
         app._notes_text = notes
         notes_edit = getattr(app, "_notes_edit", None)
@@ -226,7 +215,6 @@ def clear_all(app) -> None:
 
     app._selections = []
     app._current_selection_id = None
-    app._legacy_cache = None
 
     app._set_ratio_metrics([])
 

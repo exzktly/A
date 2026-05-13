@@ -28,14 +28,11 @@ def to_payload(app) -> dict:
 
 def from_dict(app, data) -> None:
     """Restore selections state on *app* from a saved (v1 or v2) payload.
-    v1 is migrated by ``from_block``; the legacy ``_rep_sets`` / ``_bar_groups``
-    shadow is derived from ``app._selections``."""
+    v1 is migrated by ``from_block``."""
     tok_to_label = getattr(app, "_tok_to_label", {})
     selections, current_id, _labels, _notes = _sel.from_block(data, tok_to_label=tok_to_label)
     app._selections = selections
     app._current_selection_id = current_id
-    if hasattr(app, "_sync_legacy_from_selections"):
-        app._sync_legacy_from_selections()
 
 
 def save_via_dialog(app) -> None:
@@ -57,8 +54,6 @@ def save_via_dialog(app) -> None:
     if not path_str:
         return
     try:
-        from well_viewer.persistence.sample_definitions import sync_selections_from_legacy
-        sync_selections_from_legacy(app)
         with open(path_str, "w", encoding="utf-8") as fh:
             json.dump(to_payload(app), fh, indent=2)
         _logger.info("Bar groups saved to %s", path_str)
@@ -88,10 +83,10 @@ def load_via_dialog(app) -> None:
             f"Could not read group definitions:\n{exc}",
         )
         return
-    if app._bar_groups:
+    if app._selections:
         resp = QMessageBox.question(
             app, "Replace existing groups?",
-            f"Loading will replace the current {len(app._bar_groups)} "
+            f"Loading will replace the current {len(app._selections)} "
             f"group(s).  Continue?",
             QMessageBox.Yes | QMessageBox.No,
         )

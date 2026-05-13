@@ -80,7 +80,8 @@ def _expand_repset_wells(app, wells: Iterable[str]) -> List[str]:
     src = list(wells)
     if not bool(getattr(app, "_heatmap_repset_avg", False)):
         return src
-    rep_sets = list(getattr(app, "_rep_sets", []) or [])
+    get_loaded = getattr(app, "_rep_sets_loaded", None)
+    rep_sets = list(get_loaded() if callable(get_loaded) else [])
     if not rep_sets:
         return src
     out: List[str] = []
@@ -108,7 +109,8 @@ def _repset_name_for_wells(app, wells: Iterable[str]) -> Optional[str]:
     """Return the name of the first rep-set that contains any of *wells*, or None."""
     if not bool(getattr(app, "_heatmap_repset_avg", False)):
         return None
-    rep_sets = list(getattr(app, "_rep_sets", []) or [])
+    get_loaded = getattr(app, "_rep_sets_loaded", None)
+    rep_sets = list(get_loaded() if callable(get_loaded) else [])
     if not rep_sets:
         return None
     src = list(wells)

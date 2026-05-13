@@ -125,8 +125,6 @@ def _lazy(module_path: str, attr: str):
     return _proxy
 
 
-_bar_groups_from_data = _lazy("well_viewer.barplot_controller", "bar_groups_from_data")
-_bar_groups_to_dict = _lazy("well_viewer.barplot_controller", "bar_groups_to_dict")
 _bar_apply_ylims = _lazy("well_viewer.barplot_controller", "apply_bar_ylims")
 _bar_collect_items = _lazy("well_viewer.barplot_controller", "collect_bar_items")
 _bar_ordered_keys = _lazy("well_viewer.barplot_controller", "ordered_bar_keys")
@@ -753,12 +751,9 @@ class WellViewerApp(QWidget):
         self._bar_ylim_frac_hi_edit = None
         self._bar_order: Optional[List] = None
         # Unified saved-selections model (Phase 8.0) — THE in-memory source of
-        # truth. _rep_sets / _bar_groups / _active_rep_idx / _bar_active_grp /
-        # _rep_hidden are now read-only @propertys derived from it (cached in
-        # _legacy_cache, invalidated by _sync_legacy_from_selections()).
+        # truth. See well_viewer/selections_model.py for the schema.
         self._selections:               list = []
         self._current_selection_id:     Optional[str] = None
-        self._legacy_cache = None        # (rep_sets, bar_groups, active_rep_idx, bar_active_grp, rep_hidden) | None
         self._selections_v2_writes_disabled: bool = False
         self._well_labels:       Dict[str, str]    = {}
         self._rep_quick_pair_dir   = "row"
@@ -1516,42 +1511,26 @@ class WellViewerApp(QWidget):
     # ── Replicate-panel plate map ─────────────────────────────────────────────
 
     def _rep_refresh_map(self) -> None:
-        """Recolour the replicate-panel plate map.
-
-        Each defined ReplicateSet gets a distinct colour. The active set's
-        wells are sunken. If a group is the active target instead, its solo
-        wells are shown in the group palette colour so they can be edited
-        directly from the sidebar.
-        """
+        """Recolour the GROUPS-panel plate map: each selection's wells take that
+        selection's rank colour; the current selection's wells are sunken."""
         if not hasattr(self, "_rep_map_btns"):
             return
         bg, fg, fg_disabled = self._plate_theme_colors()
 
+        cur_id = getattr(self, "_current_selection_id", None)
         tok_color: Dict[str, str] = {}
         tok_active: Dict[str, bool] = {}
-        for si, rset in enumerate(self._rep_sets):
-            c = self._rank_color_rset(rset)
-            for tok in rset.wells:
+        for s in self._selections:
+            c = self._rank_color_wells(s.get("wells"))
+            is_active = (s.get("id") == cur_id)
+            for tok in (s.get("wells") or []):
                 tok_color[tok] = c
-                tok_active[tok] = (si == self._active_rep_idx)
-
-        has_rep_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        has_grp_active = 0 <= getattr(self, "_bar_active_grp", -1) < len(self._bar_groups)
-        grp_solo_toks: set = set()
-        grp_color = ACCENT
-        if has_grp_active:
-            grp = self._bar_groups[self._bar_active_grp]
-            grp_solo_toks = set(grp.solo_wells)
-            grp_color = self._rank_color_rset(grp)
-        has_active = has_rep_active or has_grp_active
+                tok_active[tok] = is_active
+        has_active = self._sel_by_id(cur_id) is not None
 
         for tok, btn in self._rep_map_btns.items():
             if tok not in self._well_paths:
                 self._plate_apply_disabled(btn, bg, fg, fg_disabled)
-            elif tok in grp_solo_toks:
-                self._plate_apply_colored(
-                    btn, grp_color, active=True, fg_disabled=fg_disabled,
-                )
             elif tok in tok_color:
                 self._plate_apply_colored(
                     btn, tok_color[tok],
@@ -1604,7 +1583,7 @@ class WellViewerApp(QWidget):
         dlg.setModal(True)
         v = QVBoxLayout(dlg)
         v.addWidget(QLabel("Name:"))
-        name_edit = QLineEdit(f"Rep {len(self._rep_sets)+1}")
+        name_edit = QLineEdit(f"Rep {len(self._selections)+1}")
         v.addWidget(name_edit)
         v.addWidget(QLabel("Select wells:"))
         available = sorted(self._well_paths.keys(),
@@ -1730,45 +1709,6 @@ class WellViewerApp(QWidget):
         self._labels_apply_affix(where="suffix")
 
     # ── unified-model (app._selections) — the in-memory source of truth ──────
-    # (Phase 8.0 Stage D: edits write app._selections; _rep_sets / _bar_groups /
-    # _active_rep_idx / _bar_active_grp / _rep_hidden are read-only @propertys
-    # *derived* from it — cached in self._legacy_cache, invalidated below.)
-    def _sync_legacy_from_selections(self) -> None:
-        self._legacy_cache = None
-
-    def _ensure_legacy(self):
-        cache = getattr(self, "_legacy_cache", None)
-        if cache is None:
-            try:
-                from well_viewer.selections_model import selections_to_legacy
-                cache = selections_to_legacy(
-                    self._selections, getattr(self, "_current_selection_id", None),
-                    tok_to_label=getattr(self, "_tok_to_label", None))
-            except Exception:
-                _logger.exception("derive of legacy shadow from _selections failed")
-                cache = ([], [], -1, -1, set())
-            self._legacy_cache = cache
-        return cache
-
-    @property
-    def _rep_sets(self):
-        return self._ensure_legacy()[0]
-
-    @property
-    def _bar_groups(self):
-        return self._ensure_legacy()[1]
-
-    @property
-    def _active_rep_idx(self) -> int:
-        return self._ensure_legacy()[2]
-
-    @property
-    def _bar_active_grp(self) -> int:
-        return self._ensure_legacy()[3]
-
-    @property
-    def _rep_hidden(self):
-        return self._ensure_legacy()[4]
 
     def _sel_by_id(self, sid):
         for s in self._selections:
@@ -1848,7 +1788,6 @@ class WellViewerApp(QWidget):
             return
         s["hidden"] = bool(hidden)
         if light:
-            self._sync_legacy_from_selections()
             self._refresh_sidebar_map()
         else:
             self._rebuild_all()
@@ -1887,7 +1826,6 @@ class WellViewerApp(QWidget):
                 s["wells"] = wells
                 s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(wells))
         if light:
-            self._sync_legacy_from_selections()
             if hasattr(self, "_rep_refresh_map_single"):
                 self._rep_refresh_map_single(tok)
         else:
@@ -1899,7 +1837,6 @@ class WellViewerApp(QWidget):
         if sid == getattr(self, "_current_selection_id", None):
             return
         self._current_selection_id = sid
-        self._sync_legacy_from_selections()
         self._groups_centre_refresh()
         self._refresh_sidebar_map()
 
@@ -1952,7 +1889,6 @@ class WellViewerApp(QWidget):
         Plate maps are always updated (cheap).
         """
         self._enforce_well_exclusivity()
-        self._sync_legacy_from_selections()
         tab_visible = False
         if hasattr(self, "_notebook"):
             try:
@@ -2015,10 +1951,6 @@ class WellViewerApp(QWidget):
         self._rep_quick_pairs()
 
     # ── Bar group persistence (delegates to well_viewer.persistence.bar_groups)
-
-    def _bar_groups_to_dict(self) -> List[dict]:
-        from well_viewer.persistence import bar_groups as _bg_persist
-        return _bg_persist.to_dict(self._rep_sets, self._bar_groups)
 
     def _bar_groups_from_dict(self, data) -> None:
         from well_viewer.persistence import bar_groups as _bg_persist
@@ -2155,9 +2087,8 @@ class WellViewerApp(QWidget):
 
     def _bar_groups_prune(self) -> None:
         """No-op: ``app._selections`` keeps wells that aren't in the current
-        dataset (per the contract — they render greyed and are filtered by the
-        plot code); the derived ``_rep_sets`` / ``_bar_groups`` include them and
-        the renderers already filter to ``_well_paths``."""
+        dataset (per the contract — they render greyed); the renderers filter
+        to ``_well_paths`` themselves."""
         return
 
     # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
@@ -2167,20 +2098,24 @@ class WellViewerApp(QWidget):
     def _rank_color_well(self, tok) -> str:
         return WELL_COLORS[_sel_well_rank(tok) % len(WELL_COLORS)]
 
-    def _rank_color_rset(self, rset) -> str:
-        """Colour for a ReplicateSet / BarGroup — the rank colour of its lowest
-        well, so all of its wells (and its line/bar trace) share one colour."""
-        wells = getattr(rset, "wells", None) or []
-        ranks = [_sel_well_rank(w) for w in wells]
+    def _rank_color_wells(self, wells) -> str:
+        """Colour for a set of wells — the rank colour of its lowest well, so all
+        of its wells (and its line/bar trace) share one colour."""
+        ranks = [_sel_well_rank(w) for w in (wells or [])]
         ranks = [r for r in ranks if r < (1 << 30)]
         return WELL_COLORS[(min(ranks) if ranks else 0) % len(WELL_COLORS)]
 
+    def _rank_color_rset(self, rset) -> str:
+        """Colour for a ReplicateSet / BarGroup (or anything with a ``wells``
+        attribute) — see :meth:`_rank_color_wells`."""
+        return self._rank_color_wells(getattr(rset, "wells", None))
+
     def _rep_color_for(self, lbl: str) -> Optional[str]:
-        """Return the colour for the ReplicateSet that owns *lbl*, or None if the
-        well is not assigned to any set."""
-        for rset in getattr(self, "_rep_sets", []):
-            if lbl in rset.wells:
-                return self._rank_color_rset(rset)
+        """Return the colour for the selection that owns *lbl*, or None if the
+        well is not in any selection."""
+        for s in self._selections:
+            if lbl in (s.get("wells") or []):
+                return self._rank_color_wells(s.get("wells"))
         return None
 
     def _build_right_panel(self, parent) -> None:
@@ -2918,15 +2853,14 @@ class WellViewerApp(QWidget):
             self._sidebar_map_refresh_pending = False
             return
 
-        rep_sets = getattr(self, "_rep_sets", [])
-        rep_mode = bool(rep_sets)
+        rep_mode = bool(self._selections)
 
         colors: Dict[str, object] = {}
         if rep_mode:
-            for si, rset in enumerate(rep_sets):
-                full_c = self._rank_color_rset(rset)
-                shade = self._mute_color(full_c) if (si in self._rep_hidden) else full_c
-                for tok in rset.wells:
+            for s in self._selections:
+                full_c = self._rank_color_wells(s.get("wells"))
+                shade = self._mute_color(full_c) if s.get("hidden") else full_c
+                for tok in (s.get("wells") or []):
                     if tok in self._well_paths:
                         colors[tok] = shade
         else:
@@ -2957,7 +2891,7 @@ class WellViewerApp(QWidget):
         n_loaded = len(loaded)
         if hasattr(self, "_sel_count_lbl"):
             if rep_mode:
-                n_hid = sum(1 for i in range(n_loaded) if i in self._rep_hidden)
+                n_hid = n_loaded - n_vis
                 self._sel_count_lbl.setText((f"{n_vis}/{n_loaded} set(s) visible"
                           if n_hid else f"{n_loaded} set(s) — all visible"))
             else:
@@ -2981,7 +2915,7 @@ class WellViewerApp(QWidget):
         # Fires per-cell during a drag and once for a click; also fires when
         # ``_refresh_sidebar_map_now`` calls ``setSelectedWellIds`` /
         # ``setEnabledWells`` (those corrections converge harmlessly).
-        if getattr(self, "_rep_sets", None):
+        if self._selections:
             return  # rep-set mode: the plate is passive; its selection is unused
         # Keep the invariant ``_selected_wells ⊆ _well_paths`` — downstream
         # code (e.g. redraw_line_plots → _get_rows) assumes it.
@@ -2995,14 +2929,14 @@ class WellViewerApp(QWidget):
         self._refresh_sidebar_map()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
-        if getattr(self, "_rep_sets", None):
+        if self._selections:
             return
         self._on_plate_sel_change()
 
     def _on_sidebar_plate_well_activated(self, well_id: str) -> None:
         # Only meaningful in rep-set mode (the plate is passive there); in
         # per-well mode the widget owns its selection and toggles internally.
-        if not getattr(self, "_rep_sets", None):
+        if not self._selections:
             return
         sid = self._sel_id_for_well(well_id)
         if sid is None:
@@ -3010,7 +2944,7 @@ class WellViewerApp(QWidget):
         self._sel_toggle_hidden(sid)
 
     def _on_sidebar_plate_row_activated(self, row: str) -> None:
-        if getattr(self, "_rep_sets", None):
+        if self._selections:
             self._select_row(row)            # rep-set-aware toggle + refresh
         else:
             # The widget already toggled the row and synced ``_selected_wells``
@@ -3018,7 +2952,7 @@ class WellViewerApp(QWidget):
             self._on_plate_sel_change()
 
     def _on_sidebar_plate_col_activated(self, col: str) -> None:
-        if getattr(self, "_rep_sets", None):
+        if self._selections:
             self._select_col(col)
         else:
             self._on_plate_sel_change()
@@ -4808,26 +4742,25 @@ class WellViewerApp(QWidget):
             # correct enabled state per well.
 
     def _sync_preview_well_for_image_tabs(self) -> None:
-        """Keep current preview well unless an active group supplies one."""
+        """Keep current preview well unless the active selection supplies one."""
+        cur_sel = self._sel_by_id(getattr(self, "_current_selection_id", None))
+        sel_wells = (cur_sel.get("wells") or []) if cur_sel else []
+
         # Preserve explicit user choice when still valid.
         current = getattr(self, "_preview_selected_well", None)
         if current in self._well_paths:
-            # If active group has wells, prefer first group well for image tabs.
-            if 0 <= self._bar_active_grp < len(self._bar_groups):
-                grp = self._bar_groups[self._bar_active_grp]
-                for tok in grp.wells:
-                    if tok in self._well_paths:
-                        self._preview_selected_well = tok
-                        return
-            return
-
-        # If no valid current well, use first well from active group.
-        if 0 <= self._bar_active_grp < len(self._bar_groups):
-            grp = self._bar_groups[self._bar_active_grp]
-            for tok in grp.wells:
+            # If the active selection has wells, prefer its first loaded well.
+            for tok in sel_wells:
                 if tok in self._well_paths:
                     self._preview_selected_well = tok
                     return
+            return
+
+        # If no valid current well, use the active selection's first loaded well.
+        for tok in sel_wells:
+            if tok in self._well_paths:
+                self._preview_selected_well = tok
+                return
 
         # Final fallback: keep previous behavior of choosing first available well.
         if self._well_paths:
@@ -4844,19 +4777,18 @@ class WellViewerApp(QWidget):
         if tab not in watched:
             return
 
-        # Batch Export should share the same in-memory selection/group objects
-        # used by line/bar/scatter render paths.
+        # Batch Export should share the same in-memory selection objects used by
+        # the line/bar/scatter render paths.
         expected_ids = (
             id(self._selected_wells),
-            id(self._rep_sets),
-            id(self._bar_groups),
+            id(self._selections),
         )
         if not hasattr(self, "_selection_model_identity"):
             self._selection_model_identity = expected_ids
         elif self._selection_model_identity != expected_ids:
             _logger.warning(
                 "Selection model identity changed across tab switch: "
-                "_selected_wells/_rep_sets/_bar_groups should be shared."
+                "_selected_wells/_selections should be shared."
             )
 
         # UI smoke check: switching among Line/Bar/Batch must not mutate the
@@ -5290,7 +5222,6 @@ class WellViewerApp(QWidget):
         ordered_keys = self._bar_current_keys()
         if active_rsets:
             rset_by_name = {r.name: r for r in active_rsets}
-            all_set_idx = {r.name: i for i, r in enumerate(getattr(self, "_rep_sets", []))}
             plot_wells: List[str] = []
             plot_colors: List[str] = []
             plot_labels: List[str] = []

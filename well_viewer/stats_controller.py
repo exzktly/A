@@ -341,7 +341,7 @@ def stats_apply_drag(app, tok: str) -> None:
     grp = stats_active_group(app)
     if grp is None or tok not in app._well_paths:
         return
-    rset = next((r for r in app._rep_sets if tok in r.wells), None)
+    rset = next((r for r in app._rep_sets_loaded() if tok in r.wells), None)
     if rset is not None:
         if app._stats_drag_adding:
             if rset not in grp.members:

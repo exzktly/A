@@ -89,7 +89,6 @@ def redraw_line_plots(
     any_ts = any_cdf = False
     rep_per_fov = app._use_fov_spread_active() if active_rsets else False
     if active_rsets:
-        all_rsets = list(getattr(app, "_rep_sets", []))
         ordered_rsets = _apply_order(
             active_rsets,
             list(getattr(app, "_line_order_rsets", []) or []),

@@ -448,7 +448,7 @@ class BatchExportPanel(QWidget):
         grp = self._active_group()
         if grp is None or tok not in self._app._well_paths:
             return
-        rset = next((r for r in self._app._rep_sets if tok in r.wells), None)
+        rset = next((r for r in self._app._rep_sets_loaded() if tok in r.wells), None)
         if rset is not None:
             if self._drag_adding:
                 if rset not in grp.members:
@@ -663,7 +663,7 @@ class BatchExportPanel(QWidget):
         self._auto_named_group_ids.clear()
         self._active_grp = -1
         for row_ltr in _PLATE_ROWS:
-            row_rsets = [r for r in self._app._rep_sets
+            row_rsets = [r for r in self._app._rep_sets_loaded()
                          if any(w[0].upper() == row_ltr for w in r.wells)]
             assigned_wells = {w for r in row_rsets for w in r.wells}
             row_solos = [tok for tok in self._app._well_paths
@@ -681,7 +681,7 @@ class BatchExportPanel(QWidget):
         self._auto_named_group_ids.clear()
         self._active_grp = -1
         for col in _PLATE_COLS:
-            col_rsets = [r for r in self._app._rep_sets
+            col_rsets = [r for r in self._app._rep_sets_loaded()
                          if any(w[1:] == col for w in r.wells)]
             assigned_wells = {w for r in col_rsets for w in r.wells}
             col_solos = [tok for tok in self._app._well_paths
@@ -701,15 +701,7 @@ class BatchExportPanel(QWidget):
         self._refresh_group_list()
 
     def _groups_from_rep_sets(self) -> List[BarGroup]:
-        loaded = self._app._rep_sets_loaded()
-        if loaded:
-            groups = []
-            for rset in loaded:
-                grp = BarGroup(rset.name)
-                grp.members.append(rset)
-                groups.append(grp)
-            return groups
-        return copy.deepcopy(self._app._bar_groups)
+        return [BarGroup(r.name, members=[r]) for r in self._app._rep_sets_loaded()]
 
     def _save_groups(self) -> None:
         if not self._groups:
@@ -732,7 +724,7 @@ class BatchExportPanel(QWidget):
                 "solo_wells": list(grp.solo_wells),
             })
         rep_list = []
-        for rset in self._app._rep_sets:
+        for rset in self._app._rep_sets_loaded():
             rep_list.append({"name": rset.name, "wells": list(rset.wells)})
         data = {"rep_sets": rep_list, "groups": grp_list}
 
@@ -773,7 +765,7 @@ class BatchExportPanel(QWidget):
             n = _norm(raw)
             return n if n in self._app._well_paths else None
 
-        rep_by_name = {r.name: r for r in self._app._rep_sets}
+        rep_by_name = {r.name: r for r in self._app._rep_sets_loaded()}
 
         new_groups: List[BarGroup] = []
         if isinstance(data, dict):
@@ -919,9 +911,6 @@ class BatchExportPanel(QWidget):
 
     def _groups_for_export(self) -> List[BarGroup]:
         if self._use_sidebar_groups:
-            sidebar_groups = copy.deepcopy(getattr(self._app, "_bar_groups", []))
-            if sidebar_groups and any(g.wells for g in sidebar_groups):
-                return sidebar_groups
             return self._groups_from_rep_sets()
         return list(self._groups)
 
@@ -1047,14 +1036,12 @@ class BatchExportPanel(QWidget):
         )
 
     def _log_sample_definitions_snapshot(self, groups_for_export: List[BarGroup]) -> None:
-        rep_sets = getattr(self._app, "_rep_sets", [])
-        bar_groups = getattr(self._app, "_bar_groups", [])
-        rep_summary = [f"{r.name}={len(r.wells)}w" for r in rep_sets]
-        grp_summary = [f"{g.name}={len(g.wells)}w" for g in bar_groups]
+        sels = list(getattr(self._app, "_selections", []) or [])
+        sel_summary = [f"{s.get('name', '?')}={len(s.get('wells') or [])}w" for s in sels]
         export_summary = [f"{g.name}={len(g.wells)}w" for g in groups_for_export]
         _logger.info(
-            "Run Batch Export clicked | rep_sets=%s | bar_groups=%s | groups_for_export=%s",
-            rep_summary, grp_summary, export_summary,
+            "Run Batch Export clicked | selections=%s | groups_for_export=%s",
+            sel_summary, export_summary,
         )
 
     def _render_group_figure(

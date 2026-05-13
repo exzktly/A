@@ -269,12 +269,11 @@ class ScatterBatchExportPanel(BatchExportPanel):
         """Temporarily make the app's selection state describe just *grp*: one
         selection per replicate-set member, plus the group's solo wells as the
         per-well selection. The scatter_controller collectors read
-        ``app._rep_sets_active()`` / ``app._selected_wells`` (both now derived
-        from ``app._selections``), so we swap ``_selections`` for the duration."""
+        ``app._rep_sets_active()`` / ``app._selected_wells`` (both derived from
+        ``app._selections``), so we swap ``_selections`` for the duration."""
         from well_viewer.selections_model import make_selection
         app = self._app
-        saved = (app._selections, app._current_selection_id,
-                 app._selected_wells, app._legacy_cache)
+        saved = (app._selections, app._current_selection_id, app._selected_wells)
         try:
             used_names: set = set()
             used_ids: set = set()
@@ -286,11 +285,9 @@ class ScatterBatchExportPanel(BatchExportPanel):
             ]
             app._current_selection_id = None
             app._selected_wells = set(grp.solo_wells)
-            app._legacy_cache = None
             yield
         finally:
-            (app._selections, app._current_selection_id,
-             app._selected_wells, app._legacy_cache) = saved
+            (app._selections, app._current_selection_id, app._selected_wells) = saved
 
     def _run_scatter_cells_job(
         self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,

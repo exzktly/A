@@ -564,8 +564,8 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
     selected well. When ``fallback_to_all`` is True (default) and no wells are
     selected, all loaded wells are yielded.
     """
-    rep_sets = list(getattr(app, "_rep_sets", []) or [])
-    rep_hidden = set(getattr(app, "_rep_hidden", set()) or set())
+    get_active = getattr(app, "_rep_sets_active", None)
+    rep_sets = list(get_active() if callable(get_active) else [])
     well_paths = getattr(app, "_well_paths", {}) or {}
     selected = set(getattr(app, "_selected_wells", set()) or set())
     color_for_label = getattr(app, "_color_for_label", None)
@@ -595,8 +595,6 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
 
     if rep_sets:
         for idx, rset in enumerate(rep_sets):
-            if idx in rep_hidden:
-                continue
             wells = [w for w in rset.wells if w in well_paths]
             if not wells:
                 continue

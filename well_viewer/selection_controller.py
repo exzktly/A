@@ -98,7 +98,7 @@ def _set_groups_hidden(app, sels, *, target=None) -> None:
 
 
 def select_row(app, row: str) -> None:
-    if app._rep_sets:  # rep-mode: toggle visibility of groups with a well in this row
+    if app._selections:  # rep-mode: toggle visibility of groups with a well in this row
         _set_groups_hidden(app, [
             s for s in app._selections
             if any(_well_rc(app, w)[0] == row and w in app._well_paths for w in (s.get("wells") or []))
@@ -115,7 +115,7 @@ def select_row(app, row: str) -> None:
 
 
 def select_col(app, col: str) -> None:
-    if app._rep_sets:
+    if app._selections:
         _set_groups_hidden(app, [
             s for s in app._selections
             if any(_well_rc(app, w)[1] == col and w in app._well_paths for w in (s.get("wells") or []))
@@ -132,7 +132,7 @@ def select_col(app, col: str) -> None:
 
 
 def select_all(app) -> None:
-    if app._rep_sets:  # rep-mode: show every group
+    if app._selections:  # rep-mode: show every group
         _set_groups_hidden(app, app._selections, target=False)
     else:
         app._selected_wells = set(app._well_paths.keys())
@@ -143,7 +143,7 @@ def select_all(app) -> None:
 
 
 def select_none(app) -> None:
-    if app._rep_sets:  # rep-mode: hide every group
+    if app._selections:  # rep-mode: hide every group
         _set_groups_hidden(app, app._selections, target=True)
     else:
         app._selected_wells.clear()

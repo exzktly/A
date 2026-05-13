@@ -90,15 +90,6 @@ def t1_clean(fails):
     _ok(back == M.validate_repair(sels) and back_cur == cur and back_notes == "hello"
         and back_lbl == {"A01": "Ctrl", "B05": "Solo"},
         "T1: block round-trip not stable", fails)
-    # inverse map sanity
-    rs, bg, ari, bag, rh = M.selections_to_legacy(sels, cur)
-    _ok(len(bg) == 2 and bag == 0 and ari == -1 and rh == set(),
-        f"T1: inverse map: bg={len(bg)} bag={bag} ari={ari} rh={rh}", fails)
-    # Control: members "Control #1" (Rep1) + "Control #2" (solo B05); Drug A: "Drug A #1"; free "Free A" → 4
-    _ok(len(rs) == 4 and [r.name for r in rs] == ["Control #1", "Control #2", "Drug A #1", "Free A"],
-        f"T1: inverse rep_sets: {[r.name for r in rs]}", fails)
-    _ok([r.name for r in bg[0].members] == ["Control #1", "Control #2"],
-        f"T1: derived group members: {[r.name for r in bg[0].members]}", fails)
 
 
 # ────────────────────────────────────────────────────────────────── T2 ──
@@ -263,8 +254,8 @@ def t7_backup(fails):
 
 
 def t8_failure(fails):
-    """A migration that throws must not crash: from_block swallows nothing weird,
-    but selections_to_legacy / from_block on truly hostile input return safely."""
+    """A migration that throws must not crash: from_block on truly hostile input
+    returns safely."""
     # hostile inputs that must not raise
     for bad in [object(), 12345, b"bytes", [1, 2, 3], {"selections": "not-a-list", "schema_version": 2}]:
         try:
@@ -272,12 +263,6 @@ def t8_failure(fails):
             _ok(isinstance(sels, list), f"T8: from_block({type(bad).__name__}) → non-list", fails)
         except Exception as exc:  # pragma: no cover
             _ok(False, f"T8: from_block({type(bad).__name__}) raised {exc!r}", fails)
-    # selections_to_legacy on junk
-    try:
-        rs, bg, ari, bag, rh = M.selections_to_legacy([{"id": "x"}, "junk", {"id": "y", "wells": ["A01"], "source": "rep_set"}], "x")
-        _ok(isinstance(rs, list) and isinstance(bg, list), "T8: selections_to_legacy types", fails)
-    except Exception as exc:  # pragma: no cover
-        _ok(False, f"T8: selections_to_legacy raised {exc!r}", fails)
     # a deliberately-throwing id_factory falls back to uuid (no infinite loop / crash)
     sels, _cur = M.migrate_v1({"rep_sets": [{"name": "R", "wells": ["A01"]}], "groups": []},
                               id_factory=(lambda: (_ for _ in ()).throw(RuntimeError("boom"))))

@@ -735,9 +735,35 @@ nothing assigns the legacy attrs; finally (optional) rewrite the plot renderers 
   `_rep_sets_active()` derives from `_selections`, it swaps `_selections` instead via a new
   `_app_group_scope(grp)` context manager.
 
-Still to do (optional): rewrite the batch-export panels (`batch_export/base_panel.py` reads
-`app._rep_sets` / `app._bar_groups`) off the legacy shapes and `stats_controller` off `app._rep_sets`,
-then retire `selections_to_legacy` + the `_rep_sets`/`_bar_groups`/… `@property`s entirely.
+- **cluster 7 — Stage D done.** Retired the legacy shadow entirely. Rewrote the last direct
+  consumers of `app._rep_sets` / `app._bar_groups` / `app._active_rep_idx` / `app._bar_active_grp`
+  / `app._rep_hidden` to read `app._selections` (and `_current_selection_id`) directly:
+  `runtime_app` (`_rep_refresh_map`, `_refresh_sidebar_map_now`, `_rep_color_for`,
+  `_sync_preview_well_for_image_tabs`, the `_on_sidebar_plate_*` rep-mode checks, the tab-switch
+  smoke check, `_rep_add`'s default name); `selection_controller.select_row/col/all/none`;
+  `stats_controller.stats_apply_drag` and `batch_export/base_panel.py` (`_apply_drag`,
+  `_quick_by_row/col`, `_groups_from_rep_sets`, `_groups_for_export`, `_save_groups`,
+  `_log_sample_definitions_snapshot`) now use `app._rep_sets_loaded()`; `data_loading.iter_plot_groups`
+  uses `app._rep_sets_active()`; `heatmap_controller`'s rep-set lookups use `app._rep_sets_loaded()`;
+  `lineplot_controller` dropped a dead `all_rsets`. Added `_rank_color_wells(wells)` (and
+  `_rank_color_rset` now delegates to it). **Deleted**: the `_rep_sets`/`_bar_groups`/`_active_rep_idx`/
+  `_bar_active_grp`/`_rep_hidden` `@property`s, `_ensure_legacy`, `_legacy_cache`,
+  `_sync_legacy_from_selections` (+ all its call sites), `selections_model.selections_to_legacy`
+  + the `_RepSet`/`_BarGroup` fallback classes + `_model_classes`, `persistence/sample_definitions.sync_selections_from_legacy`, the dead `_bar_groups_to_dict` method + the
+  two dead `bar_groups_{from_data,to_dict}` lazies in `runtime_app`, and the matching
+  `_selftest_migration` cases. `app._selections` is now the *only* in-memory representation.
+  `py_compile` clean across all touched files; self-test `ALL PASS`.
+
+Behaviour notes / regression-watch for testing: the rep-map (GROUPS-panel) plate now highlights
+the **current** selection's wells (was: the "active rep index"); the line-graph sidebar count
+label / hidden-set logic now reads `selection["hidden"]` directly; the bar/scatter/line/stats/heatmap
+plots and the batch-export panels are all driven straight off `app._selections` (one selection ==
+one trace/group). The (pre-existing) quirk that drag-to-*remove* a rep-set from a stats / batch group
+doesn't fire — because `ReplicateSet` has no `__eq__`, so a freshly-derived object never `==` the one
+already in the group — is unchanged.
+
+Phase 8.0 is complete: the saved-selections / replicate-sets / bar-groups systems are one
+`selections: list[dict]` model, persisted as `schema_version: 2`, with no legacy shadow.
 
 (Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
 only when no bar groups, `solo → [[w]]` round-trip — still apply until that's done.)
