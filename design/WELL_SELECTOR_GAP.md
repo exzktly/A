@@ -1,7 +1,8 @@
 # Well selector gap analysis
 
 > **Status: ✅ DONE — `WellButton` is gone; everything uses `widgets.WellPlateSelector`.**
-> (Code-complete; runtime QA on the user's machine.) The body below is **historical** —
+> (Code-complete + runtime-QA'd by the user — confirmed working in the app.) The body below
+> is **historical** —
 > it described the gap *before* the migration. As built:
 > - **Left rail** (line picker) → `WellPlateSelector` (`app._sidebar_plate`), wired to
 >   `app._selected_wells` + `_on_sidebar_plate_*`; `app._sidebar_btns` survives only as a

@@ -824,8 +824,8 @@ line ↔ bar ↔ stats ↔ scatter. Phase 8.0 is closed.
 
 ### 12.3 Out of scope of Phase 8.0 (separate future work)
 
-- **WellSelector widget migration** (`WELL_SELECTOR_GAP.md` Steps 1–8) — **now done** (code;
-  runtime QA on the user's machine): every plate-map (left rail, GROUPS-panel rep-map,
+- **WellSelector widget migration** (`WELL_SELECTOR_GAP.md` Steps 1–8) — **done** (code-complete
+  + runtime-QA'd by the user): every plate-map (left rail, GROUPS-panel rep-map,
   Statistics plate, image-table picker, preview picker) is a `widgets.WellPlateSelector`,
   and `WellButton` / `build_plate_grid` / `runtime_app._style_plate_button` / `_plate_apply_*`
   / `_plate_theme_colors` are deleted. (The batch-export panels keep their own `_WellGridButton`
