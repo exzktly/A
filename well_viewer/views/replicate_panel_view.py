@@ -25,8 +25,10 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+    # Reset margins/spacing unconditionally so the plate map sits flush at
+    # the top regardless of how the parent layout was originally constructed.
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
 
     # Plate map first — nothing should appear above it.
     rep_map_outer = QWidget(parent)

@@ -203,7 +203,9 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
     parent_layout = parent.layout()
     if parent_layout is None:
         parent_layout = QVBoxLayout(parent)
-    parent_layout.addWidget(outer)
+    # stretch=1 so the heatmap grid expands to fill whatever vertical space
+    # the sidebar offers rather than ceding it to the trailing spacer.
+    parent_layout.addWidget(outer, 1)
 
     refresh_heatmap_layout_sidebar(app)
     return outer

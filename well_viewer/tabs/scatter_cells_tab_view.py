@@ -62,6 +62,14 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("scatter_cells"))
     cl.addWidget(style_btn)
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_data))
+    svg_btn_sc = QPushButton("Copy SVG", ctrl)
+    svg_btn_sc.setProperty("variant", "secondary")
+    svg_btn_sc.setToolTip("Copy the current figure as SVG to the clipboard")
+    svg_btn_sc.clicked.connect(
+        lambda _=False: app._copy_figure_svg(app._scatter_fig)
+        if getattr(app, "_scatter_fig", None) is not None else None
+    )
+    cl.addWidget(svg_btn_sc)
     layout.addWidget(ctrl)
 
     app._scatter_fig = Figure(figsize=(8, 6), dpi=100)

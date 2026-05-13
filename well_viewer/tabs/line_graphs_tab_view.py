@@ -63,6 +63,14 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("line"))
     cl.addWidget(style_btn)
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data))
+    svg_btn_line = QPushButton("Copy SVG", line_ctrl)
+    svg_btn_line.setProperty("variant", "secondary")
+    svg_btn_line.setToolTip("Copy the current figure as SVG to the clipboard")
+    svg_btn_line.clicked.connect(
+        lambda _=False: app._copy_figure_svg(app._line_fig)
+        if getattr(app, "_line_fig", None) is not None else None
+    )
+    cl.addWidget(svg_btn_line)
     layout.addWidget(line_ctrl)
 
     app._line_fig = Figure(figsize=(7.2, 10.5), dpi=100)

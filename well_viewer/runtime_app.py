@@ -988,6 +988,7 @@ class WellViewerApp(QWidget):
 
         # ── Horizontal splitter: sidebar | plots ───────────────────────────
         self._h_pane = QSplitter(Qt.Horizontal)
+        self._h_pane.setHandleWidth(6)
         outer.addWidget(self._h_pane, 1)
 
         sidebar = QWidget()
@@ -5135,8 +5136,7 @@ class WellViewerApp(QWidget):
             self._review_well_lbl.setText("(select well(s))")
             _set_combo_values(self._review_fov_cb, [])
             _set_combo_values(self._review_tp_cb, [])
-            self._review_fov_cb.setCurrentText("")
-            self._review_tp_cb.setCurrentText("")
+            self._review_csv_rows_cache: List[dict] = []
             self._refresh_review_csv_rows([])
             self._review_csv_msg_lbl.setText("Select one or more wells in the picker.")
             return
@@ -5150,11 +5150,14 @@ class WellViewerApp(QWidget):
         if not rows:
             _set_combo_values(self._review_fov_cb, [])
             _set_combo_values(self._review_tp_cb, [])
-            self._review_fov_cb.setCurrentText("")
-            self._review_tp_cb.setCurrentText("")
+            self._review_csv_rows_cache = []
             self._refresh_review_csv_rows([])
             self._review_csv_msg_lbl.setText("No CSV rows loaded for selected well(s).")
             return
+
+        # Cache rows so the combo-change signal handler can reuse them without
+        # re-deriving from the DataFrame (avoids any timing/filter mismatch).
+        self._review_csv_rows_cache = rows
 
         fovs = sorted({
             str(r.get("fov", r.get("FOV", ""))).strip()
@@ -5171,12 +5174,20 @@ class WellViewerApp(QWidget):
             seen_tps.add(norm_tp)
             tps.append(norm_tp)
         tps.sort(key=lambda tp: (parse_timepoint_hours(tp) is None, parse_timepoint_hours(tp) or 0.0, tp))
-        _set_combo_values(self._review_fov_cb, fovs)
-        _set_combo_values(self._review_tp_cb, tps)
-        if fovs and self._review_fov_cb.currentText() not in fovs:
-            self._review_fov_cb.setCurrentText(fovs[0])
-        if tps and self._review_tp_cb.currentText() not in tps:
-            self._review_tp_cb.setCurrentText(tps[0])
+        # Block signals while repopulating combos so partial-state callbacks
+        # don't trigger _refresh_review_csv_rows before the table call below.
+        for cb in (self._review_fov_cb, self._review_tp_cb):
+            cb.blockSignals(True)
+        try:
+            _set_combo_values(self._review_fov_cb, fovs)
+            _set_combo_values(self._review_tp_cb, tps)
+            if fovs and self._review_fov_cb.currentText() not in fovs:
+                self._review_fov_cb.setCurrentIndex(0)
+            if tps and self._review_tp_cb.currentText() not in tps:
+                self._review_tp_cb.setCurrentIndex(0)
+        finally:
+            for cb in (self._review_fov_cb, self._review_tp_cb):
+                cb.blockSignals(False)
         self._refresh_review_csv_rows(rows)
 
     def _refresh_review_csv_rows(self, rows: Optional[List[dict]] = None) -> None:
@@ -5186,10 +5197,17 @@ class WellViewerApp(QWidget):
         table.setRowCount(0)
 
         if rows is None:
-            sels = sorted(self._selected_wells, key=self._parse_rc)
-            rows = []
-            for label in sels:
-                rows.extend(self._review_load_rows(label))
+            # Prefer the cache set by _refresh_review_csv so we don't
+            # re-derive rows during a combo-signal callback (which can race
+            # against the explicit call at the end of _refresh_review_csv).
+            cached = getattr(self, "_review_csv_rows_cache", None)
+            if cached is not None:
+                rows = cached
+            else:
+                sels = sorted(self._selected_wells, key=self._parse_rc)
+                rows = []
+                for label in sels:
+                    rows.extend(self._review_load_rows(label))
 
         def _norm(v: object) -> str:
             s = str(v or "").strip()
@@ -6144,6 +6162,21 @@ class WellViewerApp(QWidget):
         """Save the current Bar Plots figure at high resolution."""
         _plot_save_bar_figure_orchestrator(self, plot_bg=PLOT_BG)
 
+    def _copy_figure_svg(self, fig) -> None:
+        """Render *fig* to SVG and copy the vector text to the clipboard."""
+        import io
+        from PySide6.QtWidgets import QApplication
+        buf = io.BytesIO()
+        try:
+            fig.savefig(buf, format="svg", bbox_inches="tight")
+            svg_text = buf.getvalue().decode("utf-8")
+        except Exception as exc:
+            self._set_status(f"SVG copy failed: {exc}")
+            return
+        clipboard = QApplication.clipboard()
+        clipboard.setText(svg_text)
+        self._set_status("Figure copied as SVG to clipboard.")
+
     def _open_export_style_panel(self, plot_key: str) -> None:
         """Open the reusable export-style sidebar for a specific plot."""
         from well_viewer.figure_export_editor import launch_export_editor
@@ -6155,6 +6188,11 @@ class WellViewerApp(QWidget):
             "scatter_agg": (getattr(self, "_scatter_agg_fig", None), getattr(self, "_scatter_agg_canvas", None), "scatter_agg.png"),
             "heatmap": (getattr(self, "_heatmap_fig", None), getattr(self, "_heatmap_canvas", None), "heatmap.png"),
             "distribution": (getattr(self, "_distribution_fig", None), getattr(self, "_distribution_canvas", None), "distribution.png"),
+            "smfish": (
+                getattr(getattr(self, "_smfish_tab", None), "_fig_img", None),
+                getattr(getattr(self, "_smfish_tab", None), "_canvas_img", None),
+                "smfish.png",
+            ),
         }
         fig, canvas, default_name = mapping.get(plot_key, (None, None, "figure.png"))
         if fig is None:

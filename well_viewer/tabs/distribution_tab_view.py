@@ -101,6 +101,14 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     cl.addWidget(style_btn)
 
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_distribution_data))
+    svg_btn_dist = QPushButton("Copy SVG", ctrl)
+    svg_btn_dist.setProperty("variant", "secondary")
+    svg_btn_dist.setToolTip("Copy the current figure as SVG to the clipboard")
+    svg_btn_dist.clicked.connect(
+        lambda _=False: app._copy_figure_svg(app._distribution_fig)
+        if getattr(app, "_distribution_fig", None) is not None else None
+    )
+    cl.addWidget(svg_btn_dist)
     layout.addWidget(ctrl)
 
     # Figure / canvas

@@ -105,6 +105,14 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl.addWidget(style_btn)
 
     cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data))
+    svg_btn_bar = QPushButton("Copy SVG", bar_ctrl)
+    svg_btn_bar.setProperty("variant", "secondary")
+    svg_btn_bar.setToolTip("Copy the current figure as SVG to the clipboard")
+    svg_btn_bar.clicked.connect(
+        lambda _=False: app._copy_figure_svg(app._bar_fig)
+        if getattr(app, "_bar_fig", None) is not None else None
+    )
+    cl.addWidget(svg_btn_bar)
     right_l.addWidget(bar_ctrl)
 
     # Matplotlib figure inside a scroll area

@@ -73,6 +73,14 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1.addWidget(style_btn)
 
     cl1.addWidget(btn_primary(ctrl1, "Export CSV", app._export_heatmap_data))
+    svg_btn_hm = QPushButton("Copy SVG", ctrl1)
+    svg_btn_hm.setProperty("variant", "secondary")
+    svg_btn_hm.setToolTip("Copy the current figure as SVG to the clipboard")
+    svg_btn_hm.clicked.connect(
+        lambda _=False: app._copy_figure_svg(app._heatmap_fig)
+        if getattr(app, "_heatmap_fig", None) is not None else None
+    )
+    cl1.addWidget(svg_btn_hm)
     layout.addWidget(ctrl1)
 
     # ── Control row 2: cmap / scale / log ───────────────────────────────────

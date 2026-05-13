@@ -165,7 +165,7 @@ def build_sidebar(app, parent: QWidget) -> None:
     )
     heatmap_frame = build_heatmap_layout_sidebar(app, parent)
     heatmap_frame.setVisible(False)
-
-    # Absorb leftover vertical space so the well picker stays pinned to the
-    # top of the sidebar even when the sidebar is taller than its contents.
-    layout.addStretch(1)
+    # No trailing stretch: QVBoxLayout packs fixed-height widgets at the top
+    # by default. When the Heat Map tab is active, heatmap_frame (stretch=1)
+    # fills any remaining space; on other tabs heatmap_frame is hidden so it
+    # takes no room and the well-picker naturally stays pinned to the top.

@@ -248,8 +248,8 @@ QMenu {
 QMenu::item:selected { background: ${ACCENT}; color: ${CLR_WHITE}; }
 
 QSplitter::handle           { background: ${BORDER}; }
-QSplitter::handle:horizontal { width: 2px; }
-QSplitter::handle:vertical   { height: 2px; }
+QSplitter::handle:horizontal { width: 6px; cursor: col-resize; }
+QSplitter::handle:vertical   { height: 6px; cursor: row-resize; }
 
 /* ── Matplotlib navigation toolbar (shared plot toolbar) ──────────────── */
 QToolBar#PlotToolbar {

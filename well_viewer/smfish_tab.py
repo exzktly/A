@@ -147,6 +147,18 @@ class SmfishTab(QWidget):
         cdf_btn.clicked.connect(lambda _=False: self._open_cdf_popup())
         bl.addWidget(cdf_btn)
         bl.addStretch(1)
+
+        style_btn = QPushButton("▸", btn_row)
+        style_btn.setProperty("variant", "secondary")
+        style_btn.setToolTip("Export style / figure settings")
+        style_btn.clicked.connect(lambda _=False: self._open_export_style())
+        bl.addWidget(style_btn)
+
+        svg_btn = QPushButton("Copy SVG", btn_row)
+        svg_btn.setProperty("variant", "secondary")
+        svg_btn.setToolTip("Copy the current figure as SVG to the clipboard")
+        svg_btn.clicked.connect(lambda _=False: self._copy_svg())
+        bl.addWidget(svg_btn)
         root.addWidget(btn_row)
 
         # Status row
@@ -169,6 +181,14 @@ class SmfishTab(QWidget):
         self._canvas_img.mpl_connect("button_press_event", self._on_img_press)
         self._canvas_img.mpl_connect("button_release_event", self._on_img_release)
         self._canvas_img.mpl_connect("motion_notify_event", self._on_img_drag)
+
+    def _open_export_style(self) -> None:
+        if self._app is not None:
+            self._app._open_export_style_panel("smfish")
+
+    def _copy_svg(self) -> None:
+        if self._app is not None:
+            self._app._copy_figure_svg(self._fig_img)
 
     def _set_status(self, text: str) -> None:
         self._status_label.setText(text)
