@@ -638,6 +638,270 @@ def _build_titlebar():
     return host
 
 
+# ── Phase 9 reconciliation widgets ───────────────────────────────────────
+def _build_kbd_hint():
+    from widgets.kbd_hint import KbdHint
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    row = QHBoxLayout()
+    row.setSpacing(theme.Spacing.xs)
+    for k in ("⌘O", "⌘K", "⌘E", "⌥⇧A"):
+        row.addWidget(KbdHint(k))
+    row.addStretch(1)
+    v.addLayout(row)
+    btn = QPushButton("Open")
+    btn.setProperty("variant", "primary")
+    v.addWidget(KbdHint.attach(btn, "⌘O"))
+    from widgets.icon_button import IconButton
+    ib = IconButton("folder-open")
+    ib.setText("  Open")
+    v.addWidget(ib.setKbdHint("⌘O"))
+    v.addStretch(1)
+    return host
+
+
+def _build_selection_chip():
+    from widgets.selection_chip import SelectionChip
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    r1 = QHBoxLayout(); r1.setSpacing(theme.Spacing.sm)
+    r1.addWidget(SelectionChip("2 / 96", icon="check", variant="accent"))
+    r1.addWidget(SelectionChip("12 / 96", icon="check", variant="accent"))
+    r1.addWidget(SelectionChip("96 / 96", icon="check", variant="accent"))
+    r1.addStretch(1)
+    v.addLayout(r1)
+    r2 = QHBoxLayout(); r2.setSpacing(theme.Spacing.sm)
+    r2.addWidget(QLabel("Saved"))
+    r2.addWidget(SelectionChip("3", variant="muted"))
+    r2.addSpacing(20)
+    r2.addWidget(QLabel("Recent"))
+    r2.addWidget(SelectionChip("12", variant="muted"))
+    r2.addStretch(1)
+    v.addLayout(r2)
+    return host
+
+
+def _build_range_pair():
+    from widgets.range_pair import RangePair
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    out = QLabel("(edit a field, press Enter or Tab)")
+    out.setStyleSheet(f"color: {theme.Colors.text_muted};")
+    rp1 = RangePair(separator="–", placeholder=("auto", "auto"))
+    rp2 = RangePair(separator="–", value=("0", "1200"))
+    rp3 = RangePair(separator="×", value=("1.618", "1.000"))
+    for label, rp in (("X limits", rp1), ("Y limits", rp2), ("Aspect", rp3)):
+        row = QHBoxLayout()
+        lbl = QLabel(label); lbl.setFixedWidth(76)
+        row.addWidget(lbl); row.addWidget(rp, 1)
+        v.addLayout(row)
+        rp.valueChanged.connect(
+            lambda lo, hi, n=label: out.setText(f"{n} → ({lo!r}, {hi!r})")
+        )
+    v.addWidget(out)
+    return host
+
+
+def _build_rail_nav():
+    from widgets.rail_nav import RailNav
+    host = QWidget()
+    host.setObjectName("RailNavDemoHost")
+    host.setStyleSheet(
+        f"#RailNavDemoHost {{ background-color: {theme.Colors.bg_rail}; "
+        f"border-radius: {theme.Radii.sm}px; }}"
+    )
+    v = QVBoxLayout(host)
+    v.setContentsMargins(8, 8, 8, 8)
+    v.setSpacing(theme.Spacing.xs)
+    head = QLabel("SECTION")
+    head.setStyleSheet(
+        f"color: {theme.Colors.text_muted}; font-size: 11px; "
+        f"letter-spacing: 0.08em; font-weight: 600; padding-left: 9px;"
+    )
+    v.addWidget(head)
+    nav = RailNav(host)
+    nav.addItem("Plotting",           icon="line-chart")
+    nav.addItem("smFISH",             icon="dna")
+    nav.addItem("Statistics",         icon="sigma")
+    nav.addItem("Image Table",        icon="layout-grid")
+    nav.addItem("Segmentation",       icon="scan-line")
+    nav.addItem("Review CSV",         icon="file-spreadsheet")
+    nav.addItem("Sample Definitions", icon="tag")
+    nav.addItem("Batch Export",       icon="boxes")
+    v.addWidget(nav)
+    out = QLabel(f"Active: {nav.currentKey()}")
+    out.setStyleSheet(f"color: {theme.Colors.text_muted}; padding: 0 9px;")
+    nav.currentChanged.connect(lambda k: out.setText(f"Active: {k}"))
+    v.addWidget(out)
+    return host
+
+
+def _build_preview_strip():
+    from widgets.preview_strip import PreviewStrip
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    strip = PreviewStrip(host)
+    v.addWidget(strip)
+
+    from PySide6.QtWidgets import QSlider
+    def _slider(lo, hi, val, fn):
+        s = QSlider(Qt.Horizontal); s.setRange(lo, hi); s.setValue(val)
+        s.valueChanged.connect(fn)
+        return s
+
+    grid = QGridLayout(); grid.setColumnStretch(1, 1)
+    grid.addWidget(QLabel("Line width"), 0, 0)
+    grid.addWidget(_slider(0, 60, 18, lambda v: strip.setStyle(line_width=v / 10.0)), 0, 1)
+    grid.addWidget(QLabel("Marker size"), 1, 0)
+    grid.addWidget(_slider(0, 28, 10, lambda v: strip.setStyle(marker_size=v / 2.0)), 1, 1)
+    grid.addWidget(QLabel("Marker edge"), 2, 0)
+    grid.addWidget(_slider(0, 30, 8, lambda v: strip.setStyle(marker_edge=v / 10.0)), 2, 1)
+    v.addLayout(grid)
+
+    colors = QHBoxLayout(); colors.setSpacing(theme.Spacing.xs)
+    for token, label in (("trace_1", "Blue"), ("trace_2", "Red"),
+                         ("trace_3", "Green"), ("trace_4", "Amber")):
+        b = QPushButton(label)
+        b.clicked.connect(
+            lambda _=False, t=token: strip.setStyle(color=getattr(theme.Colors, t))
+        )
+        colors.addWidget(b)
+    dashed = QPushButton("dashed"); dashed.setCheckable(True)
+    dashed.toggled.connect(lambda on: strip.setStyle(dashed=on))
+    colors.addWidget(dashed)
+    v.addLayout(colors)
+    return host
+
+
+def _build_collapsible_rail():
+    from widgets.collapsible_rail import CollapsibleRail
+    host = QWidget()
+    host.setMinimumHeight(280)
+    outer = QHBoxLayout(host)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
+    plot = QFrame()
+    plot.setStyleSheet(
+        f"background-color: {theme.Colors.bg_panel}; "
+        f"border: 1px solid {theme.Colors.border_subtle}; "
+        f"border-radius: {theme.Radii.md}px;"
+    )
+    pl = QVBoxLayout(plot)
+    pl.setContentsMargins(theme.Spacing.md, theme.Spacing.md,
+                          theme.Spacing.md, theme.Spacing.md)
+    pl.addWidget(QLabel("plot canvas (fills remaining)"))
+    pl.addStretch(1)
+    btn = QPushButton("Toggle rail")
+    pl.addWidget(btn)
+    outer.addWidget(plot, 1)
+    rail = CollapsibleRail(host, width=240)
+    inner = QFrame()
+    iv = QVBoxLayout(inner)
+    iv.setContentsMargins(theme.Spacing.md, theme.Spacing.md,
+                          theme.Spacing.md, theme.Spacing.md)
+    iv.addWidget(QLabel("Properties"))
+    for s in ("Profile & Format", "Axes", "Legend", "Lines & Markers",
+              "Grid", "Limits & Scale", "Layout"):
+        lbl = QLabel(f"  · {s}")
+        lbl.setStyleSheet(f"color: {theme.Colors.text_muted};")
+        iv.addWidget(lbl)
+    iv.addStretch(1)
+    rail.setContentWidget(inner)
+    outer.addWidget(rail, 0)
+    btn.clicked.connect(rail.toggle)
+    rail.collapsedChanged.connect(
+        lambda c: btn.setText("Show rail" if c else "Hide rail")
+    )
+    return host
+
+
+def _build_plot_canvas():
+    from widgets.plot_canvas import PlotCanvas
+    host = QWidget()
+    host.setMinimumHeight(420)
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    # ctxbar fake: plot-type buttons + add/remove
+    bar = QHBoxLayout()
+    bar.setSpacing(theme.Spacing.xs)
+    type_btns: dict[str, QPushButton] = {}
+    for label, key in (("Line", "line"), ("Bar", "bar"), ("Scatter", "scatter"),
+                       ("Dist", "distribution"), ("Heat", "heatmap")):
+        b = QPushButton(label); b.setCheckable(True)
+        type_btns[key] = b
+        bar.addWidget(b)
+    type_btns["line"].setChecked(True)
+    bar.addStretch(1)
+    add_btn = QPushButton("+ Add panel")
+    rm_btn = QPushButton("− Remove last")
+    count_lbl = QLabel("subplots: 2")
+    for w in (add_btn, rm_btn, count_lbl):
+        bar.addWidget(w)
+    v.addLayout(bar)
+
+    canvas = PlotCanvas(host, subplots=2, max_subplots=4)
+    v.addWidget(canvas, 1)
+
+    def _on_type(key):
+        for k, b in type_btns.items():
+            b.setChecked(k == key)
+        canvas.setPlotType(key)
+    for key, b in type_btns.items():
+        b.clicked.connect(lambda _=False, k=key: _on_type(k))
+    canvas.subplotCountChanged.connect(lambda n: count_lbl.setText(f"subplots: {n}"))
+    add_btn.clicked.connect(canvas.addPanel)
+    rm_btn.clicked.connect(lambda: canvas.removePanel(canvas.subplotCount() - 1))
+    return host
+
+
+def _build_saved_compact():
+    from widgets.saved_selections_list import SavedSelectionsList
+    from well_viewer.selections_model import make_selection
+    host = QWidget()
+    host.setObjectName("SavedCompactHost")
+    host.setStyleSheet(
+        f"#SavedCompactHost {{ background-color: {theme.Colors.bg_rail}; "
+        f"border-radius: {theme.Radii.sm}px; padding: 8px; }}"
+    )
+    v = QVBoxLayout(host)
+    v.setContentsMargins(8, 8, 8, 8)
+    v.setSpacing(theme.Spacing.xs)
+    head = QLabel("SAVED")
+    head.setStyleSheet(
+        f"color: {theme.Colors.text_muted}; font-size: 11px; "
+        f"letter-spacing: 0.08em; font-weight: 600;"
+    )
+    v.addWidget(head)
+    lst = SavedSelectionsList()
+    used: set = set()
+    sels = []
+    for i, (name, wells) in enumerate((
+        ("Control", ["A01", "A02", "A03", "A04"]),
+        ("High MOI", [f"B{c:02d}" for c in range(1, 13)]),
+        ("Replicate set 2", [f"C{c:02d}" for c in range(1, 13)]),
+    )):
+        s = make_selection(name=name, wells=wells, used_names=used,
+                           used_ids=set(), fallback_color_idx=i)
+        used.add(s["name"])
+        sels.append(s)
+    lst.setSelections(sels)
+    lst.setCompact(True)
+    v.addWidget(lst)
+    return host
+
+
+# ── per-widget builders end ─────────────────────────────────────────────────
+
+
 def _build_binding_harness():
     import contextlib
     import io
@@ -766,6 +1030,16 @@ def build_gallery() -> QWidget:
         ("§", "Window chrome"),
         ("TitleBar", _build_titlebar, "window controls · brand→menu · theme popover · ⌘O · setFramelessMode · should_use_frameless()", "wide"),
         ("WindowResizeGrips", _build_window_resize_grips, "opens a frameless test window with draggable edges/corners"),
+
+        ("§", "Phase 9 — reconciliation widgets"),
+        ("KbdHint", _build_kbd_hint, "standalone ⌘ keycaps · attach() composes with any button or IconButton"),
+        ("SelectionChip", _build_selection_chip, "accent variant (plate-head 2/96) · muted variant (rail count [3])"),
+        ("RangePair", _build_range_pair, "two QLineEdits + glyph · valueChanged(low, high) on Enter or Tab · bindingAdapter"),
+        ("RailNav", _build_rail_nav, "vertical accent-bar nav · one-of-N · currentChanged(key) · drives the QStackedWidget in Phase 10"),
+        ("PreviewStrip", _build_preview_strip, "custom-painted polyline + markers · live setStyle()"),
+        ("CollapsibleRail", _build_collapsible_rail, "right-side animated rail · setCollapsed / toggle · collapsedChanged"),
+        ("PlotCanvas", _build_plot_canvas, "single Figure · 1–4 stacked subplots · independent axes · placeholder renderer (real controllers in Phase 11)", "wide"),
+        ("SavedSelectionsList — compact", _build_saved_compact, "rail-side compact mode: drag/eye/kebab hidden, recolour disabled, read-only"),
 
         ("§", "Binding harness"),
         ("Binding round-trip", _build_binding_harness, "runs widgets/binding_check.run() in-process — every binding-driven widget round-trips model↔widget", "wide"),
