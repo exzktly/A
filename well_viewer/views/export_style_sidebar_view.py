@@ -55,7 +55,7 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(380)
+        self.setFixedWidth(440)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:

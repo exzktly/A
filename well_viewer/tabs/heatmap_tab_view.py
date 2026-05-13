@@ -91,6 +91,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     _initial_rev = _initial_cmap.endswith("_r")
     app._heatmap_cmap_cb.setLut(_initial_cmap[:-2] if _initial_rev else _initial_cmap,
                                 reversed=_initial_rev)
+    app._heatmap_cmap_cb.setMaximumWidth(220)
     app._heatmap_cmap_cb.lutChanged.connect(lambda *_a: _on_cmap_changed(app))
     cl2.addWidget(app._heatmap_cmap_cb)
 
