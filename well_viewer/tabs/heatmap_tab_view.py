@@ -82,9 +82,16 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl2.setContentsMargins(10, 0, 10, 6)
 
     cl2.addWidget(QLabel("Color map:", ctrl2))
-    app._heatmap_cmap_cb = QComboBox(ctrl2)
-    app._heatmap_cmap_cb.addItems(_CMAP_OPTIONS)
-    app._heatmap_cmap_cb.currentIndexChanged.connect(lambda _i: _on_cmap_changed(app))
+    # v2: LutSelector (gradient strip + name + searchable popover + reverse-LUT
+    # button) in place of the legacy QComboBox of mpl colormap names.
+    from widgets.lut_selector import LutSelector
+    app._heatmap_cmap_cb = LutSelector(ctrl2)
+    # Seed with the first option (matches the legacy default).
+    _initial_cmap = _CMAP_OPTIONS[0] if _CMAP_OPTIONS else "viridis"
+    _initial_rev = _initial_cmap.endswith("_r")
+    app._heatmap_cmap_cb.setLut(_initial_cmap[:-2] if _initial_rev else _initial_cmap,
+                                reversed=_initial_rev)
+    app._heatmap_cmap_cb.lutChanged.connect(lambda *_a: _on_cmap_changed(app))
     cl2.addWidget(app._heatmap_cmap_cb)
 
     cl2.addWidget(QLabel("Scale:", ctrl2))

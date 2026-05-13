@@ -61,6 +61,12 @@ def _selected_cmap(app) -> str:
     cb = getattr(app, "_heatmap_cmap_cb", None)
     if cb is None:
         return "viridis"
+    # v2 LutSelector exposes lut() + isReversed() rather than currentText().
+    if hasattr(cb, "lut"):
+        name = cb.lut() or "viridis"
+        if hasattr(cb, "isReversed") and cb.isReversed():
+            name = f"{name}_r"
+        return name
     return str(cb.currentText() or "viridis")
 
 
