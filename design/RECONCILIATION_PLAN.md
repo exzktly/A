@@ -8,11 +8,10 @@ The single user-approved divergence: **the right Properties rail is
 collapsible** (default expanded, toggle in the titlebar). Every other
 contradiction reconciles toward the mockup body markup.
 
-> **Status — locked decisions (2026-05-13).** Section 8's open questions
-> have been resolved by the user; the locked answers are summarised at the
-> very top of §8. The phase deliverables in §4 already reflect these
-> answers in the text below. **Q11 (Log tray target) is the one remaining
-> ambiguity** — execution of Phase 13 won't start until it's resolved.
+> **Status — all decisions locked (2026-05-13).** Section 8's twelve open
+> questions have been resolved by the user (Q11 = b, Drawer with recent
+> log entries). Locked answers appear at the top of §8; phase
+> deliverables in §4 reflect them. Phase 9 execution begins.
 
 ---
 
@@ -437,7 +436,7 @@ Restated explicitly so this phase isn't forgotten. **Apply only after the implem
 | **Q8** | **Drop the count aside on rail nav rows.** | `RailNav.addItem(..., count=None)` API still exists but no nav rows wire it. Spec note: leave the API in place for later use. |
 | **Q9** | **Rail width = 400 px** (was 260 px in the mockup). | `.main` grid becomes `400px 1fr 332px`. Titlebar grid first column matches (`grid-template-columns: 400px 1fr auto`). Plate map gets visibly more breathing room than the mockup shows. **Mockup divergence acknowledged** — this is a deliberate ergonomic call over mockup parity. |
 | **Q10** | **Independent X axes** per subplot. | `PlotCanvas` does not share/link axes; each subplot owns its full axis pair. |
-| **Q11** | **STILL OPEN.** Pick one: bottom log panel · Drawer with recent logs · stub. | Blocks the Phase 13 `Log ▴` tray work only — every other phase is unblocked. |
+| **Q11** | **Drawer with recent log entries.** | Phase 13 `Log ▴` tray button opens a `widgets.Drawer` instance hosting a scrollable log view (mono font, tail-most-recent, optional level filter). Re-uses the existing Drawer widget the Help button already mounts; logs feed from a small in-memory ring buffer attached to `logging.Logger` handlers. |
 | **Q12** | **Fixed subplot order.** | Order = insertion order; no drag-reorder of subplots; `removePanel` re-indexes 0..N-1 silently. |
 
 ### Locked answers — knock-on effects on the plan

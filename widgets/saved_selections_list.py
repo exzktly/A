@@ -144,6 +144,7 @@ class _SelectionRow(QFrame):
         self._wells: list[str] = list(sel.get("wells") or [])
         self._replicates = sel.get("replicates")
         self._composable = False
+        self._compact = False  # rail mode: hide drag/eye/kebab chrome, read-only.
         self._enabled_wells: list[str] = []
         self._plate_factory = None
         self._compose_pop = None
@@ -227,6 +228,34 @@ class _SelectionRow(QFrame):
         self.setStyleSheet(self._qss())
         top.mouseDoubleClickEvent = self._begin_rename  # type: ignore[assignment]
         top.mousePressEvent = self._on_body_press        # type: ignore[assignment]
+
+    # ── compact rail mode ────────────────────────────────────────────────
+    def setCompact(self, on: bool) -> None:
+        """Compact (read-only) variant for the left-rail Saved list.
+
+        Hides the drag handle, visibility eye, and kebab; keeps the colour
+        dot but disables the recolour click; the count chip remains visible
+        but reads as the meta-text strip from the mockup. The row is still
+        clickable to activate the selection.
+        """
+        on = bool(on)
+        if on == self._compact:
+            return
+        self._compact = on
+        self._handle.setVisible(not on)
+        self._eye.setVisible(not on)
+        self._kebab.setVisible(not on)
+        # Dot stays visible (it's the colour cue); just disable its click.
+        self._dot.setEnabled(not on)
+        self._dot.setCursor(Qt.ArrowCursor if on else Qt.PointingHandCursor)
+        # Hide the chip when compact (mockup shows meta as plain text — we keep
+        # the chip but reduce visual weight via the QSS [compact="true"] rule).
+        self.setProperty("compact", on)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def isCompact(self) -> bool:
+        return self._compact
 
     # ── styling ──────────────────────────────────────────────────────────
     def _qss(self) -> str:
@@ -647,6 +676,7 @@ class SavedSelectionsList(QWidget):
         self._rows: dict[str, _SelectionRow] = {}
         self._recolour_pop = None
         self._composable = False
+        self._compact = False  # rail-side compact / read-only render.
         self._enabled_wells: list[str] = list(_ALL_WELLS)
         self._well_plate_factory = None
 
@@ -734,6 +764,26 @@ class SavedSelectionsList(QWidget):
 
     def isComposable(self) -> bool:
         return self._composable
+
+    def setCompact(self, on: bool) -> None:
+        """Rail-side compact / read-only mode.
+
+        Hides per-row drag handle, eye, and kebab; disables recolour and
+        rename; the row still emits ``entryActivated`` on click. Use this in
+        the left rail's "Saved [N]" list (mockup §2.5). Composable mode is
+        forced off whenever compact mode is on.
+        """
+        on = bool(on)
+        if on == self._compact:
+            return
+        self._compact = on
+        if on and self._composable:
+            self._composable = False
+        for row in self._rows.values():
+            row.setCompact(on)
+
+    def isCompact(self) -> bool:
+        return self._compact
 
     def setEnabledWells(self, wells) -> None:
         self._enabled_wells = _clean_wells(wells) or list(_ALL_WELLS)
@@ -849,6 +899,8 @@ class SavedSelectionsList(QWidget):
             row.dragMoveBy.connect(self._on_drag_move)
             row.compositionEdited.connect(self._on_composition_edited)
             row.update_from(s, current=(s["id"] == self._current_id), **self._row_kwargs())
+            if self._compact:
+                row.setCompact(True)
             self._vbox.insertWidget(self._vbox.count() - 1, row)
             self._rows[s["id"]] = row
 

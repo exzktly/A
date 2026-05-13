@@ -54,6 +54,16 @@ class IconButton(QToolButton):
     def iconName(self) -> str:
         return self._icon_name
 
+    def setKbdHint(self, text: str):
+        """Wrap this button + a trailing KbdHint glyph into a QFrame.
+
+        Returns the wrapper widget; drop it into a layout in place of the
+        bare button. Equivalent to ``KbdHint.attach(self, text)`` — kept on
+        IconButton for discoverability.
+        """
+        from widgets.kbd_hint import KbdHint as _KbdHint
+        return _KbdHint.attach(self, text)
+
     def setIconPixels(self, px: int) -> None:
         self._px = int(px)
         self._refresh_icon()

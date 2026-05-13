@@ -100,9 +100,13 @@ class TitleBar(QWidget):
         self._wordmark.setObjectName("TitleBarWordmark")
         self._caret = QLabel("▾", self)
         self._caret.setObjectName("TitleBarFaint")
+        self._version_pill = QLabel("", self)
+        self._version_pill.setObjectName("TitleBarVersionPill")
+        self._version_pill.setVisible(False)
         lay.addWidget(self._brand)
         lay.addWidget(self._wordmark)
         lay.addWidget(self._caret)
+        lay.addWidget(self._version_pill)
 
         # ── breadcrumb ───────────────────────────────────────────────────
         self._sep1 = self._dot_sep()
@@ -114,7 +118,11 @@ class TitleBar(QWidget):
         self._file_chip = QLabel("", self)
         self._file_chip.setObjectName("TitleBarFileChip")
         self._file_chip.setVisible(False)
-        for w in (self._sep1, self._crumbs, self._slash, self._file_chip):
+        self._dataset_stats = QLabel("", self)
+        self._dataset_stats.setObjectName("TitleBarDatasetStats")
+        self._dataset_stats.setVisible(False)
+        for w in (self._sep1, self._crumbs, self._slash, self._file_chip,
+                  self._dataset_stats):
             lay.addWidget(w)
         self._sep1.setVisible(False)
 
@@ -186,6 +194,49 @@ class TitleBar(QWidget):
         else:
             self._file_chip.setVisible(False)
             self._slash.setVisible(False)
+
+    def setVersionPill(self, text: str) -> None:
+        """Small mono pill next to the wordmark (e.g. ``v2.4.1``).
+
+        Pass an empty string to hide it.
+        """
+        text = (text or "").strip()
+        self._version_pill.setText(text)
+        self._version_pill.setVisible(bool(text))
+
+    def setDatasetStats(self, text: str) -> None:
+        """Faint trailing summary after the file chip (e.g. ``· 96 wells · 8 timepoints``)."""
+        text = (text or "").strip()
+        self._dataset_stats.setText(text)
+        self._dataset_stats.setVisible(bool(text))
+
+    def setFromPath(self, path, *, max_parents: int = 2,
+                    dataset_stats: str | None = None) -> None:
+        """Synthesise the breadcrumb + file chip from a single filesystem path
+        (Q7's "split from the dataset path" answer).
+
+        Picks the last ``max_parents`` parent directories as breadcrumb parts
+        and the final segment as the file chip. ``dataset_stats`` is forwarded
+        to :meth:`setDatasetStats`. Pass ``path=None`` to clear everything.
+        """
+        if path is None:
+            self.setBreadcrumb([], None)
+            self.setDatasetStats("")
+            return
+        try:
+            from pathlib import Path as _Path
+            p = _Path(path)
+            parts = list(p.parents)
+            # parts[0] is the immediate parent; we want the closest N upward
+            # in display order [grandparent, parent].
+            upward = []
+            for i in range(min(max_parents, len(parts))):
+                upward.append(parts[i].name)
+            upward = [s for s in reversed(upward) if s]
+            self.setBreadcrumb(upward, file_chip=p.name)
+        except Exception:
+            self.setBreadcrumb([], None)
+        self.setDatasetStats(dataset_stats or "")
 
     def setSaved(self, saved: bool) -> None:
         self._saved_dot.setStatus("success" if saved else "warn")
@@ -386,6 +437,21 @@ class TitleBar(QWidget):
             font-family: {t.family_mono};
             font-size: {t.small_size}px;
         }}
+        QLabel#TitleBarVersionPill {{
+            color: {c.text_faint};
+            font-family: {t.family_mono};
+            font-size: {t.caption_size}px;
+            font-weight: 500;
+            padding: 0 2px;
+            margin-left: 4px;
+            background: transparent;
+        }}
+        QLabel#TitleBarDatasetStats {{
+            color: {c.text_faint};
+            font-size: {t.caption_size}px;
+            margin-left: 4px;
+            background: transparent;
+        }}
         QToolButton#TitleClose:hover {{
             background-color: {c.danger};
             border-radius: {r.xs}px;
@@ -413,9 +479,14 @@ if __name__ == "__main__":
     v.setSpacing(0)
 
     tb = TitleBar(central, title="All-Well", frameless=True)
-    tb.setBreadcrumb(["Workspace", "Plate 7"], file_chip="run_2026-05-12.awd")
+    tb.setVersionPill("v2.4.1")
+    # Demonstrate Q7-style path-synthesised breadcrumb + dataset stats.
+    tb.setFromPath("/data/Experiments/2019/20190325 SE c2 turq then cit hi moi 30/out",
+                   dataset_stats="· 96 wells · 8 timepoints")
     tb.setRecentFiles(["run_2026-05-12.awd", "plate6.awd", "screen-A.awd"])
+    tb.addAction("refresh-cw", "Refresh")
     tb.addAction("search", "Search (⌘K)")
+    tb.addAction("panel-right-close", "Collapse properties rail")
     tb.addAction("download", "Export", text="Export")
     v.addWidget(tb)
 
