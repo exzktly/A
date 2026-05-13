@@ -1840,7 +1840,7 @@ class WellViewerApp(QWidget):
     def _sel_strip_wells(self, wells, *, keep_id=None) -> None:
         """A well belongs to ≤1 group: remove ``wells`` from every selection but
         ``keep_id``, pruning their replicates to the survivors."""
-        from well_viewer.selections_model import _clean_reps
+        from well_viewer.selections_model import _deoverlap_replicates
         wset = set(wells or [])
         if not wset:
             return
@@ -1850,7 +1850,7 @@ class WellViewerApp(QWidget):
             nw = [w for w in (s.get("wells") or []) if w not in wset]
             if nw != s.get("wells"):
                 s["wells"] = nw
-                s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(nw))
+                s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(nw))
 
     def _sel_add(self, name=None, wells=None, replicates=None, source="user",
                  *, make_current=True):
@@ -1908,7 +1908,7 @@ class WellViewerApp(QWidget):
             self._sel_set_hidden(sid, not bool(s.get("hidden")))
 
     def _sel_set_composition(self, sid, wells=None, replicates=None) -> None:
-        from well_viewer.selections_model import _clean_wells, _clean_reps
+        from well_viewer.selections_model import _clean_wells, _deoverlap_replicates
         s = self._sel_by_id(sid)
         if s is None:
             return
@@ -1916,11 +1916,11 @@ class WellViewerApp(QWidget):
             s["wells"] = _clean_wells(wells)
             self._sel_strip_wells(s["wells"], keep_id=sid)
         src = replicates if replicates is not None else s.get("replicates")
-        s["replicates"] = _clean_reps(src, allowed=set(s.get("wells") or []))
+        s["replicates"] = _deoverlap_replicates(src, allowed=set(s.get("wells") or []))
         self._rebuild_all()
 
     def _sel_toggle_well(self, sid, tok, *, add, light=True) -> None:
-        from well_viewer.selections_model import _clean_reps
+        from well_viewer.selections_model import _deoverlap_replicates
         s = self._sel_by_id(sid)
         if s is None:
             return
@@ -1934,7 +1934,7 @@ class WellViewerApp(QWidget):
             if tok in wells:
                 wells.remove(tok)
                 s["wells"] = wells
-                s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(wells))
+                s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(wells))
         if light:
             self._sync_legacy_from_selections()
             if hasattr(self, "_rep_refresh_map_single"):
@@ -1990,9 +1990,9 @@ class WellViewerApp(QWidget):
                 seen.add(w)
                 kept.append(w)
             if kept != s.get("wells"):
-                from well_viewer.selections_model import _clean_reps
+                from well_viewer.selections_model import _deoverlap_replicates
                 s["wells"] = kept
-                s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(kept))
+                s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(kept))
 
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
