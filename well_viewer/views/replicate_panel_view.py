@@ -2,25 +2,17 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import (
-    btn_primary, btn_secondary, make_scrollable_canvas,
-)
-from well_viewer.views.well_button import build_plate_grid
-
-
-def _drag_info(tok, pos):
-    return SimpleNamespace(tok=tok, pos=pos, x=pos.x(), y=pos.y())
+from well_viewer.ui_helpers import btn_primary, btn_secondary
 
 
 def build_replicate_panel(app, parent: QWidget) -> None:
-    """Left panel: define named ReplicateSets from the global well pool."""
+    """Left panel of the Sample Definitions tab: the GROUPS list (a composable
+    ``widgets.SavedSelectionsList`` over ``app._selections``) plus the plate-map
+    that edits the *current* selection's well membership."""
 
     layout = parent.layout()
     if layout is None:
@@ -29,10 +21,33 @@ def build_replicate_panel(app, parent: QWidget) -> None:
         layout.setSpacing(0)
 
     # Plate map first — nothing should appear above it.
-    rep_map_outer = QWidget(parent)
-    layout.addWidget(rep_map_outer)
-    app._rep_map_btns: dict = {}
-    build_plate_grid(rep_map_outer, app._rep_map_btns)
+    from widgets.well_plate_selector import WellPlateSelector
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)
+    plate.setSelectionMode("select")
+    plate.setDragSelectEnabled(True)
+    plate.setRowColumnSelectable(True)
+    plate.setEnabledWells([])
+    layout.addWidget(plate)
+    app._rep_map_plate = plate
+
+    def _commit_plate_to_current(*_a) -> None:
+        sid = getattr(app, "_current_selection_id", None)
+        sel = app._sel_by_id(sid) if sid else None
+        if sel is None:
+            app._rep_refresh_map()      # no current selection — revert the click
+            return
+        new = sorted((w for w in plate.selectedWellIds() if w in app._well_paths),
+                     key=app._parse_rc)
+        old = sorted((w for w in (sel.get("wells") or []) if w in app._well_paths),
+                     key=app._parse_rc)
+        if new == old:
+            return
+        # _sel_set_composition enforces well-exclusivity (the current group wins)
+        # and runs _rebuild_all(), which re-pushes the plate via _rep_refresh_map.
+        app._sel_set_composition(sid, new)
+    # selectionDragFinished fires once per click *and* once at the end of a drag.
+    plate.selectionDragFinished.connect(_commit_plate_to_current)
 
     top_sep = QFrame(parent)
     top_sep.setFrameShape(QFrame.HLine)
@@ -80,46 +95,6 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     btn_row_l.addWidget(btn_primary(btn_row, "Apply Quick Replicates",
                                     app._rep_quick_pairs_from_dropdowns))
     btn_row_l.addStretch(1)
-
-    # Per-button mouse handlers: enabled buttons consume events instead of
-    # bubbling to a parent-level handler, so we install press/move/release
-    # on each well button directly.
-    def _tok_under_cursor(global_pos):
-        for t, b in app._rep_map_btns.items():
-            try:
-                local = b.mapFromGlobal(global_pos)
-                if b.rect().contains(local):
-                    return t
-            except Exception:
-                continue
-        return None
-
-    def _make_btn_handlers(tok, btn):
-        def _press(event):
-            if event.button() != Qt.LeftButton:
-                return
-            pos = event.position().toPoint()
-            app._rep_map_press(_drag_info(tok, pos))
-
-        def _move(event):
-            if not (event.buttons() & Qt.LeftButton):
-                return
-            gp = event.globalPosition().toPoint()
-            other = _tok_under_cursor(gp)
-            if other is None:
-                return
-            app._rep_map_drag(_drag_info(other, event.position().toPoint()))
-
-        def _release(event):
-            app._rep_map_release(None)
-
-        btn.setMouseTracking(True)
-        btn.mousePressEvent = _press
-        btn.mouseMoveEvent = _move
-        btn.mouseReleaseEvent = _release
-
-    for _tok, _btn in app._rep_map_btns.items():
-        _make_btn_handlers(_tok, _btn)
 
     sep = QFrame(parent)
     sep.setFrameShape(QFrame.HLine)

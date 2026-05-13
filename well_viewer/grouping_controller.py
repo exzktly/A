@@ -1,4 +1,7 @@
-"""Grouping/replicate interaction controller helpers for WellViewerApp."""
+"""Quick-replicate helpers — drives the "Quick Replicates" dropdowns on the
+Sample Definitions panel. (The rep-map plate is now a ``widgets.WellPlateSelector``
+wired in ``views/replicate_panel_view.py``; its drag edits the current selection
+via ``WellViewerApp._sel_set_composition`` directly — no controller helpers.)"""
 
 from __future__ import annotations
 
@@ -6,65 +9,6 @@ from PySide6.QtWidgets import QMessageBox
 
 from well_viewer.batch_models import ReplicateSet
 from well_viewer.viewer_state import extract_well_token as _extract_well_token
-from well_viewer.ui_helpers import tok_at_event as _tok_at_event
-
-
-def rep_map_tok_at(app, event):
-    return _tok_at_event(event, app._rep_map_btns)
-
-
-# ── Rep-map plate drag (edits the *current* selection) ────────────────────────
-def _active_sel_id(app):
-    return getattr(app, "_current_selection_id", None)
-
-
-def rep_map_press(app, event) -> None:
-    sid = _active_sel_id(app)
-    if sid is None:
-        return
-    tok = rep_map_tok_at(app, event)
-    if tok is None or tok not in app._well_paths:
-        return
-    sel = app._sel_by_id(sid)
-    if sel is None:
-        return
-    app._rep_drag_adding = tok not in (sel.get("wells") or [])
-    app._rep_drag_visited = set()
-    rep_map_apply(app, tok)
-
-
-def rep_map_drag(app, event) -> None:
-    if _active_sel_id(app) is None:
-        return
-    tok = rep_map_tok_at(app, event)
-    if tok and tok not in getattr(app, "_rep_drag_visited", set()):
-        rep_map_apply(app, tok)
-
-
-def rep_map_release(app, _event=None) -> None:
-    if getattr(app, "_rep_drag_visited", None):
-        app._rebuild_all()
-    app._rep_drag_visited = set()
-
-
-def rep_map_apply(app, tok: str) -> None:
-    visited = getattr(app, "_rep_drag_visited", None)
-    if visited is None:
-        app._rep_drag_visited = visited = set()
-    if tok in visited:
-        return
-    visited.add(tok)
-    if tok not in app._well_paths:
-        return
-    sid = _active_sel_id(app)
-    if sid is None:
-        return
-    app._sel_toggle_well(sid, tok, add=getattr(app, "_rep_drag_adding", True), light=True)
-
-
-# ── Quick-replicate helpers (driven by the "Quick Replicates" dropdowns on the
-# Sample Definitions panel) ───────────────────────────────────────────────────
-
 from well_viewer.plate_layout import PLATE_COLS, PLATE_ROWS
 
 

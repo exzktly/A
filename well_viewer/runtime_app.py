@@ -165,12 +165,6 @@ _lineplot_redraw = _lazy("well_viewer.lineplot_controller", "redraw_line_plots")
 _scatter_get_timepoints = _lazy("well_viewer.scatter_controller", "get_all_timepoints")
 _scatter_redraw = _lazy("well_viewer.scatter_controller", "redraw_scatter")
 
-_gc_rep_map_apply = _lazy("well_viewer.grouping_controller", "rep_map_apply")
-_gc_rep_map_drag = _lazy("well_viewer.grouping_controller", "rep_map_drag")
-_gc_rep_map_press = _lazy("well_viewer.grouping_controller", "rep_map_press")
-_gc_rep_map_release = _lazy("well_viewer.grouping_controller", "rep_map_release")
-_gc_rep_map_tok_at = _lazy("well_viewer.grouping_controller", "rep_map_tok_at")
-
 _load_build_tok_to_label = _lazy("well_viewer.load_controller", "build_tok_to_label")
 _load_directory_controller = _lazy("well_viewer.load_controller", "load_directory")
 _load_path_controller = _lazy("well_viewer.load_controller", "load_path")
@@ -1503,59 +1497,25 @@ class WellViewerApp(QWidget):
     # ── Replicate-panel plate map ─────────────────────────────────────────────
 
     def _rep_refresh_map(self) -> None:
-        """Recolour the GROUPS-panel plate map: each selection's wells take that
-        selection's rank colour; the current selection's wells are sunken."""
-        if not hasattr(self, "_rep_map_btns"):
+        """Push selection state onto the GROUPS-panel plate (a WellPlateSelector):
+        every selection's wells take that selection's rank colour; the *current*
+        selection's wells are shown as the plate's selection (sunken/accent), which
+        is also what a drag on the plate edits."""
+        plate = getattr(self, "_rep_map_plate", None)
+        if plate is None:
             return
-        bg, fg, fg_disabled = self._plate_theme_colors()
-
-        cur_id = getattr(self, "_current_selection_id", None)
-        tok_color: Dict[str, str] = {}
-        tok_active: Dict[str, bool] = {}
+        plate.setEnabledWells(list(self._well_paths.keys()))
+        colors: Dict[str, str] = {}
         for s in self._selections:
             c = self._rank_color_wells(s.get("wells"))
-            is_active = (s.get("id") == cur_id)
             for tok in (s.get("wells") or []):
-                tok_color[tok] = c
-                tok_active[tok] = is_active
-        has_active = self._sel_by_id(cur_id) is not None
-
-        for tok, btn in self._rep_map_btns.items():
-            if tok not in self._well_paths:
-                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
-            elif tok in tok_color:
-                self._plate_apply_colored(
-                    btn, tok_color[tok],
-                    active=tok_active.get(tok, False), fg_disabled=fg_disabled,
-                )
-            else:
-                self._plate_apply_neutral(
-                    btn, bg, fg, fg_disabled,
-                    cursor="hand2" if has_active else "arrow",
-                )
-
-    def _rep_map_tok_at(self, event) -> Optional[str]:
-        return _gc_rep_map_tok_at(self, event)
-
-    def _rep_map_press(self, event) -> None:
-        _gc_rep_map_press(self, event)
-
-    def _rep_map_drag(self, event) -> None:
-        _gc_rep_map_drag(self, event)
-
-    def _rep_map_release(self, _event) -> None:
-        _gc_rep_map_release(self, _event)
-
-    def _rep_map_apply(self, tok: str) -> None:
-        _gc_rep_map_apply(self, tok)
-
-    def _rep_refresh_map_single(self, tok: str) -> None:
-        """Update a single rep-map button (cheap mid-drag feedback).
-
-        Delegates to the full refresh to keep group-solo/rep-set colouring
-        consistent — the grid is at most 96 cells so the cost is negligible.
-        """
-        self._rep_refresh_map()
+                if tok in self._well_paths:
+                    colors[tok] = c
+        plate.clearWellColors()
+        plate.setWellColors(colors)
+        cur = self._sel_by_id(getattr(self, "_current_selection_id", None))
+        cur_wells = [w for w in (cur.get("wells") or []) if w in self._well_paths] if cur else []
+        plate.setSelectedWellIds(cur_wells)
 
     def _rep_panel_refresh(self) -> None:
         from well_viewer.views.grouping_view import rep_panel_refresh as _rep_panel_refresh_view
@@ -1800,28 +1760,6 @@ class WellViewerApp(QWidget):
         src = replicates if replicates is not None else s.get("replicates")
         s["replicates"] = _deoverlap_replicates(src, allowed=set(s.get("wells") or []))
         self._rebuild_all()
-
-    def _sel_toggle_well(self, sid, tok, *, add, light=True) -> None:
-        from well_viewer.selections_model import _deoverlap_replicates
-        s = self._sel_by_id(sid)
-        if s is None:
-            return
-        wells = list(s.get("wells") or [])
-        if add:
-            if tok not in wells:
-                wells.append(tok)
-            s["wells"] = wells
-            self._sel_strip_wells([tok], keep_id=sid)
-        else:
-            if tok in wells:
-                wells.remove(tok)
-                s["wells"] = wells
-                s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(wells))
-        if light:
-            if hasattr(self, "_rep_refresh_map_single"):
-                self._rep_refresh_map_single(tok)
-        else:
-            self._rebuild_all()
 
     def _sel_select(self, sid) -> None:
         if sid not in {s.get("id") for s in self._selections}:
