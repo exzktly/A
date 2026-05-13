@@ -54,6 +54,7 @@ class AllWellApp(QMainWindow):
         self._build_ui()
         self._install_app_icon()
         self._apply_stylesheet()
+        self._restore_window_state()
 
         if data_path is not None and self._review is not None:
             QTimer.singleShot(150, lambda: self._review._load_path(data_path))
@@ -359,7 +360,50 @@ class AllWellApp(QMainWindow):
             except Exception:
                 pass
 
+    def _qsettings(self):
+        from PySide6.QtCore import QSettings
+        return QSettings("AllWell", "AllWellApp")
+
+    def _restore_window_state(self) -> None:
+        """Restore the main window geometry + splitter sizes saved from the
+        previous session. Silent no-op the first time a user runs the app."""
+        try:
+            s = self._qsettings()
+            geom = s.value("window/geometry")
+            if geom is not None:
+                self.restoreGeometry(geom)
+            state = s.value("window/state")
+            if state is not None:
+                self.restoreState(state)
+            # Splitter geometry lives inside the Review widget.
+            if self._review is not None:
+                h_pane = getattr(self._review, "_h_pane", None)
+                if h_pane is not None:
+                    sizes = s.value("review/h_pane_sizes")
+                    if sizes is not None:
+                        # QSettings serialises lists of int as list[str] on some
+                        # backends; normalise.
+                        try:
+                            h_pane.setSizes([int(x) for x in sizes])
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    def _save_window_state(self) -> None:
+        try:
+            s = self._qsettings()
+            s.setValue("window/geometry", self.saveGeometry())
+            s.setValue("window/state", self.saveState())
+            if self._review is not None:
+                h_pane = getattr(self._review, "_h_pane", None)
+                if h_pane is not None:
+                    s.setValue("review/h_pane_sizes", h_pane.sizes())
+        except Exception:
+            pass
+
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._save_window_state()
         if self._review is not None and hasattr(self._review, "_cleanup_tmp"):
             try:
                 self._review._cleanup_tmp()

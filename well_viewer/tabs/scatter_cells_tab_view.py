@@ -49,8 +49,9 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     app._scatter_tp_var = app._scatter_tp_cb
     cl.addStretch(1)
 
-    style_btn = QPushButton("▸", ctrl)
-    style_btn.setProperty("variant", "secondary")
+    from widgets.icon_button import IconButton as _IconButton
+    style_btn = _IconButton("sliders", ctrl)
+    style_btn.setToolTip("Open export style panel for scatter (cells)")
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("scatter_cells"))
     cl.addWidget(style_btn)
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_data))

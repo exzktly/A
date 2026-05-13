@@ -217,15 +217,15 @@ class ExportStyleSidebar(QWidget):
         self._getters["axis_target"] = axis_cb.currentText
         self._setters["axis_target"] = lambda v, w=axis_cb: w.setCurrentText(str(v))
         axis_cb.currentTextChanged.connect(lambda t: self._on_axis_target_changed(t))
+        from widgets.stepper import Stepper as _Stepper
         for key, label, lo, hi in [
             ("axis_label_size", "Axis label size", 1, 96),
             ("tick_label_size", "Tick label size", 1, 96),
             ("title_size", "Title size", 1, 128),
             ("x_tick_angle", "X tick angle°", 0, 90),
         ]:
-            spin = QSpinBox()
-            spin.setRange(lo, hi)
-            spin.setValue(int(self._prefs[key]))
+            spin = _Stepper(minimum=lo, maximum=hi, single_step=1,
+                            value=float(self._prefs[key]), decimals=0)
             add_row(s_axes, label, spin, key)
         maj_cb = ToggleSwitch("Major")
         maj_cb.setChecked(bool(self._prefs["tick_major"]))
@@ -234,10 +234,8 @@ class ExportStyleSidebar(QWidget):
         self._bind_getter_setter("tick_major", maj_cb)
         self._bind_getter_setter("tick_minor", min_cb)
         add_row(s_axes, "Tick visibility", hrow(maj_cb, min_cb))
-        tlen = QDoubleSpinBox()
-        tlen.setRange(0.0, 20.0)
-        tlen.setSingleStep(0.5)
-        tlen.setValue(float(self._prefs["tick_length"]))
+        tlen = _Stepper(minimum=0.0, maximum=20.0, single_step=0.5,
+                        value=float(self._prefs["tick_length"]), decimals=1)
         add_row(s_axes, "Tick length", tlen, "tick_length")
         tdir = QComboBox()
         tdir.addItems(["out", "in", "inout"])
@@ -377,9 +375,8 @@ class ExportStyleSidebar(QWidget):
         _leg_preview.setObjectName("Muted")
         s_leg.setValueWidget(_leg_preview)
         leg_show.toggled.connect(lambda on, _l=_leg_preview: _l.setText("On" if on else "Off"))
-        leg_sz = QSpinBox()
-        leg_sz.setRange(6, 24)
-        leg_sz.setValue(int(self._prefs["legend_font_size"]))
+        leg_sz = _Stepper(minimum=6, maximum=24, single_step=1,
+                          value=float(self._prefs["legend_font_size"]), decimals=0)
         add_row(s_leg, "Font size", leg_sz, "legend_font_size")
         leg_loc = QComboBox()
         leg_loc.addItems(["best", "upper right", "upper left", "lower right", "lower left"])
@@ -393,10 +390,8 @@ class ExportStyleSidebar(QWidget):
             ("marker_size", "Marker size", 0.0, 20.0, 0.5),
             ("marker_edge_width", "Marker edge width", 0.0, 5.0, 0.1),
         ]:
-            dsp = QDoubleSpinBox()
-            dsp.setRange(lo, hi)
-            dsp.setSingleStep(step)
-            dsp.setValue(float(self._prefs[key]))
+            dsp = _Stepper(minimum=lo, maximum=hi, single_step=step,
+                           value=float(self._prefs[key]), decimals=1)
             add_row(s_lm, label, dsp, key)
 
         # ── Grid ────────────────────────────────────────────────────────────
@@ -404,10 +399,8 @@ class ExportStyleSidebar(QWidget):
         g_show = ToggleSwitch("Show grid")
         g_show.setChecked(bool(self._prefs["grid_show"]))
         add_row(s_grid, "", g_show, "grid_show")
-        g_alpha = QDoubleSpinBox()
-        g_alpha.setRange(0.0, 1.0)
-        g_alpha.setSingleStep(0.05)
-        g_alpha.setValue(float(self._prefs["grid_alpha"]))
+        g_alpha = _Stepper(minimum=0.0, maximum=1.0, single_step=0.05,
+                           value=float(self._prefs["grid_alpha"]), decimals=2)
         add_row(s_grid, "Opacity", g_alpha, "grid_alpha")
         g_style = QComboBox()
         g_style.addItems(["-", "--", ":", "-."])
