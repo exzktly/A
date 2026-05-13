@@ -453,17 +453,31 @@ if __name__ == "__main__":
             card.draw()
 
         _plot()
+        # left-header view-switcher + a controls row beneath the header
+        vsw = _make_segmented([("Line", "line"), ("Bar", "bar"), ("Scatter", "scatter"),
+                               ("Dist", "dist"), ("Heat", "heat")], current="line")
+        if vsw is not None:
+            card.setLeftHeaderWidget(vsw)
+        from PySide6.QtWidgets import QHBoxLayout as _QHB
+        ctrls = _QW()
+        _cl = _QHB(ctrls); _cl.setContentsMargins(0, 0, 0, 0); _cl.setSpacing(theme.Spacing.sm)
+        _cl.addWidget(QLabel("Across:"))
+        _cl.addWidget(_make_segmented([("Replicates", "rep"), ("FOV", "fov")], current="rep"))
+        _cl.addWidget(QLabel("Error:"))
+        _cl.addWidget(_make_segmented([("SEM", "SEM"), ("SD", "SD"), ("None", "None")], current="SEM"))
+        card.setControlsWidget(ctrls)
         lay.addWidget(card, 1)
 
-        btn = _QPB("Toggle screen / publication")
+        btn = _QPB("Toggle screen / publication (also in the header)")
         btn.clicked.connect(lambda: (card.setPlotTheme(
             "publication" if card.plotTheme() == "screen" else "screen"), _plot()))
         lay.addWidget(btn)
-        echo = QLabel("(stats chip → popover of segmented controls)")
+        echo = QLabel("(left header: view-switcher · header: Publication↔Screen toggle + 'preview only' chip + stats chip → popover · controls row beneath the header)")
         echo.setObjectName("Secondary")
+        echo.setWordWrap(True)
         lay.addWidget(echo)
         card.statsChanged.connect(lambda s, e: echo.setText(f"stats → {s} · {e}"))
-        card.plotThemeChanged.connect(lambda m: echo.setText(f"plot theme → {m}"))
+        card.plotThemeChanged.connect(lambda m: (_plot(), echo.setText(f"plot theme → {m}")))
 
     root.resize(640, 500)
     root.show()
