@@ -181,9 +181,22 @@ class _PlateGrid(QWidget):
         return QSize(lab + u * _N_COLS, lab + u * _N_ROWS)
 
     def minimumSizeHint(self) -> QSize:
-        u = max(12, round(self.fontMetrics().height() * 1.1))
+        u = max(18, round(self.fontMetrics().height() * 1.6))
         lab = round(self.fontMetrics().height() * 1.4)
         return QSize(lab + u * _N_COLS, lab + u * _N_ROWS)
+
+    # Lock the plate's aspect ratio: at any given width the layout knows the
+    # minimum height that keeps the wells circular and the row/column labels
+    # legible. Prevents the Sample Definitions tab's stacked plate + groups
+    # from crushing the plate when the centre column is short.
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, w: int) -> int:  # noqa: N802
+        lab = self._label_extent()
+        # Cell size that fits the offered width (label column + 12 cells).
+        cell = max(1.0, (max(1.0, float(w)) - lab) / _N_COLS)
+        return int(round(lab + cell * _N_ROWS))
 
     # ── enabled / colour decoration ──────────────────────────────────────
     def _is_enabled(self, key: tuple[int, int]) -> bool:

@@ -22,12 +22,21 @@ def build_replicate_panel(app, parent: QWidget) -> None:
 
     # Plate map first — nothing should appear above it.
     from widgets.well_plate_selector import WellPlateSelector
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
     plate = WellPlateSelector(parent)
     plate.setActionsVisible(False)
     plate.setSelectionMode("select")
     plate.setDragSelectEnabled(True)
     plate.setRowColumnSelectable(True)
     plate.setEnabledWells([])
+    # The plate sits above the GROUPS list in this panel; without a floor
+    # the V layout shrinks it to its minimumSizeHint when the centre column
+    # is short, crushing the wells. Anchor a generous minimum height and
+    # let WellPlateSelector.heightForWidth keep the aspect.
+    plate.setMinimumHeight(280)
+    sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.MinimumExpanding)
+    sp.setHeightForWidth(True)
+    plate.setSizePolicy(sp)
     layout.addWidget(plate)
     app._rep_map_plate = plate
 
