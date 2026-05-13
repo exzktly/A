@@ -54,30 +54,16 @@ NUC_SEG_TOKEN = "NUC+SEG"
 # ── Sidebar picker ───────────────────────────────────────────────────────────
 
 
-def image_table_pick_well(app, tok: str) -> None:
-    """Toggle a well in the active set (sidebar click handler)."""
-    if tok not in app._well_paths:
-        return
-    if tok in app._image_table_active_wells:
-        app._image_table_active_wells.discard(tok)
-    else:
-        app._image_table_active_wells.add(tok)
-    image_table_refresh_picker(app)
-
-
 def image_table_refresh_picker(app) -> None:
-    """Repaint the sidebar plate map and update the count label."""
-    btns = getattr(app, "_sidebar_image_table_btns", None) or {}
-    for tok, btn in btns.items():
-        if tok not in app._well_paths:
-            btn.setEnabled(False)
-            btn.set_state("empty")
-        elif tok in app._image_table_active_wells:
-            btn.setEnabled(True)
-            btn.set_state("selected")
-        else:
-            btn.setEnabled(True)
-            btn.set_state("available")
+    """Push the active-well set onto the sidebar plate and update the count label."""
+    plate = getattr(app, "_sidebar_image_table_plate", None)
+    if plate is not None:
+        plate.setEnabledWells(list(app._well_paths.keys()))
+        active = sorted(
+            (w for w in app._image_table_active_wells if w in app._well_paths),
+            key=app._parse_rc,
+        )
+        plate.setSelectedWellIds(active)
     lbl = getattr(app, "_image_table_count_lbl", None)
     if lbl is not None:
         n = len(app._image_table_active_wells)

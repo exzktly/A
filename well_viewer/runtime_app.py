@@ -140,9 +140,8 @@ _resolve_ref_by_fov_tp = _lazy("well_viewer.image_resolver", "resolve_ref_by_fov
 _well_token_matches_text = _lazy("well_viewer.image_resolver", "well_token_matches_text")
 
 # preview_view.build_preview_picker is invoked from build_centre at startup
-# so we keep it eager. The two interaction helpers can defer.
+# so we keep it eager. The refresh helper can defer.
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
-_preview_pick_well_view = _lazy("well_viewer.views.preview_view", "preview_pick_well")
 _refresh_preview_picker_view = _lazy("well_viewer.views.preview_view", "refresh_preview_picker")
 
 _it_apply_dimensions = _lazy("well_viewer.image_table_controller", "image_table_apply_dimensions")
@@ -157,7 +156,6 @@ _it_distribute_wells = _lazy("well_viewer.image_table_controller", "image_table_
 _it_load_heatmap_layout = _lazy("well_viewer.image_table_controller", "image_table_load_heatmap_layout")
 _it_export = _lazy("well_viewer.image_table_controller", "image_table_export")
 _it_generate = _lazy("well_viewer.image_table_controller", "image_table_generate")
-_it_pick_well = _lazy("well_viewer.image_table_controller", "image_table_pick_well")
 _it_rebuild_grid = _lazy("well_viewer.image_table_controller", "image_table_rebuild_grid")
 _it_refresh_picker = _lazy("well_viewer.image_table_controller", "image_table_refresh_picker")
 _it_repopulate_dropdowns = _lazy("well_viewer.image_table_controller", "image_table_repopulate_dropdowns")
@@ -1275,9 +1273,6 @@ class WellViewerApp(QWidget):
             extract_well_token_fn=_extract_well_token,
         )
 
-    def _preview_pick_well(self, tok: str) -> None:
-        _preview_pick_well_view(self, tok)
-
     def _refresh_preview_picker(self) -> None:
         from ui.theme import get_color
         _refresh_preview_picker_view(
@@ -1292,9 +1287,6 @@ class WellViewerApp(QWidget):
         )
 
     # ── Image Table tab ───────────────────────────────────────────────────────
-
-    def _image_table_pick_well(self, tok: str) -> None:
-        _it_pick_well(self, tok)
 
     def _image_table_refresh_picker(self) -> None:
         _it_refresh_picker(self)
