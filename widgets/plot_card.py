@@ -105,13 +105,16 @@ if _HAVE_MPL:
             self.setFrameShape(QFrame.NoFrame)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-            self._plot_theme = "screen"
+            # Decision #2: the canonical/exported state is "publication" (white,
+            # CPub/TRACE_PUB); "screen" (dark token set) is a per-card live
+            # preview only — a "preview only" chip shows whenever it's active.
+            self._plot_theme = "publication"
             self._stat = "Mean"
             self._error = "SEM"
             self._stats_pop = None
 
             self.figure = _Figure(figsize=figsize, layout="constrained")
-            self.figure.set_facecolor(theme.Colors.plot_bg)
+            self.figure.set_facecolor(_plot_tokens(self._plot_theme)[0])
             self.canvas = _FigureCanvas(self.figure)
             self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -125,10 +128,12 @@ if _HAVE_MPL:
             root.setContentsMargins(m, m, m, theme.Spacing.sm)
             root.setSpacing(theme.Spacing.sm)
             root.addWidget(self._build_header())
+            root.addWidget(self._build_controls_row())
             root.addWidget(self.canvas, 1)
             root.addWidget(self.toolbar)
 
             self.setStyleSheet(self._build_qss())
+            self._sync_theme_ui()
 
         # ── public API ───────────────────────────────────────────────────
         def add_subplot(self, *args, **kwargs):
@@ -155,6 +160,49 @@ if _HAVE_MPL:
         def headerWidget(self) -> QWidget:
             return self._header
 
+        def setLeftHeaderWidget(self, widget) -> None:
+            """Mount *widget* at the far left of the header (e.g. a per-card
+            view-switcher ``SegmentedControl``). Pass ``None`` to clear."""
+            lay = self._left_holder.layout()
+            while lay.count():
+                it = lay.takeAt(0)
+                w = it.widget()
+                if w is not None:
+                    w.setParent(None)
+            if widget is not None:
+                lay.addWidget(widget)
+            self._left_holder.setVisible(widget is not None)
+
+        def leftHeaderWidget(self) -> QWidget:
+            return self._left_holder
+
+        def setControlsWidget(self, widget) -> None:
+            """Mount *widget* in the controls row beneath the header (e.g. the
+            error-band / replicates-vs-FOV ``SegmentedControl``s). ``None`` clears."""
+            lay = self._controls_row.layout()
+            while lay.count():
+                it = lay.takeAt(0)
+                w = it.widget()
+                if w is not None:
+                    w.setParent(None)
+            if widget is not None:
+                lay.addWidget(widget)
+                lay.addStretch(1)
+            self._controls_row.setVisible(widget is not None)
+
+        def controlsWidget(self) -> QWidget:
+            return self._controls_row
+
+        def _build_controls_row(self) -> QWidget:
+            self._controls_row = QWidget(self)
+            self._controls_row.setObjectName("PlotCardControls")
+            self._controls_row.setAttribute(Qt.WA_StyledBackground, True)
+            cl = QHBoxLayout(self._controls_row)
+            cl.setContentsMargins(0, 0, 0, 0)
+            cl.setSpacing(theme.Spacing.sm)
+            self._controls_row.setVisible(False)
+            return self._controls_row
+
         def _build_header(self) -> QWidget:
             self._header = QWidget(self)
             self._header.setObjectName("PlotCardHeader")
@@ -162,17 +210,57 @@ if _HAVE_MPL:
             lay = QHBoxLayout(self._header)
             lay.setContentsMargins(0, 0, 0, 0)
             lay.setSpacing(theme.Spacing.sm)
+
+            self._left_holder = QWidget(self._header)
+            self._left_holder.setObjectName("PlotCardLeftSlot")
+            self._left_holder.setAttribute(Qt.WA_StyledBackground, True)
+            _ll = QHBoxLayout(self._left_holder)
+            _ll.setContentsMargins(0, 0, 0, 0)
+            _ll.setSpacing(theme.Spacing.xs)
+            self._left_holder.setVisible(False)
+            lay.addWidget(self._left_holder)
+
             self._title_lbl = QLabel("", self._header)
             self._title_lbl.setObjectName("PlotCardTitle")
             self._title_lbl.setVisible(False)
             lay.addWidget(self._title_lbl)
             lay.addStretch(1)
+
+            # "preview only" chip — shown when the (non-canonical) "screen"
+            # theme is active, so it's clear the on-screen look isn't exported.
+            self._preview_chip = QLabel("preview only", self._header)
+            self._preview_chip.setObjectName("PlotCardPreviewChip")
+            self._preview_chip.setVisible(False)
+            lay.addWidget(self._preview_chip)
+
+            # Screen ↔ Publication toggle.
+            try:
+                from widgets.segmented_control import SegmentedControl
+                self._theme_sc = SegmentedControl(
+                    [("Publication", "publication"), ("Screen", "screen")], self._header)
+                self._theme_sc.setObjectName("PlotCardThemeToggle")
+                self._theme_sc.setCurrentByData(self._plot_theme)
+                self._theme_sc.currentChanged.connect(
+                    lambda *_a: self.setPlotTheme(self._theme_sc.currentData() or "publication"))
+                lay.addWidget(self._theme_sc)
+            except Exception:
+                self._theme_sc = None  # type: ignore[assignment]
+
             self._stats_chip = QPushButton(self._chip_text(), self._header)
             self._stats_chip.setObjectName("PlotCardStatsChip")
             self._stats_chip.setCursor(Qt.PointingHandCursor)
             self._stats_chip.clicked.connect(self._open_stats_popover)
             lay.addWidget(self._stats_chip)
             return self._header
+
+        def _sync_theme_ui(self) -> None:
+            self._preview_chip.setVisible(self._plot_theme == "screen")
+            if getattr(self, "_theme_sc", None) is not None:
+                try:
+                    self._theme_sc.blockSignals(True)
+                    self._theme_sc.setCurrentByData(self._plot_theme)
+                finally:
+                    self._theme_sc.blockSignals(False)
 
         def _chip_text(self) -> str:
             return f"{self._stat} · {self._error}"
@@ -256,6 +344,7 @@ if _HAVE_MPL:
                     for txt in leg.get_texts():
                         txt.set_color(fg)
             self.setStyleSheet(self._build_qss())
+            self._sync_theme_ui()
             self.draw()
             self.plotThemeChanged.emit(mode)
 
@@ -281,12 +370,21 @@ if _HAVE_MPL:
                 border: 1px solid {c.border_subtle};
                 border-radius: {r.md}px;
             }}
-            QWidget#PlotCardHeader {{ background: transparent; }}
+            QWidget#PlotCardHeader, QWidget#PlotCardControls,
+            QWidget#PlotCardLeftSlot {{ background: transparent; }}
             QLabel#PlotCardTitle {{
                 color: {c.text_primary};
                 font-size: {t.emph_size}px;
                 font-weight: {t.semibold};
                 background: transparent;
+            }}
+            QLabel#PlotCardPreviewChip {{
+                color: {c.text_muted};
+                background-color: {c.panel_elevated};
+                border: 1px solid {c.border_subtle};
+                border-radius: {r.pill}px;
+                padding: 1px 8px;
+                font-size: {t.small_size}px;
             }}
             QPushButton#PlotCardStatsChip {{
                 color: {c.text_secondary};

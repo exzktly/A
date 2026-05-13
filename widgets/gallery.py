@@ -543,22 +543,30 @@ def _build_plotcard():
         card.style_axes(ax)
         card.draw()
 
+    # per-card view-switcher (left header slot) + error-band controls row
+    try:
+        from widgets.segmented_control import SegmentedControl
+        view_sc = SegmentedControl([("Line", "line"), ("Bar", "bar"), ("Scatter", "scatter"),
+                                    ("Dist", "dist"), ("Heat", "heat")])
+        card.setLeftHeaderWidget(view_sc)
+        err_sc = SegmentedControl([("SEM", "SEM"), ("SD", "SD"), ("None", "None")])
+        from PySide6.QtWidgets import QLabel as _QL
+        ctrls = QWidget()
+        cl = QHBoxLayout(ctrls); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(theme.Spacing.sm)
+        cl.addWidget(_QL("Across:")); cl.addWidget(SegmentedControl([("Replicates", "rep"), ("FOV", "fov")]))
+        cl.addWidget(_QL("Error:")); cl.addWidget(err_sc)
+        card.setControlsWidget(ctrls)
+    except Exception:
+        pass
     _plot()
     card.setMinimumHeight(240)
     v.addWidget(card, 1)
-    row = QHBoxLayout()
-    row.setSpacing(theme.Spacing.sm)
-    btn = QPushButton("Toggle screen / publication")
-    btn.clicked.connect(lambda: (card.setPlotTheme(
-        "publication" if card.plotTheme() == "screen" else "screen"), _plot()))
-    row.addWidget(btn)
-    row.addStretch(1)
-    v.addLayout(row)
-    out = QLabel("(stats chip → popover · screen/publication theme)")
+    out = QLabel("(view-switcher in the left header slot · controls row beneath · header Publication↔Screen toggle + 'preview only' chip · stats chip → popover)")
     out.setObjectName("Caption")
+    out.setWordWrap(True)
     v.addWidget(out)
     card.statsChanged.connect(lambda s, e: out.setText(f"stats → {s} · {e}"))
-    card.plotThemeChanged.connect(lambda m: out.setText(f"plot theme → {m}"))
+    card.plotThemeChanged.connect(lambda m: (_plot(), out.setText(f"plot theme → {m}")))
     return host
 
 
