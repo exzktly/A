@@ -1074,6 +1074,38 @@ class WellViewerApp(QWidget):
         self._h_pane.setSizes([340, 1200])
         self._build_centre(centre)
 
+        # Phase 11 (A6 / B23): Properties rail as an OVERLAY on the centre
+        # column. The rail floats over the right edge of the centre pane;
+        # it does NOT push the canvas smaller (mockup parity) and it does
+        # NOT extend across the sidebar (user reported it was spanning the
+        # whole window). Mounted here — inside WellViewerApp — so toggling
+        # the rail when Analyze is active doesn't matter because the rail
+        # is scoped to the Review centre area.
+        from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
+        self._properties_rail = _CollapsibleRail(centre, width=332, collapsed=False)
+        ph = QWidget()
+        ph_layout = QVBoxLayout(ph)
+        ph_layout.setContentsMargins(_theme_v2.Spacing.lg, _theme_v2.Spacing.lg,
+                                     _theme_v2.Spacing.lg, _theme_v2.Spacing.lg)
+        ph_head = QLabel("Properties")
+        ph_head.setStyleSheet(
+            f"color: {_theme_v2.Colors.text_primary}; "
+            f"font-size: {_theme_v2.Typography.emph_size}px; font-weight: 600;"
+        )
+        ph_layout.addWidget(ph_head)
+        ph_layout.addSpacing(_theme_v2.Spacing.sm)
+        ph_stub = QLabel(
+            "Phase 12 populates this rail with the scope segmented "
+            "(All / Plot 1 / Plot 2), ⌘K search, and eight collapsible "
+            "sections (Profile & Format / Statistics / Axes / Legend / "
+            "Lines & Markers / Grid / Limits & Scale / Layout)."
+        )
+        ph_stub.setWordWrap(True)
+        ph_stub.setStyleSheet(f"color: {_theme_v2.Colors.text_muted};")
+        ph_layout.addWidget(ph_stub)
+        ph_layout.addStretch(1)
+        self._properties_rail.setContentWidget(ph)
+
         # Status + log — packed last so it sits below the splitter.
         self._build_bottom()
 

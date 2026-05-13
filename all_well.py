@@ -190,37 +190,13 @@ class AllWellApp(QMainWindow):
         )
         self._review.mountAnalyzePane(self._analyze)
 
-        # Phase 10 (A6 shell / B23 / Q11): Properties rail overlay + Log
-        # tray drawer at the bottom.
-        from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
-        self._properties_rail = _CollapsibleRail(
-            self._central_host, width=332, collapsed=False,
+        # Phase 11: the Properties rail is owned by WellViewerApp now and
+        # overlays its centre column only (mockup parity — the rail must not
+        # span the sidebar). The titlebar's rail-toggle button routes to
+        # ``self._review._properties_rail`` via _on_rail_toggle_clicked.
+        self._review._properties_rail.collapsedChanged.connect(
+            self._on_rail_collapsed_changed
         )
-        # Placeholder content for Phase 10 — Phase 12 builds the real
-        # scope segmented + ⌘K search + 8 sections.
-        ph = QWidget()
-        ph_layout = QVBoxLayout(ph)
-        ph_layout.setContentsMargins(theme_v2.Spacing.lg, theme_v2.Spacing.lg,
-                                     theme_v2.Spacing.lg, theme_v2.Spacing.lg)
-        head_lbl = QLabel("Properties")
-        head_lbl.setStyleSheet(
-            f"color: {theme_v2.Colors.text_primary}; "
-            f"font-size: {theme_v2.Typography.emph_size}px; font-weight: 600;"
-        )
-        ph_layout.addWidget(head_lbl)
-        ph_layout.addSpacing(theme_v2.Spacing.sm)
-        stub = QLabel(
-            "Phase 12 populates this rail with the scope segmented "
-            "(All / Plot 1 / Plot 2), ⌘K search, and eight collapsible "
-            "sections (Profile & Format / Statistics / Axes / Legend / "
-            "Lines & Markers / Grid / Limits & Scale / Layout)."
-        )
-        stub.setWordWrap(True)
-        stub.setStyleSheet(f"color: {theme_v2.Colors.text_muted};")
-        ph_layout.addWidget(stub)
-        ph_layout.addStretch(1)
-        self._properties_rail.setContentWidget(ph)
-        self._properties_rail.collapsedChanged.connect(self._on_rail_collapsed_changed)
 
         # Status bar v2: status / kbd hints / Log tray IconButton.
         from widgets.kbd_hint import KbdHint as _KbdHint
@@ -495,7 +471,9 @@ class AllWellApp(QMainWindow):
                 pass
 
     def _on_rail_toggle_clicked(self) -> None:
-        rail = getattr(self, "_properties_rail", None)
+        # The Properties rail is scoped to Review's centre column (mounted
+        # by WellViewerApp). Reach in so the titlebar button still drives it.
+        rail = getattr(getattr(self, "_review", None), "_properties_rail", None)
         if rail is None:
             return
         rail.toggle()

@@ -27,9 +27,10 @@ if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
 from PySide6.QtCore import QSize, Qt, Signal  # noqa: E402
-from PySide6.QtGui import QIcon  # noqa: E402
+from PySide6.QtGui import QIcon, QPainter  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QButtonGroup, QHBoxLayout, QSizePolicy, QToolButton, QWidget,
+    QButtonGroup, QHBoxLayout, QSizePolicy, QStyle, QStyleOptionToolButton,
+    QToolButton, QWidget,
 )
 
 import theme  # noqa: E402
@@ -52,6 +53,68 @@ class _Segment(QToolButton):
             )
             ih = max(12, round(self.fontMetrics().height() * 0.95))
             self.setIconSize(QSize(ih, ih))
+
+    def paintEvent(self, _ev):  # noqa: N802
+        """Paint the panel via the platform style, then draw the icon + text
+        group centred horizontally in the button's content rect.
+
+        QToolButton with ``ToolButtonTextBesideIcon`` left-anchors its content
+        across styles; ``text-align: center`` in QSS only affects QPushButton.
+        Drawing the content manually is the most reliable cross-platform way
+        to centre Review / Analyze labels in their Expanding segments.
+        """
+        from PySide6.QtCore import QPoint, QRect
+        from PySide6.QtGui import QPalette
+
+        p = QPainter(self)
+        try:
+            opt = QStyleOptionToolButton()
+            self.initStyleOption(opt)
+            # Suppress the style's own icon + text rendering so we can place
+            # them centred ourselves.
+            opt.text = ""
+            opt.icon = QIcon()
+            self.style().drawComplexControl(QStyle.CC_ToolButton, opt, p, self)
+
+            cr = self.rect()
+            spacing = 6
+            text = self.text()
+            icon = self.icon()
+            isize = self.iconSize()
+            has_icon = icon is not None and not icon.isNull() and \
+                self.toolButtonStyle() != Qt.ToolButtonTextOnly
+            has_text = bool(text) and self.toolButtonStyle() != Qt.ToolButtonIconOnly
+
+            fm = self.fontMetrics()
+            tw = fm.horizontalAdvance(text) if has_text else 0
+            iw = isize.width() if has_icon else 0
+            total_w = iw + (spacing if has_icon and has_text else 0) + tw
+            x = cr.left() + max(0, (cr.width() - total_w) // 2)
+            y_centre = cr.center().y()
+
+            if has_icon:
+                ix = x
+                iy = y_centre - isize.height() // 2
+                mode = QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled
+                if self.isChecked():
+                    mode = QIcon.Mode.Selected
+                icon.paint(p, QRect(ix, iy, isize.width(), isize.height()),
+                           Qt.AlignCenter, mode)
+                x += iw + spacing
+
+            if has_text:
+                col = self.palette().color(
+                    QPalette.ButtonText if self.isEnabled() else QPalette.Disabled
+                )
+                # Honour QSS-resolved text colour by querying the palette via
+                # the current style option (the platform style filled it in).
+                if opt.palette is not None:
+                    col = opt.palette.color(QPalette.ButtonText)
+                p.setPen(col)
+                p.drawText(QRect(x, cr.top(), tw, cr.height()),
+                           Qt.AlignVCenter | Qt.AlignLeft, text)
+        finally:
+            p.end()
 
 
 class SegmentedControl(QWidget):
@@ -157,6 +220,8 @@ class SegmentedControl(QWidget):
             padding: 5px 10px;
             font-size: {t.small_size}px;
             font-weight: {t.medium};
+            text-align: center;
+            qproperty-toolButtonStyle: ToolButtonTextBesideIcon;
         }}
         #SegmentedControl QToolButton#Segment:hover {{
             color: {c.text_primary};
