@@ -3506,7 +3506,11 @@ class WellViewerApp(QWidget):
         # Keep all plot-tab channel selectors in sync so switching channel
         # on one tab is reflected on the others.
         target_label = self._active_channel_label()
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution", "_chan_cb_heatmap"):
+        # Phase 11b: include the global ctxbar combo in the sync set so a
+        # change from any source (per-renderer combo OR the global one)
+        # propagates everywhere.
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
+                     "_chan_cb_heatmap", "_plotting_channel_cb"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
