@@ -261,6 +261,9 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
             if host is not None and hasattr(host, "set_overlay_dock"):
                 host.set_overlay_dock(dock, sb.sizeHint().width() or 260)
             dock.setVisible(True)
+            dock.raise_()  # float above the plot canvas
+            if host is not None and hasattr(host, "_reposition_overlay"):
+                host._reposition_overlay()
         sb.show()
         sb.raise_()
         # Apply the (already-persisted) prefs to the figure once. Use the
