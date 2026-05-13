@@ -98,9 +98,9 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     install_canvas_wheel_scroll(app._line_canvas, app._line_scroll_canvas)
     layout.addWidget(app._line_scroll_canvas, 1)
 
+    # Right-click an axes → toggle its legend. (The old left-click-drag-to-set
+    # threshold on the CDF was removed — the threshold lives on the Cell Gating tab.)
     app._line_canvas.mpl_connect("button_press_event", app._on_fig_click)
-    app._line_canvas.mpl_connect("motion_notify_event", app._on_cdf_motion)
-    app._line_canvas.mpl_connect("button_release_event", app._on_cdf_release)
 
 
 def _build_band_controls(app, parent: QWidget) -> QWidget:

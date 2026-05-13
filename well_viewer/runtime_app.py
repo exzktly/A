@@ -752,7 +752,6 @@ class WellViewerApp(QWidget):
         self._entry_edit = None
         self._cdf_xmin_edit = None
         self._cdf_xmax_edit = None
-        self._thr_dragging  = False
 
         # Plate-map well selection
         self._selected_wells: set  = set()
@@ -5975,28 +5974,8 @@ class WellViewerApp(QWidget):
     # ── Legend interaction ────────────────────────────────────────────────────
 
     def _on_fig_click(self, event) -> None:
-        """
-        Left-click on the CDF axes near the threshold line → start drag.
-        Right-click on any axes → toggle that axes' legend.
-        """
-        if event.inaxes is None:
-            return
-
-        # ── Left-click: start threshold drag if near the vline ───────────────
-        if event.button == 1 and event.inaxes is self._line_ax_cdf:
-            # Accept if click is within 5% of the CDF x-range of the threshold
-            try:
-                lo, hi = self._line_ax_cdf.get_xlim()
-                tol = (hi - lo) * 0.05
-            except Exception:
-                tol = 5.0
-            if abs(event.xdata - self._threshold) <= tol:
-                self._thr_dragging = True
-                self._set_status("Dragging threshold — release to set")
-                return   # don't fall through to legend toggle
-
-        # ── Right-click: toggle legend ────────────────────────────────────────
-        if event.button != 3:
+        """Right-click on a Line-Graphs axes → toggle that axes' legend."""
+        if event.inaxes is None or event.button != 3:
             return
         ax_map = {
             id(self._line_ax_mean): "mean",
@@ -6014,30 +5993,6 @@ class WellViewerApp(QWidget):
             self._line_canvas.draw_idle()
         state = "shown" if self._legend_visible[key] else "hidden"
         self._set_status(f"Legend for '{key}' plot {state}  (right-click to toggle)")
-
-    def _on_cdf_motion(self, event) -> None:
-        """Move the threshold line live while dragging."""
-        if not self._thr_dragging:
-            return
-        if event.inaxes is not self._line_ax_cdf or event.xdata is None:
-            return
-        # Clamp to visible CDF range
-        try:
-            lo, hi = self._line_ax_cdf.get_xlim()
-        except Exception:
-            lo, hi = 0.0, 300.0
-        new_thr = max(lo, min(hi, event.xdata))
-        self._threshold = new_thr
-        self._invalidate_stats_cache()
-        # Lightweight redraw: just update the vline and axvspan positions
-        self._redraw()
-
-    def _on_cdf_release(self, event) -> None:
-        """Finalise the threshold drag on mouse release."""
-        if not self._thr_dragging:
-            return
-        self._thr_dragging = False
-        # Threshold is now managed by the Cell Gating tab, not by CDF dragging
 
     # ── Log / status helpers ──────────────────────────────────────────────────
 
