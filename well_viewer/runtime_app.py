@@ -2843,7 +2843,14 @@ class WellViewerApp(QWidget):
             self._sidebar_map_refresh_pending = False
             return
 
-        rep_mode = bool(self._selections)
+        # Sample Definitions tab needs per-well selection even when groups
+        # exist, so Add Prefix / Add Suffix can target user-chosen wells.
+        on_sample_defs = False
+        try:
+            on_sample_defs = self._current_centre_tab() == "Sample Definitions"
+        except Exception:
+            on_sample_defs = False
+        rep_mode = bool(self._selections) and not on_sample_defs
 
         colors: Dict[str, object] = {}
         if rep_mode:
@@ -2905,7 +2912,19 @@ class WellViewerApp(QWidget):
         # Fires per-cell during a drag and once for a click; also fires when
         # ``_refresh_sidebar_map_now`` calls ``setSelectedWellIds`` /
         # ``setEnabledWells`` (those corrections converge harmlessly).
-        if self._selections:
+        #
+        # Sample Definitions exception: even when groups exist (rep-set mode),
+        # this tab needs per-well selection so Add Prefix / Add Suffix can act
+        # on user-chosen wells. We let the click through and update
+        # ``_selected_wells`` normally; ``_refresh_sidebar_map_now`` mirrors the
+        # same exception so the painted selection doesn't get wiped on the next
+        # refresh tick.
+        on_sample_defs = False
+        try:
+            on_sample_defs = self._current_centre_tab() == "Sample Definitions"
+        except Exception:
+            on_sample_defs = False
+        if self._selections and not on_sample_defs:
             return  # rep-set mode: the plate is passive; its selection is unused
         # Keep the invariant ``_selected_wells ⊆ _well_paths`` — downstream
         # code (e.g. redraw_line_plots → _get_rows) assumes it.
@@ -2913,13 +2932,15 @@ class WellViewerApp(QWidget):
         if new_set == self._selected_wells:
             return
         self._selected_wells = new_set
-        # Lightweight: just repaint the plate + count label (debounced). The
-        # heavy refresh / plot redraw happens once on ``selectionDragFinished``
-        # (clicks and drags) or in the header-activation handlers.
         self._refresh_sidebar_map()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
-        if self._selections:
+        on_sample_defs = False
+        try:
+            on_sample_defs = self._current_centre_tab() == "Sample Definitions"
+        except Exception:
+            on_sample_defs = False
+        if self._selections and not on_sample_defs:
             return
         self._on_plate_sel_change()
 
@@ -3806,9 +3827,13 @@ class WellViewerApp(QWidget):
         if btn is None:
             return
         r, g, b = self._review_image_get_color(which)
+        # Explicit border-radius on every side so the bottom corners stay
+        # rounded — the global QSS rule was being clipped by the swatch's
+        # tight fixed size, leaving square lower corners.
         btn.setStyleSheet(
             f"QPushButton {{ background-color: rgb({r},{g},{b}); "
-            f"border: 1px solid #444; min-width: 28px; min-height: 18px; }}"
+            f"border: 1px solid #444; border-radius: 4px; "
+            f"min-width: 28px; min-height: 18px; padding: 0; }}"
         )
 
     def _pick_review_image_color(self, which: str) -> None:
