@@ -445,16 +445,24 @@ def redraw_heatmap(app) -> None:
     # the main axes geometry stays put across redraws. Calling
     # ``fig.colorbar(im, ax=ax, ...)`` would silently shrink ``ax`` on
     # each redraw, which is what made the plot creep left and shrink.
+    # Theme-aware text colors so the colorbar/title invert with the PlotCard's
+    # publication↔screen toggle instead of staying mpl-default black.
+    from well_viewer.plot_style import tokens_for as _tokens_for
+    _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for(ax)
+
     cax = getattr(app, "_heatmap_cax", None)
     if cax is not None:
         try:
             cax.cla()
             app._heatmap_colorbar = fig.colorbar(im, cax=cax)
-            app._heatmap_colorbar.set_label(_metric_axis_label(metric, app), fontsize=8)
+            app._heatmap_colorbar.set_label(_metric_axis_label(metric, app),
+                                            fontsize=8, color=_muted_fg)
+            cax.tick_params(colors=_muted_fg, labelsize=7)
+            for _spi in cax.spines.values():
+                _spi.set_color(_spine)
         except Exception:
             app._heatmap_colorbar = None
     else:
-        # Fallback for any caller that bypasses the build-time axes setup.
         if hasattr(app, "_heatmap_colorbar") and app._heatmap_colorbar is not None:
             try:
                 app._heatmap_colorbar.remove()
@@ -462,7 +470,11 @@ def redraw_heatmap(app) -> None:
                 pass
         try:
             app._heatmap_colorbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.03)
-            app._heatmap_colorbar.set_label(_metric_axis_label(metric, app), fontsize=8)
+            app._heatmap_colorbar.set_label(_metric_axis_label(metric, app),
+                                            fontsize=8, color=_muted_fg)
+            app._heatmap_colorbar.ax.tick_params(colors=_muted_fg, labelsize=7)
+            for _spi in app._heatmap_colorbar.ax.spines.values():
+                _spi.set_color(_spine)
         except Exception:
             app._heatmap_colorbar = None
 
@@ -470,7 +482,7 @@ def redraw_heatmap(app) -> None:
         f"{app._active_channel_label() if hasattr(app, '_active_channel_label') else app._active_channel.upper()}"
         f" — {metric} — t = {tp:g} h"
     )
-    ax.set_title(title, fontsize=9)
+    ax.set_title(title, fontsize=9, color=_title_fg)
 
     canvas.draw_idle()
 
