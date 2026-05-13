@@ -525,6 +525,13 @@ QHeaderView::section {{
     padding: 5px 8px;
     font-weight: {t.medium};
 }}
+QTableView, QTableWidget {{
+    gridline-color: {c.border_subtle};
+    alternate-background-color: {c.panel_elevated};
+}}
+QTableView::item, QTableWidget::item {{
+    padding: 4px 8px;
+}}
 
 /* ── Splitter ────────────────────────────────────────────────────────── */
 QSplitter::handle {{
