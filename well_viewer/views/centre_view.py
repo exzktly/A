@@ -303,7 +303,7 @@ def build_centre(app, parent: QWidget) -> None:
         from widgets.segmented_control import SegmentedControl as _SegmentedControl
         from widgets.icon_button import IconButton as _IconButton
 
-        # ── ctxbar ───────────────────────────────────────────────────────
+        # ── ctxbar ─ Row 1 (plot-type SegmentedControl, full width) ──────
         ctxbar = QWidget(plotting_container)
         ctxbar.setObjectName("PlottingCtxbar")
         ctxbar.setAttribute(Qt.WA_StyledBackground, True)
@@ -319,9 +319,21 @@ def build_centre(app, parent: QWidget) -> None:
         sub_seg = _SegmentedControl()
         for title in _PLOT_SUBTABS:
             sub_seg.addSegment(title, data=title)
-        cbl.addWidget(sub_seg)
+        cbl.addWidget(sub_seg, 1)  # fill the full row
 
-        cbl.addStretch(1)
+        plotting_container.layout().addWidget(ctxbar, 0)
+
+        # ── ctxbar ─ Row 2 (channel + actions, sits above the canvas) ────
+        action_row = QWidget(plotting_container)
+        action_row.setObjectName("PlottingActionRow")
+        action_row.setAttribute(Qt.WA_StyledBackground, True)
+        action_row.setStyleSheet(
+            f"#PlottingActionRow {{ background-color: {_C.surface}; "
+            f"border-bottom: 1px solid {_C.border_subtle}; }}"
+        )
+        arl = QHBoxLayout(action_row)
+        arl.setContentsMargins(_S.md, 4, _S.md, 4)
+        arl.setSpacing(_S.sm)
 
         # Channel chip — placeholder for Phase 11b. A4 says channel selection
         # becomes global in ctxbar.right; today it's per-renderer. Surface a
@@ -331,7 +343,7 @@ def build_centre(app, parent: QWidget) -> None:
             f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
             f"letter-spacing: 0.08em;"
         )
-        cbl.addWidget(chan_lbl)
+        arl.addWidget(chan_lbl)
         app._plotting_channel_chip = QLabel("—")
         app._plotting_channel_chip.setStyleSheet(
             f"color: {_C.text_secondary}; "
@@ -340,29 +352,31 @@ def build_centre(app, parent: QWidget) -> None:
             f"border-radius: {_R.pill}px; padding: 2px 8px; "
             f"font-size: {_T.caption_size}px; font-weight: 500;"
         )
-        cbl.addWidget(app._plotting_channel_chip)
+        arl.addWidget(app._plotting_channel_chip)
 
         hint = QLabel("· click a trace to filter properties")
         hint.setStyleSheet(
             f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
             f"padding-left: 4px;"
         )
-        cbl.addWidget(hint)
+        arl.addWidget(hint)
+
+        arl.addStretch(1)
 
         add_panel_btn = _IconButton("plus", text=" Add panel")
         add_panel_btn.setToolTip("Add a subplot to the canvas (1–4 max)")
-        cbl.addWidget(add_panel_btn)
+        arl.addWidget(add_panel_btn)
         config_btn = _IconButton("sliders")
         config_btn.setToolTip("Configure subplots…")
-        cbl.addWidget(config_btn)
+        arl.addWidget(config_btn)
         edit_btn = _IconButton("settings-2")
         edit_btn.setToolTip("Edit axes / curve…")
-        cbl.addWidget(edit_btn)
+        arl.addWidget(edit_btn)
         export_btn = _IconButton("download", text=" Export figure")
         export_btn.setToolTip("Export the current figure")
-        cbl.addWidget(export_btn)
+        arl.addWidget(export_btn)
 
-        plotting_container.layout().addWidget(ctxbar, 0)
+        plotting_container.layout().addWidget(action_row, 0)
 
         # ── renderer pages (existing per-tab views in a hidden-tab QTabWidget) ─
         plotting_nb = QTabWidget(plotting_container)
