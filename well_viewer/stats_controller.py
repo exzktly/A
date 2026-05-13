@@ -360,25 +360,25 @@ def stats_apply_drag(app, tok: str) -> None:
 
 
 def stats_refresh_map(app) -> None:
-    bg, fg, fg_disabled = app._plate_theme_colors()
-    avail = set(app._well_paths.keys())
+    """Push group state onto the Statistics plate (a WellPlateSelector): each
+    group's wells take its rank colour; the active group's wells are the plate's
+    selection (sunken), which is also what a drag on the plate edits."""
+    plate = getattr(app, "_stats_map_plate", None)
+    if plate is None:
+        return
+    avail = list(app._well_paths.keys())
+    plate.setEnabledWells(avail)
     tok_color: dict = {}
     for grp in app._stats_groups:
         c = app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         for w in grp.wells:
-            tok_color[w] = c   # last group wins — matches the sidebar/replicate plates
+            if w in app._well_paths:
+                tok_color[w] = c   # last group wins — matches the other plates
+    plate.clearWellColors()
+    plate.setWellColors(tok_color)
     grp = stats_active_group(app)
-    active_wells: set = set(grp.wells) if grp else set()
-    for tok, btn in app._stats_map_btns.items():
-        if tok not in avail:
-            app._plate_apply_disabled(btn, bg, fg, fg_disabled)
-        elif tok in tok_color:
-            app._plate_apply_colored(
-                btn, tok_color[tok],
-                active=tok in active_wells, fg_disabled=fg_disabled,
-            )
-        else:
-            app._plate_apply_neutral(btn, bg, fg, fg_disabled)
+    active = [w for w in grp.wells if w in app._well_paths] if grp else []
+    plate.setSelectedWellIds(active)
 
 
 def stats_refresh_group_list(app) -> None:

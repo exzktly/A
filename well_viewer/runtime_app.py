@@ -348,9 +348,6 @@ def _set_combo_values(combo: object, values: List[str]) -> None:
     combo["values"] = vals  # type: ignore[index]
 
 
-# Canonical definitions live in well_viewer/views/well_button.py
-from well_viewer.views.well_button import WellButton as WellLabel, build_plate_grid
-
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
                    lo: Optional[float], hi: Optional[float],
@@ -1048,7 +1045,6 @@ class WellViewerApp(QWidget):
             clr_avail_hover=CLR_AVAIL_HOVER,
             well_colors=WELL_COLORS,
             bind_drag_fn=_bind_drag,
-            build_plate_grid_fn=build_plate_grid,
             make_scrollable_canvas_fn=make_scrollable_canvas,
             extract_well_token_fn=_extract_well_token,
         )
@@ -1263,7 +1259,6 @@ class WellViewerApp(QWidget):
             accent=ACCENT,
             clr_white=CLR_WHITE,
             clr_accent_dark=CLR_ACCENT_DARK,
-            build_plate_grid_fn=build_plate_grid,
             extract_well_token_fn=_extract_well_token,
         )
 
@@ -2895,133 +2890,6 @@ class WellViewerApp(QWidget):
             _on_drop_event(self, "palette", None, token)
         except Exception:
             _logger.exception("Heat map well drop handling failed")
-
-    def _style_plate_button(
-        self,
-        btn: Any,
-        *,
-        bg: str,
-        fg: str,
-        state: str = "normal",
-        cursor: str = "hand2",
-        relief: str = "flat",
-        activebackground: Optional[str] = None,
-        activeforeground: Optional[str] = None,
-        disabledforeground: Optional[str] = None,
-    ) -> None:
-        """Apply plate-map button styling to a ``QPushButton``."""
-        state_str = str(state).lower()
-        relief_str = str(relief).lower()
-        is_enabled = not state_str.endswith("disabled")
-        is_sunken = relief_str.endswith("sunken")
-
-        btn.setEnabled(is_enabled)
-        if hasattr(btn, "setCursor"):
-            btn.setCursor(Qt.PointingHandCursor if cursor == "hand2" else Qt.ArrowCursor)
-
-        hover_bg = activebackground or bg
-        hover_fg = activeforeground or fg
-        disabled_fg = disabledforeground or fg
-        # 1px border matching the design-system tokens. Wells with no data
-        # get a transparent border; wells with data get a themed border.
-        import theme as _v2theme
-        if not is_enabled:
-            border = "1px solid transparent"
-        else:
-            border = f"1px solid {_v2theme.Colors.border}"
-        # Drive the paint-event-based 3D cue.
-        if hasattr(btn, "set_emboss"):
-            if not is_enabled:
-                btn.set_emboss("none")
-            elif is_sunken:
-                btn.set_emboss("depressed")
-            else:
-                btn.set_emboss("raised")
-
-        # Setting a per-widget stylesheet overrides the application QSS for
-        # this widget's selector. Restate the plate-well layout properties
-        # (fixed size, padding, border-radius) here so wells render identically
-        # to QSS-driven wells. Must match QPushButton#WellButton in dark.qss /
-        # light.qss. No font-size is set (Qt rejects <=0pt); button text is
-        # always empty anyway.
-        base_layout = (
-            "min-width: 18px;"
-            "min-height: 18px;"
-            "max-width: 18px;"
-            "max-height: 18px;"
-            "padding: 0;"
-            "border-radius: 9px;"
-        )
-
-        btn.setStyleSheet(
-            "\n".join(
-                [
-                    (
-                        "QPushButton{"
-                        f"{base_layout}"
-                        f"background-color: {bg};"
-                        f"color: {fg};"
-                        f"border: {border};"
-                        "}"
-                    ),
-                    (
-                        "QPushButton:hover{"
-                        f"{base_layout}"
-                        f"background-color: {hover_bg};"
-                        f"color: {hover_fg};"
-                        f"border: {border};"
-                        "}"
-                    ),
-                    (
-                        "QPushButton:disabled{"
-                        f"{base_layout}"
-                        f"background-color: {bg};"
-                        f"color: {disabled_fg};"
-                        f"border: {border};"
-                        "}"
-                    ),
-                ]
-            )
-        )
-
-    def _plate_theme_colors(self) -> tuple:
-        # v2 plate-map palette: available wells use the elevated-control fill,
-        # matching ``QPushButton#WellButton[state="available"]`` in
-        # ``theme.qss()`` (used by the preview / image-table pickers).
-        import theme as _v2theme
-        c = _v2theme.Colors
-        return (c.panel_elevated, c.text_secondary, c.text_faint)
-
-    def _plate_apply_disabled(self, btn, bg: str, fg: str, fg_disabled: str) -> None:
-        # No-data wells recede onto the (darker) panel fill, like
-        # ``WellPlateSelector``'s disabled rendering.
-        import theme as _v2theme
-        dis_bg = _v2theme.Colors.panel
-        self._style_plate_button(
-            btn, bg=dis_bg, fg=fg_disabled, state="disabled", cursor="arrow",
-            activebackground=dis_bg, activeforeground=fg,
-            disabledforeground=fg_disabled, relief="flat",
-        )
-
-    def _plate_apply_colored(
-        self, btn, color: str, *, active: bool, fg_disabled: str,
-    ) -> None:
-        self._style_plate_button(
-            btn, bg=color, fg="white", state="normal", cursor="hand2",
-            relief="sunken" if active else "flat",
-            activebackground=self._mute_color(color, 0.3) if active else color,
-            activeforeground="white", disabledforeground=fg_disabled,
-        )
-
-    def _plate_apply_neutral(
-        self, btn, bg: str, fg: str, fg_disabled: str,
-        *, cursor: str = "hand2", relief: str = "flat",
-    ) -> None:
-        self._style_plate_button(
-            btn, bg=bg, fg=fg, state="normal", cursor=cursor, relief=relief,
-            activebackground=bg, activeforeground=fg,
-            disabledforeground=fg_disabled,
-        )
 
     def _on_plate_sel_change(self) -> None:
         from well_viewer.selection_controller import on_plate_sel_change as _on_plate_sel_change
