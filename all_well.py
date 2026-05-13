@@ -161,58 +161,34 @@ class AllWellApp(QMainWindow):
         sep.setFixedHeight(1)
         rl.addWidget(sep)
 
-        # Phase 10 (A2): outer Review/Analyze QTabWidget retired. Replaced
-        # by a QStackedWidget driven by a top-of-rail mode-seg; this is
-        # the central content area that the CollapsibleRail overlays.
-        # The mode-seg sits at the top of the central host, left-anchored
-        # at the rail width (400 px Q9) so it visually crowns the SECTION
-        # nav + plate that live inside the Review page's sidebar — matching
-        # the mockup's top-of-rail placement. The mode-seg stays visible
-        # in both modes (it sits OUTSIDE the QStackedWidget) so the user
-        # can always switch back from Analyze.
-        from PySide6.QtWidgets import QStackedWidget as _QStackedWidget
-        from widgets.segmented_control import SegmentedControl as _SegmentedControl
+        # Phase 11: the outer Review/Analyze QStackedWidget is gone — Analyze
+        # now lives inside WellViewerApp's central pane stack so that the
+        # left rail (mode-seg + section nav + plate + saved) stays visible
+        # in both modes. The mode-seg itself moved into WellViewerApp's
+        # sidebar above the SECTION header.
         self._central_host = QWidget()
         self._central_host.setObjectName("CentralHost")
         ch_layout = QVBoxLayout(self._central_host)
         ch_layout.setContentsMargins(0, 0, 0, 0)
         ch_layout.setSpacing(0)
-
-        mode_strip = QWidget(self._central_host)
-        mode_strip.setObjectName("ModeStrip")
-        mode_strip.setAttribute(Qt.WA_StyledBackground, True)
-        mode_strip.setStyleSheet(
-            f"#ModeStrip {{ background-color: {theme_v2.Colors.rail}; "
-            f"border-bottom: 1px solid {theme_v2.Colors.border_subtle}; }}"
-        )
-        mode_layout = QHBoxLayout(mode_strip)
-        mode_layout.setContentsMargins(theme_v2.Spacing.md, 8,
-                                       theme_v2.Spacing.md, 8)
-        mode_layout.setSpacing(0)
-        self._mode_seg = _SegmentedControl()
-        self._mode_seg.addSegment("Review", data="review")
-        self._mode_seg.addSegment("Analyze", data="analyze")
-        self._mode_seg.setFixedWidth(400 - 2 * theme_v2.Spacing.md)
-        self._mode_seg.currentChanged.connect(self._on_mode_seg_changed)
-        mode_layout.addWidget(self._mode_seg, 0, Qt.AlignLeft)
-        mode_layout.addStretch(1)
-        ch_layout.addWidget(mode_strip, 0)
-
-        self._nb = _QStackedWidget()
-        self._nb.currentChanged.connect(self._on_tab_change)
-        ch_layout.addWidget(self._nb, 1)
         rl.addWidget(self._central_host, 1)
 
         self._review = WellViewerApp(parent=None)
-        self._nb.addWidget(self._review)
+        ch_layout.addWidget(self._review, 1)
+        # Back-compat for code paths that read self._nb (legacy after the
+        # outer-stack retirement) — point it at WellViewerApp's central
+        # pane stack so e.g. ``self._nb.setCurrentIndex(0)`` still means
+        # "show Review".
+        self._nb = self._review._central_pane_stack
+        self._nb.currentChanged.connect(self._on_tab_change)
+        self._review.modeChanged.connect(self._on_review_mode_changed)
         self._wrap_review_load_path()
 
         self._analyze = AnalyzeTab(
             parent=None,
             on_pipeline_complete=self._on_analyze_pipeline_complete,
         )
-        self._nb.addWidget(self._analyze)
-        self._nb.setCurrentIndex(0)
+        self._review.mountAnalyzePane(self._analyze)
 
         # Phase 10 (A6 shell / B23 / Q11): Properties rail overlay + Log
         # tray drawer at the bottom.
@@ -494,11 +470,16 @@ class AllWellApp(QMainWindow):
         else:
             self._help_drawer.open()
 
-    # ── Phase 10 handlers ────────────────────────────────────────────────
-    def _on_mode_seg_changed(self, idx: int) -> None:
-        # 0 = Review, 1 = Analyze.
-        if self._nb.currentIndex() != idx:
-            self._nb.setCurrentIndex(idx)
+    # ── Phase 10 / 11 handlers ───────────────────────────────────────────
+    def _on_review_mode_changed(self, mode: str) -> None:
+        """Mirror WellViewerApp's mode change into status / dataset chip."""
+        # No external work needed today beyond status; keep for hookability.
+        try:
+            dot = getattr(self, "_status_dot", None)
+            if dot is not None:
+                dot.setStatus("success" if mode == "review" else "warn")
+        except Exception:
+            pass
 
     def _on_refresh_clicked(self) -> None:
         # Re-load the active dataset (Review's _load_path is the canonical
@@ -601,15 +582,8 @@ class AllWellApp(QMainWindow):
         # (matches the order they were added to self._nb and to the mode-seg).
         if idx == 0:
             QTimer.singleShot(50, self._nudge_review)
-        # Keep the titlebar mode-seg in sync if something else changed
-        # currentIndex (analyze-complete handler, programmatic switches).
-        seg = getattr(self, "_mode_seg", None)
-        if seg is not None and seg.currentIndex() != idx:
-            blocked = seg.blockSignals(True)
-            try:
-                seg.setCurrentIndex(idx)
-            finally:
-                seg.blockSignals(blocked)
+        # WellViewerApp's own mode-seg syncs via its _on_central_pane_changed;
+        # nothing to do at this layer.
 
     def _on_analyze_pipeline_complete(self, output_dir: Path) -> None:
         if self._review is None:

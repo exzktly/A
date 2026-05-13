@@ -984,6 +984,35 @@ class WellViewerApp(QWidget):
         # callers using tabText / setCurrentIndex / currentChanged still work.
         import theme as _theme_v2
         from widgets.rail_nav import RailNav as _RailNav
+
+        # Phase 11 (A2): Review / Analyze mode-seg above the SECTION header.
+        # Drives self._central_pane_stack (which all_well populates with the
+        # AnalyzeTab as index 1). The sidebar — and this mode-seg — stays
+        # visible in both modes so the user can always come back.
+        from widgets.segmented_control import SegmentedControl as _SegmentedControl
+        from widgets import icons as _icons
+        self._mode_seg = _SegmentedControl()
+        dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
+        _eye_icon = _icons.make_icon("eye", 14, dpr=dpr or 1.0)
+        _slider_icon = _icons.make_icon("sliders-horizontal", 14, dpr=dpr or 1.0)
+        self._mode_seg.addSegment("Review", icon=_eye_icon, data="review")
+        self._mode_seg.addSegment("Analyze", icon=_slider_icon, data="analyze")
+        self._mode_seg.currentChanged.connect(self._on_sidebar_mode_seg)
+        mode_strip = QWidget(sidebar)
+        mode_strip.setObjectName("SidebarModeStrip")
+        mode_layout = QVBoxLayout(mode_strip)
+        mode_layout.setContentsMargins(13, 12, 13, 10)
+        mode_layout.setSpacing(0)
+        mode_layout.addWidget(self._mode_seg)
+        sidebar_layout.addWidget(mode_strip)
+        sep_mode = QFrame()
+        sep_mode.setObjectName("Separator")
+        sep_mode.setFixedHeight(1)
+        sep_mode.setStyleSheet(
+            f"background-color: {_theme_v2.Colors.border_subtle};"
+        )
+        sidebar_layout.addWidget(sep_mode)
+
         self._section_nav = _RailNav(sidebar)
         self._section_nav_keys: list[str] = []
         self._section_nav_building = False
@@ -1027,10 +1056,18 @@ class WellViewerApp(QWidget):
         self._h_pane.addWidget(sidebar)
         self._build_sidebar(self._sidebar_main_frame)
 
-        # Centre plots
+        # Centre stack — wraps the existing plots widget so all_well can
+        # mount the Analyze pane as a peer page. The mode-seg in the sidebar
+        # (built below) drives the stack, keeping the sidebar visible in
+        # both modes (mockup parity: mode-seg sits at the top of the left
+        # rail and the user can always switch back from Analyze).
+        from PySide6.QtWidgets import QStackedWidget as _QStackedWidget
+        self._central_pane_stack = _QStackedWidget()
         centre = QWidget()
         QVBoxLayout(centre).setContentsMargins(0, 0, 0, 0)
-        self._h_pane.addWidget(centre)
+        self._central_pane_stack.addWidget(centre)
+        self._central_pane_stack.currentChanged.connect(self._on_central_pane_changed)
+        self._h_pane.addWidget(self._central_pane_stack)
         self._h_pane.setStretchFactor(0, 0)
         self._h_pane.setStretchFactor(1, 3)
         self._h_pane.setChildrenCollapsible(False)
@@ -1043,6 +1080,61 @@ class WellViewerApp(QWidget):
     def _build_sidebar(self, parent) -> None:
         from well_viewer.views.sidebar_view import build_sidebar as _build_sidebar_view
         _build_sidebar_view(self, parent)
+
+    # ── Mode (Review / Analyze) plumbing ─────────────────────────────────
+    modeChanged = Signal(str)   # emitted with "review" or "analyze"
+
+    def mountAnalyzePane(self, widget) -> None:
+        """Mount *widget* as the Analyze peer of the centre stack.
+
+        The mockup keeps the left rail (with the mode-seg, section nav,
+        and plate) visible in both modes; hosting Analyze inside this
+        widget's central stack is what makes that possible without
+        hoisting the sidebar out into all_well.
+        """
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None:
+            return
+        # Replace any previously-mounted analyze pane.
+        while stack.count() > 1:
+            old = stack.widget(1)
+            stack.removeWidget(old)
+            old.setParent(None)
+        stack.addWidget(widget)
+
+    def setMode(self, name: str) -> None:
+        """Programmatically switch mode (``"review"`` / ``"analyze"``)."""
+        target = 1 if str(name).lower() == "analyze" else 0
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None or stack.currentIndex() == target:
+            return
+        stack.setCurrentIndex(target)
+
+    def currentMode(self) -> str:
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None:
+            return "review"
+        return "analyze" if stack.currentIndex() == 1 else "review"
+
+    def _on_sidebar_mode_seg(self, idx: int) -> None:
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None:
+            return
+        target = 1 if idx == 1 else 0
+        if stack.currentIndex() != target:
+            stack.setCurrentIndex(target)
+
+    def _on_central_pane_changed(self, idx: int) -> None:
+        # Keep the sidebar mode-seg in sync if anything else changed the
+        # central pane (e.g. all_well's analyze-complete handler).
+        seg = getattr(self, "_mode_seg", None)
+        if seg is not None and seg.currentIndex() != idx:
+            blocked = seg.blockSignals(True)
+            try:
+                seg.setCurrentIndex(idx)
+            finally:
+                seg.blockSignals(blocked)
+        self.modeChanged.emit("analyze" if idx == 1 else "review")
 
     def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
