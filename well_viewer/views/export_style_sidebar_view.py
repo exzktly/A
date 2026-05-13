@@ -55,7 +55,7 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(420)
+        self.setFixedWidth(380)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
@@ -119,7 +119,7 @@ class ExportStyleSidebar(QWidget):
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         body = QWidget()
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
@@ -158,6 +158,19 @@ class ExportStyleSidebar(QWidget):
             grid, r = grids[sec]
             grid.addWidget(widget, r, 0, 1, 2)
             grids[sec][1] = r + 1
+
+        def add_stacked(sec: CollapsibleSection, label: str, widget: QWidget,
+                        key: str | None = None) -> None:
+            """Label on its own row above the widget — for wide controls (e.g.
+            three-segment SegmentedControls) that overflow the 2-column grid."""
+            grid, r = grids[sec]
+            lbl = QLabel(label)
+            lbl.setProperty("variant", "muted")
+            grid.addWidget(lbl, r, 0, 1, 2)
+            grid.addWidget(widget, r + 1, 0, 1, 2)
+            if key is not None:
+                self._bind_getter_setter(key, widget)
+            grids[sec][1] = r + 2
 
         def hrow(*items, spacing: int | None = None) -> QWidget:
             host = QWidget()
@@ -272,7 +285,7 @@ class ExportStyleSidebar(QWidget):
                         pass
 
             err_sc.currentChanged.connect(_on_err_change)
-            add_row(s_stats, "Error bars", err_sc)
+            add_stacked(s_stats, "Error bars", err_sc)
 
             # Auto-sync: when _use_sem flips elsewhere (the band-controls row on
             # any plot card), update this segment too.
@@ -315,7 +328,7 @@ class ExportStyleSidebar(QWidget):
                         pass
 
             across_sc.currentChanged.connect(_on_across_change)
-            add_row(s_stats, "Across", across_sc)
+            add_stacked(s_stats, "Across", across_sc)
 
             def _sync_across_from_app(use_fov: bool, _sc=across_sc) -> None:
                 try:
@@ -346,7 +359,7 @@ class ExportStyleSidebar(QWidget):
             def _on_show_change(*_a) -> None:
                 _stats_state["show"] = show_sc.currentData() or "mean"
             show_sc.currentChanged.connect(_on_show_change)
-            add_row(s_stats, "Show", show_sc)
+            add_stacked(s_stats, "Show", show_sc)
 
         _update_stats_preview()
 
