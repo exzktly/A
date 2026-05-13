@@ -5993,30 +5993,30 @@ class WellViewerApp(QWidget):
         return f"{','.join(wells[:3])} +{len(wells)-3}"
 
     def _rep_sets_loaded(self) -> "List[ReplicateSet]":
-        """All ReplicateSets that have at least one loaded well (ignores hidden)."""
-        return [r for r in getattr(self, "_rep_sets", [])
-                if any(w in self._well_paths for w in r.wells)]
+        """One ReplicateSet per selection that has ≥1 loaded well (ignores hidden),
+        in ``_selections`` order — derived straight from the unified model."""
+        out: "List[ReplicateSet]" = []
+        for s in self._selections:
+            wells = s.get("wells") or []
+            if any(w in self._well_paths for w in wells):
+                out.append(ReplicateSet(s.get("name") or "", list(wells)))
+        return out
 
     def _groups_from_rep_sets(self) -> "List[BarGroup]":
-        """Mirror of BatchExportPanel._groups_from_rep_sets for app-level callers.
-
-        Returns one BarGroup per loaded ReplicateSet when any are defined,
-        otherwise a deep copy of the existing _bar_groups.
-        """
-        loaded = self._rep_sets_loaded()
-        if loaded:
-            groups: "List[BarGroup]" = []
-            for rset in loaded:
-                grp = BarGroup(rset.name)
-                grp.members.append(rset)
-                groups.append(grp)
-            return groups
-        return copy.deepcopy(self._bar_groups)
+        """One BarGroup per loaded selection (each wrapping its ReplicateSet)."""
+        return [BarGroup(r.name, members=[r]) for r in self._rep_sets_loaded()]
 
     def _rep_sets_active(self) -> "List[ReplicateSet]":
-        """Loaded ReplicateSets that are not hidden — these appear on plots."""
-        return [r for i, r in enumerate(self._rep_sets_loaded())
-                if i not in self._rep_hidden]
+        """One ReplicateSet per visible (non-hidden) selection with ≥1 loaded
+        well — these are exactly the traces drawn on the plots."""
+        out: "List[ReplicateSet]" = []
+        for s in self._selections:
+            if s.get("hidden"):
+                continue
+            wells = s.get("wells") or []
+            if any(w in self._well_paths for w in wells):
+                out.append(ReplicateSet(s.get("name") or "", list(wells)))
+        return out
 
     def _compute_rep_stats(
         self,
