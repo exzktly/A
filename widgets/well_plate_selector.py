@@ -656,6 +656,19 @@ class _PlateGrid(QWidget):
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setFont(self.font())
 
+        # B18: cut-corner ornament (mockup .plate::before). A 12-px right
+        # triangle in the widget's top-left corner, filled with the rail
+        # colour, so the plate frame visually "notches" toward the labels.
+        from PySide6.QtGui import QPolygonF
+        from PySide6.QtCore import QPointF
+        nick = 12.0
+        tri = QPolygonF([QPointF(0.0, 0.0),
+                         QPointF(nick, 0.0),
+                         QPointF(0.0, nick)])
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(c.rail))
+        p.drawPolygon(tri)
+
         # Column numbers (1–12) along the top.
         for ci in range(_N_COLS):
             rect = QRectF(ox + ci * cell, oy - lab, cell, lab)

@@ -3808,6 +3808,20 @@ class WellViewerApp(QWidget):
 
         _select_none(self)
 
+    def _select_invert(self) -> None:
+        """Phase 13 (B7): flip the current selection — every loaded well that
+        was selected becomes unselected, and vice versa. Only wells with data
+        (``_well_paths``) participate."""
+        if not hasattr(self, "_well_paths"):
+            return
+        cur = set(self._selected_wells)
+        new = {w for w in self._well_paths.keys() if w not in cur}
+        self._selected_wells = new
+        # Re-use the standard refresh path the click handlers go through.
+        self._refresh_sidebar_map()
+        if hasattr(self, "_on_plate_sel_change"):
+            self._on_plate_sel_change()
+
     def _selected_labels(self) -> List[str]:
         """Return labels in a stable order (sorted) for consistent plot colours."""
         return sorted(self._selected_wells, key=lambda lbl: self._parse_rc(lbl))

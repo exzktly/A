@@ -254,11 +254,49 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     sec_lm.setValueWidget(_preview_label("· ■ ■"))
     preview = PreviewStrip()
     sec_lm.addWidget(preview)
-    sec_lm.addWidget(_row("Line width",
-                          _slider_with_value(lo=0, hi=60, default=18)))
-    sec_lm.addWidget(_row("Marker size",
-                          _slider_with_value(lo=0, hi=28, default=10)))
+
+    # B17: wire the line/marker sliders + Stepper into the PreviewStrip so
+    # the inline preview live-updates while the user drags. Build the
+    # rows by hand (the helper hides the inner slider) so we can hook
+    # valueChanged on each.
+    lw_row = QWidget(); lwl = QHBoxLayout(lw_row)
+    lwl.setContentsMargins(0, 4, 0, 4); lwl.setSpacing(s.md)
+    lwl_lbl = QLabel("Line width"); lwl_lbl.setFixedWidth(88)
+    lwl_lbl.setStyleSheet(f"color: {c.text_secondary}; font-size: {t.small_size}px;")
+    lw_slider = StyledSlider(); lw_slider.setRange(0, 60); lw_slider.setValue(18)
+    lw_val = QLabel("1.80"); lw_val.setFixedWidth(42)
+    lw_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    lw_val.setStyleSheet(
+        f"color: {c.text_primary}; font-family: {t.family_mono}; "
+        f"font-size: {t.small_size}px;"
+    )
+    def _on_lw(v):
+        lw_val.setText(f"{v/10.0:.2f}")
+        preview.setStyle(line_width=v / 10.0)
+    lw_slider.valueChanged.connect(_on_lw)
+    lwl.addWidget(lwl_lbl, 0); lwl.addWidget(lw_slider, 1); lwl.addWidget(lw_val, 0)
+    sec_lm.addWidget(lw_row)
+
+    ms_row = QWidget(); msl = QHBoxLayout(ms_row)
+    msl.setContentsMargins(0, 4, 0, 4); msl.setSpacing(s.md)
+    msl_lbl = QLabel("Marker size"); msl_lbl.setFixedWidth(88)
+    msl_lbl.setStyleSheet(f"color: {c.text_secondary}; font-size: {t.small_size}px;")
+    ms_slider = StyledSlider(); ms_slider.setRange(0, 28); ms_slider.setValue(10)
+    ms_val = QLabel("5.00"); ms_val.setFixedWidth(42)
+    ms_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    ms_val.setStyleSheet(
+        f"color: {c.text_primary}; font-family: {t.family_mono}; "
+        f"font-size: {t.small_size}px;"
+    )
+    def _on_ms(v):
+        ms_val.setText(f"{v/2.0:.2f}")
+        preview.setStyle(marker_size=v / 2.0)
+    ms_slider.valueChanged.connect(_on_ms)
+    msl.addWidget(msl_lbl, 0); msl.addWidget(ms_slider, 1); msl.addWidget(ms_val, 0)
+    sec_lm.addWidget(ms_row)
+
     me_step = Stepper(minimum=0.0, maximum=5.0, single_step=0.1, value=0.8, decimals=1)
+    me_step.valueChanged.connect(lambda v: preview.setStyle(marker_edge=v))
     sec_lm.addWidget(_row("Marker edge", me_step))
     bl.addWidget(sec_lm)
     app._props_preview_strip = preview

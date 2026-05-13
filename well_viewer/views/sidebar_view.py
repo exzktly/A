@@ -72,21 +72,35 @@ def build_sidebar(app, parent: QWidget) -> None:
     plate.columnHeaderActivated.connect(app._on_sidebar_plate_col_activated)
     plate.wellDropped.connect(app._on_sidebar_plate_well_dropped)
 
-    # All / None action buttons (v2 chrome — styled by theme.qss()).
+    # Quick-select row — v2 mockup parity (B7):
+    #   All 96  ·  Invert  ·  Clear
+    # plus a 1-line tip below.
     br = QWidget(parent)
     br_l = QHBoxLayout(br)
-    br_l.setContentsMargins(6, 4, 6, 6)
+    br_l.setContentsMargins(6, 4, 6, 2)
     br_l.setSpacing(6)
     layout.addWidget(br)
     app._sidebar_allnone_frame = br
-    for txt, cmd, obj_name in (("All", app._select_all, None),
-                               ("None", app._select_none, "Danger")):
+    for txt, cmd, obj_name in (("All 96", app._select_all, None),
+                               ("Invert", app._select_invert, None),
+                               ("Clear", app._select_none, "Danger")):
         b = QPushButton(txt, br)
         if obj_name:
             b.setObjectName(obj_name)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, c=cmd: c())
         br_l.addWidget(b, 1)
+
+    # Tip line below the quick-select row (mockup line 1303).
+    tip = QLabel(
+        "Tip: click a row letter or column number on the plate to select "
+        "that whole row/column.",
+        parent,
+    )
+    tip.setObjectName("Muted")
+    tip.setWordWrap(True)
+    tip.setContentsMargins(8, 0, 8, 6)
+    layout.addWidget(tip)
 
     # Selected-well count status text (legacy plain QLabel kept so existing
     # call sites in runtime_app keep writing to it). The mockup's pill-shaped

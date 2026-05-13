@@ -53,6 +53,7 @@ class AllWellApp(QMainWindow):
 
         self._build_ui()
         self._install_app_icon()
+        self._install_shortcuts()
         self._apply_stylesheet()
         self._restore_window_state()
 
@@ -237,6 +238,53 @@ class AllWellApp(QMainWindow):
         rl.addWidget(statusbar)
         self._log_drawer = None  # lazy
         self._log_ring: list[str] = []
+
+    def _install_shortcuts(self) -> None:
+        """Phase 13 (B16): global ⌘/Ctrl shortcuts the statusbar advertises.
+
+        - ⌘O / Ctrl+O — open dataset (matches the titlebar Open button).
+        - ⌘K / Ctrl+K — focus the Properties rail's search input (auto-
+          opens the rail if it's collapsed).
+        - ⌘E / Ctrl+E — export figure (drives the active plot card's
+          ``save_figure`` toolbar action).
+        """
+        from PySide6.QtGui import QKeySequence, QShortcut
+
+        QShortcut(QKeySequence("Ctrl+O"), self, activated=self._open_dataset)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._focus_props_search)
+        QShortcut(QKeySequence("Ctrl+E"), self, activated=self._export_active_figure)
+
+    def _focus_props_search(self) -> None:
+        review = getattr(self, "_review", None)
+        if review is None:
+            return
+        rail = getattr(review, "_properties_rail", None)
+        search = getattr(review, "_props_search", None)
+        if rail is not None and rail.isCollapsed():
+            rail.setCollapsed(False)
+        if search is not None:
+            try:
+                search.setFocus()
+                search.selectAll()
+            except Exception:
+                pass
+
+    def _export_active_figure(self) -> None:
+        review = getattr(self, "_review", None)
+        if review is None:
+            return
+        for attr in ("_line_card", "_bar_card", "_scatter_card",
+                     "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+            card = getattr(review, attr, None)
+            if card is None or not card.isVisible():
+                continue
+            nav = getattr(card, "_nav", None)
+            if nav is not None and hasattr(nav, "save_figure"):
+                try:
+                    nav.save_figure()
+                except Exception:
+                    pass
+            return
 
     def _install_app_icon(self) -> None:
         """96-well plate icon whose lit wells spell A W across the fluorescence spectrum."""
