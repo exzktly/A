@@ -38,7 +38,7 @@ class PreviewStrip(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFixedHeight(48)
 
-        self._color = QColor(theme.Colors.trace_1)
+        self._color = QColor(theme.Colors.trace[0])
         self._line_width = 1.8
         self._marker_size = 5.0
         self._marker_edge = 0.8
@@ -116,7 +116,7 @@ class PreviewStrip(QFrame):
 
             if self._marker and self._marker_size > 0:
                 fill = QBrush(self._color)
-                edge = QPen(QColor(theme.Colors.bg_panel))
+                edge = QPen(QColor(theme.Colors.panel))
                 edge.setWidthF(max(0.0, self._marker_edge))
                 p.setBrush(fill)
                 p.setPen(edge if self._marker_edge > 0 else Qt.NoPen)
@@ -134,7 +134,7 @@ class PreviewStrip(QFrame):
         c, r = theme.Colors, theme.Radii
         return f"""
         QFrame#PreviewStrip {{
-            background-color: {c.bg_panel};
+            background-color: {c.panel};
             border: 1px solid {c.border_subtle};
             border-radius: {r.sm}px;
         }}

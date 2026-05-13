@@ -87,7 +87,7 @@ if _HAVE_MPL:
             self._subplot_titles: list[str] = []
 
             self.figure = _Figure(figsize=figsize, layout="constrained")
-            self.figure.set_facecolor(theme.Colors.bg_panel)
+            self.figure.set_facecolor(theme.Colors.panel)
             # Back-reference so v2 plot_style / apply_ax_style can find us.
             self.figure._plot_canvas = self  # type: ignore[attr-defined]
 
@@ -192,7 +192,7 @@ if _HAVE_MPL:
             controllers."""
             for i, ax in enumerate(self._axes):
                 ax.clear()
-                ax.set_facecolor(theme.Colors.bg_panel)
+                ax.set_facecolor(theme.Colors.panel)
                 for spine in ax.spines.values():
                     spine.set_color(theme.Colors.border)
                 ax.tick_params(colors=theme.Colors.text_muted, labelsize=9)
@@ -208,8 +208,8 @@ if _HAVE_MPL:
                 x = list(range(1, 9))
                 ys_a = [1.0 + i * 0.5 + j * 0.1 for j in x]
                 ys_b = [0.7 + i * 0.3 - j * 0.05 for j in x]
-                c_a = theme.Colors.trace_1
-                c_b = theme.Colors.trace_2
+                c_a = theme.Colors.trace[0]
+                c_b = theme.Colors.trace[1]
 
                 t = self._plot_type
                 if t == "line":
@@ -241,7 +241,7 @@ if _HAVE_MPL:
             c, r = theme.Colors, theme.Radii
             return f"""
             QFrame#PlotCanvas {{
-                background-color: {c.bg_panel};
+                background-color: {c.panel};
                 border: 1px solid {c.border_subtle};
                 border-radius: {r.md}px;
             }}

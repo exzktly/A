@@ -250,7 +250,7 @@ class RailNav(QFrame):
             margin: 0 4px 0 6px;
         }}
         QFrame#RailNavRow:hover QFrame#RailNavRowBody {{
-            background-color: {c.bg_panel};
+            background-color: {c.panel};
         }}
         QFrame#RailNavRow[active="true"] QFrame#RailNavRowBody {{
             background-color: {c.accent_dim};
@@ -278,7 +278,7 @@ if __name__ == "__main__":
 
     host = QWidget()
     host.setObjectName("Rail")
-    host.setStyleSheet(f"#Rail {{ background-color: {theme.Colors.bg_rail}; }}")
+    host.setStyleSheet(f"#Rail {{ background-color: {theme.Colors.rail}; }}")
     host.setWindowTitle("RailNav — demo")
     host.resize(280, 480)
     lay = QVBoxLayout(host)

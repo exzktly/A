@@ -118,7 +118,7 @@ class RangePair(QFrame):
         return f"""
         QFrame#RangePair {{ background: transparent; border: 0; }}
         QLineEdit#RangePairInput {{
-            background-color: {c.bg_elevated};
+            background-color: {c.panel_elevated};
             color: {c.text_primary};
             border: 1px solid {c.border_subtle};
             border-radius: {r.xs}px;

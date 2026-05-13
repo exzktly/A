@@ -713,7 +713,7 @@ def _build_rail_nav():
     host = QWidget()
     host.setObjectName("RailNavDemoHost")
     host.setStyleSheet(
-        f"#RailNavDemoHost {{ background-color: {theme.Colors.bg_rail}; "
+        f"#RailNavDemoHost {{ background-color: {theme.Colors.rail}; "
         f"border-radius: {theme.Radii.sm}px; }}"
     )
     v = QVBoxLayout(host)
@@ -790,7 +790,7 @@ def _build_collapsible_rail():
     outer.setSpacing(0)
     plot = QFrame()
     plot.setStyleSheet(
-        f"background-color: {theme.Colors.bg_panel}; "
+        f"background-color: {theme.Colors.panel}; "
         f"border: 1px solid {theme.Colors.border_subtle}; "
         f"border-radius: {theme.Radii.md}px;"
     )
@@ -869,7 +869,7 @@ def _build_saved_compact():
     host = QWidget()
     host.setObjectName("SavedCompactHost")
     host.setStyleSheet(
-        f"#SavedCompactHost {{ background-color: {theme.Colors.bg_rail}; "
+        f"#SavedCompactHost {{ background-color: {theme.Colors.rail}; "
         f"border-radius: {theme.Radii.sm}px; padding: 8px; }}"
     )
     v = QVBoxLayout(host)

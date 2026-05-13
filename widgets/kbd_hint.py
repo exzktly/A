@@ -58,7 +58,7 @@ class KbdHint(QLabel):
         return f"""
         QLabel#KbdHint {{
             color: {c.text_faint};
-            background-color: {c.bg_elevated};
+            background-color: {c.panel_elevated};
             border: 1px solid {c.border_subtle};
             border-radius: {r.xs}px;
             padding: 1px {s.xs}px;

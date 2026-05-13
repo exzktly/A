@@ -137,7 +137,7 @@ class CollapsibleRail(QFrame):
         c = theme.Colors
         return f"""
         QFrame#CollapsibleRail {{
-            background-color: {c.bg_rail};
+            background-color: {c.rail};
             border-left: 1px solid {c.border_subtle};
         }}
         """
@@ -154,7 +154,7 @@ if __name__ == "__main__":
 
     host = QWidget()
     host.setObjectName("Host")
-    host.setStyleSheet(f"#Host {{ background-color: {theme.Colors.bg_app}; }}")
+    host.setStyleSheet(f"#Host {{ background-color: {theme.Colors.surface}; }}")
     host.setWindowTitle("CollapsibleRail — demo")
     host.resize(960, 480)
 
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     # Fake plot area on the left, fills available space.
     plot = QFrame(host)
     plot.setStyleSheet(
-        f"background-color: {theme.Colors.bg_panel}; "
+        f"background-color: {theme.Colors.panel}; "
         f"border: 1px solid {theme.Colors.border_subtle}; border-radius: 8px;"
     )
     pl = QVBoxLayout(plot)
