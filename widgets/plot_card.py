@@ -68,6 +68,23 @@ def _plot_tokens(mode: str):
     return (c.plot_bg, c.text_primary, c.text_muted, c.plot_grid, c.plot_spine)
 
 
+def _make_segmented(items, parent=None, *, current=None):
+    """Build a :class:`~widgets.segmented_control.SegmentedControl` from a list of
+    ``(text, data)`` pairs (it has no list constructor — segments are added one at
+    a time) and optionally select *current* by data. Returns ``None`` if the
+    widget isn't importable."""
+    try:
+        from widgets.segmented_control import SegmentedControl
+    except Exception:  # pragma: no cover
+        return None
+    sc = SegmentedControl(parent)
+    for text, data in items:
+        sc.addSegment(text, data=data)
+    if current is not None:
+        sc.setCurrentByData(current)
+    return sc
+
+
 def apply_axes_style(ax, mode: str = "screen") -> None:
     """Apply the v2 token look (``"screen"``) or the publication look
     (``"publication"`` — white bg, ``theme.CPub`` ink) to a matplotlib Axes."""
@@ -234,17 +251,14 @@ if _HAVE_MPL:
             lay.addWidget(self._preview_chip)
 
             # Screen ↔ Publication toggle.
-            try:
-                from widgets.segmented_control import SegmentedControl
-                self._theme_sc = SegmentedControl(
-                    [("Publication", "publication"), ("Screen", "screen")], self._header)
+            self._theme_sc = _make_segmented(
+                [("Publication", "publication"), ("Screen", "screen")],
+                self._header, current=self._plot_theme)
+            if self._theme_sc is not None:
                 self._theme_sc.setObjectName("PlotCardThemeToggle")
-                self._theme_sc.setCurrentByData(self._plot_theme)
                 self._theme_sc.currentChanged.connect(
                     lambda *_a: self.setPlotTheme(self._theme_sc.currentData() or "publication"))
                 lay.addWidget(self._theme_sc)
-            except Exception:
-                self._theme_sc = None  # type: ignore[assignment]
 
             self._stats_chip = QPushButton(self._chip_text(), self._header)
             self._stats_chip.setObjectName("PlotCardStatsChip")
@@ -267,10 +281,6 @@ if _HAVE_MPL:
 
         def _open_stats_popover(self) -> None:
             from widgets.popover import Popover
-            try:
-                from widgets.segmented_control import SegmentedControl
-            except Exception:
-                SegmentedControl = None  # type: ignore[assignment]
             pop = Popover(self)
             content = QWidget()
             v = QVBoxLayout(content)
@@ -278,15 +288,14 @@ if _HAVE_MPL:
                                  theme.Spacing.sm, theme.Spacing.sm)
             v.setSpacing(theme.Spacing.sm)
             v.addWidget(QLabel("Statistic"))
-            if SegmentedControl is not None:
-                stat_sc = SegmentedControl([("Mean", "Mean"), ("Median", "Median")])
-                stat_sc.setCurrentByData(self._stat)
+            stat_sc = _make_segmented([("Mean", "Mean"), ("Median", "Median")], current=self._stat)
+            if stat_sc is not None:
                 stat_sc.currentChanged.connect(lambda *_a: self._set_stat(stat_sc.currentData()))
                 v.addWidget(stat_sc)
-                v.addWidget(QLabel("Error band"))
-                err_sc = SegmentedControl([("SEM", "SEM"), ("SD", "SD"),
-                                           ("95% CI", "95% CI"), ("None", "None")])
-                err_sc.setCurrentByData(self._error)
+            v.addWidget(QLabel("Error band"))
+            err_sc = _make_segmented([("SEM", "SEM"), ("SD", "SD"),
+                                      ("95% CI", "95% CI"), ("None", "None")], current=self._error)
+            if err_sc is not None:
                 err_sc.currentChanged.connect(lambda *_a: self._set_error(err_sc.currentData()))
                 v.addWidget(err_sc)
             pop.setContentWidget(content)

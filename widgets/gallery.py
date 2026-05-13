@@ -545,16 +545,17 @@ def _build_plotcard():
 
     # per-card view-switcher (left header slot) + error-band controls row
     try:
-        from widgets.segmented_control import SegmentedControl
-        view_sc = SegmentedControl([("Line", "line"), ("Bar", "bar"), ("Scatter", "scatter"),
-                                    ("Dist", "dist"), ("Heat", "heat")])
-        card.setLeftHeaderWidget(view_sc)
-        err_sc = SegmentedControl([("SEM", "SEM"), ("SD", "SD"), ("None", "None")])
-        from PySide6.QtWidgets import QLabel as _QL
+        from widgets.plot_card import _make_segmented
+        view_sc = _make_segmented([("Line", "line"), ("Bar", "bar"), ("Scatter", "scatter"),
+                                   ("Dist", "dist"), ("Heat", "heat")], current="line")
+        if view_sc is not None:
+            card.setLeftHeaderWidget(view_sc)
         ctrls = QWidget()
         cl = QHBoxLayout(ctrls); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(theme.Spacing.sm)
-        cl.addWidget(_QL("Across:")); cl.addWidget(SegmentedControl([("Replicates", "rep"), ("FOV", "fov")]))
-        cl.addWidget(_QL("Error:")); cl.addWidget(err_sc)
+        cl.addWidget(QLabel("Across:"))
+        cl.addWidget(_make_segmented([("Replicates", "rep"), ("FOV", "fov")], current="rep"))
+        cl.addWidget(QLabel("Error:"))
+        cl.addWidget(_make_segmented([("SEM", "SEM"), ("SD", "SD"), ("None", "None")], current="SEM"))
         card.setControlsWidget(ctrls)
     except Exception:
         pass
