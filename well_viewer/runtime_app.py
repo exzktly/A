@@ -716,6 +716,10 @@ class WellViewerApp(QWidget):
         self._use_sem = True
         self._sem_btns: List = []
         self._sem_btn = None
+        # Observers notified after _toggle_sem flips the state — for v2 widgets
+        # (e.g. the Statistics SegmentedControl in ExportStyleSidebar) that don't
+        # share the QPushButton API _sem_btns assumes.
+        self._sem_observers: List = []   # callables (use_sem: bool) -> None
         # Per-FOV replicate toggle. When True (and no replicate sets are
         # active), the bar/line plots compute the error band across per-FOV
         # means within each well rather than across individual cells. The
@@ -723,6 +727,7 @@ class WellViewerApp(QWidget):
         self._use_fov_replicates = False
         self._fov_btns: List = []
         self._fov_btn = None
+        self._fov_observers: List = []   # callables (use_fov: bool) -> None
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
@@ -3382,6 +3387,11 @@ class WellViewerApp(QWidget):
             btn.setProperty("variant", variant)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        for obs in list(getattr(self, "_sem_observers", []) or []):
+            try:
+                obs(is_sem)
+            except Exception:
+                pass
         self._redraw()
         if self._current_centre_tab() == "Bar Plots":
             self._redraw_bars()
@@ -3423,6 +3433,11 @@ class WellViewerApp(QWidget):
             btn.setProperty("variant", variant)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        for obs in list(getattr(self, "_fov_observers", []) or []):
+            try:
+                obs(is_on)
+            except Exception:
+                pass
 
     # ── Well selection (plate-map backed) ─────────────────────────────────────
 

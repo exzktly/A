@@ -55,7 +55,7 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(296)
+        self.setFixedWidth(360)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
@@ -273,6 +273,26 @@ class ExportStyleSidebar(QWidget):
             err_sc.currentChanged.connect(_on_err_change)
             add_row(s_stats, "Error bars", err_sc)
 
+            # Auto-sync: when _use_sem flips elsewhere (the band-controls row on
+            # any plot card), update this segment too.
+            def _sync_err_from_app(use_sem: bool, _sc=err_sc) -> None:
+                try:
+                    target = "sem" if use_sem else "sd"
+                    if _sc.currentData() != target:
+                        _sc.blockSignals(True)
+                        try:
+                            _sc.setCurrentByData(target)
+                        finally:
+                            _sc.blockSignals(False)
+                        _stats_state["err"] = target
+                        _update_stats_preview()
+                except Exception:
+                    pass
+
+            if not hasattr(self._app, "_sem_observers"):
+                self._app._sem_observers = []
+            self._app._sem_observers.append(_sync_err_from_app)
+
         # Across: Replicates vs FOV (single-well-mode FOV-spread toggle).
         _across_init = "fov" if bool(getattr(self._app, "_use_fov_spread_active", lambda: False)()) else "rep"
         across_sc = _seg(
@@ -295,6 +315,24 @@ class ExportStyleSidebar(QWidget):
 
             across_sc.currentChanged.connect(_on_across_change)
             add_row(s_stats, "Across", across_sc)
+
+            def _sync_across_from_app(use_fov: bool, _sc=across_sc) -> None:
+                try:
+                    target = "fov" if use_fov else "rep"
+                    if _sc.currentData() != target:
+                        _sc.blockSignals(True)
+                        try:
+                            _sc.setCurrentByData(target)
+                        finally:
+                            _sc.blockSignals(False)
+                        _stats_state["across"] = "FOV" if use_fov else "Replicates"
+                        _update_stats_preview()
+                except Exception:
+                    pass
+
+            if not hasattr(self._app, "_fov_observers"):
+                self._app._fov_observers = []
+            self._app._fov_observers.append(_sync_across_from_app)
 
         # Show: placeholder (Mean only; Mean+spread/All points are future).
         show_sc = _seg(
