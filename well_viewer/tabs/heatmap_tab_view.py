@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import attach_plot_toolbar, btn_primary, make_plot_with_right_dock
+from well_viewer.ui_helpers import btn_primary, make_band_controls, make_plot_with_right_dock
 
 
 _CMAP_OPTIONS = ["viridis", "magma", "coolwarm", "RdYlBu_r", "Greys"]
@@ -26,8 +26,6 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     # builds. heatmap_controller pulls in matplotlib.patches and numpy at
     # module load, so importing it lazily keeps utility entry points like
     # ``refresh_heatmap_timepoints`` cheap.
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
     from well_viewer.heatmap_controller import METRIC_OPTIONS
     layout = parent.layout()
     if layout is None:
@@ -158,8 +156,12 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     sep.setFixedHeight(1)
     layout.addWidget(sep)
 
-    # ── Figure ──────────────────────────────────────────────────────────────
-    app._heatmap_fig = Figure(figsize=(8.0, 6.0), dpi=100)
+    # ── Figure (in a v2 PlotCard — card chrome + MplToolbar) ────────────────
+    from widgets.plot_card import PlotCard
+    card = PlotCard(parent, figsize=(8.0, 6.0), constrained=False)
+    card.setFigureTitle("")
+    app._heatmap_card = card
+    app._heatmap_fig = card.figure
     app._heatmap_ax = app._heatmap_fig.add_subplot(1, 1, 1)
     # Reserve a persistent colorbar axes via make_axes_locatable so each
     # redraw can refill it in place. Letting fig.colorbar(im, ax=ax)
@@ -169,10 +171,11 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     divider = make_axes_locatable(app._heatmap_ax)
     app._heatmap_cax = divider.append_axes("right", size="4%", pad=0.08)
-    app._heatmap_canvas = FigureCanvas(app._heatmap_fig)
-    layout.addWidget(app._heatmap_canvas, 1)
-
-    attach_plot_toolbar(layout, app._heatmap_canvas, parent, app, with_fov=False)
+    app._heatmap_canvas = card.canvas
+    card.setControlsWidget(make_band_controls(app, card, with_fov=False))
+    card.setThemeToggleVisible(False)
+    card.setStatsChipVisible(False)
+    layout.addWidget(card, 1)
 
     # ── Mouse hooks ─────────────────────────────────────────────────────────
     # Unified press handler: label-drag first, then double-click rename, then
