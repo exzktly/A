@@ -231,6 +231,86 @@ class ExportStyleSidebar(QWidget):
         tdir.setCurrentText(str(self._prefs["tick_direction"]))
         add_row(s_axes, "Tick direction", tdir, "tick_direction")
 
+        # ── Statistics (v2 §6.2) ────────────────────────────────────────────
+        # Writes through to app state (_use_sem / _toggle_fov_replicates) so the
+        # error band / spread on the *plots* updates immediately. NOTE: the
+        # plot cards' band-controls row writes to the same state, so changes
+        # there don't auto-refresh this section's segments until the sidebar
+        # is reopened — sync is one-way (sidebar → app).
+        from widgets.plot_card import _make_segmented as _seg
+        s_stats = section("Statistics", expanded=False)
+        self._stats_preview = QLabel("")
+        self._stats_preview.setObjectName("Muted")
+        s_stats.setValueWidget(self._stats_preview)
+
+        _stats_state = {"err": None, "across": None, "show": None}
+
+        def _update_stats_preview() -> None:
+            err = _stats_state["err"] or "—"
+            acr = _stats_state["across"] or "—"
+            self._stats_preview.setText(f"{err.upper()} · {acr}")
+
+        # Error bars: SEM / SD wire through; None / 95% CI are placeholders.
+        _err_init = "sem" if bool(getattr(self._app, "_use_sem", True)) else "sd"
+        err_sc = _seg(
+            [("None", "none"), ("SEM", "sem"), ("SD", "sd"), ("95% CI", "ci95")],
+            current=_err_init,
+        )
+        if err_sc is not None:
+            _stats_state["err"] = err_sc.currentData()
+
+            def _on_err_change(*_a) -> None:
+                v = err_sc.currentData()
+                _stats_state["err"] = v
+                _update_stats_preview()
+                want_sem = (v == "sem")
+                if v in ("sem", "sd") and bool(getattr(self._app, "_use_sem", True)) != want_sem:
+                    try:
+                        self._app._toggle_sem()
+                    except Exception:
+                        pass
+
+            err_sc.currentChanged.connect(_on_err_change)
+            add_row(s_stats, "Error bars", err_sc)
+
+        # Across: Replicates vs FOV (single-well-mode FOV-spread toggle).
+        _across_init = "fov" if bool(getattr(self._app, "_use_fov_spread_active", lambda: False)()) else "rep"
+        across_sc = _seg(
+            [("Replicates", "rep"), ("FOV", "fov")],
+            current=_across_init,
+        )
+        if across_sc is not None:
+            _stats_state["across"] = "FOV" if _across_init == "fov" else "Replicates"
+
+            def _on_across_change(*_a) -> None:
+                v = across_sc.currentData()
+                _stats_state["across"] = "FOV" if v == "fov" else "Replicates"
+                _update_stats_preview()
+                want_fov = (v == "fov")
+                if bool(getattr(self._app, "_use_fov_spread_active", lambda: False)()) != want_fov:
+                    try:
+                        self._app._toggle_fov_replicates()
+                    except Exception:
+                        pass
+
+            across_sc.currentChanged.connect(_on_across_change)
+            add_row(s_stats, "Across", across_sc)
+
+        # Show: placeholder (Mean only; Mean+spread/All points are future).
+        show_sc = _seg(
+            [("Mean", "mean"), ("Mean+spread", "mean_spread"), ("All points", "all_pts")],
+            current="mean",
+        )
+        if show_sc is not None:
+            _stats_state["show"] = "Mean"
+
+            def _on_show_change(*_a) -> None:
+                _stats_state["show"] = show_sc.currentData() or "mean"
+            show_sc.currentChanged.connect(_on_show_change)
+            add_row(s_stats, "Show", show_sc)
+
+        _update_stats_preview()
+
         # ── Legend ──────────────────────────────────────────────────────────
         s_leg = section("Legend", expanded=False)
         leg_show = ToggleSwitch("Show legend")
