@@ -15,8 +15,6 @@ from ui.theme import (
     CLR_ERR_BAR,
     CLR_MUTED_DISABLED,
     CLR_PLACEHOLDER,
-    TXT_MUT,
-    TXT_PRI,
     WARN,
 )
 
@@ -37,7 +35,7 @@ from well_viewer.data_loading import (
     resolve_value_series,
 )
 from well_viewer.plate_layout import WELL_COLORS
-from well_viewer.plot_style import apply_ax_style
+from well_viewer.plot_style import apply_ax_style, tokens_for
 
 
 NO_SELECTION_MSG = (
@@ -63,7 +61,7 @@ def draw_violin(
     except ImportError:
         ax_mean.text(0.5, 0.5, "scipy required for violin plot",
                      transform=ax_mean.transAxes, ha="center", va="center",
-                     color=TXT_MUT, fontsize=9)
+                     color=tokens_for(ax_mean)[2], fontsize=9)
         return
 
     n = len(wells)
@@ -140,10 +138,10 @@ def draw_violin(
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     ax_mean.set_title(
         f"{app._active_channel.upper()} distribution (violin, bw={bw:.2f})  —  t = {tp_str} h",
-        color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
+        color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
-        color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
+        color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6)
 
 
 def draw_beeswarm(
@@ -223,10 +221,10 @@ def draw_beeswarm(
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     ax_mean.set_title(
         f"{app._active_channel.upper()} per cell (above threshold)  —  t = {tp_str} h",
-        color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
+        color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
-        color=TXT_PRI, fontsize=9, fontweight="bold", pad=6)
+        color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6)
 
 
 def draw_grouped_bar_mode(
@@ -310,11 +308,11 @@ def draw_grouped_bar_mode(
     _ch = app._active_channel.upper()
     ax_mean.set_title(
         f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
-        color=TXT_PRI, fontsize=9, fontweight="bold", pad=6,
+        color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
     )
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
-        color=TXT_PRI, fontsize=9, fontweight="bold", pad=6,
+        color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
     )
     if ax_n is not None:
         fov_active = app._use_fov_spread_active()
@@ -325,7 +323,7 @@ def draw_grouped_bar_mode(
             n_title = f"Events above threshold (N)  —  t = {tp_str} h"
             n_ylabel = "N(above)"
         ax_n.set_title(
-            n_title, color=TXT_PRI, fontsize=9, fontweight="bold", pad=6,
+            n_title, color=tokens_for(ax_n)[1], fontsize=9, fontweight="bold", pad=6,
         )
         ax_n.set_ylabel(n_ylabel, fontsize=8, labelpad=5)
     _apply_bar_ylims(app, ax_mean, ax_frac, ax_n=ax_n)
