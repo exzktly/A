@@ -20,27 +20,9 @@ _logger = logging.getLogger("well_viewer")
 
 
 def sync_selections_from_legacy(app) -> None:
-    """Rebuild ``app._selections`` from the live legacy state.
-
-    Stages A→C keep the legacy ``_rep_sets`` / ``_bar_groups`` / ``_rep_hidden``
-    as the *working* representation (group/rep edits still mutate them directly),
-    so before any save we re-derive the unified model from them — otherwise
-    in-session edits wouldn't be persisted. (Stage C will flip this: edits will
-    mutate ``_selections`` directly and this becomes a no-op / is removed.)
-    Best-effort: a failure leaves ``_selections`` as-is.
-    """
-    syncer = getattr(app, "_sync_selections_from_legacy", None)
-    if callable(syncer):
-        syncer()
-        return
-    try:
-        from well_viewer import selections_model as _sel
-        selections, current_id = _sel.from_legacy_appstate(
-            app, prior_selections=getattr(app, "_selections", None))
-        app._selections = selections
-        app._current_selection_id = current_id
-    except Exception:  # pragma: no cover - never block a save over this
-        _logger.exception("Couldn't rebuild selections from legacy state before save")
+    """No-op (Phase 8.0 Stage C). ``app._selections`` is now the in-memory
+    source of truth, so there's nothing to re-derive before a save."""
+    return
 
 
 def save_to_pipeline_info(app) -> None:
@@ -93,38 +75,22 @@ def save_to_pipeline_info(app) -> None:
 
 
 def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, dict]:
-    """Parse a sample_definitions/bar_groups block → set ``app._selections`` and
-    refresh the legacy ``_rep_sets`` / ``_bar_groups`` / … shadow.
-
-    For a **v1** block the legacy shadow is hydrated by the *original* parser
-    (``bar_groups_from_data``) so it stays byte-perfect — no regression on
-    opening an existing dataset. For a **v2** block it's derived from
-    ``selections`` via the inverse map. Either way ``app._selections`` is set.
+    """Parse a sample_definitions/bar_groups block → set ``app._selections`` (the
+    in-memory source of truth) and derive the legacy ``_rep_sets`` /
+    ``_bar_groups`` / … shadow from it via ``selections_to_legacy``. v1 blocks
+    are migrated by ``from_block``.
 
     Returns ``(applied, well_labels_dict)``. On a malformed block / migration
     failure: logs, leaves the existing state alone, disables v2 writes for the
     session, and returns ``(False, {})``.
     """
     from well_viewer import selections_model as _sel
-    from well_viewer.barplot_controller import bar_groups_from_data
     tok_to_label = getattr(app, "_tok_to_label", {})
     try:
-        is_v2 = _sel.block_is_v2(block)
         # Don't honour line order here — line_order.json loads *after* this; its
-        # loader re-applies the reorder and re-derives the shadow.
+        # loader re-applies the reorder.
         selections, current_id, well_labels, notes = _sel.from_block(
             block, tok_to_label=tok_to_label)
-        if is_v2:
-            rep_sets, bar_groups, ari, bag, rh = _sel.selections_to_legacy(
-                selections, current_id, tok_to_label=tok_to_label)
-        else:
-            rep_sets, bar_groups = bar_groups_from_data(
-                {"rep_sets": list(block.get("rep_sets", []) or []),
-                 "groups": list(block.get("groups", []) or [])},
-                tok_to_label=tok_to_label)
-            ari = -1
-            bag = 0 if bar_groups else -1
-            rh = set()
     except Exception:  # pragma: no cover - defensive: never crash on bad data
         _logger.exception("Couldn't upgrade saved sample definitions — using "
                           "compatibility mode; the file was left untouched.")
@@ -138,11 +104,8 @@ def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, d
 
     app._selections = selections
     app._current_selection_id = current_id
-    app._rep_sets = rep_sets
-    app._bar_groups = bar_groups
-    app._active_rep_idx = ari
-    app._bar_active_grp = bag
-    app._rep_hidden = rh
+    if hasattr(app, "_sync_legacy_from_selections"):
+        app._sync_legacy_from_selections()
     if set_notes:
         app._notes_text = notes
         notes_edit = getattr(app, "_notes_edit", None)

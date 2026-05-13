@@ -158,21 +158,40 @@ def on_plate_sel_change(app) -> None:
     _refresh_after_selection_change(app)
 
 
+def _well_rc(app, w):
+    try:
+        return app._parse_rc(w)
+    except Exception:
+        return ("", "")
+
+
+def _set_groups_hidden(app, sels, *, target=None) -> None:
+    """Set ``hidden`` on each of *sels*. ``target`` None ⇒ toggle: hide them all
+    if any is currently visible, else show them all."""
+    sels = [s for s in sels if isinstance(s, dict)]
+    if not sels:
+        return
+    if target is None:
+        target = any(not bool(s.get("hidden")) for s in sels)  # any visible → hide all
+    target = bool(target)
+    changed = False
+    for s in sels:
+        if bool(s.get("hidden")) != target:
+            s["hidden"] = target
+            changed = True
+    if changed:
+        app._invalidate_stats_cache()
+        app._rebuild_all()
+
+
 def select_row(app, row: str) -> None:
-    if app._rep_sets:
-        loaded = app._rep_sets_loaded()
-        row_idxs = [si for si, r in enumerate(loaded) if any(app._parse_rc(w)[0] == row for w in r.wells if w in app._well_paths)]
-        if not row_idxs:
-            return
-        if any(si in app._rep_hidden for si in row_idxs):
-            for si in row_idxs:
-                app._rep_hidden.discard(si)
-        else:
-            for si in row_idxs:
-                app._rep_hidden.add(si)
-        app._on_plate_sel_change()
+    if app._rep_sets:  # rep-mode: toggle visibility of groups with a well in this row
+        _set_groups_hidden(app, [
+            s for s in app._selections
+            if any(_well_rc(app, w)[0] == row and w in app._well_paths for w in (s.get("wells") or []))
+        ])
     else:
-        row_labels = [lbl for lbl in app._well_paths if app._parse_rc(lbl)[0] == row]
+        row_labels = [lbl for lbl in app._well_paths if _well_rc(app, lbl)[0] == row]
         if not row_labels:
             return
         if any(lbl not in app._selected_wells for lbl in row_labels):
@@ -184,19 +203,12 @@ def select_row(app, row: str) -> None:
 
 def select_col(app, col: str) -> None:
     if app._rep_sets:
-        loaded = app._rep_sets_loaded()
-        col_idxs = [si for si, r in enumerate(loaded) if any(app._parse_rc(w)[1] == col for w in r.wells if w in app._well_paths)]
-        if not col_idxs:
-            return
-        if any(si in app._rep_hidden for si in col_idxs):
-            for si in col_idxs:
-                app._rep_hidden.discard(si)
-        else:
-            for si in col_idxs:
-                app._rep_hidden.add(si)
-        app._on_plate_sel_change()
+        _set_groups_hidden(app, [
+            s for s in app._selections
+            if any(_well_rc(app, w)[1] == col and w in app._well_paths for w in (s.get("wells") or []))
+        ])
     else:
-        col_labels = [lbl for lbl in app._well_paths if app._parse_rc(lbl)[1] == col]
+        col_labels = [lbl for lbl in app._well_paths if _well_rc(app, lbl)[1] == col]
         if not col_labels:
             return
         if any(lbl not in app._selected_wells for lbl in col_labels):
@@ -207,21 +219,21 @@ def select_col(app, col: str) -> None:
 
 
 def select_all(app) -> None:
-    if app._rep_sets:
-        app._rep_hidden.clear()
+    if app._rep_sets:  # rep-mode: show every group
+        _set_groups_hidden(app, app._selections, target=False)
     else:
         app._selected_wells = set(app._well_paths.keys())
         if app._selected_wells:
             app._last_sel = next(iter(app._selected_wells))
         app._prev_sel = app._selected_wells.copy()
-    _refresh_after_selection_change(app)
+        _refresh_after_selection_change(app)
 
 
 def select_none(app) -> None:
-    if app._rep_sets:
-        loaded = app._rep_sets_loaded()
-        app._rep_hidden = set(range(len(loaded)))
-    app._selected_wells.clear()
-    app._last_sel = None
-    app._prev_sel = set()
-    _refresh_after_selection_change(app)
+    if app._rep_sets:  # rep-mode: hide every group
+        _set_groups_hidden(app, app._selections, target=True)
+    else:
+        app._selected_wells.clear()
+        app._last_sel = None
+        app._prev_sel = set()
+        _refresh_after_selection_change(app)

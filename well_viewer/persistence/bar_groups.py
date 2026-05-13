@@ -28,29 +28,14 @@ def to_payload(app) -> dict:
 
 def from_dict(app, data) -> None:
     """Restore selections state on *app* from a saved (v1 or v2) payload.
-
-    A v1 ``{rep_sets, groups}`` file hydrates the legacy shadow via the original
-    parser (byte-perfect); a v2 ``{selections, …}`` file derives it via the
-    inverse map. ``app._selections`` is always set.
-    """
+    v1 is migrated by ``from_block``; the legacy ``_rep_sets`` / ``_bar_groups``
+    shadow is derived from ``app._selections``."""
     tok_to_label = getattr(app, "_tok_to_label", {})
     selections, current_id, _labels, _notes = _sel.from_block(data, tok_to_label=tok_to_label)
-    if _sel.block_is_v2(data):
-        rep_sets, bar_groups, ari, bag, rh = _sel.selections_to_legacy(
-            selections, current_id, tok_to_label=tok_to_label)
-    else:
-        from well_viewer.barplot_controller import bar_groups_from_data
-        rep_sets, bar_groups = bar_groups_from_data(data, tok_to_label=tok_to_label)
-        ari = -1
-        bag = 0 if bar_groups else -1
-        rh = set()
     app._selections = selections
     app._current_selection_id = current_id
-    app._rep_sets = rep_sets
-    app._bar_groups = bar_groups
-    app._bar_active_grp = bag
-    app._active_rep_idx = ari
-    app._rep_hidden = rh
+    if hasattr(app, "_sync_legacy_from_selections"):
+        app._sync_legacy_from_selections()
 
 
 def save_via_dialog(app) -> None:

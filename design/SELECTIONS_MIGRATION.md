@@ -628,16 +628,52 @@ an `active_rep_idx` arg so a clicked rep-set becomes `current_id` (else the
 highlight would jump). `_rep_canvas`/`_rep_inner` removed. `py_compile` clean;
 self-test `ALL PASS`.
 
-**Known interim limits** (gone after Stage D): (a) editing a rep-set selection's
-*replicate sub-lists* flattens back to one sub-list on the next refresh (a legacy
-`ReplicateSet` only holds `{name, wells}` — true multi-sub-list editing only works
-for the (rare) `bar_group`-source selections, which become `solo_wells`/`"#k"`
-member rep-sets); (b) drag-reorder of the list is only applied when there are no
-bar groups; (c) the same `solo → [[w]]` round-trip quirk as before.
+### Stage C — sub-cluster 2: the mutation flip — **done** (code, not runtime-verified)
 
-Next: sub-cluster 2 — the mutation flip (mutations write `_selections` directly;
-the legacy shadow becomes *derived from* it; `sync_selections_from_legacy` →
-no-op); sub-cluster 3 = Stage D (delete the shadow + the round-trip helpers).
+`app._selections` is now the **in-memory source of truth**; `_rep_sets` /
+`_bar_groups` / `_active_rep_idx` / `_bar_active_grp` / `_rep_hidden` are
+*re-derived from it* (via `selections_to_legacy`, called by
+`runtime_app._sync_legacy_from_selections()` at the top of `_groups_centre_refresh()`).
+New `WellViewerApp._sel_*` mutators operate on `_selections` directly:
+`_sel_add` / `_sel_rename` / `_sel_delete` / `_sel_set_hidden` / `_sel_toggle_hidden`
+/ `_sel_set_composition` / `_sel_toggle_well` (light, for the rep-map drag) /
+`_sel_select` / `_sel_reorder` / `_sel_clear_all` / `_sel_duplicate` — each
+enforces well-exclusivity (`_sel_strip_wells`) and calls `_rebuild_all()`. All the
+**live** mutation paths now go through them:
+- the GROUPS-panel `SavedSelectionsList` — `wire_selections_list` connects its
+  signals straight to `app._sel_*` (no more `_sel_legacy_target` index-translation);
+- the `+ Add` dialog (`_rep_add`) → `_sel_add(name, wells, replicates=[wells], source="rep_set")`;
+  `Clear All` (`_rep_clear_all`) → `_sel_clear_all`; `_rep_select`/`_rep_rename`/`_rep_delete`
+  → legacy-index→sid wrappers around `_sel_*`;
+- the rep-map plate drag (`grouping_controller.rep_map_*`) → edits the *current*
+  selection (`app._current_selection_id`) via `_sel_toggle_well`;
+- "Apply Quick Replicates" (`rep_quick_pairs`) → builds a fresh `app._selections` list;
+- the line-graph plate's rep-mode visibility (`_on_sidebar_plate_well_activated`,
+  `selection_controller.select_row/col/all/none`) → toggle the owning selection's
+  `hidden` (`_sel_set_hidden` / `_set_groups_hidden`);
+- `selections_to_legacy` now also produces `_rep_hidden` (translating each hidden
+  `rep_set`-source selection into `_rep_sets_loaded()` order);
+- persistence: `_apply_unified_state` / `bar_groups.from_dict` just set
+  `app._selections` then `_sync_legacy_from_selections()`; `sync_selections_from_legacy`
+  is now a no-op; `_bar_groups_prune` is a no-op (`_selections` keeps stored-but-
+  unloaded wells per the contract).
+The dead bar-group-panel mutators (`_bar_*`, `grouping_controller.grp_*`,
+`bar_quick_groups`) are left in place (they mutate the now-derived shadow
+ineffectively, but no live UI reaches them). `py_compile` clean; self-test
+`ALL PASS`. **Behaviour changes to watch when testing:** for a (rare) old-style
+`bar_group`-source selection the bar plot now draws one bar per replicate
+sub-list (named `"<name> #k"`) instead of one per group; everything else (the
+common `rep_set`-source case — all groups created via `+ Add`) is unchanged.
+
+Next: sub-cluster 3 = Stage D — once the renderers / `_refresh_sidebar_map_now` /
+the rep-map plate read `app._selections` directly, delete the
+`_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp` shadow
++ `_sync_legacy_from_selections` + `_sync_selections_from_legacy` (now unused)
++ `from_legacy_appstate` + `selections_to_legacy` (or keep `selections_to_legacy`
+if nothing else needs the legacy shapes — TBD).
+
+(Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
+only when no bar groups, `solo → [[w]]` round-trip — still apply until Stage D.)
 
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball

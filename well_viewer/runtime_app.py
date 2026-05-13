@@ -1614,12 +1614,10 @@ class WellViewerApp(QWidget):
         _rep_panel_refresh_view(self)
 
     def _rep_select(self, idx: int) -> None:
-        self._active_rep_idx = idx
-        # Replicate-set and group selections are mutually exclusive so the
-        # sidebar plate grid has a single unambiguous edit target.
-        self._bar_active_grp = -1
-        self._groups_centre_refresh()   # card list
-        self._rep_refresh_map()         # plate map: highlight selected set
+        # Legacy bridge: select the idx-th rep_set-source selection.
+        sels = [s for s in self._selections if s.get("source") == "rep_set"]
+        if 0 <= idx < len(sels):
+            self._sel_select(sels[idx].get("id"))
 
     def _rep_add(self) -> None:
         """Open dialog to create a new named ReplicateSet."""
@@ -1649,61 +1647,44 @@ class WellViewerApp(QWidget):
             if not sel:
                 QMessageBox.warning(dlg, "No wells", "Select at least one well.")
                 return
-            # A well belongs to at most one group — the new set takes them.
-            sset = set(sel)
-            for r in self._rep_sets:
-                r.wells = [w for w in r.wells if w not in sset]
-            for g in self._bar_groups:
-                g.solo_wells = [w for w in g.solo_wells if w not in sset]
-                for m in g.members:
-                    m.wells = [w for w in m.wells if w not in sset]
-            name = name_edit.text().strip() or f"Rep {len(self._rep_sets)+1}"
-            self._rep_sets.append(ReplicateSet(name, list(sel)))
-            self._active_rep_idx = len(self._rep_sets) - 1
+            name = name_edit.text().strip() or f"Rep {len(self._selections) + 1}"
             dlg.accept()
-            self._rebuild_all()
+            # _sel_add enforces well-exclusivity (the new group takes the wells).
+            self._sel_add(name, list(sel), replicates=[list(sel)], source="rep_set")
 
         ok_btn.clicked.connect(_ok)
         cancel_btn.clicked.connect(dlg.reject)
         dlg.exec()
 
+    def _rep_set_id_at(self, idx: int):
+        """Selection id of the idx-th rep_set-source selection (legacy bridge)."""
+        sels = [s for s in self._selections if s.get("source") == "rep_set"]
+        return sels[idx].get("id") if 0 <= idx < len(sels) else None
+
     def _rep_rename(self, idx: int) -> None:
-        if not (0 <= idx < len(self._rep_sets)):
+        sid = self._rep_set_id_at(idx)
+        if sid is None:
             return
-        name = ask_name_dialog(self, default=self._rep_sets[idx].name)
+        s = self._sel_by_id(sid)
+        name = ask_name_dialog(self, default=s.get("name", "") if s else "")
         if name:
-            self._rep_sets[idx].name = name
-            self._rebuild_all()
+            self._sel_rename(sid, name)
 
     def _rep_delete(self, idx: int) -> None:
-        if not (0 <= idx < len(self._rep_sets)):
-            return
-        rset = self._rep_sets[idx]
-        # Remove from any groups that reference it
-        for grp in self._bar_groups:
-            if rset in grp.members:
-                grp.members.remove(rset)
-        self._rep_sets.pop(idx)
-        self._active_rep_idx = min(self._active_rep_idx,
-                                   len(self._rep_sets) - 1)
-        self._rebuild_all()
+        sid = self._rep_set_id_at(idx)
+        if sid is not None:
+            self._sel_delete(sid)
 
     def _rep_clear_all(self) -> None:
-        if not self._rep_sets:
+        if not self._selections:
             return
         resp = QMessageBox.question(
-            self, "Clear all replicate sets?",
-            f"Remove all {len(self._rep_sets)} set(s)?\n"
-            "Groups referencing them will also lose those members.",
+            self, "Clear all groups?",
+            f"Remove all {len(self._selections)} group(s)?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if resp == QMessageBox.Yes:
-            for grp in self._bar_groups:
-                grp.members.clear()
-            self._rep_sets.clear()
-            self._active_rep_idx = -1
-            self._rep_hidden.clear()
-            self._rebuild_all()
+            self._sel_clear_all()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Group definition panel
@@ -1825,31 +1806,193 @@ class WellViewerApp(QWidget):
         except Exception:
             _logger.exception("sync of _selections from legacy state failed")
 
+    # ── unified-model (app._selections) — the in-memory source of truth ──────
+    # (Phase 8.0 Stage C: edits write app._selections; _rep_sets/_bar_groups/
+    # _active_rep_idx/_bar_active_grp/_rep_hidden are *re-derived* from it.)
+    def _sync_legacy_from_selections(self) -> None:
+        try:
+            from well_viewer.selections_model import selections_to_legacy
+            (self._rep_sets, self._bar_groups, self._active_rep_idx,
+             self._bar_active_grp, self._rep_hidden) = selections_to_legacy(
+                self._selections, getattr(self, "_current_selection_id", None),
+                tok_to_label=getattr(self, "_tok_to_label", None))
+        except Exception:
+            _logger.exception("derive of legacy shadow from _selections failed")
+
+    def _sel_by_id(self, sid):
+        for s in self._selections:
+            if s.get("id") == sid:
+                return s
+        return None
+
+    def _sel_index_of(self, sid) -> int:
+        for i, s in enumerate(self._selections):
+            if s.get("id") == sid:
+                return i
+        return -1
+
+    def _sel_id_for_well(self, tok):
+        for s in self._selections:
+            if tok in (s.get("wells") or []):
+                return s.get("id")
+        return None
+
+    def _sel_strip_wells(self, wells, *, keep_id=None) -> None:
+        """A well belongs to ≤1 group: remove ``wells`` from every selection but
+        ``keep_id``, pruning their replicates to the survivors."""
+        from well_viewer.selections_model import _clean_reps
+        wset = set(wells or [])
+        if not wset:
+            return
+        for s in self._selections:
+            if s.get("id") == keep_id:
+                continue
+            nw = [w for w in (s.get("wells") or []) if w not in wset]
+            if nw != s.get("wells"):
+                s["wells"] = nw
+                s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(nw))
+
+    def _sel_add(self, name=None, wells=None, replicates=None, source="user",
+                 *, make_current=True):
+        from well_viewer.selections_model import make_selection
+        used_names = {s.get("name") for s in self._selections}
+        used_ids = {s.get("id") for s in self._selections}
+        sel = make_selection(name=name, wells=wells, replicates=replicates,
+                             source=source, used_names=used_names, used_ids=used_ids,
+                             fallback_color_idx=len(self._selections))
+        self._sel_strip_wells(sel["wells"], keep_id=sel["id"])
+        self._selections.append(sel)
+        if make_current:
+            self._current_selection_id = sel["id"]
+        self._rebuild_all()
+        return sel["id"]
+
+    def _sel_rename(self, sid, name) -> None:
+        from well_viewer.selections_model import _unique_name as _uq
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        new = _uq(name, {x.get("name") for x in self._selections if x.get("id") != sid})
+        if new == s.get("name"):
+            return
+        s["name"] = new
+        self._rebuild_all()
+
+    def _sel_delete(self, sid) -> None:
+        i = self._sel_index_of(sid)
+        if i < 0:
+            return
+        self._selections.pop(i)
+        if self._current_selection_id == sid:
+            self._current_selection_id = (
+                self._selections[min(i, len(self._selections) - 1)].get("id")
+                if self._selections else None)
+        self._rebuild_all()
+
+    def _sel_set_hidden(self, sid, hidden, *, light=False) -> None:
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        if bool(s.get("hidden")) == bool(hidden):
+            return
+        s["hidden"] = bool(hidden)
+        if light:
+            self._sync_legacy_from_selections()
+            self._refresh_sidebar_map()
+        else:
+            self._rebuild_all()
+
+    def _sel_toggle_hidden(self, sid) -> None:
+        s = self._sel_by_id(sid)
+        if s is not None:
+            self._sel_set_hidden(sid, not bool(s.get("hidden")))
+
+    def _sel_set_composition(self, sid, wells=None, replicates=None) -> None:
+        from well_viewer.selections_model import _clean_wells, _clean_reps
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        if wells is not None:
+            s["wells"] = _clean_wells(wells)
+            self._sel_strip_wells(s["wells"], keep_id=sid)
+        src = replicates if replicates is not None else s.get("replicates")
+        s["replicates"] = _clean_reps(src, allowed=set(s.get("wells") or []))
+        self._rebuild_all()
+
+    def _sel_toggle_well(self, sid, tok, *, add, light=True) -> None:
+        from well_viewer.selections_model import _clean_reps
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        wells = list(s.get("wells") or [])
+        if add:
+            if tok not in wells:
+                wells.append(tok)
+            s["wells"] = wells
+            self._sel_strip_wells([tok], keep_id=sid)
+        else:
+            if tok in wells:
+                wells.remove(tok)
+                s["wells"] = wells
+                s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(wells))
+        if light:
+            self._sync_legacy_from_selections()
+            if hasattr(self, "_rep_refresh_map_single"):
+                self._rep_refresh_map_single(tok)
+        else:
+            self._rebuild_all()
+
+    def _sel_select(self, sid) -> None:
+        if sid not in {s.get("id") for s in self._selections}:
+            return
+        if sid == getattr(self, "_current_selection_id", None):
+            return
+        self._current_selection_id = sid
+        self._sync_legacy_from_selections()
+        self._groups_centre_refresh()
+        self._refresh_sidebar_map()
+
+    def _sel_reorder(self, ids) -> None:
+        by_id = {s.get("id"): s for s in self._selections}
+        new = [by_id[i] for i in ids if i in by_id]
+        for s in self._selections:
+            if s not in new:
+                new.append(s)
+        if new != self._selections:
+            self._selections = new
+            self._rebuild_all()
+
+    def _sel_clear_all(self) -> None:
+        self._selections = []
+        self._current_selection_id = None
+        self._rebuild_all()
+
+    def _sel_duplicate(self, sid):
+        s = self._sel_by_id(sid)
+        if s is None:
+            return None
+        return self._sel_add(name=f"{s.get('name', 'Selection')} copy",
+                             wells=[], replicates=None, source="user")
+
     def _enforce_well_exclusivity(self) -> None:
-        """Invariant: a well belongs to **at most one group** (replicate set /
-        bar group). Keep each well in the first group that has it (replicate-set
-        order, then bar-group order), strip it from the rest. The add-points
-        already enforce this with the *edited* group winning; this is a safety
-        net (and cleans up pre-existing overlaps from old saved data)."""
+        """Invariant: a well belongs to **at most one group**. Keep each well in
+        the first selection that has it; strip it from the rest. The edit
+        helpers already enforce this (edited group wins); this is a safety net
+        and cleans up pre-existing overlaps from old saved data."""
         seen: set = set()
-        for r in getattr(self, "_rep_sets", []):
+        for s in getattr(self, "_selections", []):
+            if not isinstance(s, dict):
+                continue
             kept = []
-            for w in r.wells:
+            for w in (s.get("wells") or []):
                 if w in seen:
                     continue
                 seen.add(w)
                 kept.append(w)
-            if kept != r.wells:
-                r.wells = kept
-        for g in getattr(self, "_bar_groups", []):
-            kept = []
-            for w in getattr(g, "solo_wells", []):
-                if w in seen:
-                    continue
-                seen.add(w)
-                kept.append(w)
-            if kept != g.solo_wells:
-                g.solo_wells = kept
+            if kept != s.get("wells"):
+                from well_viewer.selections_model import _clean_reps
+                s["wells"] = kept
+                s["replicates"] = _clean_reps(s.get("replicates"), allowed=set(kept))
 
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
@@ -1858,7 +2001,7 @@ class WellViewerApp(QWidget):
         Plate maps are always updated (cheap).
         """
         self._enforce_well_exclusivity()
-        self._sync_selections_from_legacy()
+        self._sync_legacy_from_selections()
         tab_visible = False
         if hasattr(self, "_notebook"):
             try:
@@ -2403,17 +2546,11 @@ class WellViewerApp(QWidget):
         return _cg.load_from_pipeline_info(self)
 
     def _bar_groups_prune(self) -> None:
-        """Remove stale well references after a new dataset is loaded."""
-        # Prune global replicate sets
-        for rset in self._rep_sets:
-            rset.wells = [w for w in rset.wells if w in self._well_paths]
-        # Remove now-empty rep sets from pool and from any group members
-        empty = {r for r in self._rep_sets if not r.wells}
-        self._rep_sets = [r for r in self._rep_sets if r.wells]
-        for grp in self._bar_groups:
-            grp.members    = [r for r in grp.members if r not in empty and r.wells]
-            grp.solo_wells = [w for w in grp.solo_wells if w in self._well_paths]
-        self._bar_active_grp = min(self._bar_active_grp, len(self._bar_groups) - 1)
+        """No-op: ``app._selections`` keeps wells that aren't in the current
+        dataset (per the contract — they render greyed and are filtered by the
+        plot code); the derived ``_rep_sets`` / ``_bar_groups`` include them and
+        the renderers already filter to ``_well_paths``."""
+        return
 
     # ── Bar-map drag helpers ──────────────────────────────────────────────────
 
@@ -3304,15 +3441,10 @@ class WellViewerApp(QWidget):
         # per-well mode the widget owns its selection and toggles internally.
         if not getattr(self, "_rep_sets", None):
             return
-        si = self._rep_idx_for_label(well_id)
-        if si is None:
+        sid = self._sel_id_for_well(well_id)
+        if sid is None:
             return
-        if si in self._rep_hidden:
-            self._rep_hidden.discard(si)
-        else:
-            self._rep_hidden.add(si)
-        self._invalidate_stats_cache()
-        self._sb_on_rep_change()
+        self._sel_toggle_hidden(sid)
 
     def _on_sidebar_plate_row_activated(self, row: str) -> None:
         if getattr(self, "_rep_sets", None):
@@ -3535,7 +3667,7 @@ class WellViewerApp(QWidget):
 
     def _sb_on_rep_change(self) -> None:
         """Rep-set visibility changed — refresh unified picker + both plots."""
-        self._sync_selections_from_legacy()
+        self._sync_legacy_from_selections()
         self._refresh_sidebar_map()
         self._redraw()
         self._redraw_bars()

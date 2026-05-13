@@ -581,6 +581,7 @@ def selections_to_legacy(selections: Sequence[dict], current_id: Any = None, *,
     bar_groups: list = []
     rep_set_index_by_id: dict[str, int] = {}
     group_index_by_id: dict[str, int] = {}
+    rep_set_hidden_idx: list = []   # _rep_sets indices of hidden rep_set selections
 
     for s in selections:
         if not isinstance(s, dict):
@@ -590,6 +591,8 @@ def selections_to_legacy(selections: Sequence[dict], current_id: Any = None, *,
         if s.get("source") == "rep_set":
             rs = ReplicateSet(s.get("name", "R"), wells)
             rep_set_index_by_id[s["id"]] = len(rep_sets)
+            if bool(s.get("hidden")):
+                rep_set_hidden_idx.append(len(rep_sets))
             rep_sets.append(rs)
         else:
             members = []
@@ -621,7 +624,17 @@ def selections_to_legacy(selections: Sequence[dict], current_id: Any = None, *,
         elif rep_sets:
             active_rep_idx = 0
 
-    rep_hidden: set = set()  # see docstring
+    # _rep_hidden indexes into _rep_sets_loaded() order (the subset of _rep_sets
+    # with ≥1 loaded well). Translate the hidden rep_set selections into it.
+    rep_hidden: set = set()
+    if rep_set_hidden_idx:
+        loaded_tokens = set(tok_to_label) if tok_to_label is not None else None
+        loaded_order = [i for i, r in enumerate(rep_sets)
+                        if loaded_tokens is None or any(w in loaded_tokens for w in getattr(r, "wells", []))]
+        pos_in_loaded = {ri: li for li, ri in enumerate(loaded_order)}
+        for ri in rep_set_hidden_idx:
+            if ri in pos_in_loaded:
+                rep_hidden.add(pos_in_loaded[ri])
     return rep_sets, bar_groups, active_rep_idx, bar_active_grp, rep_hidden
 
 

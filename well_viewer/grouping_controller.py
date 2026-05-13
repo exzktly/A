@@ -21,28 +21,32 @@ def _rep_active(app) -> bool:
     return 0 <= app._active_rep_idx < len(app._rep_sets)
 
 
+# ── Rep-map plate drag (Phase 8.0 Stage C: edits the *current* selection) ─────
+def _active_sel_id(app):
+    return getattr(app, "_current_selection_id", None)
+
+
 def rep_map_press(app, event) -> None:
-    if not (_rep_active(app) or _grp_active(app)):
+    sid = _active_sel_id(app)
+    if sid is None:
         return
     tok = rep_map_tok_at(app, event)
     if tok is None or tok not in app._well_paths:
         return
-    if _grp_active(app):
-        grp = app._bar_groups[app._bar_active_grp]
-        app._rep_drag_adding = tok not in grp.solo_wells
-    else:
-        rset = app._rep_sets[app._active_rep_idx]
-        app._rep_drag_adding = tok not in rset.wells
+    sel = app._sel_by_id(sid)
+    if sel is None:
+        return
+    app._rep_drag_adding = tok not in (sel.get("wells") or [])
     app._rep_drag_visited = set()
-    app._rep_map_apply(tok)
+    rep_map_apply(app, tok)
 
 
 def rep_map_drag(app, event) -> None:
-    if not (_rep_active(app) or _grp_active(app)):
+    if _active_sel_id(app) is None:
         return
     tok = rep_map_tok_at(app, event)
-    if tok and tok not in app._rep_drag_visited:
-        app._rep_map_apply(tok)
+    if tok and tok not in getattr(app, "_rep_drag_visited", set()):
+        rep_map_apply(app, tok)
 
 
 def rep_map_release(app, _event=None) -> None:
@@ -52,44 +56,18 @@ def rep_map_release(app, _event=None) -> None:
 
 
 def rep_map_apply(app, tok: str) -> None:
-    if tok in app._rep_drag_visited:
+    visited = getattr(app, "_rep_drag_visited", None)
+    if visited is None:
+        app._rep_drag_visited = visited = set()
+    if tok in visited:
         return
-    app._rep_drag_visited.add(tok)
+    visited.add(tok)
     if tok not in app._well_paths:
         return
-    if _grp_active(app):
-        grp = app._bar_groups[app._bar_active_grp]
-        if app._rep_drag_adding:
-            # A well belongs to at most one group — pull it out of every other.
-            for r in app._rep_sets:
-                if tok in r.wells:
-                    r.wells.remove(tok)
-            for g in app._bar_groups:
-                if g is not grp and tok in g.solo_wells:
-                    g.solo_wells.remove(tok)
-            if tok not in grp.solo_wells:
-                grp.solo_wells.append(tok)
-        else:
-            if tok in grp.solo_wells:
-                grp.solo_wells.remove(tok)
-        app._rep_refresh_map_single(tok)
+    sid = _active_sel_id(app)
+    if sid is None:
         return
-    if not _rep_active(app):
-        return
-    rset = app._rep_sets[app._active_rep_idx]
-    if app._rep_drag_adding:
-        for other in app._rep_sets:
-            if other is not rset and tok in other.wells:
-                other.wells.remove(tok)
-        for g in app._bar_groups:
-            if tok in g.solo_wells:
-                g.solo_wells.remove(tok)
-        if tok not in rset.wells:
-            rset.wells.append(tok)
-    else:
-        if tok in rset.wells:
-            rset.wells.remove(tok)
-    app._rep_refresh_map_single(tok)
+    app._sel_toggle_well(sid, tok, add=getattr(app, "_rep_drag_adding", True), light=True)
 
 
 def grp_select(app, idx: int) -> None:
@@ -256,22 +234,25 @@ def rep_quick_pairs(app) -> None:
 
     if not new_sets:
         return
-    if app._rep_sets:
+    if getattr(app, "_selections", None):
         resp = QMessageBox.question(
-            app, "Replace replicate sets?",
-            f"This will replace the current {len(app._rep_sets)} "
-            "replicate set(s). Continue?",
+            app, "Replace groups?",
+            f"This will replace the current {len(app._selections)} group(s). Continue?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if resp != QMessageBox.Yes:
             return
-        for grp in app._bar_groups:
-            grp.members.clear()
-    app._rep_sets = new_sets
-    app._active_rep_idx = 0 if app._rep_sets else -1
-    app._rep_hidden.clear()
-    app._invalidate_stats_cache()
-    rep_quick_refresh_ui(app)
+    from well_viewer.selections_model import make_selection
+    used_names: set = set()
+    used_ids: set = set()
+    sels = [make_selection(name=s.name, wells=list(s.wells),
+                           replicates=[list(s.wells)] if s.wells else None,
+                           source="rep_set", used_names=used_names, used_ids=used_ids,
+                           fallback_color_idx=i)
+            for i, s in enumerate(new_sets)]
+    app._selections = sels
+    app._current_selection_id = sels[0]["id"] if sels else None
+    app._rebuild_all()
 
 
 def rep_quick_refresh_ui(app) -> None:
