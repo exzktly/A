@@ -48,12 +48,7 @@ def redraw_line_plots(
     apply_ax_style,
     all_fluor_values,
     all_fluor_values_filtered,
-    plot_bg: str,
-    plot_spn: str,
-    txt_pri: str,
-    txt_mut: str,
     warn: str,
-    well_colors: list[str],
     metric_label: str = "Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""

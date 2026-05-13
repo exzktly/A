@@ -4329,12 +4329,7 @@ class WellViewerApp(QWidget):
             apply_ax_style=apply_ax_style,
             all_fluor_values=_all_fluor_values,
             all_fluor_values_filtered=_all_fluor_values_filtered,
-            plot_bg=PLOT_BG,
-            plot_spn=PLOT_SPN,
-            txt_pri=TXT_PRI,
-            txt_mut=TXT_MUT,
             warn=WARN,
-            well_colors=WELL_COLORS,
         )
         from well_viewer.figure_export_editor import apply_export_style_to_current
 

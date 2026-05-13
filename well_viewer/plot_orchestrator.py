@@ -28,12 +28,7 @@ def redraw(
     apply_ax_style,
     all_fluor_values,
     all_fluor_values_filtered,
-    plot_bg,
-    plot_spn,
-    txt_pri,
-    txt_mut,
     warn,
-    well_colors,
 ) -> None:
     metric_label = "smFISH Count" if app._active_metric == "smfish_count" else "Intensity"
 
@@ -42,12 +37,7 @@ def redraw(
         apply_ax_style=apply_ax_style,
         all_fluor_values=all_fluor_values,
         all_fluor_values_filtered=all_fluor_values_filtered,
-        plot_bg=plot_bg,
-        plot_spn=plot_spn,
-        txt_pri=txt_pri,
-        txt_mut=txt_mut,
         warn=warn,
-        well_colors=well_colors,
         metric_label=metric_label,
     )
 
