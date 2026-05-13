@@ -27,7 +27,7 @@ from typing import Callable, Dict, Set
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QStyle, QStyleOptionTab, QStylePainter,
+    QHBoxLayout, QLabel, QStyle, QStyleOptionTab, QStylePainter,
     QTabBar, QTabWidget, QVBoxLayout, QWidget,
 )
 
