@@ -60,6 +60,98 @@ _GLYPHS: dict[str, str] = {
                       '<circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
     "grid":          ('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>'
                       '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>'),
+
+    # ── Phase 9 reconciliation additions ────────────────────────────────
+    # Lucide-flavoured SVG paths (lucide-icons MIT). Section-nav icons:
+    "line-chart":    '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
+    "dna":           ('<path d="M4 22c2 0 4-1 6-3 2-2 4-3 6-3"/>'
+                      '<path d="M4 2c2 0 4 1 6 3 2 2 4 3 6 3"/>'
+                      '<path d="M18 22c0-2-1-4-3-6-2-2-3-4-3-6"/>'
+                      '<path d="M6 2c0 2 1 4 3 6 2 2 3 4 3 6"/>'),
+    "sigma":         '<path d="M18 7V5H6l6 7-6 7h12v-2"/>',
+    "layout-grid":   ('<rect x="3" y="3" width="7" height="7" rx="1"/>'
+                      '<rect x="14" y="3" width="7" height="7" rx="1"/>'
+                      '<rect x="3" y="14" width="7" height="7" rx="1"/>'
+                      '<rect x="14" y="14" width="7" height="7" rx="1"/>'),
+    "scan-line":     ('<path d="M3 7V5a2 2 0 0 1 2-2h2"/>'
+                      '<path d="M17 3h2a2 2 0 0 1 2 2v2"/>'
+                      '<path d="M21 17v2a2 2 0 0 1-2 2h-2"/>'
+                      '<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>'
+                      '<line x1="7" y1="12" x2="17" y2="12"/>'),
+    "file-spreadsheet": ('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+                         '<polyline points="14 2 14 8 20 8"/>'
+                         '<line x1="8" y1="13" x2="16" y2="13"/>'
+                         '<line x1="8" y1="17" x2="16" y2="17"/>'
+                         '<line x1="10" y1="9" x2="14" y2="9"/>'),
+    "tag":           ('<path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>'
+                      '<line x1="7" y1="7" x2="7.01" y2="7"/>'),
+    "boxes":         ('<path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/>'
+                      '<path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/>'
+                      '<path d="M7 16.5v5.17"/>'
+                      '<path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/>'
+                      '<path d="M7.97 4.42A2 2 0 0 0 7 6.13v3.24a2 2 0 0 0 .97 1.71L11 12.88a2 2 0 0 0 2.06 0L17 10.5V5l-5-3-4.03 2.42Z"/>'),
+
+    # ctxbar plot-type icons:
+    "bar-chart-3":   ('<path d="M3 3v18h18"/>'
+                      '<path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>'),
+    "scatter-chart": ('<path d="M3 3v18h18"/>'
+                      '<circle cx="7.5" cy="14.5" r="1.2"/><circle cx="11" cy="9.5" r="1.2"/>'
+                      '<circle cx="14.5" cy="12" r="1.2"/><circle cx="17.5" cy="6.5" r="1.2"/>'
+                      '<circle cx="9" cy="17" r="1.2"/>'),
+    "bar-chart-horizontal": ('<path d="M3 3v18h18"/>'
+                             '<line x1="7" y1="7" x2="11" y2="7"/>'
+                             '<line x1="7" y1="12" x2="17" y2="12"/>'
+                             '<line x1="7" y1="17" x2="14" y2="17"/>'),
+    "grid-3x3":      ('<rect x="3" y="3" width="18" height="18" rx="2"/>'
+                      '<line x1="3" y1="9" x2="21" y2="9"/>'
+                      '<line x1="3" y1="15" x2="21" y2="15"/>'
+                      '<line x1="9" y1="3" x2="9" y2="21"/>'
+                      '<line x1="15" y1="3" x2="15" y2="21"/>'),
+
+    # Titlebar / statusbar / shell:
+    "refresh-cw":    ('<polyline points="23 4 23 10 17 10"/>'
+                      '<polyline points="1 20 1 14 7 14"/>'
+                      '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>'
+                      '<path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>'),
+    "folder-open":   ('<path d="M6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6A2 2 0 0 1 18.46 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>'),
+    "panel-right-close": ('<rect x="3" y="3" width="18" height="18" rx="2"/>'
+                          '<line x1="15" y1="3" x2="15" y2="21"/>'
+                          '<polyline points="10 9 13 12 10 15"/>'),
+    "panel-right-open":  ('<rect x="3" y="3" width="18" height="18" rx="2"/>'
+                          '<line x1="15" y1="3" x2="15" y2="21"/>'
+                          '<polyline points="13 9 10 12 13 15"/>'),
+    "eye":           ('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>'
+                      '<circle cx="12" cy="12" r="3"/>'),
+    "sliders-horizontal": ('<line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/>'
+                           '<line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/>'
+                           '<line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/>'
+                           '<line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/>'
+                           '<line x1="16" y1="18" x2="16" y2="22"/>'),
+    "terminal-square": ('<rect x="3" y="3" width="18" height="18" rx="2"/>'
+                        '<polyline points="7 11 10 14 7 17"/>'
+                        '<line x1="13" y1="17" x2="17" y2="17"/>'),
+    "chevron-up":    '<polyline points="18 15 12 9 6 15"/>',
+    "moon":          '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+    "sun":           ('<circle cx="12" cy="12" r="5"/>'
+                      '<line x1="12" y1="1" x2="12" y2="3"/>'
+                      '<line x1="12" y1="21" x2="12" y2="23"/>'
+                      '<line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>'
+                      '<line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>'
+                      '<line x1="1" y1="12" x2="3" y2="12"/>'
+                      '<line x1="21" y1="12" x2="23" y2="12"/>'
+                      '<line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>'
+                      '<line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'),
+
+    # Plate / quick-select:
+    "check-check":   ('<polyline points="3 13 8 18 11 15"/>'
+                      '<polyline points="14 11 18 7 22 11"/>'),
+    "flip-horizontal": ('<path d="M3 7V5a2 2 0 0 1 2-2h2"/>'
+                        '<path d="M17 3h2a2 2 0 0 1 2 2v2"/>'
+                        '<path d="M21 17v2a2 2 0 0 1-2 2h-2"/>'
+                        '<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>'
+                        '<line x1="12" y1="3" x2="12" y2="21"/>'),
+    "mouse-pointer-click": ('<path d="M9 9l5 12 1.8-5.2L21 14z"/>'
+                            '<path d="M7.2 2.2 8 5.1"/><path d="M5.1 8 2.2 7.2"/>'),
 }
 
 AVAILABLE = tuple(sorted(_GLYPHS))

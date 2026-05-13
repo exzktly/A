@@ -1,29 +1,33 @@
-"""CollapsibleRail — right-side rail container with animated collapse.
+"""CollapsibleRail — right-side rail overlay that floats above the host.
 
-Hosts a permanent column (default width 332 px to match the mockup's
-Properties rail) that can collapse to a 0-px sliver via a smooth
-``QPropertyAnimation`` on ``maximumWidth``. Used by the v2 app shell as
-the third column of ``.main``; the titlebar's rail-toggle IconButton
-calls ``toggle()`` to flip the state.
+Anchored to a host widget's right edge (like ``widgets.Drawer``) but with
+**no backdrop** and **no Esc dismissal**: it stays in whatever state the
+caller picked until ``toggle()`` flips it. Used by the v2 app shell to
+host the Properties rail without stealing canvas width — when collapsed
+the rail slides off-screen to the right; when expanded it sits over the
+canvas's right edge.
 
-The container does **not** own the content widget's styling — it is a
-neutral host. The content is supplied via the constructor or
-``setContentWidget()`` and is laid out at its natural width inside the
-rail's max-width clip.
+Visual target matches ``design/mockup-decoded.html``'s ``.main`` third
+column (332 px) but the canvas underneath keeps its full width.
 
 API
 ---
-* ``CollapsibleRail(parent=None, *, width=332, collapsed=False, animation_ms=180)``
-* ``setContentWidget(widget)``
-* ``contentWidget() -> QWidget | None``
+* ``CollapsibleRail(host, parent=None, *, width=332, collapsed=False, animation_ms=180)``
+* ``setContentWidget(widget)`` / ``contentWidget() -> QWidget | None``
 * ``setCollapsed(bool)`` / ``isCollapsed() -> bool`` / ``toggle()``
 * ``setRailWidth(int)`` — change the expanded width (re-animates if visible).
-* signal ``collapsedChanged(bool)`` — fires after the animation completes,
-  with the post-animation state.
+* signal ``collapsedChanged(bool)`` — fires after the slide animation finishes.
 
-Sizing model: when collapsed, ``maximumWidth`` is animated to 0; the rail
-is still visible in the layout (as a zero-width gap) but `setVisible(False)`
-is not used so the toggle in the titlebar remains discoverable.
+Implementation notes:
+* The widget is *not* a layout sibling of the canvas. It is reparented to
+  ``host`` (the visual surface it floats over) and uses ``setGeometry``
+  + ``QPropertyAnimation`` on ``geometry`` to slide in/out from the host's
+  right edge.
+* ``installEventFilter(host)`` keeps the rail glued to the host's right
+  edge when the host resizes. Re-render and re-anchor are debounced
+  through the standard Qt event loop.
+* No backdrop / no Esc handler — the caller owns the toggle (typically a
+  titlebar IconButton); the rail stays visible until the caller closes it.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
 from PySide6.QtCore import (  # noqa: E402
-    QEasingCurve, QPropertyAnimation, Qt, Signal,
+    QEasingCurve, QEvent, QPropertyAnimation, QRect, Qt, Signal,
 )
 from PySide6.QtWidgets import (  # noqa: E402
     QFrame, QSizePolicy, QVBoxLayout, QWidget,
@@ -48,41 +52,42 @@ import theme  # noqa: E402
 class CollapsibleRail(QFrame):
     collapsedChanged = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None, *,
+    def __init__(self, host: QWidget, parent: QWidget | None = None, *,
                  width: int = 332, collapsed: bool = False,
                  animation_ms: int = 180) -> None:
-        super().__init__(parent)
+        super().__init__(parent or host)
         self.setObjectName("CollapsibleRail")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-
+        # Overlay on top of host's other children; rely on raise_() at show
+        # time and on z-order via parenting.
+        self._host = host
         self._rail_width = max(0, int(width))
         self._collapsed = bool(collapsed)
         self._content: QWidget | None = None
-
-        # Initial geometry — apply the start state before the widget is shown
-        # so the first paint is correct (no flash from full → animated).
-        target = 0 if self._collapsed else self._rail_width
-        self.setMinimumWidth(0)
-        self.setMaximumWidth(target)
 
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(0, 0, 0, 0)
         self._lay.setSpacing(0)
 
-        self._anim = QPropertyAnimation(self, b"maximumWidth", self)
+        self._anim = QPropertyAnimation(self, b"geometry", self)
         self._anim.setDuration(int(animation_ms))
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         self._anim.finished.connect(self._on_anim_finished)
 
+        host.installEventFilter(self)
         self.setStyleSheet(self._build_qss())
+
+        # Anchor without animating so the first paint sits at the right
+        # position (off-screen if collapsed, flush against the host's right
+        # edge otherwise).
+        self._anchor(animate=False)
+        self.setVisible(not self._collapsed)
+        self.raise_()
 
     # ── content ──────────────────────────────────────────────────────────
     def setContentWidget(self, widget: QWidget) -> None:
         if self._content is widget:
             return
-        # Drop the previous content (caller can hold a reference if they
-        # need to re-mount it).
         if self._content is not None:
             self._lay.removeWidget(self._content)
             self._content.setParent(None)
@@ -103,7 +108,7 @@ class CollapsibleRail(QFrame):
         if collapsed == self._collapsed:
             return
         self._collapsed = collapsed
-        self._start_anim()
+        self._anchor(animate=True)
 
     def toggle(self) -> None:
         self.setCollapsed(not self._collapsed)
@@ -113,25 +118,50 @@ class CollapsibleRail(QFrame):
         if width == self._rail_width:
             return
         self._rail_width = width
-        if not self._collapsed:
-            self._start_anim()
+        self._anchor(animate=not self._collapsed)
 
     def railWidth(self) -> int:
         return self._rail_width
 
-    # ── internals ────────────────────────────────────────────────────────
-    def _start_anim(self) -> None:
-        end = 0 if self._collapsed else self._rail_width
+    # ── geometry / event filtering ───────────────────────────────────────
+    def _expanded_geom(self) -> QRect:
+        h = max(0, self._host.height())
+        x = max(0, self._host.width() - self._rail_width)
+        return QRect(x, 0, self._rail_width, h)
+
+    def _collapsed_geom(self) -> QRect:
+        h = max(0, self._host.height())
+        return QRect(self._host.width(), 0, self._rail_width, h)
+
+    def _anchor(self, *, animate: bool) -> None:
+        target = self._collapsed_geom() if self._collapsed else self._expanded_geom()
+        if not animate:
+            self._anim.stop()
+            self.setGeometry(target)
+            self.setVisible(not self._collapsed)
+            return
+        # When opening, become visible first so the slide is visible.
+        if not self._collapsed:
+            self.setVisible(True)
+            self.raise_()
         self._anim.stop()
-        self._anim.setStartValue(self.maximumWidth())
-        self._anim.setEndValue(end)
+        self._anim.setStartValue(self.geometry())
+        self._anim.setEndValue(target)
         self._anim.start()
 
     def _on_anim_finished(self) -> None:
-        # Pin the final size and emit the post-animation state.
-        target = 0 if self._collapsed else self._rail_width
-        self.setMaximumWidth(target)
+        if self._collapsed:
+            self.setVisible(False)
         self.collapsedChanged.emit(self._collapsed)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self._host and event.type() == QEvent.Resize:
+            # Keep the rail glued to the host's right edge regardless of
+            # the host's new size.
+            self._anchor(animate=False)
+            if not self._collapsed:
+                self.raise_()
+        return super().eventFilter(obj, event)
 
     def _build_qss(self) -> str:
         c = theme.Colors
@@ -146,47 +176,55 @@ class CollapsibleRail(QFrame):
 # ── standalone visual test ──────────────────────────────────────────────────
 if __name__ == "__main__":
     from PySide6.QtWidgets import (
-        QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+        QApplication, QLabel, QPushButton, QVBoxLayout,
     )
 
     app = QApplication.instance() or QApplication(_sys.argv)
     app.setStyleSheet(theme.qss())
 
+    # The host is the "main" widget the rail floats over.
     host = QWidget()
     host.setObjectName("Host")
     host.setStyleSheet(f"#Host {{ background-color: {theme.Colors.surface}; }}")
-    host.setWindowTitle("CollapsibleRail — demo")
+    host.setWindowTitle("CollapsibleRail — overlay demo")
     host.resize(960, 480)
 
-    outer = QHBoxLayout(host)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
-
-    # Fake plot area on the left, fills available space.
-    plot = QFrame(host)
-    plot.setStyleSheet(
+    # Canvas fills the entire host; the rail does NOT take a layout slot.
+    canvas = QFrame(host)
+    canvas.setGeometry(0, 0, host.width(), host.height())
+    canvas.setStyleSheet(
         f"background-color: {theme.Colors.panel}; "
-        f"border: 1px solid {theme.Colors.border_subtle}; border-radius: 8px;"
+        f"border: 1px solid {theme.Colors.border_subtle}; "
+        f"border-radius: 8px;"
     )
-    pl = QVBoxLayout(plot)
+    pl = QVBoxLayout(canvas)
     pl.setContentsMargins(16, 16, 16, 16)
-    pl.addWidget(QLabel("plot canvas (fills remaining space)"))
+    pl.addWidget(QLabel(
+        "canvas — fills the whole host.  the rail floats above me when expanded,\n"
+        "and slides off-screen when collapsed.  no layout shift, no width change."
+    ))
     pl.addStretch(1)
     toggle_btn = QPushButton("Toggle rail")
     pl.addWidget(toggle_btn)
-    outer.addWidget(plot, 1)
 
-    # The collapsible rail.
     rail = CollapsibleRail(host, width=332)
     body = QFrame(rail)
     bl = QVBoxLayout(body)
     bl.setContentsMargins(16, 16, 16, 16)
-    bl.addWidget(QLabel("Properties"))
-    for i in range(6):
-        bl.addWidget(QLabel(f"  · section {i + 1}"))
+    bl.addWidget(QLabel("Properties (overlay)"))
+    for s in ("Profile & Format", "Axes", "Legend", "Lines & Markers",
+              "Grid", "Limits & Scale", "Layout"):
+        lbl = QLabel(f"  · {s}")
+        lbl.setStyleSheet(f"color: {theme.Colors.text_muted};")
+        bl.addWidget(lbl)
     bl.addStretch(1)
     rail.setContentWidget(body)
-    outer.addWidget(rail, 0)
+
+    # Resize canvas to follow the host (no layout — manual geometry sync).
+    def _sync_canvas(_ev=None):
+        canvas.setGeometry(0, 0, host.width(), host.height())
+    host.resizeEvent = lambda ev: (_sync_canvas(),
+                                   QWidget.resizeEvent(host, ev))
 
     toggle_btn.clicked.connect(rail.toggle)
     rail.collapsedChanged.connect(

@@ -782,13 +782,15 @@ def _build_preview_strip():
 
 
 def _build_collapsible_rail():
+    """Overlay demo: the rail floats above the canvas; toggling does NOT
+    push the canvas smaller."""
     from widgets.collapsible_rail import CollapsibleRail
     host = QWidget()
-    host.setMinimumHeight(280)
-    outer = QHBoxLayout(host)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
-    plot = QFrame()
+    host.setMinimumHeight(320)
+
+    # Canvas fills the entire host — no layout shift when the rail
+    # appears/disappears.
+    plot = QFrame(host)
     plot.setStyleSheet(
         f"background-color: {theme.Colors.panel}; "
         f"border: 1px solid {theme.Colors.border_subtle}; "
@@ -797,17 +799,20 @@ def _build_collapsible_rail():
     pl = QVBoxLayout(plot)
     pl.setContentsMargins(theme.Spacing.md, theme.Spacing.md,
                           theme.Spacing.md, theme.Spacing.md)
-    pl.addWidget(QLabel("plot canvas (fills remaining)"))
+    pl.addWidget(QLabel(
+        "canvas — fills the whole card.  the rail overlays the right edge\n"
+        "when expanded; it does NOT push the canvas smaller."
+    ))
     pl.addStretch(1)
     btn = QPushButton("Toggle rail")
     pl.addWidget(btn)
-    outer.addWidget(plot, 1)
-    rail = CollapsibleRail(host, width=240)
+
+    rail = CollapsibleRail(host, width=260)
     inner = QFrame()
     iv = QVBoxLayout(inner)
     iv.setContentsMargins(theme.Spacing.md, theme.Spacing.md,
                           theme.Spacing.md, theme.Spacing.md)
-    iv.addWidget(QLabel("Properties"))
+    iv.addWidget(QLabel("Properties (overlay)"))
     for s in ("Profile & Format", "Axes", "Legend", "Lines & Markers",
               "Grid", "Limits & Scale", "Layout"):
         lbl = QLabel(f"  · {s}")
@@ -815,7 +820,14 @@ def _build_collapsible_rail():
         iv.addWidget(lbl)
     iv.addStretch(1)
     rail.setContentWidget(inner)
-    outer.addWidget(rail, 0)
+
+    # The host has no layout — sync canvas geometry to host on every resize.
+    def _resync(_ev=None):
+        plot.setGeometry(0, 0, host.width(), host.height())
+    _resync()
+    host.resizeEvent = lambda ev: (_resync(),
+                                   QWidget.resizeEvent(host, ev))
+
     btn.clicked.connect(rail.toggle)
     rail.collapsedChanged.connect(
         lambda c: btn.setText("Show rail" if c else "Hide rail")

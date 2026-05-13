@@ -83,8 +83,16 @@ class EmptyState(QWidget):
 
     def _refresh_glyph(self) -> None:
         dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
+        px = self._icon_px()
+        # Without an explicit fixed size, QLabel with a scaled-pixmap can
+        # report a sizeHint larger than the pixmap's logical pixels, which
+        # makes the next layout row (the text) overlap the picture above.
+        # Pin the label's footprint to the pixmap's logical size and turn
+        # off scaledContents so the pixmap renders 1:1.
+        self._glyph.setFixedSize(px, px)
+        self._glyph.setScaledContents(False)
         self._glyph.setPixmap(
-            icons.make_pixmap(self._icon_name, "text_faint", self._icon_px(), dpr or 1.0)
+            icons.make_pixmap(self._icon_name, "text_faint", px, dpr or 1.0)
         )
 
     def showEvent(self, event):  # noqa: N802
