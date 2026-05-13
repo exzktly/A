@@ -1,17 +1,19 @@
 # `SavedSelectionsList` composition extension — spec (Phase 6.5.12)
 
-> **Status:** approved 2026-05-12 (incl. the §5 "widget stays permissive" call);
-> **built** (code, not runtime-verified — `widgets/saved_selections_list.py` +
-> the gallery card + `__main__`; `py_compile` clean). Pending: your runtime QA
-> of the gallery card / `__main__`, then Phase 8.0 Stage C (view swap →
-> mutation flip → Stage D). The text below is the as-built spec; minor
-> as-built deviations are noted inline.
+> **Status: ✅ DONE — shipped & wired in.** Approved 2026-05-12 (incl. the §5
+> "widget stays permissive" call); built (`widgets/saved_selections_list.py` +
+> gallery card + `__main__`); and **now in use as the live Sample-Definitions
+> "GROUPS" panel** — Phase 8.0 Stage C swapped the panel onto this widget and
+> Stage D removed the legacy shadow (see `SELECTIONS_MIGRATION.md` §11/§12).
+> `py_compile` clean. The only thing still pending is the user's end-to-end
+> runtime QA on a real dataset (Phase 8.0 T6). The text below is the as-built
+> spec; minor as-built deviations are noted inline.
+>
 > The user reframed this as "the 6.5.10 widget round we missed"; numbered here
 > **6.5.12** to avoid clashing with the already-completed 6.5.10 (`PlotCard`
-> extension). It is the prerequisite that *unblocks* Phase 8.0 Stage C (swap the
+> extension). It was the prerequisite that unblocked Phase 8.0 Stage C (swap the
 > Sample-Definitions group/rep panels for `widgets.SavedSelectionsList`) and D
-> (delete the legacy shadow). Build order: this spec → your approval → build →
-> gallery QA → your runtime test → then Stage C/D.
+> (delete the legacy shadow).
 
 ## 0. Why
 
