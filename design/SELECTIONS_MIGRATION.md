@@ -687,8 +687,36 @@ from `selections_model` (now unused); then remove the no-op `@property` setters 
 nothing assigns the legacy attrs; finally (optional) rewrite the plot renderers to read
 `app._selections` directly and drop `selections_to_legacy` + the `@property`s entirely.
 
+### Stage D — clusters 2–4 — **done** (code, not runtime-verified)
+
+- **cluster 2** — removed `from_legacy_appstate` / `_reuse_ids` from `selections_model`
+  (the legacy→model derive path; no caller since the mutation flip).
+- **cluster 3** — `_rep_sets_loaded()` / `_rep_sets_active()` / `_groups_from_rep_sets()`
+  now iterate `app._selections` directly (one `ReplicateSet` per selection) instead of
+  going through the `_rep_sets` / `_bar_groups` `@property` → `selections_to_legacy`, so
+  the bar / line / scatter / stats renderers consume the unified model with no legacy
+  round-trip. *(One selection == one plotted trace — an old-style `bar_group`-source
+  selection now draws a single trace over its wells rather than one per replicate
+  sub-list. `selections_to_legacy` is still used by the `_rep_sets`/`_bar_groups`/…
+  `@property`s, which the batch-export panels + `stats_controller` still read.)*
+- **cluster 4** — deleted the dead "group definition" panel: `_build_group_def_panel` /
+  `_grp_panel_refresh` on `WellViewerApp`, `grouping_view.build_group_def_panel` /
+  `grp_panel_refresh`, the no-op `_grp_panel_refresh()` call in `_groups_centre_refresh`,
+  the dead `_grp_cards_frame` branch in `_on_theme_change`; `grouping_view` is now just
+  the `SavedSelectionsList` wiring.
+
+Still to do: the bar-group **sidebar** panel teardown (`views/bar_group_panel_view.py`,
+`_build_bar_group_panel` + the `centre_view` call, `_sidebar_groups_frame` (created
+hidden, never shown), the `_bg_*` rubber-band drag handlers + `_bar_map_btns`, the
+`_bar_*` mutators, the `_bar_rebuild_groups*` machinery wired into `_rebuild_all`,
+`grouping_controller.grp_*`/`bar_quick_groups`/`bg_on_well_change`,
+`selection_controller.sb_*`/`plate_drag_*`) — bigger and touches the live `_rebuild_all`
+path, so it's its own cluster. Then drop the no-op `@property` setters; optionally
+rewrite the batch-export panels off `_rep_sets`/`_bar_groups` and retire
+`selections_to_legacy` + the `@property`s entirely.
+
 (Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
-only when no bar groups, `solo → [[w]]` round-trip — still apply until Stage D.)
+only when no bar groups, `solo → [[w]]` round-trip — still apply until that's done.)
 
 ### Still to do
 - **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball
