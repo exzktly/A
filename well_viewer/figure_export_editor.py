@@ -90,18 +90,23 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
     target_idx = None if axis_target == "All" else int(axis_target)
 
     for idx, ax in enumerate(fig.axes, start=1):
+        # Theme-aware chrome: this function used to hardcode "black" everywhere
+        # (publication-ink), which was correct on export but overrode the
+        # PlotCard's screen-theme styling whenever it was called from a redraw.
+        from well_viewer.plot_style import tokens_for as _tokens_for_ax
+        _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(ax)
         ax.patch.set_alpha(1.0)
-        ax.xaxis.label.set_color("black")
-        ax.yaxis.label.set_color("black")
+        ax.xaxis.label.set_color(_muted_fg)
+        ax.yaxis.label.set_color(_muted_fg)
         ax.xaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
         ax.yaxis.label.set_fontsize(int(prefs.get("axis_label_size", 12)))
-        ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)), colors="black")
-        ax.tick_params(axis="y", labelsize=int(prefs.get("tick_label_size", 10)), colors="black")
+        ax.tick_params(axis="x", labelsize=int(prefs.get("tick_label_size", 10)), colors=_muted_fg)
+        ax.tick_params(axis="y", labelsize=int(prefs.get("tick_label_size", 10)), colors=_muted_fg)
         ax.title.set_fontsize(int(prefs.get("title_size", 14)))
-        ax.title.set_color("black")
+        ax.title.set_color(_title_fg)
 
         for tick in [*ax.get_xticklabels(), *ax.get_yticklabels()]:
-            tick.set_color("black")
+            tick.set_color(_muted_fg)
             tick.set_fontfamily("Helvetica")
             tick.set_fontsize(int(prefs.get("tick_label_size", 10)))
 
@@ -165,7 +170,7 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
                         pass
             for txt in leg.get_texts():
                 txt.set_fontsize(float(prefs.get("legend_font_size", 9)))
-                txt.set_color("black")
+                txt.set_color(_title_fg)
                 txt.set_fontfamily("Helvetica")
 
         fixed_pos = getattr(ax, "_fixed_axes_position", None)
@@ -237,13 +242,18 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
 
             if dock is not None and dock.layout() is not None:
                 dock.layout().addWidget(sb)
-                # The dock floats over the plot area now (a ``_PlotDockHost``
-                # child overlay) — register its width so the host can size and
-                # position it without ever resizing the plot canvas.
+                # Pin the dock container's width to the SAME constant the
+                # sidebar uses for its own setFixedWidth — ``sizeHint()``
+                # can lag the fixed-width on the first show (which left
+                # the container narrower than its child, clipping content
+                # against the window edge). Importing the constant here
+                # keeps the two sides in lock-step.
+                from well_viewer.views.export_style_sidebar_view import (
+                    EXPORT_STYLE_PANEL_WIDTH as _PANEL_W,
+                )
                 host = getattr(dock, "_dock_host", None)
                 if host is not None and hasattr(host, "set_overlay_dock"):
-                    width = sb.sizeHint().width() or 260
-                    host.set_overlay_dock(dock, width)
+                    host.set_overlay_dock(dock, _PANEL_W)
             elif canvas is not None:
                 canvas_parent = canvas.parentWidget()
                 if canvas_parent is not None:
@@ -252,13 +262,13 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
                         parent_layout.addWidget(sb)
 
         if dock is not None:
+            from well_viewer.views.export_style_sidebar_view import (
+                EXPORT_STYLE_PANEL_WIDTH as _PANEL_W,
+            )
             host = getattr(dock, "_dock_host", None)
             if host is not None and hasattr(host, "set_overlay_dock"):
-                host.set_overlay_dock(dock, sb.sizeHint().width() or 260)
+                host.set_overlay_dock(dock, _PANEL_W)
             dock.setVisible(True)
-            dock.raise_()  # float above the plot canvas
-            if host is not None and hasattr(host, "_reposition_overlay"):
-                host._reposition_overlay()
         sb.show()
         sb.raise_()
         # Apply the (already-persisted) prefs to the figure once. Use the

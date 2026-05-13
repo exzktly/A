@@ -38,7 +38,7 @@ def build_sidebar(app, parent: QWidget) -> None:
       - Group-mode hint label
     """
     from well_viewer.plate_layout import PLATE_ROWS as _PLATE_ROWS, PLATE_COLS as _PLATE_COLS
-    from well_viewer.views.well_button import build_plate_grid
+    from widgets.well_plate_selector import WellPlateSelector
 
     # Ensure parent has a vertical layout
     layout = parent.layout()
@@ -47,110 +47,62 @@ def build_sidebar(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-    # Plate map grid — padding is set uniformly inside build_plate_grid.
-    # The row letters / column numbers in the grid headers double as the
-    # row-or-column quick-select buttons via the ``on_row_click`` /
-    # ``on_col_click`` callbacks below.
-    map_outer = QWidget(parent)
-    layout.addWidget(map_outer)
+    # ── 8×12 well-plate selector (v2 widget) ──────────────────────────────
+    # Replaces the legacy WellButton grid for the line picker. Appearance and
+    # selection are driven from WellViewerApp._refresh_sidebar_map_now via the
+    # widget's setEnabledWells / setWellColors / setSelectionMode API; clicks /
+    # drags / headers come back through the signal connections below.
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)        # the rail keeps its own All / None below
+    plate.setEnabledWells([])             # nothing selectable until a dataset loads
+    # Fixed size + placement so the plate looks identical no matter which
+    # section is active (Sample Definitions has its own plate via
+    # build_replicate_panel and uses the same constraints).
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.MinimumExpanding)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
+    layout.addWidget(plate)
+    app._sidebar_plate = plate
+    app._sidebar_map_outer = plate
 
-    app._sidebar_btns = {}
-    app._sidebar_drag_adding = True
-    app._sidebar_drag_visited = set()
-    app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
-    app._bg_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
+    # Tokens-only stub: a {tok: None} dict that doubles as the "sidebar built"
+    # sentinel and the loaded-well token list for _refresh_sidebar_map and the
+    # rep-colour map. (set_state calls land on the None values and are skipped.)
+    app._sidebar_btns = {f"{r}{c}": None for r in _PLATE_ROWS for c in _PLATE_COLS}
 
-    def _on_row_click(row: str) -> None:
-        if _row_col_select_disabled(app):
-            return
-        app._select_row(row)
+    # Wire the plate to the app's selection / replicate-set / heat-map handlers.
+    plate.selectionChanged.connect(app._on_sidebar_plate_selection_changed)
+    plate.selectionDragFinished.connect(app._on_sidebar_plate_drag_finished)
+    plate.wellActivated.connect(app._on_sidebar_plate_well_activated)
+    plate.rowHeaderActivated.connect(app._on_sidebar_plate_row_activated)
+    plate.columnHeaderActivated.connect(app._on_sidebar_plate_col_activated)
+    plate.wellDropped.connect(app._on_sidebar_plate_well_dropped)
 
-    def _on_col_click(col: str) -> None:
-        if _row_col_select_disabled(app):
-            return
-        app._select_col(col)
+    # User request: All 96 / Invert / Clear quick-select buttons removed
+    # from the sidebar — row and column header clicks on the plate cover
+    # the multi-select cases; ⌘A / Clear are exposed elsewhere. Tip line
+    # below the buttons also removed (functionality is discoverable via
+    # the plate header hover state).
 
-    build_plate_grid(
-        map_outer,
-        app._sidebar_btns,
-        on_row_click=_on_row_click,
-        on_col_click=_on_col_click,
-    )
-    app._sidebar_map_outer = map_outer
-
-    def _tok_under_cursor(global_pos):
-        """Find which sidebar well-button contains ``global_pos``."""
-        for tok, btn in app._sidebar_btns.items():
-            try:
-                local = btn.mapFromGlobal(global_pos)
-                if btn.rect().contains(local):
-                    return tok
-            except Exception:
-                continue
-        return None
-
-    def _make_btn_handlers(tok, btn):
-        # Hold the WellButton's own mouse handlers so we can fall through
-        # to its built-in drag-source logic when the heat-map drag mode is
-        # active (set via ``btn.set_drag_mime(...)``). Without this fall-
-        # through, the selection handlers below would swallow the press
-        # before QDrag could start.
-        base_press = type(btn).mousePressEvent
-        base_move = type(btn).mouseMoveEvent
-        base_release = type(btn).mouseReleaseEvent
-
-        def _press(event):
-            if getattr(btn, "_drag_mime", None):
-                base_press(btn, event)
-                return
-            if event.button() != Qt.LeftButton:
-                return
-            pos = event.position().toPoint()
-            app._sb_press(_drag_info(tok, pos))
-
-        def _move(event):
-            if getattr(btn, "_drag_mime", None):
-                base_move(btn, event)
-                return
-            if not (event.buttons() & Qt.LeftButton):
-                return
-            global_pos = event.globalPosition().toPoint()
-            other_tok = _tok_under_cursor(global_pos)
-            if other_tok is None:
-                return
-            app._sb_drag(_drag_info(other_tok, event.position().toPoint()))
-
-        def _release(event):
-            if getattr(btn, "_drag_mime", None):
-                base_release(btn, event)
-                return
-            app._sb_release(None)
-
-        btn.setMouseTracking(True)
-        btn.mousePressEvent = _press
-        btn.mouseMoveEvent = _move
-        btn.mouseReleaseEvent = _release
-
-    for _tok, _btn in app._sidebar_btns.items():
-        _make_btn_handlers(_tok, _btn)
-
-    # All / None buttons
-    br = QWidget(parent)
-    br_l = QHBoxLayout(br)
-    br_l.setContentsMargins(6, 4, 6, 6)
-    br_l.setSpacing(3)
-    layout.addWidget(br)
-    app._sidebar_allnone_frame = br
-    for txt, cmd in (("All", app._select_all), ("None", app._select_none)):
-        b = QPushButton(txt, br)
-        b.setProperty("variant", "primary-dark")
-        b.clicked.connect(lambda _=False, c=cmd: c())
-        br_l.addWidget(b, 1)
-
-    # Selected well count label
+    # Selected-well count status text (legacy plain QLabel kept so existing
+    # call sites in runtime_app keep writing to it). The mockup's pill-shaped
+    # SelectionChip in the plate header (Phase 10 B6) wraps the same value
+    # via _sel_count_chip; both render concurrently — the chip in the
+    # header, the long-form caption below it.
+    from widgets.selection_chip import SelectionChip as _SelectionChip
     app._sel_count_lbl = QLabel("", parent)
-    app._sel_count_lbl.setObjectName("Muted")
-    layout.addWidget(app._sel_count_lbl)
+    app._sel_count_lbl.setObjectName("Caption")
+    chip_row = QWidget(parent)
+    chip_row_layout = QHBoxLayout(chip_row)
+    chip_row_layout.setContentsMargins(0, 0, 0, 0)
+    chip_row_layout.setSpacing(8)
+    chip_row_layout.addWidget(app._sel_count_lbl, 1)
+    app._sel_count_chip = _SelectionChip("0 / 96", icon="check", variant="accent",
+                                          parent=chip_row)
+    chip_row_layout.addWidget(app._sel_count_chip, 0)
+    layout.addWidget(chip_row)
 
     # Group-mode hint
     app._line_group_hint = QLabel("", parent)
@@ -165,6 +117,35 @@ def build_sidebar(app, parent: QWidget) -> None:
     )
     heatmap_frame = build_heatmap_layout_sidebar(app, parent)
     heatmap_frame.setVisible(False)
+
+    # ── Phase 13 B8: compact "Saved" list (mockup-decoded.html §2.5) ────
+    # Read-only mirror of app._selections; mounting it in the rail gives
+    # the user a glance at which selections / groups exist without having
+    # to jump to Sample Definitions. Compact mode hides drag-handle / eye /
+    # kebab — the editable variant lives in the centre Groups sub-tab.
+    from widgets.saved_selections_list import SavedSelectionsList
+    from widgets.selection_chip import SelectionChip
+    saved_head = QWidget(parent)
+    sh_l = QHBoxLayout(saved_head)
+    sh_l.setContentsMargins(8, 10, 8, 2)
+    saved_lbl = QLabel("SAVED", saved_head)
+    saved_lbl.setObjectName("Caption")
+    sh_l.addWidget(saved_lbl)
+    sh_l.addStretch(1)
+    app._sidebar_saved_count_chip = SelectionChip(
+        "0", variant="muted", parent=saved_head,
+    )
+    sh_l.addWidget(app._sidebar_saved_count_chip)
+    layout.addWidget(saved_head)
+
+    app._sidebar_saved_list = SavedSelectionsList(parent)
+    app._sidebar_saved_list.setCompact(True)
+    # Forward activation clicks to the same handler the centre uses, so
+    # clicking a row in the sidebar Saved list activates that selection.
+    app._sidebar_saved_list.entryActivated.connect(
+        lambda sid: app._sel_select(sid) if hasattr(app, "_sel_select") else None
+    )
+    layout.addWidget(app._sidebar_saved_list)
 
     # Absorb leftover vertical space so the well picker stays pinned to the
     # top of the sidebar even when the sidebar is taller than its contents.

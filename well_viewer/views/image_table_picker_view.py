@@ -1,25 +1,19 @@
 """Image Table tab — sidebar plate-map picker (Qt port).
 
-Multi-select well picker that explicitly ignores replicate sets and bar
-groups. State is held in ``app._image_table_active_wells`` (a ``set`` of
-well tokens). Wells render in three states:
-
-- ``empty``      — token not present in ``app._well_paths``
-- ``available``  — loaded but not currently selected
-- ``selected``   — present in ``_image_table_active_wells``
+A multi-select well picker (a ``widgets.WellPlateSelector`` in "select" mode)
+that explicitly ignores replicate sets / groups. State is held in
+``app._image_table_active_wells`` (a ``set`` of well tokens).
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 
 def build_image_table_picker(app, parent: QWidget) -> None:
     """Compact plate-map picker for the Image Table tab sidebar."""
-    from well_viewer.views.well_button import build_plate_grid
+    from widgets.well_plate_selector import WellPlateSelector
 
     layout = parent.layout()
     if layout is None:
@@ -28,34 +22,22 @@ def build_image_table_picker(app, parent: QWidget) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(2)
 
-    map_f = QWidget(parent)
-    layout.addWidget(map_f)
-    app._sidebar_image_table_btns = {}
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)          # the rail keeps its own All / Clear below
+    plate.setSelectionMode("select")
+    plate.setDragSelectEnabled(True)
+    plate.setRowColumnSelectable(True)
+    plate.setEnabledWells([])               # nothing selectable until a dataset loads
+    layout.addWidget(plate)
+    app._sidebar_image_table_plate = plate
 
-    def _toggle_active(wells: list[str]) -> None:
-        wells = [w for w in wells if w in app._well_paths]
-        if not wells:
+    def _on_plate_changed(ids) -> None:
+        new = {w for w in ids if w in app._well_paths}
+        if new == app._image_table_active_wells:
             return
-        active = app._image_table_active_wells
-        if any(w not in active for w in wells):
-            active.update(wells)
-        else:
-            active.difference_update(wells)
+        app._image_table_active_wells = new
         app._image_table_refresh_picker()
-
-    def _on_row_click(row: str) -> None:
-        _toggle_active([w for w in app._well_paths if app._parse_rc(w)[0] == row])
-
-    def _on_col_click(col: str) -> None:
-        _toggle_active([w for w in app._well_paths if app._parse_rc(w)[1] == col])
-
-    build_plate_grid(
-        map_f,
-        app._sidebar_image_table_btns,
-        on_click=lambda t: app._image_table_pick_well(t),
-        on_row_click=_on_row_click,
-        on_col_click=_on_col_click,
-    )
+    plate.selectionChanged.connect(_on_plate_changed)
 
     btn_row = QWidget(parent)
     bl = QHBoxLayout(btn_row)
@@ -88,3 +70,5 @@ def build_image_table_picker(app, parent: QWidget) -> None:
     help_lbl.setObjectName("Muted")
     help_lbl.setWordWrap(True)
     layout.addWidget(help_lbl)
+
+    app._image_table_refresh_picker()

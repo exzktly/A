@@ -115,7 +115,7 @@ def collect_scatter_data(
         )
         for group_idx, rset in enumerate(active_rsets):
             group_name = rset.name
-            color = well_colors[group_idx % len(well_colors)]
+            color = app._rank_color_rset(rset)  # decision #1: colour by well-position rank
             xs: List[np.ndarray] = []
             ys: List[np.ndarray] = []
             metadata: List[Tuple[str, str, str, int]] = []
@@ -146,7 +146,7 @@ def collect_scatter_data(
             key=lambda x: x,
         )
         for well_idx, well_label in enumerate(selected_wells):
-            color = well_colors[well_idx % len(well_colors)]
+            color = app._rank_color_well(well_label)  # decision #1: colour by well-position rank
             got = _collect_well(well_label)
             if got is None:
                 continue

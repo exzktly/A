@@ -48,12 +48,7 @@ def redraw_line_plots(
     apply_ax_style,
     all_fluor_values,
     all_fluor_values_filtered,
-    plot_bg: str,
-    plot_spn: str,
-    txt_pri: str,
-    txt_mut: str,
     warn: str,
-    well_colors: list[str],
     metric_label: str = "Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
@@ -64,7 +59,11 @@ def redraw_line_plots(
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
-    legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=plot_bg, edgecolor=plot_spn, labelcolor=txt_pri)
+    # Theme-aware chrome colors (track the active PlotCard's Publication/Screen
+    # state) — the renderer's *trace* colours stay rank-based.
+    from well_viewer.plot_style import tokens_for as _tokens_for_ax
+    _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(app._line_ax_mean)
+    legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=_bg, edgecolor=_spine, labelcolor=_title_fg)
 
     _ch = app._active_channel.upper()
     apply_ax_style(app._line_ax_mean, f"Mean {_ch} {metric_label} (above threshold) ± {band_lbl}", f"Mean {metric_label}")
@@ -80,7 +79,7 @@ def redraw_line_plots(
     if not selected and not active_rsets:
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
             ax.set_title("")
-            ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
+            ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
             ax.set_axis_off()
         app._line_canvas.draw_idle()
         app._set_status("No wells selected.")
@@ -89,20 +88,15 @@ def redraw_line_plots(
     any_ts = any_cdf = False
     rep_per_fov = app._use_fov_spread_active() if active_rsets else False
     if active_rsets:
-        all_rsets = list(getattr(app, "_rep_sets", []))
         ordered_rsets = _apply_order(
             active_rsets,
             list(getattr(app, "_line_order_rsets", []) or []),
             key=lambda r: getattr(r, "name", ""),
         )
         for idx, rset in enumerate(ordered_rsets):
-            # Keep line-plot colors aligned with the sidebar well-picker colors:
-            # color index must come from the full replicate-set list, not the
-            # visible subset order.
-            set_idx = next((si for si, rs in enumerate(all_rsets) if rs is rset), None)
-            if set_idx is None:
-                set_idx = next((si for si, rs in enumerate(all_rsets) if getattr(rs, "name", None) == rset.name), idx)
-            color = well_colors[set_idx % len(well_colors)]
+            # decision #1: line-plot trace colour = the rep-set's well-position
+            # rank colour, so it matches the sidebar plate and the bar plot.
+            color = app._rank_color_rset(rset)
             valid_wells = [w for w in rset.wells if w in app._well_paths]
             all_tps: set = set()
             all_fluor_vals_rset = []
@@ -150,7 +144,7 @@ def redraw_line_plots(
             key=lambda x: x,
         )
         for i, label in enumerate(ordered_selected):
-            color = well_colors[i % len(well_colors)]
+            color = app._rank_color_well(label)  # decision #1: colour by well-position rank
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
             pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
@@ -174,7 +168,6 @@ def redraw_line_plots(
                 any_cdf = True
 
     if any_ts:
-        app._line_ax_mean.axhline(threshold, color=warn, lw=1.0, ls="--", alpha=0.8, zorder=1)
         leg_mean = app._line_ax_mean.legend(**legend_kw)
         leg_frac = app._line_ax_frac.legend(**legend_kw)
         leg_mean.set_draggable(True)
@@ -199,7 +192,7 @@ def redraw_line_plots(
         leg_cdf.set_visible(app._legend_visible["cdf"])
         app._line_ax_cdf.set_xlim(cdf_lo, cdf_hi)
     else:
-        app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
+        app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
 
     if active_rsets:
         n_wells = sum(sum(1 for w in r.wells if w in app._well_paths) for r in active_rsets)

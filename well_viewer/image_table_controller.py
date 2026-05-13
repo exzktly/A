@@ -32,11 +32,15 @@ from PySide6.QtWidgets import (
 # [0, 1]; ``Gray`` uses ``None`` so make_fluor_thumb takes its untinted
 # fast path.
 LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
-    "Gray":   None,
-    "Red":    (1.0, 0.0, 0.0),
-    "Green":  (0.0, 1.0, 0.0),
-    "Blue":   (0.0, 0.0, 1.0),
-    "Violet": (0.56, 0.0, 1.0),
+    # Keys are mpl colormap names so the v2 LutSelector (which renders a real
+    # gradient strip) can drive the picker. The value is the single (r,g,b)
+    # tint applied to the grayscale fluorescence image for thumbnails; the
+    # exported figure still uses a real cmap via _row_export_cmap.
+    "gray":    None,
+    "Reds":    (1.0, 0.0, 0.0),
+    "Greens":  (0.0, 1.0, 0.0),
+    "Blues":   (0.0, 0.0, 1.0),
+    "Purples": (0.56, 0.0, 1.0),
 }
 LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
 
@@ -54,30 +58,16 @@ NUC_SEG_TOKEN = "NUC+SEG"
 # ── Sidebar picker ───────────────────────────────────────────────────────────
 
 
-def image_table_pick_well(app, tok: str) -> None:
-    """Toggle a well in the active set (sidebar click handler)."""
-    if tok not in app._well_paths:
-        return
-    if tok in app._image_table_active_wells:
-        app._image_table_active_wells.discard(tok)
-    else:
-        app._image_table_active_wells.add(tok)
-    image_table_refresh_picker(app)
-
-
 def image_table_refresh_picker(app) -> None:
-    """Repaint the sidebar plate map and update the count label."""
-    btns = getattr(app, "_sidebar_image_table_btns", None) or {}
-    for tok, btn in btns.items():
-        if tok not in app._well_paths:
-            btn.setEnabled(False)
-            btn.set_state("empty")
-        elif tok in app._image_table_active_wells:
-            btn.setEnabled(True)
-            btn.set_state("selected")
-        else:
-            btn.setEnabled(True)
-            btn.set_state("available")
+    """Push the active-well set onto the sidebar plate and update the count label."""
+    plate = getattr(app, "_sidebar_image_table_plate", None)
+    if plate is not None:
+        plate.setEnabledWells(list(app._well_paths.keys()))
+        active = sorted(
+            (w for w in app._image_table_active_wells if w in app._well_paths),
+            key=app._parse_rc,
+        )
+        plate.setSelectedWellIds(active)
     lbl = getattr(app, "_image_table_count_lbl", None)
     if lbl is not None:
         n = len(app._image_table_active_wells)
@@ -358,7 +348,13 @@ def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
     cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
     if not (0 <= r < len(cbs)):
         return None
-    name = cbs[r].currentText().strip()
+    cb = cbs[r]
+    # v2 LutSelector exposes .lut(); fall back to currentText for the
+    # legacy QComboBox path.
+    if hasattr(cb, "lut"):
+        name = (cb.lut() or "").strip()
+    else:
+        name = cb.currentText().strip()
     return LUT_COLORS.get(name)
 
 
@@ -1016,6 +1012,11 @@ def image_table_generate(app) -> None:
     if not cells:
         app._set_status("Image Table: build a grid first (set rows/cols and click Apply).")
         return
+
+    # Once the user has triggered a Generate, hide the EmptyState placeholder.
+    empty = getattr(app, "_image_table_empty_state", None)
+    if empty is not None:
+        empty.setVisible(False)
 
     cache: Dict[Tuple[str, str, str], Dict] = {}
     rendered: Dict[Tuple[int, int], Any] = {}

@@ -1,8 +1,7 @@
-"""Scatter Plot: Aggregate tab builder (Qt port)."""
+"""Scatter Plot: Aggregate tab builder (Qt port) — single scatter in a v2 PlotCard."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout,
@@ -10,13 +9,12 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, make_plot_with_right_dock,
-)
+    btn_primary, make_band_controls, make_plot_with_right_dock, make_plot_view_switcher)
 
 
 def build_scatter_agg_tab(app, parent: QWidget) -> None:
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
+    from widgets.plot_card import PlotCard
+
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -34,54 +32,53 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     cl.addWidget(QLabel("X-axis:", ctrl))
     app._scatter_agg_stat_x_cb = QComboBox(ctrl)
     app._scatter_agg_stat_x_cb.addItems(["Mean Fluorescence"])
-    app._scatter_agg_stat_x_cb.currentIndexChanged.connect(
-        lambda _i: app._redraw_scatter_agg()
-    )
+    app._scatter_agg_stat_x_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter_agg())
     cl.addWidget(app._scatter_agg_stat_x_cb)
     app._scatter_agg_stat_x_var = app._scatter_agg_stat_x_cb
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
     app._scatter_agg_stat_y_cb = QComboBox(ctrl)
     app._scatter_agg_stat_y_cb.addItems(["Fraction On"])
-    app._scatter_agg_stat_y_cb.currentIndexChanged.connect(
-        lambda _i: app._redraw_scatter_agg()
-    )
+    app._scatter_agg_stat_y_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter_agg())
     cl.addWidget(app._scatter_agg_stat_y_cb)
     app._scatter_agg_stat_y_var = app._scatter_agg_stat_y_cb
 
     cl.addWidget(QLabel("Timepoints:", ctrl))
-
     app._scatter_agg_tp_button = QPushButton("Select Timepoints", ctrl)
     app._scatter_agg_tp_button.setProperty("variant", "secondary")
-    app._scatter_agg_tp_button.clicked.connect(
-        lambda _=False: _open_timepoint_selector(app)
-    )
+    app._scatter_agg_tp_button.clicked.connect(lambda _=False: _open_timepoint_selector(app))
     cl.addWidget(app._scatter_agg_tp_button)
-
     app._scatter_agg_tp_label = QLabel("(0 selected)", ctrl)
     app._scatter_agg_tp_label.setObjectName("Muted")
     cl.addWidget(app._scatter_agg_tp_label)
-
     app._scatter_agg_tp_selections = {}
 
     cl.addStretch(1)
 
-    style_btn = QPushButton("▸", ctrl)
-    style_btn.setProperty("variant", "secondary")
+    from widgets.icon_button import IconButton as _IconButton
+    style_btn = _IconButton("sliders", ctrl)
+    style_btn.setToolTip("Open export style panel for scatter (aggregate)")
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("scatter_agg"))
     cl.addWidget(style_btn)
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_agg_data))
     layout.addWidget(ctrl)
 
-    app._scatter_agg_fig = Figure(figsize=(8, 6), dpi=100)
+    card = PlotCard(parent, figsize=(8, 6), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Scatter Plot')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
+    card.setFigureTitle("")
+    app._scatter_agg_card = card
+    app._scatter_agg_fig = card.figure
     app._ax_scatter_agg = app._scatter_agg_fig.add_subplot(1, 1, 1)
-    app._scatter_agg_fig.subplots_adjust(
-        hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97,
-    )
-
-    app._scatter_agg_canvas = FigureCanvas(app._scatter_agg_fig)
-    layout.addWidget(app._scatter_agg_canvas, 1)
-    attach_plot_toolbar(layout, app._scatter_agg_canvas, parent, app)
+    app._scatter_agg_fig.subplots_adjust(hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97)
+    app._scatter_agg_canvas = card.canvas
+    card.setControlsWidget(make_band_controls(app, card, with_fov=False))
+    card.plotThemeChanged.connect(lambda _m: app._redraw_scatter_agg())
+    card.setStatsChipVisible(False)
+    layout.addWidget(card, 1)
 
 
 def _open_timepoint_selector(app) -> None:
@@ -122,7 +119,6 @@ def _open_timepoint_selector(app) -> None:
     all_action = QAction("All", menu)
     all_action.triggered.connect(lambda _=False: _set_all(True))
     menu.addAction(all_action)
-
     none_action = QAction("None", menu)
     none_action.triggered.connect(lambda _=False: _set_all(False))
     menu.addAction(none_action)

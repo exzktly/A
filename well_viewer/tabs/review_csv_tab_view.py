@@ -52,6 +52,10 @@ def build_review_csv_tab(app, parent: QWidget) -> None:
 
     app._review_csv_table = QTableWidget(0, 0, parent)
     app._review_csv_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+    app._review_csv_table.horizontalHeader().setHighlightSections(False)
+    app._review_csv_table.verticalHeader().setVisible(False)
+    app._review_csv_table.setAlternatingRowColors(True)
+    app._review_csv_table.setShowGrid(False)
     app._review_csv_table.setSelectionBehavior(QTableWidget.SelectRows)
     app._review_csv_table.setEditTriggers(QTableWidget.NoEditTriggers)
     app._review_csv_table.itemDoubleClicked.connect(

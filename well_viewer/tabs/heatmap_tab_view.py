@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
     QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import attach_plot_toolbar, btn_primary, make_plot_with_right_dock
+from well_viewer.ui_helpers import (
+    btn_primary, make_band_controls, make_plot_view_switcher, make_plot_with_right_dock,
+)
 
 
 _CMAP_OPTIONS = ["viridis", "magma", "coolwarm", "RdYlBu_r", "Greys"]
@@ -26,8 +28,6 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     # builds. heatmap_controller pulls in matplotlib.patches and numpy at
     # module load, so importing it lazily keeps utility entry points like
     # ``refresh_heatmap_timepoints`` cheap.
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
     from well_viewer.heatmap_controller import METRIC_OPTIONS
     layout = parent.layout()
     if layout is None:
@@ -82,9 +82,17 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl2.setContentsMargins(10, 0, 10, 6)
 
     cl2.addWidget(QLabel("Color map:", ctrl2))
-    app._heatmap_cmap_cb = QComboBox(ctrl2)
-    app._heatmap_cmap_cb.addItems(_CMAP_OPTIONS)
-    app._heatmap_cmap_cb.currentIndexChanged.connect(lambda _i: _on_cmap_changed(app))
+    # v2: LutSelector (gradient strip + name + searchable popover + reverse-LUT
+    # button) in place of the legacy QComboBox of mpl colormap names.
+    from widgets.lut_selector import LutSelector
+    app._heatmap_cmap_cb = LutSelector(ctrl2)
+    # Seed with the first option (matches the legacy default).
+    _initial_cmap = _CMAP_OPTIONS[0] if _CMAP_OPTIONS else "viridis"
+    _initial_rev = _initial_cmap.endswith("_r")
+    app._heatmap_cmap_cb.setLut(_initial_cmap[:-2] if _initial_rev else _initial_cmap,
+                                reversed=_initial_rev)
+    app._heatmap_cmap_cb.setMaximumWidth(220)
+    app._heatmap_cmap_cb.lutChanged.connect(lambda *_a: _on_cmap_changed(app))
     cl2.addWidget(app._heatmap_cmap_cb)
 
     cl2.addWidget(QLabel("Scale:", ctrl2))
@@ -143,7 +151,8 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     sl = QHBoxLayout(slider_row)
     sl.setContentsMargins(10, 4, 10, 6)
     sl.addWidget(QLabel("t (h):", slider_row))
-    app._heatmap_tp_slider = QSlider(Qt.Horizontal, slider_row)
+    from widgets.styled_slider import StyledSlider as _StyledSlider
+    app._heatmap_tp_slider = _StyledSlider(Qt.Horizontal, slider_row)
     app._heatmap_tp_slider.setMinimum(0)
     app._heatmap_tp_slider.setMaximum(0)
     app._heatmap_tp_slider.valueChanged.connect(lambda _v: _on_tp_changed(app))
@@ -158,8 +167,17 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     sep.setFixedHeight(1)
     layout.addWidget(sep)
 
-    # ── Figure ──────────────────────────────────────────────────────────────
-    app._heatmap_fig = Figure(figsize=(8.0, 6.0), dpi=100)
+    # ── Figure (in a v2 PlotCard — card chrome + MplToolbar) ────────────────
+    from widgets.plot_card import PlotCard
+    card = PlotCard(parent, figsize=(8.0, 6.0), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Heat Map')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
+    card.setFigureTitle("")
+    app._heatmap_card = card
+    app._heatmap_fig = card.figure
     app._heatmap_ax = app._heatmap_fig.add_subplot(1, 1, 1)
     # Reserve a persistent colorbar axes via make_axes_locatable so each
     # redraw can refill it in place. Letting fig.colorbar(im, ax=ax)
@@ -169,10 +187,14 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     divider = make_axes_locatable(app._heatmap_ax)
     app._heatmap_cax = divider.append_axes("right", size="4%", pad=0.08)
-    app._heatmap_canvas = FigureCanvas(app._heatmap_fig)
-    layout.addWidget(app._heatmap_canvas, 1)
-
-    attach_plot_toolbar(layout, app._heatmap_canvas, parent, app, with_fov=False)
+    app._heatmap_canvas = card.canvas
+    card.setControlsWidget(make_band_controls(app, card, with_fov=False))
+    # NOTE: don't trigger a redraw on theme change — heatmap_controller doesn't
+    # use plot_style.apply_ax_style (it has its own inline ax styling), so a
+    # redraw would wipe the widget-side theme styling that setPlotTheme already
+    # applied. Let PlotCard.setPlotTheme's apply_axes_style walk stand.
+    card.setStatsChipVisible(False)
+    layout.addWidget(card, 1)
 
     # ── Mouse hooks ─────────────────────────────────────────────────────────
     # Unified press handler: label-drag first, then double-click rename, then
@@ -314,7 +336,13 @@ def _on_log_scale_changed(app) -> None:
 def _on_cmap_changed(app) -> None:
     cb = getattr(app, "_heatmap_cmap_cb", None)
     if cb is not None:
-        app._heatmap_cmap_name = str(cb.currentText() or "")
+        if hasattr(cb, "lut"):
+            name = cb.lut() or ""
+            if hasattr(cb, "isReversed") and cb.isReversed():
+                name = f"{name}_r"
+        else:
+            name = str(cb.currentText() or "")
+        app._heatmap_cmap_name = name
     _persist_settings(app)
     _redraw(app)
 

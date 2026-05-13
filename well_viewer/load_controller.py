@@ -100,11 +100,9 @@ def load_directory(app, d: Path, label=None) -> None:
             pass
     app._refresh_sidebar_map()
     app._bar_groups_prune()
-    if hasattr(app, "_bar_map_btns"):
-        app._bar_refresh_map()
     if app._preview_selected_well not in app._well_paths:
         app._preview_selected_well = None
-    if hasattr(app, "_sidebar_preview_btns"):
+    if hasattr(app, "_sidebar_preview_plate"):
         app._refresh_preview_picker()
     if hasattr(app, "_image_table_refresh_picker"):
         try:

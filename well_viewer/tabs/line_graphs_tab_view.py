@@ -1,4 +1,4 @@
-"""Line Graphs tab builder (Qt port)."""
+"""Line Graphs tab builder (Qt port) — the 3-stacked-subplot figure in a v2 PlotCard."""
 
 from __future__ import annotations
 
@@ -8,15 +8,16 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, btn_secondary, install_canvas_wheel_scroll, make_plot_with_right_dock,
-)
+    btn_primary, install_canvas_wheel_scroll, make_band_controls,
+    make_plot_with_right_dock, make_plot_view_switcher)
+
+# The Line Graphs figure: three stacked subplots (mean / fraction / CDF).
+_FIG_W, _FIG_H, _DPI = 7.2, 10.5, 100
 
 
 def build_line_graphs_tab(app, parent: QWidget) -> None:
-    # Defer matplotlib + QtAgg backend imports until the tab is actually
-    # built so unrelated importers of this module don't pay the cost.
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
+    from widgets.plot_card import PlotCard
+
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -26,6 +27,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     plot_area, layout, app._line_export_dock = make_plot_with_right_dock(parent)
     parent = plot_area
 
+    # ── controls row above the card (Channel / Metric / style / Export CSV) ──
     line_ctrl = QWidget(parent)
     line_ctrl.setObjectName("TabCtrl")
     cl = QHBoxLayout(line_ctrl)
@@ -48,9 +50,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     mfl.addWidget(QLabel("Metric:", app._metric_selector_frame))
     app._metric_cb = QComboBox(app._metric_selector_frame)
     app._metric_cb.addItems(["Mean Intensity", "smFISH Count"])
-    app._metric_cb.currentIndexChanged.connect(
-        lambda _i: app._on_metric_selected()
-    )
+    app._metric_cb.currentIndexChanged.connect(lambda _i: app._on_metric_selected())
     mfl.addWidget(app._metric_cb)
     app._metric_var = app._metric_cb
     cl.addWidget(app._metric_selector_frame)
@@ -65,28 +65,44 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data))
     layout.addWidget(line_ctrl)
 
-    app._line_fig = Figure(figsize=(7.2, 10.5), dpi=100)
+    # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
+    card = PlotCard(parent, figsize=(_FIG_W, _FIG_H), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Line Graphs')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
+    card.setFigureTitle("")          # the tab name is the title; keep the header lean
+    app._line_card = card
+    app._line_fig = card.figure
     app._line_ax_mean = app._line_fig.add_subplot(3, 1, 1)
     app._line_ax_frac = app._line_fig.add_subplot(3, 1, 2, sharex=app._line_ax_mean)
     app._line_ax_cdf = app._line_fig.add_subplot(3, 1, 3)
     app._line_fig.subplots_adjust(
         hspace=0.62, top=0.96, bottom=0.08, left=0.13, right=0.97,
     )
+    app._line_canvas = card.canvas
+    app._line_canvas.setMinimumHeight(int(_FIG_H * _DPI))
+    card.setMinimumHeight(int(_FIG_H * _DPI) + 110)   # + header / controls / toolbar rows
 
-    app._line_canvas = FigureCanvas(app._line_fig)
-    app._line_canvas.setMinimumHeight(
-        int(app._line_fig.get_figheight() * app._line_fig.get_dpi())
-    )
+    # The "Error Band: SEM/SD" + "Spread: FOV" toggles (formerly on the legacy
+    # plot toolbar) → the card's controls row beneath the header.
+    card.setControlsWidget(make_band_controls(app, card, with_fov=True))
+
+    # The Publication↔Screen toggle is wired through plot_style.apply_ax_style
+    # (it consults card.plotTheme() via ax.figure._plot_card). The stats chip is
+    # left hidden — its statsChanged signal isn't wired to app state yet (the
+    # error band lives on the controls row above; Mean/Median is unsupported).
+    card.plotThemeChanged.connect(lambda _m: app._redraw())
+    card.setStatsChipVisible(False)
 
     app._line_scroll_canvas = QScrollArea(parent)
     app._line_scroll_canvas.setWidgetResizable(True)
     app._line_scroll_canvas.setFrameShape(QFrame.NoFrame)
-    app._line_scroll_canvas.setWidget(app._line_canvas)
+    app._line_scroll_canvas.setWidget(card)
     install_canvas_wheel_scroll(app._line_canvas, app._line_scroll_canvas)
     layout.addWidget(app._line_scroll_canvas, 1)
 
-    attach_plot_toolbar(layout, app._line_canvas, parent, app, with_fov=True)
-
+    # Right-click an axes → toggle its legend. (The old left-click-drag-to-set
+    # threshold on the CDF was removed — the threshold lives on the Cell Gating tab.)
     app._line_canvas.mpl_connect("button_press_event", app._on_fig_click)
-    app._line_canvas.mpl_connect("motion_notify_event", app._on_cdf_motion)
-    app._line_canvas.mpl_connect("button_release_event", app._on_cdf_release)

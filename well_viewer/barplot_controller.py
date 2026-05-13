@@ -86,7 +86,7 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
         items: list = []
         per_fov_spread = app._use_fov_spread_active()
         for idx, rset in enumerate(active_rsets):
-            color = well_colors[idx % len(well_colors)]
+            color = app._rank_color_rset(rset)  # decision #1: colour by well-position rank
             label = app._replicate_display_label(rset)
             if per_fov_spread:
                 # Pool every FOV across all wells in the rep set; SD/SEM is
@@ -280,7 +280,6 @@ def render_bar_items(
                 else:
                     ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 
-    ax_mean.axhline(threshold, color=warn_color, lw=1.0, ls="--", alpha=0.7, zorder=1, label=f"threshold={threshold:.2f}")
     ax_frac.axhline(0.5, color=border_color, lw=0.8, ls="--", alpha=0.5, zorder=1)
     # Add threshold context label to fraction axis
     ax_frac.text(0.02, 0.98, f"threshold={threshold:.2f}", transform=ax_frac.transAxes,

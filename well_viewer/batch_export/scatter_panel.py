@@ -7,6 +7,7 @@ import csv
 import json
 import math
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -263,17 +264,38 @@ class ScatterBatchExportPanel(BatchExportPanel):
             status_text=f"Scatter batch export ({self._scatter_mode}): {len(jobs)} group(s) \u2192 {out_dir}",
         )
 
+    @contextmanager
+    def _app_group_scope(self, grp: "BarGroup"):
+        """Temporarily make the app's selection state describe just *grp*: one
+        selection per replicate-set member, plus the group's solo wells as the
+        per-well selection. The scatter_controller collectors read
+        ``app._rep_sets_active()`` / ``app._selected_wells`` (both derived from
+        ``app._selections``), so we swap ``_selections`` for the duration."""
+        from well_viewer.selections_model import make_selection
+        app = self._app
+        saved = (app._selections, app._current_selection_id, app._selected_wells)
+        try:
+            used_names: set = set()
+            used_ids: set = set()
+            app._selections = [
+                make_selection(name=m.name, wells=list(m.wells), source="rep_set",
+                               used_names=used_names, used_ids=used_ids,
+                               fallback_color_idx=i)
+                for i, m in enumerate(grp.members)
+            ]
+            app._current_selection_id = None
+            app._selected_wells = set(grp.solo_wells)
+            yield
+        finally:
+            (app._selections, app._current_selection_id, app._selected_wells) = saved
+
     def _run_scatter_cells_job(
         self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
         from well_viewer.scatter_controller import collect_scatter_data as _collect_scatter_data
         col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
         col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
-        old_rep_sets = self._app._rep_sets
-        old_selected = self._app._selected_wells
-        try:
-            self._app._rep_sets = list(grp.members)
-            self._app._selected_wells = set(grp.solo_wells)
+        with self._app_group_scope(grp):
             ch_x_base = self._sc_cells_x_cb.currentText().split(" ")[0]
             ch_y_base = self._sc_cells_y_cb.currentText().split(" ")[0]
             scatter_data = _collect_scatter_data(
@@ -283,9 +305,6 @@ class ScatterBatchExportPanel(BatchExportPanel):
                 fluor_gate_x=self._app._get_fluor_gate(ch_x_base),
                 fluor_gate_y=self._app._get_fluor_gate(ch_y_base),
             )
-        finally:
-            self._app._rep_sets = old_rep_sets
-            self._app._selected_wells = old_selected
         if not scatter_data:
             return f"{grp.name}: no scatter-cells data at t={tp_h:.1f}h"
         try:
@@ -331,18 +350,11 @@ class ScatterBatchExportPanel(BatchExportPanel):
         from well_viewer.scatter_controller import collect_scatter_agg_data as _collect_scatter_agg_data
         stat_x = self._sc_agg_x_cb.currentText()
         stat_y = self._sc_agg_y_cb.currentText()
-        old_rep_sets = self._app._rep_sets
-        old_selected = self._app._selected_wells
-        try:
-            self._app._rep_sets = list(grp.members)
-            self._app._selected_wells = set(grp.solo_wells)
+        with self._app_group_scope(grp):
             scatter_data = _collect_scatter_agg_data(
                 self._app, stat_x, stat_y, [tp_h],
                 well_colors=WELL_COLORS,
             )
-        finally:
-            self._app._rep_sets = old_rep_sets
-            self._app._selected_wells = old_selected
         if not scatter_data:
             return f"{grp.name}: no scatter-aggregate data at t={tp_h:.1f}h"
         try:
@@ -404,11 +416,7 @@ class ScatterBatchExportPanel(BatchExportPanel):
         for tp_h in sorted(timepoints):
             col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
             col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
-            old_rep_sets = self._app._rep_sets
-            old_selected = self._app._selected_wells
-            try:
-                self._app._rep_sets = list(grp.members)
-                self._app._selected_wells = set(grp.solo_wells)
+            with self._app_group_scope(grp):
                 ch_x_base = self._sc_cells_x_cb.currentText().split(" ")[0]
                 ch_y_base = self._sc_cells_y_cb.currentText().split(" ")[0]
                 scatter_data = _collect_scatter_data(
@@ -418,9 +426,6 @@ class ScatterBatchExportPanel(BatchExportPanel):
                     fluor_gate_x=self._app._get_fluor_gate(ch_x_base),
                     fluor_gate_y=self._app._get_fluor_gate(ch_y_base),
                 )
-            finally:
-                self._app._rep_sets = old_rep_sets
-                self._app._selected_wells = old_selected
             from well_viewer.export_service import _well_labels_map, well_name_for
             _well_labels = _well_labels_map(self._app)
             for label, data in scatter_data.items():
@@ -470,18 +475,11 @@ class ScatterBatchExportPanel(BatchExportPanel):
         from well_viewer.scatter_controller import collect_scatter_agg_data as _collect_scatter_agg_data
         stat_x = self._sc_agg_x_cb.currentText()
         stat_y = self._sc_agg_y_cb.currentText()
-        old_rep_sets = self._app._rep_sets
-        old_selected = self._app._selected_wells
-        try:
-            self._app._rep_sets = list(grp.members)
-            self._app._selected_wells = set(grp.solo_wells)
+        with self._app_group_scope(grp):
             scatter_data = _collect_scatter_agg_data(
                 self._app, stat_x, stat_y, sorted(timepoints),
                 well_colors=WELL_COLORS,
             )
-        finally:
-            self._app._rep_sets = old_rep_sets
-            self._app._selected_wells = old_selected
         if not scatter_data:
             return f"{grp.name}: no scatter-aggregate data for selected timepoints"
         try:
