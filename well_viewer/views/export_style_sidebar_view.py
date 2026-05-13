@@ -107,9 +107,8 @@ class ExportStyleSidebar(QWidget):
         title.setObjectName("Heading")
         hl.addWidget(title)
         hl.addStretch(1)
-        close_btn = QPushButton("‹", hdr)
-        close_btn.setObjectName("Ghost")
-        close_btn.setFixedWidth(28)
+        from widgets.icon_button import IconButton as _IconButton
+        close_btn = _IconButton("x", hdr)
         close_btn.setToolTip("Hide this panel")
         close_btn.clicked.connect(lambda _=False: self._close_dock())
         hl.addWidget(close_btn)

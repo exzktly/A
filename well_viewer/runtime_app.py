@@ -5652,8 +5652,13 @@ class WellViewerApp(QWidget):
         _plot_save_bar_figure_orchestrator(self, plot_bg=PLOT_BG)
 
     def _open_export_style_panel(self, plot_key: str) -> None:
-        """Open the reusable export-style sidebar for a specific plot."""
-        from well_viewer.figure_export_editor import launch_export_editor
+        """Toggle the reusable export-style sidebar for a specific plot.
+
+        Clicking the trigger again while the panel is open hides it, so the
+        user can dismiss the sidebar from the same affordance that opened it
+        (the in-panel close-‹ button used to be the only escape hatch).
+        """
+        from well_viewer.figure_export_editor import launch_export_editor, _resolve_export_dock
 
         mapping = {
             "line": (getattr(self, "_line_fig", None), getattr(self, "_line_canvas", None), "line_graphs.png"),
@@ -5667,6 +5672,16 @@ class WellViewerApp(QWidget):
         if fig is None:
             self._set_status("Export style panel unavailable for this figure.")
             return
+
+        dock = _resolve_export_dock(self, fig)
+        if dock is not None and dock.isVisible():
+            sb = (getattr(self, "_export_style_sidebars", {}) or {}).get(id(fig))
+            if sb is not None:
+                sb.hide()
+            dock.setVisible(False)
+            self._set_status("Export style panel hidden.")
+            return
+
         session = launch_export_editor(self, fig, default_name, plot_bg=PLOT_BG, canvas=canvas)
         if session is not None:
             self._set_status("Export style panel opened.")
