@@ -287,13 +287,88 @@ def build_centre(app, parent: QWidget) -> None:
     pending["Heat Map"] = _build_heatmap
 
     def _build_plotting() -> None:
-        """Create the nested QTabWidget and wire the five plot sub-tabs."""
+        """Build the Plotting section: mockup-style ctxbar above a tab-bar-hidden
+        QTabWidget that hosts the five renderers (line / bar / scatter cells +
+        agg / distribution / heatmap). Phase 11 retires the visible plot-type
+        QTabBar in favour of the v2 ctxbar.subnav SegmentedControl (Q5: switch
+        governs the whole canvas — implemented here by routing through the
+        existing per-renderer pages); a global Channel chip lives in
+        ctxbar.right (A4); Add panel / Configure subplots / Edit axes-curve
+        buttons (B9, B11) sit alongside.
+
+        The underlying per-renderer pages keep their existing rendering
+        contracts so we don't regress functionality. Phase 11b will collapse
+        them into a single shared PlotCanvas.
+        """
+        from widgets.segmented_control import SegmentedControl as _SegmentedControl
+        from widgets.icon_button import IconButton as _IconButton
+
+        # ── ctxbar ───────────────────────────────────────────────────────
+        ctxbar = QWidget(plotting_container)
+        ctxbar.setObjectName("PlottingCtxbar")
+        ctxbar.setAttribute(Qt.WA_StyledBackground, True)
+        from theme import Colors as _C, Spacing as _S, Typography as _T, Radii as _R
+        ctxbar.setStyleSheet(
+            f"#PlottingCtxbar {{ background-color: {_C.surface}; "
+            f"border-bottom: 1px solid {_C.border_subtle}; }}"
+        )
+        cbl = QHBoxLayout(ctxbar)
+        cbl.setContentsMargins(_S.md, 6, _S.md, 6)
+        cbl.setSpacing(_S.sm)
+
+        sub_seg = _SegmentedControl()
+        for title in _PLOT_SUBTABS:
+            sub_seg.addSegment(title, data=title)
+        cbl.addWidget(sub_seg)
+
+        cbl.addStretch(1)
+
+        # Channel chip — placeholder for Phase 11b. A4 says channel selection
+        # becomes global in ctxbar.right; today it's per-renderer. Surface a
+        # display-only chip that mirrors the active renderer's channel combo.
+        chan_lbl = QLabel("Channel")
+        chan_lbl.setStyleSheet(
+            f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
+            f"letter-spacing: 0.08em;"
+        )
+        cbl.addWidget(chan_lbl)
+        app._plotting_channel_chip = QLabel("—")
+        app._plotting_channel_chip.setStyleSheet(
+            f"color: {_C.text_secondary}; "
+            f"background-color: {_C.panel_elevated}; "
+            f"border: 1px solid {_C.border_subtle}; "
+            f"border-radius: {_R.pill}px; padding: 2px 8px; "
+            f"font-size: {_T.caption_size}px; font-weight: 500;"
+        )
+        cbl.addWidget(app._plotting_channel_chip)
+
+        hint = QLabel("· click a trace to filter properties")
+        hint.setStyleSheet(
+            f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
+            f"padding-left: 4px;"
+        )
+        cbl.addWidget(hint)
+
+        add_panel_btn = _IconButton("plus", text=" Add panel")
+        add_panel_btn.setToolTip("Add a subplot to the canvas (1–4 max)")
+        cbl.addWidget(add_panel_btn)
+        config_btn = _IconButton("sliders")
+        config_btn.setToolTip("Configure subplots…")
+        cbl.addWidget(config_btn)
+        edit_btn = _IconButton("settings-2")
+        edit_btn.setToolTip("Edit axes / curve…")
+        cbl.addWidget(edit_btn)
+        export_btn = _IconButton("download", text=" Export figure")
+        export_btn.setToolTip("Export the current figure")
+        cbl.addWidget(export_btn)
+
+        plotting_container.layout().addWidget(ctxbar, 0)
+
+        # ── renderer pages (existing per-tab views in a hidden-tab QTabWidget) ─
         plotting_nb = QTabWidget(plotting_container)
         plotting_nb.setObjectName("PlottingSubTabs")
-        plotting_nb.setElideMode(Qt.ElideNone)
-        plotting_nb.setUsesScrollButtons(True)
-        plotting_nb.tabBar().setExpanding(False)
-        plotting_nb.tabBar().setElideMode(Qt.ElideNone)
+        plotting_nb.tabBar().setVisible(False)
+        plotting_nb.setDocumentMode(True)
         plotting_container.layout().addWidget(plotting_nb, 1)
         app._plotting_notebook = plotting_nb
 
@@ -308,8 +383,100 @@ def build_centre(app, parent: QWidget) -> None:
             if sub_title in pending:
                 _build_pending(sub_title)
             app._on_tab_change(None)
+            _refresh_channel_chip(sub_title)
+            if sub_seg.currentData() != sub_title:
+                blocked = sub_seg.blockSignals(True)
+                try:
+                    sub_seg.setCurrentByData(sub_title)
+                finally:
+                    sub_seg.blockSignals(blocked)
 
         plotting_nb.currentChanged.connect(_on_plotting_subtab)
+
+        def _on_sub_seg(idx: int) -> None:
+            target = sub_seg.currentData()
+            for i in range(plotting_nb.count()):
+                if plotting_nb.tabText(i) == target:
+                    if plotting_nb.currentIndex() != i:
+                        plotting_nb.setCurrentIndex(i)
+                    return
+
+        sub_seg.currentChanged.connect(_on_sub_seg)
+        sub_seg.setCurrentByData("Line Graphs")
+
+        def _refresh_channel_chip(title: str) -> None:
+            chip = getattr(app, "_plotting_channel_chip", None)
+            if chip is None:
+                return
+            attr_map = {
+                "Line Graphs":   "_chan_cb",
+                "Bar Plots":     "_chan_cb_bar",
+                "Scatter Plot":  "_chan_cb_scatter",
+                "Distribution":  "_chan_cb_distribution",
+                "Heat Map":      "_chan_cb_heatmap",
+            }
+            cb = getattr(app, attr_map.get(title, ""), None)
+            if cb is not None and hasattr(cb, "currentText"):
+                chip.setText(cb.currentText() or "—")
+            else:
+                chip.setText("—")
+
+        # Wire the buttons.
+        def _add_panel() -> None:
+            # Phase 11b: route into PlotCanvas.addPanel once the shared
+            # canvas replaces the per-renderer pages.
+            app._toast("Add panel: per-renderer multi-subplot landing in "
+                       "Phase 11b.", kind="info") if hasattr(app, "_toast") else None
+        add_panel_btn.clicked.connect(_add_panel)
+
+        def _config_subplots() -> None:
+            # Delegate to matplotlib's built-in dialog on whichever PlotCard
+            # is currently active.
+            for attr in ("_line_card", "_bar_card", "_scatter_card",
+                         "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+                card = getattr(app, attr, None)
+                if card is None or not card.isVisible():
+                    continue
+                nav = getattr(card, "_nav", None)
+                if nav is not None and hasattr(nav, "configure_subplots"):
+                    try:
+                        nav.configure_subplots()
+                    except Exception:
+                        pass
+                return
+        config_btn.clicked.connect(_config_subplots)
+
+        def _edit_axes() -> None:
+            for attr in ("_line_card", "_bar_card", "_scatter_card",
+                         "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+                card = getattr(app, attr, None)
+                if card is None or not card.isVisible():
+                    continue
+                nav = getattr(card, "_nav", None)
+                if nav is not None and hasattr(nav, "edit_parameters"):
+                    try:
+                        nav.edit_parameters()
+                    except Exception:
+                        pass
+                return
+        edit_btn.clicked.connect(_edit_axes)
+
+        def _export_figure() -> None:
+            for attr in ("_line_card", "_bar_card", "_scatter_card",
+                         "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+                card = getattr(app, attr, None)
+                if card is None or not card.isVisible():
+                    continue
+                nav = getattr(card, "_nav", None)
+                if nav is not None and hasattr(nav, "save_figure"):
+                    try:
+                        nav.save_figure()
+                    except Exception:
+                        pass
+                return
+        export_btn.clicked.connect(_export_figure)
+
+        _refresh_channel_chip("Line Graphs")
 
     def _build_image_table() -> None:
         from well_viewer.tabs.image_table_tab_view import build_image_table_tab
