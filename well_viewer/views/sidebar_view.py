@@ -55,6 +55,14 @@ def build_sidebar(app, parent: QWidget) -> None:
     plate = WellPlateSelector(parent)
     plate.setActionsVisible(False)        # the rail keeps its own All / None below
     plate.setEnabledWells([])             # nothing selectable until a dataset loads
+    # Fixed size + placement so the plate looks identical no matter which
+    # section is active (Sample Definitions has its own plate via
+    # build_replicate_panel and uses the same constraints).
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.MinimumExpanding)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
     layout.addWidget(plate)
     app._sidebar_plate = plate
     app._sidebar_map_outer = plate
@@ -72,35 +80,11 @@ def build_sidebar(app, parent: QWidget) -> None:
     plate.columnHeaderActivated.connect(app._on_sidebar_plate_col_activated)
     plate.wellDropped.connect(app._on_sidebar_plate_well_dropped)
 
-    # Quick-select row — v2 mockup parity (B7):
-    #   All 96  ·  Invert  ·  Clear
-    # plus a 1-line tip below.
-    br = QWidget(parent)
-    br_l = QHBoxLayout(br)
-    br_l.setContentsMargins(6, 4, 6, 2)
-    br_l.setSpacing(6)
-    layout.addWidget(br)
-    app._sidebar_allnone_frame = br
-    for txt, cmd, obj_name in (("All 96", app._select_all, None),
-                               ("Invert", app._select_invert, None),
-                               ("Clear", app._select_none, "Danger")):
-        b = QPushButton(txt, br)
-        if obj_name:
-            b.setObjectName(obj_name)
-        b.setCursor(Qt.PointingHandCursor)
-        b.clicked.connect(lambda _=False, c=cmd: c())
-        br_l.addWidget(b, 1)
-
-    # Tip line below the quick-select row (mockup line 1303).
-    tip = QLabel(
-        "Tip: click a row letter or column number on the plate to select "
-        "that whole row/column.",
-        parent,
-    )
-    tip.setObjectName("Muted")
-    tip.setWordWrap(True)
-    tip.setContentsMargins(8, 0, 8, 6)
-    layout.addWidget(tip)
+    # User request: All 96 / Invert / Clear quick-select buttons removed
+    # from the sidebar — row and column header clicks on the plate cover
+    # the multi-select cases; ⌘A / Clear are exposed elsewhere. Tip line
+    # below the buttons also removed (functionality is discoverable via
+    # the plate header hover state).
 
     # Selected-well count status text (legacy plain QLabel kept so existing
     # call sites in runtime_app keep writing to it). The mockup's pill-shaped

@@ -18,6 +18,7 @@ this session; rows that pass move out of this list at the next push.
 | `8bb85f6` | Phase 12 rail content | Right rail interior: scope segmented + ⌘K search + 8 collapsible sections (Profile & Format / **Statistics** / Axes / Legend / Lines & Markers / Grid / Limits & Scale / Layout). |
 | `cf90561` | Mode-seg in titlebar / OS window title carries dataset name | Titlebar's redundant dataset chip + stats labels are gone; mode-seg (Review · Analyze) sits where they used to. OS window title now reads `All-Well — <dataset> · N wells · N timepoints`. Sidebar starts with SECTION nav directly (no mode-seg). |
 | _NEXT_ | Phase 13 final: compact Saved list in sidebar | Sidebar bottom shows a "SAVED [N]" caption + a compact `SavedSelectionsList` mirror of `app._selections` (dot + name + meta only — no kebab/eye/drag). Clicking a row activates that selection. Refreshes with every group edit. |
+| _NEXT_ | Sidebar simplification + Analyze hides rail | All 96 / Invert / Clear buttons + "Tip: click a row letter…" line gone from the main sidebar; ditto the Sample Definitions sidebar tip. Plate widget now uses identical `setMinimumHeight(280)` + `Preferred / MinimumExpanding` size policy on both sidebars, so its size + placement stay fixed across every section. Switching to Analyze mode hides the whole left rail (sidebar); switching back to Review restores it. |
 
 ## Recently-cleared QA (most recent first)
 

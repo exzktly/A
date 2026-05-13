@@ -1029,6 +1029,7 @@ class WellViewerApp(QWidget):
             w.hide()
 
         self._h_pane.addWidget(sidebar)
+        self._sidebar_root = sidebar  # so mode toggles can hide/show the whole rail
         self._build_sidebar(self._sidebar_main_frame)
 
         # Centre stack — wraps the existing plots widget so all_well can
@@ -1126,7 +1127,13 @@ class WellViewerApp(QWidget):
     def _on_central_pane_changed(self, idx: int) -> None:
         # Mode-seg lives in all_well's titlebar; emit modeChanged so the
         # shell can re-sync its own seg without poking widgets here.
-        self.modeChanged.emit("analyze" if idx == 1 else "review")
+        mode = "analyze" if idx == 1 else "review"
+        # Hide the section / well-picker sidebar when Analyze is active —
+        # it carries Review-only affordances. Show it again on Review.
+        sidebar = getattr(self, "_sidebar_root", None)
+        if sidebar is not None:
+            sidebar.setVisible(mode == "review")
+        self.modeChanged.emit(mode)
 
     def _refresh_sidebar_saved_list(self) -> None:
         """Phase 13 (B8): push the canonical ``app._selections`` into the

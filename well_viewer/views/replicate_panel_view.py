@@ -71,16 +71,6 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     # selectionDragFinished fires once per click *and* once at the end of a drag.
     plate.selectionDragFinished.connect(_commit_plate_to_current)
 
-    hint = QLabel(
-        "Click a well to add/remove it from the current group. Use the "
-        "row letter or column number to select a whole row/column.",
-        parent,
-    )
-    hint.setObjectName("Muted")
-    hint.setWordWrap(True)
-    hint.setContentsMargins(8, 6, 8, 6)
-    layout.addWidget(hint)
-
 
 def build_replicate_groups_centre(app, parent: QWidget) -> None:
     """Sample-Definitions CENTRE — Groups sub-tab.
