@@ -112,7 +112,10 @@ class LabelGrid(QWidget):
         self._row_hdrs: list[_HeaderLabel] = []
         self._col_hdrs: list[_HeaderLabel] = []
         self._selected: set[str] = set()
-        self._enabled: set[str] | None = None  # None = all enabled
+        # Start with no wells enabled — the host calls setEnabledWells() with
+        # ``app._well_paths.keys()`` once a dataset is loaded. Treating None
+        # as "all enabled" is only useful for the standalone __main__ demo.
+        self._enabled: set[str] | None = set()
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -146,14 +149,18 @@ class LabelGrid(QWidget):
             rh = _HeaderLabel(_ROW_LETTERS[r], grid_host)
             rh.setFixedWidth(40)
             rh.clicked.connect(lambda r=r: self._toggle_row(r))
+            rh.setEnabled(False)
             self._row_hdrs.append(rh)
             g.addWidget(rh, r + 1, 0)
             for c in range(_N_COLS):
                 tok = f"{_ROW_LETTERS[r]}{c + 1:02d}"
                 cell = _LabelCell(tok, grid_host)
+                cell.setEnabled(False)
                 cell.textChanged.connect(lambda txt, t=tok: self._on_text_changed(t, txt))
                 self._cells[tok] = cell
                 g.addWidget(cell, r + 1, c + 1)
+        for c in range(_N_COLS):
+            self._col_hdrs[c].setEnabled(False)
 
         for c in range(_N_COLS):
             g.setColumnStretch(c + 1, 1)
@@ -170,21 +177,37 @@ class LabelGrid(QWidget):
 
     # ── API ──────────────────────────────────────────────────────────────
     def setEnabledWells(self, tokens) -> None:
-        self._enabled = {str(t).upper() for t in (tokens or [])} or None
+        """Restrict editing / selection to *tokens*.
+
+        Passing ``None`` enables every cell (development demo path). Passing
+        an empty iterable disables every cell — the loaded-dataset case
+        before a dataset is opened, or when the dataset contains no wells.
+        """
+        if tokens is None:
+            self._enabled = None
+        else:
+            self._enabled = {str(t).upper() for t in tokens}
         for tok, cell in self._cells.items():
-            cell.setEnabled(self._enabled is None or tok in self._enabled)
+            on = self._enabled is None or tok in self._enabled
+            cell.setEnabled(on)
+            # A disabled cell shouldn't keep its selection state — clear so
+            # row/col header logic stays consistent.
+            if not on and tok in self._selected:
+                self._selected.discard(tok)
+                cell.setSelected(False)
         for r, rh in enumerate(self._row_hdrs):
-            any_on = any(
-                f"{_ROW_LETTERS[r]}{c + 1:02d}" in (self._enabled or self._cells)
+            any_on = self._enabled is None or any(
+                f"{_ROW_LETTERS[r]}{c + 1:02d}" in self._enabled
                 for c in range(_N_COLS)
             )
-            rh.setEnabled(any_on if self._enabled is not None else True)
+            rh.setEnabled(any_on)
         for c, ch in enumerate(self._col_hdrs):
-            any_on = any(
-                f"{_ROW_LETTERS[r]}{c + 1:02d}" in (self._enabled or self._cells)
+            any_on = self._enabled is None or any(
+                f"{_ROW_LETTERS[r]}{c + 1:02d}" in self._enabled
                 for r in range(_N_ROWS)
             )
-            ch.setEnabled(any_on if self._enabled is not None else True)
+            ch.setEnabled(any_on)
+        self._sync_header_actives()
 
     def selectedTokens(self) -> list[str]:
         return sorted(self._selected)

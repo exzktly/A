@@ -1639,6 +1639,17 @@ class WellViewerApp(QWidget):
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 
+        # Sub-tab 0: Groups — hoisted out of the sidebar so the
+        # SavedSelectionsList has full vertical room and the sidebar plate
+        # can stay full-aspect.
+        groups_tab = _QWidget(sub_tabs)
+        _QVBoxLayout(groups_tab).setContentsMargins(0, 0, 0, 0)
+        from well_viewer.views.replicate_panel_view import (
+            build_replicate_groups_centre as _build_groups_centre,
+        )
+        _build_groups_centre(self, groups_tab)
+        sub_tabs.addTab(groups_tab, "Groups")
+
         # Sub-tab 1: Well Labels only
         labels_tab = _QWidget(sub_tabs)
         _QVBoxLayout(labels_tab).setContentsMargins(0, 0, 0, 0)
