@@ -20,12 +20,14 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal, QRectF
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
 import theme as theme_v2
 from widgets.brand_tile import BrandTile
+from widgets.icon_button import IconButton
+from widgets.status_dot import StatusDot
 
 # Global tab-scoped debug toggles.
 REVIEW_TAB_DEBUG = False
@@ -75,9 +77,9 @@ class AllWellApp(QMainWindow):
         rl.setSpacing(0)
         self.setCentralWidget(root)
 
-        # Header bar — v2: BrandTile + wordmark. (Single dark theme, so the
-        # legacy Theme dropdown has been removed; if a per-theme swap returns,
-        # this is where the control re-mounts.)
+        # Header bar — v2: BrandTile + wordmark + dataset chip + status dot +
+        # action IconButtons (Open / Help). Per DECISIONS_NEEDED #4 we keep
+        # the native frame, so this is the app-shell strip.
         header = QWidget(objectName="Sidebar")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(12, 7, 14, 7)
@@ -86,7 +88,25 @@ class AllWellApp(QMainWindow):
         title = QLabel("All-Well")
         title.setObjectName("Title")
         hl.addWidget(title)
+
+        hl.addSpacing(theme_v2.Spacing.md)
+        self._dataset_status = StatusDot("neutral")
+        hl.addWidget(self._dataset_status)
+        self._dataset_chip = QLabel("No dataset")
+        self._dataset_chip.setObjectName("Chip")
+        self._dataset_chip.setProperty("variant", "muted")
+        hl.addWidget(self._dataset_chip)
+
         hl.addStretch(1)
+
+        self._open_btn = IconButton("home")
+        self._open_btn.setToolTip("Open results directory…")
+        self._open_btn.clicked.connect(self._open_dataset)
+        hl.addWidget(self._open_btn)
+        self._help_btn = IconButton("info")
+        self._help_btn.setToolTip("All-Well — see design/PORT_PLAN.md")
+        hl.addWidget(self._help_btn)
+
         rl.addWidget(header)
 
         sep = QFrame()
@@ -104,6 +124,7 @@ class AllWellApp(QMainWindow):
 
         self._review = WellViewerApp(parent=None)
         self._nb.addTab(self._review, "Review")
+        self._wrap_review_load_path()
 
         self._analyze = AnalyzeTab(
             parent=None,
@@ -198,6 +219,47 @@ class AllWellApp(QMainWindow):
         if app is not None:
             app.setWindowIcon(icon)
 
+    def _wrap_review_load_path(self) -> None:
+        """Hook the review tab's _load_path so the header chip updates whenever
+        a dataset is loaded (from either tab or CLI). We monkey-patch instead
+        of adding a Qt signal to avoid touching runtime_app's __init__."""
+        review = self._review
+        if review is None or not hasattr(review, "_load_path"):
+            return
+        original = review._load_path
+
+        def _patched(path, *a, **kw):
+            result = original(path, *a, **kw)
+            try:
+                self._update_dataset_chip(path)
+            except Exception:
+                pass
+            return result
+
+        review._load_path = _patched  # type: ignore[assignment]
+
+    def _update_dataset_chip(self, path) -> None:
+        if path is None:
+            self._dataset_chip.setText("No dataset")
+            self._dataset_status.setStatus("neutral")
+            return
+        try:
+            p = Path(path)
+            name = p.name or str(p)
+        except Exception:
+            name = str(path)
+        self._dataset_chip.setText(name)
+        self._dataset_chip.setToolTip(str(path))
+        self._dataset_status.setStatus("success")
+
+    def _open_dataset(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Open results directory")
+        if not d:
+            return
+        self._nb.setCurrentIndex(0)
+        if self._review is not None:
+            QTimer.singleShot(50, lambda: self._review._load_path(Path(d)))
+
     def _on_tab_change(self, idx: int) -> None:
         if self._review is None:
             return
@@ -212,6 +274,7 @@ class AllWellApp(QMainWindow):
             dataset_path = output_dir.parent
         self._nb.setCurrentIndex(0)
         QTimer.singleShot(50, lambda: self._review._load_path(dataset_path))
+        self._update_dataset_chip(dataset_path)
 
     def _nudge_review(self) -> None:
         if self._review is None:
