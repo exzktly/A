@@ -55,7 +55,7 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(360)
+        self.setFixedWidth(420)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
@@ -119,6 +119,7 @@ class ExportStyleSidebar(QWidget):
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         body = QWidget()
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)

@@ -32,11 +32,15 @@ from PySide6.QtWidgets import (
 # [0, 1]; ``Gray`` uses ``None`` so make_fluor_thumb takes its untinted
 # fast path.
 LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
-    "Gray":   None,
-    "Red":    (1.0, 0.0, 0.0),
-    "Green":  (0.0, 1.0, 0.0),
-    "Blue":   (0.0, 0.0, 1.0),
-    "Violet": (0.56, 0.0, 1.0),
+    # Keys are mpl colormap names so the v2 LutSelector (which renders a real
+    # gradient strip) can drive the picker. The value is the single (r,g,b)
+    # tint applied to the grayscale fluorescence image for thumbnails; the
+    # exported figure still uses a real cmap via _row_export_cmap.
+    "gray":    None,
+    "Reds":    (1.0, 0.0, 0.0),
+    "Greens":  (0.0, 1.0, 0.0),
+    "Blues":   (0.0, 0.0, 1.0),
+    "Purples": (0.56, 0.0, 1.0),
 }
 LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
 
@@ -344,7 +348,13 @@ def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
     cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
     if not (0 <= r < len(cbs)):
         return None
-    name = cbs[r].currentText().strip()
+    cb = cbs[r]
+    # v2 LutSelector exposes .lut(); fall back to currentText for the
+    # legacy QComboBox path.
+    if hasattr(cb, "lut"):
+        name = (cb.lut() or "").strip()
+    else:
+        name = cb.currentText().strip()
     return LUT_COLORS.get(name)
 
 

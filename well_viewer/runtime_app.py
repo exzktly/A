@@ -1381,15 +1381,15 @@ class WellViewerApp(QWidget):
         tl.setContentsMargins(8, 6, 8, 6)
         tl.setSpacing(6)
 
-        # v2 polish: icon-led toolbar (Save / Load / Clear All). The labels
-        # stay as text alongside the glyph so the toolbar remains scannable.
-        save_btn = btn_primary(toolbar, "Save", self._save_sample_definitions_all)
-        save_btn.setToolTip(
+        # v2 polish: icon-led toolbar (Save / Load / Clear All).
+        save_ib = _IconButton("save", toolbar)
+        save_ib.setToolTip(
             "Save every definition on this tab (well labels, replicate sets, "
             "bar groups, ratio metrics, and cell-gating thresholds) to the "
             "data folder."
         )
-        tl.addWidget(save_btn)
+        save_ib.clicked.connect(lambda _=False: self._save_sample_definitions_all())
+        tl.addWidget(save_ib)
 
         load_ib = _IconButton("download", toolbar)
         load_ib.setToolTip("Reload every definition from the data folder, discarding unsaved edits.")
