@@ -16,20 +16,41 @@ from ui.theme import PLOT_BG, PLOT_GRD, PLOT_SPN, PLOT_TXT, TXT_PRI
 
 
 def tokens_for(ax) -> tuple:
-    """Return ``(bg, title_fg, muted_fg, grid, spine)`` for *ax*'s figure: the
-    active ``PlotCard`` theme tokens if the figure is hosted in a card, else the
-    legacy ``ui.theme`` constants. Public — renderers use it to keep legends /
-    placeholder text / other in-axes chrome in step with the card theme."""
+    """Return ``(bg, title_fg, muted_fg, grid, spine)`` for *ax*'s figure.
+
+    Resolution order:
+      1. the active ``PlotCard.plotTheme()`` via ``ax.figure._plot_card`` (the
+         back-ref ``PlotCard.__init__`` sets);
+      2. a fallback that infers ``"screen"`` vs ``"publication"`` from the
+         figure's *current* facecolor (``setPlotTheme`` sets it to the right
+         value before emitting, so this works even if the back-ref is missing);
+      3. the legacy ``ui.theme`` constants (publication-style) for bare figures.
+    """
     fig = getattr(ax, "figure", None)
-    card = getattr(fig, "_plot_card", None) if fig is not None else None
+    if fig is None:
+        return PLOT_BG, TXT_PRI, PLOT_TXT, PLOT_GRD, PLOT_SPN
+
+    mode = None
+    card = getattr(fig, "_plot_card", None)
     if card is not None:
         try:
-            from widgets.plot_card import plot_tokens
-            bg, fg, muted, grid, spine = plot_tokens(card.plotTheme())
-            return bg, fg, muted, grid, spine
+            mode = card.plotTheme()
         except Exception:
-            pass
-    return PLOT_BG, TXT_PRI, PLOT_TXT, PLOT_GRD, PLOT_SPN
+            mode = None
+    if mode is None:
+        # Infer from the figure facecolor (set by PlotCard.setPlotTheme before
+        # plotThemeChanged fires, so it tracks the user's most recent toggle).
+        try:
+            rgba = fig.get_facecolor()
+            brightness = sum(float(c) for c in rgba[:3])
+            mode = "publication" if brightness > 1.5 else "screen"
+        except Exception:
+            mode = "publication"
+    try:
+        from widgets.plot_card import plot_tokens
+        return plot_tokens(mode)
+    except Exception:
+        return PLOT_BG, TXT_PRI, PLOT_TXT, PLOT_GRD, PLOT_SPN
 
 
 # Internal alias (was the original name).
