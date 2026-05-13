@@ -98,6 +98,6 @@ def load_via_dialog(app) -> None:
         if resp != QMessageBox.Yes:
             return
     from_dict(app, data)
-    app._bar_rebuild_groups()
+    app._rebuild_all()
     _logger.info("Bar groups loaded from %s (%d group(s))",
-                 path_str, len(app._bar_groups))
+                 path_str, len(app._selections))

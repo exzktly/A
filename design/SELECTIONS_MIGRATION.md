@@ -705,15 +705,26 @@ nothing assigns the legacy attrs; finally (optional) rewrite the plot renderers 
   the dead `_grp_cards_frame` branch in `_on_theme_change`; `grouping_view` is now just
   the `SavedSelectionsList` wiring.
 
-Still to do: the bar-group **sidebar** panel teardown (`views/bar_group_panel_view.py`,
-`_build_bar_group_panel` + the `centre_view` call, `_sidebar_groups_frame` (created
-hidden, never shown), the `_bg_*` rubber-band drag handlers + `_bar_map_btns`, the
-`_bar_*` mutators, the `_bar_rebuild_groups*` machinery wired into `_rebuild_all`,
-`grouping_controller.grp_*`/`bar_quick_groups`/`bg_on_well_change`,
-`selection_controller.sb_*`/`plate_drag_*`) — bigger and touches the live `_rebuild_all`
-path, so it's its own cluster. Then drop the no-op `@property` setters; optionally
-rewrite the batch-export panels off `_rep_sets`/`_bar_groups` and retire
-`selections_to_legacy` + the `@property`s entirely.
+- **cluster 5** — bar-group **sidebar** panel teardown: deleted `views/bar_group_panel_view.py`
+  wholesale; removed `_build_bar_group_panel` + the `centre_view` call, `_sidebar_groups_frame`
+  (was created hidden, never shown), all the `_build_bar_group_*` / `_bar_rebuild_groups*` /
+  `_update_bar_group_count_label` / `_build_bar_perwell_strip` delegates, the `_bg_*`
+  rubber-band visibility-drag handlers + `_bar_map_btns` / `_bar_map_tok_at` /
+  `_bg_press`/`_bg_drag`/`_bg_release`/`_bg_on_rep_change`/`_bg_on_well_change`, the `_bar_*`
+  group/replicate mutators (`_bar_add_group` … `_bar_select_none`), `_bar_refresh_map` /
+  `_bar_refresh_single_btn`, the `_grp_*` delegates, `_bar_quick_groups[_from_dropdowns]` /
+  `_rep_quick_refresh_ui` / `_make_replicate_pairs`, and `grouping_controller.grp_*` /
+  `bar_quick_groups` / `bg_on_well_change` / `rep_quick_refresh_ui` plus the `_gc_*` lazies.
+  `_rebuild_all()` no longer calls a bar-group-panel rebuild (the bar plot still redraws via
+  `_redraw_bars`); `persistence/bar_groups.load_via_dialog` now calls `_rebuild_all()`. ~970
+  lines removed; `py_compile` clean. *(Still present, intentionally: `selection_controller.sb_*`
+  / `plate_drag_*` + the `_sb_*` wrappers + `_sb_ds`, which are now orphaned — next cluster.)*
+
+Still to do: delete `selection_controller.sb_*` / `plate_drag_*` + the runtime_app `_sb_*` /
+`_plate_drag_*` wrappers + `_sb_ds` / `_sidebar_btns` stub (orphaned by cluster 5); drop the
+no-op `@property` setters now nothing assigns the legacy attrs; optionally rewrite the
+batch-export panels off `_rep_sets` / `_bar_groups` and retire `selections_to_legacy` + the
+`@property`s entirely.
 
 (Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
 only when no bar groups, `solo → [[w]]` round-trip — still apply until that's done.)

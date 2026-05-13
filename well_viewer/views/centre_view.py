@@ -233,7 +233,6 @@ def build_centre(app, parent: QWidget) -> None:
     # immediately even though the centre tab bodies that depend on them
     # are deferred.
     app._build_replicate_panel(app._sidebar_sample_frame)
-    app._build_bar_group_panel(app._sidebar_groups_frame)
     app._build_preview_picker(app._sidebar_preview_frame)
 
     # Stable name -> tab QWidget map for builder closures to reach into.

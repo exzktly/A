@@ -169,17 +169,6 @@ _lineplot_redraw = _lazy("well_viewer.lineplot_controller", "redraw_line_plots")
 _scatter_get_timepoints = _lazy("well_viewer.scatter_controller", "get_all_timepoints")
 _scatter_redraw = _lazy("well_viewer.scatter_controller", "redraw_scatter")
 
-_gc_bg_on_well_change = _lazy("well_viewer.grouping_controller", "bg_on_well_change")
-_gc_grp_add = _lazy("well_viewer.grouping_controller", "grp_add")
-_gc_grp_add_member = _lazy("well_viewer.grouping_controller", "grp_add_member")
-_gc_grp_add_solo_well = _lazy("well_viewer.grouping_controller", "grp_add_solo_well")
-_gc_grp_clear_all = _lazy("well_viewer.grouping_controller", "grp_clear_all")
-_gc_grp_delete = _lazy("well_viewer.grouping_controller", "grp_delete")
-_gc_grp_remove_member = _lazy("well_viewer.grouping_controller", "grp_remove_member")
-_gc_grp_remove_solo = _lazy("well_viewer.grouping_controller", "grp_remove_solo")
-_gc_grp_rename = _lazy("well_viewer.grouping_controller", "grp_rename")
-_gc_grp_select = _lazy("well_viewer.grouping_controller", "grp_select")
-_gc_grp_toggle_visibility = _lazy("well_viewer.grouping_controller", "grp_toggle_visibility")
 _gc_rep_map_apply = _lazy("well_viewer.grouping_controller", "rep_map_apply")
 _gc_rep_map_drag = _lazy("well_viewer.grouping_controller", "rep_map_drag")
 _gc_rep_map_press = _lazy("well_viewer.grouping_controller", "rep_map_press")
@@ -1008,13 +997,12 @@ class WellViewerApp(QWidget):
         # Companion frames stacked in the sidebar and toggled by
         # _on_tab_change.  All are hidden initially; the tab handler shows
         # the relevant one.
-        self._sidebar_groups_frame = QWidget()
         self._sidebar_bar_frame = QWidget()
         self._sidebar_preview_frame = QWidget()
         self._sidebar_image_table_frame = QWidget()
         self._sidebar_sample_frame = QWidget()
         self._sidebar_stats_frame = QWidget()
-        for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
+        for w in (self._sidebar_bar_frame,
                   self._sidebar_preview_frame, self._sidebar_image_table_frame,
                   self._sidebar_sample_frame,
                   self._sidebar_stats_frame):
@@ -1379,12 +1367,6 @@ class WellViewerApp(QWidget):
         )
         _it_open_export_settings(self)
 
-    # ── Bar-plot grouping panel ───────────────────────────────────────────────
-
-    def _build_bar_group_panel(self, parent) -> None:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_panel as _v
-        _v(self, parent)
-
     def _build_groups_centre(self, parent) -> None:
         """Centre panel for the Sample Definitions tab.
 
@@ -1687,37 +1669,6 @@ class WellViewerApp(QWidget):
 
     def _ask_name_dialog(self, default: str) -> Optional[str]:
         return ask_name_dialog(self, default=default)
-
-    def _grp_select(self, idx: int) -> None:
-        _gc_grp_select(self, idx)
-
-    def _grp_add(self) -> None:
-        _gc_grp_add(self)
-
-    def _grp_rename(self, idx: int) -> None:
-        _gc_grp_rename(self, idx)
-
-    def _grp_delete(self, idx: int) -> None:
-        _gc_grp_delete(self, idx)
-
-    def _grp_toggle_visibility(self, idx: int) -> None:
-        _gc_grp_toggle_visibility(self, idx)
-
-    def _grp_add_member(self, grp_idx: int, rset: "ReplicateSet") -> None:
-        _gc_grp_add_member(self, grp_idx, rset)
-
-    def _grp_remove_member(self, grp_idx: int, rset: "ReplicateSet") -> None:
-        _gc_grp_remove_member(self, grp_idx, rset)
-
-    def _grp_add_solo_well(self, grp_idx: int, well: str) -> None:
-        """Add a single well to a group as a solo (singleton replicate)."""
-        _gc_grp_add_solo_well(self, grp_idx, well)
-
-    def _grp_remove_solo(self, grp_idx: int, well: str) -> None:
-        _gc_grp_remove_solo(self, grp_idx, well)
-
-    def _grp_clear_all(self) -> None:
-        _gc_grp_clear_all(self)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Well-label editor
@@ -2036,59 +1987,14 @@ class WellViewerApp(QWidget):
             self._label_panel_refresh()
         self._rep_refresh_map()
 
-    def _build_bar_perwell_strip(self, parent) -> None:
-        from well_viewer.views.bar_group_panel_view import build_bar_perwell_strip as _v
-        _v(self, parent)
-
-    # ── Group card list rebuild ───────────────────────────────────────────────
-
-    def _bar_rebuild_groups_ui(self) -> None:
-        """
-        Debounced card-list rebuild — schedules the actual work via after(0).
-
-        Called frequently during drag interactions; the debounce ensures only
-        one widget rebuild runs per event-loop cycle even if multiple wells
-        are toggled in rapid succession.
-        """
-        if getattr(self, "_grp_ui_pending", False):
-            return
-        self._grp_ui_pending = True
-        QTimer.singleShot(0, self._bar_rebuild_groups_ui_now)
-
-    def _bar_rebuild_groups_ui_now(self) -> None:
-        from well_viewer.views.bar_group_panel_view import rebuild_groups_ui_now as _v
-        _v(self)
-
-    def _update_bar_group_count_label(self) -> None:
-        from well_viewer.views.bar_group_panel_view import update_bar_group_count_label as _v
-        _v(self)
-
-    def _build_bar_group_row(self, idx: int, grp: "BarGroup") -> None:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_row as _v
-        _v(self, idx, grp)
-
-    def _build_bar_group_header(self, row, idx: int, grp: "BarGroup", bg: str) -> tuple:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_header as _v
-        return _v(self, row, idx, grp, bg)
-
-    def _build_bar_group_chip_rows(self, row, idx: int, grp: "BarGroup", bg: str, is_active: bool) -> list:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_chip_rows as _v
-        return _v(self, row, idx, grp, bg, is_active)
-
-    def _build_bar_group_action_row(self, row, idx: int, bg: str, is_active: bool) -> list:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_action_row as _v
-        return _v(self, row, idx, bg, is_active)
-
     def _rebuild_all(self) -> None:
         """
         Single authoritative refresh called after ANY data change.
-        Updates both Groups tab panels + bar group sidebar + all plots.
         Always synchronous — no debounce — because it is only called on
         explicit user actions (button clicks / dialog OK), never during drag.
         """
         self._invalidate_stats_cache()
-        self._groups_centre_refresh()          # Groups tab: rep panel + map
-        self._bar_rebuild_groups_ui_now()      # sidebar card list + bar map
+        self._groups_centre_refresh()          # Sample Definitions: GROUPS panel + map
         self._refresh_sidebar_map()            # line-graph picker: rep colours
         self._redraw_bars()
         self._redraw()
@@ -2100,285 +2006,6 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_notebook"):
             if self._current_centre_tab() == "Line Graphs":
                 self._show_line_sidebar()
-
-    def _bar_rebuild_groups(self) -> None:
-        """Rebuild card list + map then refresh all plots.
-
-        Call this when the data itself changes (wells added/removed, group
-        renamed, group deleted).  For selection-only changes use
-        _bar_rebuild_groups_ui() which skips the expensive plot redraws.
-        """
-        self._invalidate_stats_cache()   # group definitions changed — stale results
-        self._bar_rebuild_groups_ui_now()  # always do the UI rebuild synchronously here
-        self._redraw_bars()
-        self._groups_centre_refresh()
-        self._redraw()
-        if hasattr(self, "_notebook"):
-            if self._current_centre_tab() == "Line Graphs":
-                self._show_line_sidebar()
-
-    # ── Group management ──────────────────────────────────────────────────────
-
-    def _bar_add_group(self) -> None:
-        name = ask_name_dialog(self, default=f"Group {len(self._bar_groups) + 1}")
-        if name is None:
-            return
-        self._bar_groups.append(BarGroup(name, members=[]))
-        self._bar_active_grp = len(self._bar_groups) - 1
-        self._bar_active_rep  = -1
-        self._bar_rebuild_groups()
-
-    def _bar_clear_all_groups(self) -> None:
-        """Remove all bar groups after confirmation."""
-        if not self._bar_groups:
-            return
-        resp = QMessageBox.question(
-            self, "Clear all groups?",
-            f"Remove all {len(self._bar_groups)} group(s)?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if resp == QMessageBox.Yes:
-            self._bar_groups.clear()
-            self._bar_active_grp = -1
-            self._bar_active_rep  = -1
-            self._bar_rebuild_groups()
-
-    def _bar_select_group(self, idx: int) -> None:
-        if idx != self._bar_active_grp:
-            self._bar_active_rep = -1
-        self._bar_active_grp = idx
-        self._bar_rebuild_groups_ui()   # sidebar: fast, no plot redraws
-        self._groups_centre_refresh()   # Groups tab centre panels
-
-    def _bar_rename_group(self, idx: int) -> None:
-        if not (0 <= idx < len(self._bar_groups)):
-            return
-        # Group names are edited inline in the Sample Definitions panel.
-        self._bar_active_grp = idx
-        self._grp_inline_edit_idx = idx
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            try:
-                self._notebook.select_by_text("Sample Definitions")
-            except Exception:
-                pass
-        self._groups_centre_refresh()
-
-    def _bar_clear_group(self, idx: int) -> None:
-        self._bar_groups[idx].replicates.clear()
-        self._bar_rebuild_groups()
-
-    def _bar_add_replicate_set(self, group_idx: int) -> None:
-        """Open a dialog to define a new named ReplicateSet within the group."""
-        if group_idx < 0 or group_idx >= len(self._bar_groups):
-            return
-        grp = self._bar_groups[group_idx]
-        # Wells already assigned to any replicate set in this group
-        assigned = {w for rset in grp.replicates for w in rset.wells}
-        available = [lbl for lbl in self._well_paths if lbl not in assigned]
-        if not available:
-            QMessageBox.information(self, "All assigned",
-                                    "All loaded wells are already in a replicate set.")
-            return
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("New Replicate Set")
-        dlg.setModal(True)
-        v = QVBoxLayout(dlg)
-        v.addWidget(QLabel("Replicate set name:"))
-        name_edit = QLineEdit(f"R{len(grp.replicates)+1}")
-        v.addWidget(name_edit)
-        v.addWidget(QLabel("Select wells in this replicate set:"))
-        sorted_available = sorted(available, key=lambda l: self._parse_rc(l))
-        lb = _wells_multiselect_listbox(dlg, sorted_available)
-        v.addWidget(lb, 1)
-        btn_row = QHBoxLayout()
-        v.addLayout(btn_row)
-        add_btn = QPushButton("Add Replicate Set")
-        add_btn.setProperty("variant", "primary")
-        cancel_btn = QPushButton("Cancel")
-        btn_row.addWidget(add_btn)
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch(1)
-
-        def _ok():
-            sel = _selected_list_values(lb)
-            if not sel:
-                QMessageBox.warning(dlg, "No wells selected",
-                                    "Select at least one well.")
-                return
-            name = name_edit.text().strip() or f"R{len(grp.replicates)+1}"
-            grp.replicates.append(ReplicateSet(name, sel))
-            dlg.accept()
-            self._bar_active_rep = len(grp.replicates) - 1
-            self._bar_rebuild_groups()
-
-        add_btn.clicked.connect(_ok)
-        cancel_btn.clicked.connect(dlg.reject)
-        dlg.exec()
-
-    def _bar_remove_replicate_set(self, group_idx: int, set_idx: int) -> None:
-        """Remove one ReplicateSet from the group."""
-        if 0 <= group_idx < len(self._bar_groups):
-            grp = self._bar_groups[group_idx]
-            if 0 <= set_idx < len(grp.replicates):
-                grp.replicates.pop(set_idx)
-                if self._bar_active_rep >= len(grp.replicates):
-                    self._bar_active_rep = len(grp.replicates) - 1
-                self._bar_rebuild_groups()
-
-    def _bar_clear_replicates(self, idx: int) -> None:
-        """Remove all ReplicateSets from the group."""
-        if 0 <= idx < len(self._bar_groups):
-            self._bar_groups[idx].replicates.clear()
-            self._bar_active_rep = -1
-            self._bar_rebuild_groups()
-
-    def _bar_toggle_group_visibility(self, idx: int) -> None:
-        """Toggle whether group *idx* appears in the bar plot."""
-        if 0 <= idx < len(self._bar_groups):
-            self._bar_groups[idx].hidden = not self._bar_groups[idx].hidden
-            self._bar_rebuild_groups()
-
-    def _bar_remove_group(self, idx: int) -> None:
-        self._bar_groups.pop(idx)
-        self._bar_active_grp = min(self._bar_active_grp,
-                                    len(self._bar_groups) - 1)
-        self._bar_rebuild_groups()
-
-    def _bar_select_all(self) -> None:
-        if self._rep_sets:
-            self._rep_hidden.clear()
-        else:
-            self._selected_wells = set(self._well_paths.keys())
-        self._bar_refresh_map()
-        self._redraw_bars()
-
-    def _bar_select_none(self) -> None:
-        if self._rep_sets:
-            self._rep_hidden = set(range(len(self._rep_sets_loaded())))
-        else:
-            self._selected_wells.clear()
-        self._bar_refresh_map()
-        self._redraw_bars()
-
-    # ── Right-click rubber-band: toggle visibility for all groups in rectangle ─
-
-    def _bg_vis_press(self, event) -> None:
-        """Record the screen-space anchor and open the rubber-band overlay."""
-        gp = event.globalPosition().toPoint()
-        sx, sy = gp.x(), gp.y()
-        self._vis_anchor_screen: tuple = (sx, sy)
-
-        self._vis_btn_centres: Dict[str, tuple] = {}
-        for tok, btn in self._bar_map_btns.items():
-            if btn.isVisible() and btn.isEnabled():
-                rect = btn.rect()
-                centre_local = rect.center()
-                centre_global = btn.mapToGlobal(centre_local)
-                self._vis_btn_centres[tok] = (centre_global.x(), centre_global.y())
-
-        if self._vis_rubber_win is not None:
-            try:
-                self._vis_rubber_win.deleteLater()
-            except Exception:
-                pass
-        win = QWidget(self, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
-        win.setAttribute(Qt.WA_TranslucentBackground, False)
-        win.setWindowOpacity(0.30)
-        win.setStyleSheet(f"background-color: {WELL_COLOR_2};")
-        win.setGeometry(0, 0, 1, 1)
-        win.show()
-        win.raise_()
-        self._vis_rubber_win = win
-
-    def _bg_vis_drag(self, event) -> None:
-        """Resize the overlay to span anchor → cursor (screen coords)."""
-        if not hasattr(self, "_vis_anchor_screen") or self._vis_rubber_win is None:
-            return
-        gp = event.globalPosition().toPoint()
-        cx, cy = gp.x(), gp.y()
-        ax, ay = self._vis_anchor_screen
-        x0, y0 = min(ax, cx), min(ay, cy)
-        w  = max(2, abs(cx - ax))
-        h  = max(2, abs(cy - ay))
-        self._vis_rubber_win.setGeometry(x0, y0, w, h)
-
-    def _bg_vis_release(self, event) -> None:
-        """Toggle visibility of replicate sets whose wells fall inside the rectangle."""
-        if self._vis_rubber_win is not None:
-            try:
-                self._vis_rubber_win.deleteLater()
-            except Exception:
-                pass
-            self._vis_rubber_win = None
-
-        anchor     = getattr(self, "_vis_anchor_screen", None)
-        btn_centres = getattr(self, "_vis_btn_centres", {})
-        for attr in ("_vis_anchor_screen", "_vis_btn_centres"):
-            try:
-                delattr(self, attr)
-            except AttributeError:
-                pass
-
-        if anchor is None:
-            return
-
-        gp = event.globalPosition().toPoint()
-        cx, cy = gp.x(), gp.y()
-        ax, ay = anchor
-        x0, x1 = min(ax, cx), max(ax, cx)
-        y0, y1 = min(ay, cy), max(ay, cy)
-
-        # Find tokens of buttons whose screen-space centres fall inside.
-        inside_toks: set = set()
-        for tok, (bx, by) in btn_centres.items():
-            if x0 <= bx <= x1 and y0 <= by <= y1:
-                if tok in self._well_paths:
-                    inside_toks.add(tok)
-
-        if not inside_toks:
-            return
-
-        loaded = self._rep_sets_loaded()
-        if loaded:
-            affected: set = set()
-            for si, rset in enumerate(loaded):
-                if any(w in inside_toks for w in rset.wells):
-                    affected.add(si)
-
-            if not affected:
-                return
-
-            # If the first affected set is visible → hide all; else show all.
-            first_hidden = next(iter(affected)) in self._rep_hidden
-            for si in affected:
-                if first_hidden:
-                    self._rep_hidden.discard(si)
-                else:
-                    self._rep_hidden.add(si)
-
-            self._invalidate_stats_cache()
-            self._rep_refresh_map()
-            self._refresh_sidebar_map()
-            self._bar_refresh_map()
-            self._redraw_bars()
-            self._redraw()
-
-        else:
-            # Fallback: toggle _bar_groups.hidden (no rep-sets defined)
-            affected_groups: set = set()
-            for tok in inside_toks:
-                for i, g in enumerate(self._bar_groups):
-                    if tok in g.wells:
-                        affected_groups.add(i)
-
-            if affected_groups:
-                first_hidden = self._bar_groups[next(iter(affected_groups))].hidden
-                new_hidden   = not first_hidden
-                for i in affected_groups:
-                    self._bar_groups[i].hidden = new_hidden
-                self._bar_rebuild_groups()
-
 
     # ── Quick-group helpers (delegates to grouping_controller) ────────────────
 
@@ -2406,29 +2033,6 @@ class WellViewerApp(QWidget):
         self._rep_quick_iter_order = "row" if "Across" in iter_order_display else "col"
 
         self._rep_quick_pairs()
-
-    def _bar_quick_groups_from_dropdowns(self) -> None:
-        """Read dropdown values and update state, then call _bar_quick_groups()."""
-        # Map dropdown display values to internal values
-        pair_dir_display = self._bar_quick_pair_dir_var.currentText()
-        self._bar_quick_pair_dir = "row" if "Rows" in pair_dir_display else "col"
-
-        iter_order_display = self._bar_quick_iter_order_var.currentText()
-        self._bar_quick_iter_order = "row" if "Across" in iter_order_display else "col"
-
-        self._bar_quick_groups()
-
-    def _make_replicate_pairs(self, toks: List[str], prefix: str) -> List[ReplicateSet]:
-        from well_viewer.grouping_controller import make_replicate_pairs
-        return make_replicate_pairs(toks, prefix)
-
-    def _rep_quick_refresh_ui(self) -> None:
-        from well_viewer.grouping_controller import rep_quick_refresh_ui
-        rep_quick_refresh_ui(self)
-
-    def _bar_quick_groups(self) -> None:
-        from well_viewer.grouping_controller import bar_quick_groups
-        bar_quick_groups(self)
 
     # ── Bar group persistence (delegates to well_viewer.persistence.bar_groups)
 
@@ -2576,39 +2180,6 @@ class WellViewerApp(QWidget):
         the renderers already filter to ``_well_paths``."""
         return
 
-    # ── Bar-map drag helpers ──────────────────────────────────────────────────
-
-    def _bar_map_tok_at(self, event) -> Optional[str]:
-        try:
-            gp = event.globalPosition().toPoint()
-        except Exception:
-            return None
-        w = QApplication.widgetAt(gp)
-        for tok, btn in self._bar_map_btns.items():
-            if btn is w:
-                return tok
-        return None
-
-    # ── Bar-plot drag handlers — unified picker, delegate to _sb_ ─────────────
-    # The bar plate map is the same unified picker as the line sidebar.
-    # _bg_press/drag/release simply forward to _sb_ equivalents so there is
-    # only one set of drag logic.
-
-    def _bg_press(self, event) -> None:
-        self._sb_press(event)
-
-    def _bg_drag(self, event) -> None:
-        self._sb_drag(event)
-
-    def _bg_release(self, _event) -> None:
-        self._sb_release(None)
-
-    def _bg_on_rep_change(self) -> None:
-        self._sb_on_rep_change()
-
-    def _bg_on_well_change(self) -> None:
-        _gc_bg_on_well_change(self)
-
     # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
     # group is coloured by *well-position rank*, so the same well always gets the
     # same colour everywhere (plate maps, line/bar/stats plots). See
@@ -2631,16 +2202,6 @@ class WellViewerApp(QWidget):
             if lbl in rset.wells:
                 return self._rank_color_rset(rset)
         return None
-
-    def _bar_refresh_map(self) -> None:
-        """Alias: bar plots share the unified well picker; delegate to sidebar map."""
-        self._refresh_sidebar_map()
-
-
-    def _bar_refresh_single_btn(self, tok: str) -> None:
-        """Recolour one bar-map button. Delegates to the full map refresh so
-        hidden-group colour logic only lives in one place."""
-        self._bar_refresh_map()
 
     def _build_right_panel(self, parent) -> None:
         from well_viewer.views.preview_panel_view import build_right_panel as _build_right_panel_view
@@ -5210,7 +4771,6 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_sidebar_image_table_frame"):
             self._sidebar_image_table_frame.setVisible(False)
         self._sidebar_sample_frame.setVisible(False)
-        self._sidebar_groups_frame.setVisible(False)
         self._sidebar_stats_frame.setVisible(False)
         # Heat-map layout configurator lives inside the standard sidebar
         # but is only relevant on the Heat Map tab. Hide by default so the
