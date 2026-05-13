@@ -288,6 +288,56 @@ def _themed_nav_toolbar_class():
     return _ThemedNavToolbar
 
 
+def make_band_controls(app: Any, parent: QWidget, *, with_fov: bool = False) -> QWidget:
+    """Build the shared "Error Band: SEM/SD" (+ optional "Spread: FOV") toggle
+    widget. The SEM button is wired through ``app._toggle_sem`` and registered in
+    ``app._sem_btns`` so ``_toggle_sem`` can update every instance; the FOV button
+    (``with_fov=True``) goes through ``app._toggle_fov_replicates`` /
+    ``app._fov_btns`` and is auto-disabled whenever replicate groups are active
+    (``_refresh_fov_btn_state``). Used both by :func:`attach_plot_toolbar` (legacy
+    toolbar) and by the v2 ``PlotCard`` controls row."""
+    w = QWidget(parent)
+    h = QHBoxLayout(w)
+    h.setContentsMargins(0, 0, 0, 0)
+    h.setSpacing(8)
+
+    eb_lbl = QLabel("Error Band", w)
+    eb_lbl.setObjectName("Muted")
+    h.addWidget(eb_lbl)
+    initial = bool(getattr(app, "_use_sem", False))
+    sem_btn = QPushButton("SEM" if initial else "SD", w)
+    sem_btn.setProperty("variant", "sem" if initial else "sem_warn")
+    sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
+    h.addWidget(sem_btn)
+    if not getattr(app, "_sem_btns", None):
+        app._sem_btns = []
+    app._sem_btns.append(sem_btn)
+    if not getattr(app, "_sem_btn", None):
+        app._sem_btn = sem_btn
+
+    if with_fov:
+        sp_lbl = QLabel("Spread", w)
+        sp_lbl.setObjectName("Muted")
+        h.addWidget(sp_lbl)
+        fov_btn = QPushButton("FOV", w)
+        fov_btn.setProperty("variant", "toggle")
+        fov_btn.clicked.connect(lambda _=False: app._toggle_fov_replicates())
+        h.addWidget(fov_btn)
+        if not getattr(app, "_fov_btns", None):
+            app._fov_btns = []
+        app._fov_btns.append(fov_btn)
+        if not getattr(app, "_fov_btn", None):
+            app._fov_btn = fov_btn
+        if hasattr(app, "_refresh_fov_btn_state"):
+            try:
+                app._refresh_fov_btn_state()
+            except Exception:
+                pass
+
+    h.addStretch(1)
+    return w
+
+
 def attach_plot_toolbar(
     layout,
     canvas,
@@ -298,53 +348,13 @@ def attach_plot_toolbar(
     with_fov: bool = False,
 ) -> Any:
     """Create a themed matplotlib nav toolbar, append it to *layout* (at bottom),
-    and optionally embed the shared SEM/SD toggle button.
-
-    Returns the toolbar. When ``with_sem`` and ``app`` are provided, the toolbar
-    hosts a SEM/SD button wired through ``app._toggle_sem``; ``app._sem_btns``
-    collects every such button so ``_toggle_sem`` can update them all.
-
-    When ``with_fov`` is also true, a "FOV" toggle is appended that controls
-    whether the error band is computed across per-FOV means (single-well mode
-    only). It is auto-disabled whenever replicate sets are active.
-    """
+    and optionally embed the shared :func:`make_band_controls` widget."""
     cls = _themed_nav_toolbar_class()
     toolbar = cls(canvas, parent)
     toolbar.setObjectName("PlotToolbar")
-
     if with_sem and app is not None:
         toolbar.addSeparator()
-        eb_lbl = QLabel(" Error Band ", toolbar)
-        eb_lbl.setObjectName("Muted")
-        toolbar.addWidget(eb_lbl)
-        initial = bool(getattr(app, "_use_sem", False))
-        sem_btn = QPushButton("SEM" if initial else "SD", toolbar)
-        sem_btn.setProperty("variant", "sem" if initial else "sem_warn")
-        sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
-        toolbar.addWidget(sem_btn)
-        if not hasattr(app, "_sem_btns") or app._sem_btns is None:
-            app._sem_btns = []
-        app._sem_btns.append(sem_btn)
-        if not getattr(app, "_sem_btn", None):
-            app._sem_btn = sem_btn
-
-        if with_fov:
-            fov_lbl = QLabel(" Spread ", toolbar)
-            fov_lbl.setObjectName("Muted")
-            toolbar.addWidget(fov_lbl)
-            fov_btn = QPushButton("FOV", toolbar)
-            fov_btn.setProperty("variant", "toggle")
-            fov_btn.clicked.connect(lambda _=False: app._toggle_fov_replicates())
-            toolbar.addWidget(fov_btn)
-            if not hasattr(app, "_fov_btns") or app._fov_btns is None:
-                app._fov_btns = []
-            app._fov_btns.append(fov_btn)
-            if not getattr(app, "_fov_btn", None):
-                app._fov_btn = fov_btn
-            # Initialize visual state (handles "replicates active → disabled").
-            if hasattr(app, "_refresh_fov_btn_state"):
-                app._refresh_fov_btn_state()
-
+        toolbar.addWidget(make_band_controls(app, toolbar, with_fov=with_fov))
     layout.addWidget(toolbar)
     return toolbar
 

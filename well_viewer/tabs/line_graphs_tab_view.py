@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    btn_primary, install_canvas_wheel_scroll, make_plot_with_right_dock,
+    btn_primary, install_canvas_wheel_scroll, make_band_controls,
+    make_plot_with_right_dock,
 )
 
 # The Line Graphs figure: three stacked subplots (mean / fraction / CDF).
@@ -82,7 +83,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     # The "Error Band: SEM/SD" + "Spread: FOV" toggles (formerly on the legacy
     # plot toolbar) → the card's controls row beneath the header.
-    card.setControlsWidget(_build_band_controls(app, card))
+    card.setControlsWidget(make_band_controls(app, card, with_fov=True))
 
     # The card's Publication↔Screen toggle + the stats chip are hidden here for
     # now: the line plot's styling comes from plot_style.apply_ax_style (a redraw
@@ -101,49 +102,3 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     # Right-click an axes → toggle its legend. (The old left-click-drag-to-set
     # threshold on the CDF was removed — the threshold lives on the Cell Gating tab.)
     app._line_canvas.mpl_connect("button_press_event", app._on_fig_click)
-
-
-def _build_band_controls(app, parent: QWidget) -> QWidget:
-    """The error-band / spread toggles that used to live on the legacy plot
-    toolbar. Mirrors ``ui_helpers.attach_plot_toolbar(with_fov=True)`` so that
-    ``app._toggle_sem`` / ``_toggle_fov_replicates`` / ``_refresh_fov_btn_state``
-    keep working unchanged (they walk ``app._sem_btns`` / ``app._fov_btns``)."""
-    w = QWidget(parent)
-    h = QHBoxLayout(w)
-    h.setContentsMargins(0, 0, 0, 0)
-    h.setSpacing(8)
-
-    eb_lbl = QLabel("Error Band", w)
-    eb_lbl.setObjectName("Muted")
-    h.addWidget(eb_lbl)
-    initial = bool(getattr(app, "_use_sem", False))
-    sem_btn = QPushButton("SEM" if initial else "SD", w)
-    sem_btn.setProperty("variant", "sem" if initial else "sem_warn")
-    sem_btn.clicked.connect(lambda _=False: app._toggle_sem())
-    h.addWidget(sem_btn)
-    if not getattr(app, "_sem_btns", None):
-        app._sem_btns = []
-    app._sem_btns.append(sem_btn)
-    if not getattr(app, "_sem_btn", None):
-        app._sem_btn = sem_btn
-
-    sp_lbl = QLabel("Spread", w)
-    sp_lbl.setObjectName("Muted")
-    h.addWidget(sp_lbl)
-    fov_btn = QPushButton("FOV", w)
-    fov_btn.setProperty("variant", "toggle")
-    fov_btn.clicked.connect(lambda _=False: app._toggle_fov_replicates())
-    h.addWidget(fov_btn)
-    if not getattr(app, "_fov_btns", None):
-        app._fov_btns = []
-    app._fov_btns.append(fov_btn)
-    if not getattr(app, "_fov_btn", None):
-        app._fov_btn = fov_btn
-
-    h.addStretch(1)
-    if hasattr(app, "_refresh_fov_btn_state"):
-        try:
-            app._refresh_fov_btn_state()
-        except Exception:
-            pass
-    return w
