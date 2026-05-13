@@ -2102,6 +2102,11 @@ class WellViewerApp(QWidget):
         self._refresh_sidebar_map()            # line-graph picker: rep colours
         self._redraw_bars()
         self._redraw()
+        try:
+            from well_viewer.tabs.scatter_tab_view import scatter_redraw_active
+            scatter_redraw_active(self)
+        except Exception:
+            _logger.exception("Scatter redraw failed")
         if hasattr(self, "_notebook"):
             if self._current_centre_tab() == "Line Graphs":
                 self._show_line_sidebar()
