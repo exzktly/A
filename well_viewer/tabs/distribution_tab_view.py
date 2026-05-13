@@ -1,17 +1,18 @@
 """Distribution Analysis tab builder.
 
 Per-cell histogram / KDE / violin views of the active value column at a
-chosen timepoint, grouped per replicate set or per well.
+chosen timepoint, grouped per replicate set or per well — in a v2 PlotCard.
 """
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QSpinBox,
+    QVBoxLayout, QWidget,
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, make_plot_with_right_dock,
+    btn_primary, make_band_controls, make_plot_with_right_dock,
 )
 
 
@@ -19,12 +20,8 @@ _MODE_OPTIONS = ["Histogram", "Histogram + KDE", "KDE only", "Violin (per group)
 
 
 def build_distribution_tab(app, parent: QWidget) -> None:
-    # matplotlib (and the QtAgg backend) is one of the heaviest imports in
-    # the app. Loading it inside the builder rather than at module import
-    # time keeps utility imports from this module (eg.
-    # ``refresh_distribution_timepoints``) cheap.
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
+    from widgets.plot_card import PlotCard
+
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -39,7 +36,6 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     cl = QHBoxLayout(ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
-    # Channel
     cl.addWidget(QLabel("Channel:", ctrl))
     app._chan_cb_distribution = QComboBox(ctrl)
     app._chan_cb_distribution.addItems(["GFP"])
@@ -48,28 +44,21 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     )
     cl.addWidget(app._chan_cb_distribution)
 
-    # Timepoint
     cl.addWidget(QLabel("t (h):", ctrl))
     app._distribution_tp_cb = QComboBox(ctrl)
     app._distribution_tp_cb.setMinimumContentsLength(8)
-    app._distribution_tp_cb.currentIndexChanged.connect(
-        lambda _i: _on_changed(app)
-    )
+    app._distribution_tp_cb.currentIndexChanged.connect(lambda _i: _on_changed(app))
     cl.addWidget(app._distribution_tp_cb)
     app._distribution_tp_var = app._distribution_tp_cb
 
-    # Mode
     cl.addWidget(QLabel("Mode:", ctrl))
     app._distribution_mode_cb = QComboBox(ctrl)
     app._distribution_mode_cb.addItems(_MODE_OPTIONS)
     app._distribution_mode_cb.setCurrentText("Histogram + KDE")
-    app._distribution_mode_cb.currentIndexChanged.connect(
-        lambda _i: _on_changed(app)
-    )
+    app._distribution_mode_cb.currentIndexChanged.connect(lambda _i: _on_changed(app))
     cl.addWidget(app._distribution_mode_cb)
     app._distribution_mode_var = app._distribution_mode_cb
 
-    # Bins
     cl.addWidget(QLabel("Bins:", ctrl))
     app._distribution_bins_spin = QSpinBox(ctrl)
     app._distribution_bins_spin.setRange(5, 500)
@@ -82,7 +71,6 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     app._distribution_bins_spin.valueChanged.connect(_on_bins_changed)
     cl.addWidget(app._distribution_bins_spin)
 
-    # Log x
     app._distribution_log_x_cb = QCheckBox("log x", ctrl)
     app._distribution_log_x = False
 
@@ -99,26 +87,21 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     style_btn.setToolTip("Export style / figure settings")
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("distribution"))
     cl.addWidget(style_btn)
-
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_distribution_data))
     layout.addWidget(ctrl)
 
-    # Figure / canvas
-    app._distribution_fig = Figure(figsize=(7.2, 5.4), dpi=100)
+    card = PlotCard(parent, figsize=(7.2, 5.4), constrained=False)
+    card.setFigureTitle("")
+    app._distribution_card = card
+    app._distribution_fig = card.figure
     app._distribution_ax = app._distribution_fig.add_subplot(1, 1, 1)
     app._distribution_fig.subplots_adjust(top=0.93, bottom=0.12, left=0.10, right=0.97)
+    app._distribution_canvas = card.canvas
+    card.setControlsWidget(make_band_controls(app, card, with_fov=False))
+    card.setThemeToggleVisible(False)
+    card.setStatsChipVisible(False)
+    layout.addWidget(card, 1)
 
-    app._distribution_canvas = FigureCanvas(app._distribution_fig)
-    layout.addWidget(app._distribution_canvas, 1)
-
-    attach_plot_toolbar(layout, app._distribution_canvas, parent, app, with_fov=False)
-
-    sep = QFrame(parent)
-    sep.setFrameShape(QFrame.HLine)
-    sep.setFixedHeight(1)
-    layout.addWidget(sep)
-
-    # Initial timepoint menu (if data already loaded)
     refresh_distribution_timepoints(app)
 
 

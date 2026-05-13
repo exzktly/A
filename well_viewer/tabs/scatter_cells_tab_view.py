@@ -1,4 +1,4 @@
-"""Scatter Plot: Cells tab builder (Qt port)."""
+"""Scatter Plot: Cells tab builder (Qt port) — single scatter in a v2 PlotCard."""
 
 from __future__ import annotations
 
@@ -7,14 +7,13 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, make_plot_with_right_dock,
+    btn_primary, make_band_controls, make_plot_with_right_dock,
 )
 
 
 def build_scatter_cells_tab(app, parent: QWidget) -> None:
-    # Defer matplotlib + QtAgg backend imports until the tab actually builds.
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
+    from widgets.plot_card import PlotCard
+
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -32,27 +31,21 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     cl.addWidget(QLabel("X-axis:", ctrl))
     app._scatter_ch_x_cb = QComboBox(ctrl)
     app._scatter_ch_x_cb.addItems(["gfp"])
-    app._scatter_ch_x_cb.currentIndexChanged.connect(
-        lambda _i: app._redraw_scatter()
-    )
+    app._scatter_ch_x_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
     cl.addWidget(app._scatter_ch_x_cb)
     app._scatter_ch_x_var = app._scatter_ch_x_cb
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
     app._scatter_ch_y_cb = QComboBox(ctrl)
     app._scatter_ch_y_cb.addItems(["gfp"])
-    app._scatter_ch_y_cb.currentIndexChanged.connect(
-        lambda _i: app._redraw_scatter()
-    )
+    app._scatter_ch_y_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
     cl.addWidget(app._scatter_ch_y_cb)
     app._scatter_ch_y_var = app._scatter_ch_y_cb
 
     cl.addWidget(QLabel("Timepoint:", ctrl))
     app._scatter_tp_cb = QComboBox(ctrl)
     app._scatter_tp_cb.addItems(["0"])
-    app._scatter_tp_cb.currentIndexChanged.connect(
-        lambda _i: app._redraw_scatter()
-    )
+    app._scatter_tp_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
     cl.addWidget(app._scatter_tp_cb)
     app._scatter_tp_var = app._scatter_tp_cb
     cl.addStretch(1)
@@ -64,15 +57,17 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_data))
     layout.addWidget(ctrl)
 
-    app._scatter_fig = Figure(figsize=(8, 6), dpi=100)
+    card = PlotCard(parent, figsize=(8, 6), constrained=False)
+    card.setFigureTitle("")
+    app._scatter_card = card
+    app._scatter_fig = card.figure
     app._ax_scatter = app._scatter_fig.add_subplot(1, 1, 1)
-    app._scatter_fig.subplots_adjust(
-        hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97,
-    )
-
-    app._scatter_canvas = FigureCanvas(app._scatter_fig)
-    layout.addWidget(app._scatter_canvas, 1)
-    attach_plot_toolbar(layout, app._scatter_canvas, parent, app)
+    app._scatter_fig.subplots_adjust(hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97)
+    app._scatter_canvas = card.canvas
+    card.setControlsWidget(make_band_controls(app, card, with_fov=False))
+    card.setThemeToggleVisible(False)
+    card.setStatsChipVisible(False)
+    layout.addWidget(card, 1)
 
     app._scatter_canvas.mpl_connect("button_press_event", app._on_scatter_click)
     app._scatter_canvas.mpl_connect("motion_notify_event", app._on_scatter_motion)
