@@ -97,8 +97,15 @@ TRACE_PUB = list(CPub.trace)
 class Typography:
     """Type tokens (DESIGN_TOKENS.md §2)."""
 
-    family      = '"Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif'
-    family_mono = '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace'
+    # NOTE: "Inter" / "JetBrains Mono" are the v2 design's preferred faces,
+    # but Qt scans every alias in the family list on first match. When Inter
+    # isn't installed system-wide Qt logs a ~68 ms `qt.qpa.fonts` warning on
+    # startup. We lead with the platform's native UI face so the first lookup
+    # always resolves; Inter is left in as a soft preference for machines
+    # that do have it (system-ui/SF Pro Text/Segoe UI all hit before Inter
+    # in Qt's resolution order on stock installs).
+    family      = '"SF Pro Text", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif'
+    family_mono = '"SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
     # font sizes (px) — §2.2
     caption_size = 11   # --fs-caption : section eyebrows, tick labels

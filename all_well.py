@@ -583,8 +583,19 @@ class AllWellApp(QMainWindow):
     def _on_tab_change(self, idx: int) -> None:
         if self._review is None:
             return
-        if self._nb.tabText(idx).strip() == "Review":
+        # QStackedWidget has no tabText — index 0 is Review, 1 is Analyze
+        # (matches the order they were added to self._nb and to the mode-seg).
+        if idx == 0:
             QTimer.singleShot(50, self._nudge_review)
+        # Keep the titlebar mode-seg in sync if something else changed
+        # currentIndex (analyze-complete handler, programmatic switches).
+        seg = getattr(self, "_mode_seg", None)
+        if seg is not None and seg.currentIndex() != idx:
+            blocked = seg.blockSignals(True)
+            try:
+                seg.setCurrentIndex(idx)
+            finally:
+                seg.blockSignals(blocked)
 
     def _on_analyze_pipeline_complete(self, output_dir: Path) -> None:
         if self._review is None:
