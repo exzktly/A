@@ -3749,15 +3749,34 @@ class WellViewerApp(QWidget):
         )
 
     def _pick_review_image_color(self, which: str) -> None:
-        """Open a color dialog and apply the selection to ``which`` slot."""
+        """Open a v2 ColorSwatchRow popover anchored at the swatch button."""
         from PySide6.QtGui import QColor
-        from PySide6.QtWidgets import QColorDialog
-        r, g, b = self._review_image_get_color(which)
-        initial = QColor(int(r), int(g), int(b))
-        chosen = QColorDialog.getColor(initial, None, f"Pick {which} color")
-        if not chosen.isValid():
+
+        from widgets.color_swatch_row import ColorSwatchRow
+        from widgets.popover import Popover
+
+        anchor = (getattr(self, "_review_image_color_swatches", {}) or {}).get(which)
+        if anchor is None:
             return
-        self._review_image_set_color(which, (chosen.red(), chosen.green(), chosen.blue()))
+
+        r, g, b = self._review_image_get_color(which)
+        recents = list(getattr(self, "_review_image_color_recents", []) or [])
+
+        pop = Popover(anchor)
+        row = ColorSwatchRow(allow_custom=True, recents=recents)
+        row.setCurrentColor(QColor(int(r), int(g), int(b)))
+
+        def _apply(c: QColor, _which=which, _pop=pop, _row=row) -> None:
+            if not c.isValid():
+                return
+            self._review_image_set_color(_which, (c.red(), c.green(), c.blue()))
+            rec = [c] + [QColor(x) for x in (getattr(self, "_review_image_color_recents", []) or [])
+                         if QColor(x).rgb() != c.rgb()]
+            self._review_image_color_recents = rec[:8]
+
+        row.colorPicked.connect(_apply)
+        pop.setContentWidget(row)
+        pop.popup(anchor, side="bottom", align="start")
 
     def _reset_review_image_colors(self) -> None:
         """Restore the default colors for boundary / selection / tint."""
