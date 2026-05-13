@@ -1128,6 +1128,26 @@ class WellViewerApp(QWidget):
         # shell can re-sync its own seg without poking widgets here.
         self.modeChanged.emit("analyze" if idx == 1 else "review")
 
+    def _refresh_sidebar_saved_list(self) -> None:
+        """Phase 13 (B8): push the canonical ``app._selections`` into the
+        compact Saved mirror in the sidebar + sync the count chip."""
+        lst = getattr(self, "_sidebar_saved_list", None)
+        chip = getattr(self, "_sidebar_saved_count_chip", None)
+        sels = list(getattr(self, "_selections", []) or [])
+        if lst is not None:
+            try:
+                lst.setSelections(sels)
+                cur = getattr(self, "_current_selection_id", None)
+                if cur:
+                    lst.setCurrentId(cur)
+            except Exception:
+                pass
+        if chip is not None:
+            try:
+                chip.setText(str(len(sels)))
+            except Exception:
+                pass
+
     def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
         _build_centre_view(self, parent)
@@ -2093,6 +2113,7 @@ class WellViewerApp(QWidget):
         self._invalidate_stats_cache()
         self._groups_centre_refresh()          # Sample Definitions: GROUPS panel + map
         self._refresh_sidebar_map()            # line-graph picker: rep colours
+        self._refresh_sidebar_saved_list()     # Phase 13 B8: compact Saved mirror
         self._redraw_bars()
         self._redraw()
         try:

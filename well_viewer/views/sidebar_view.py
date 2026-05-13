@@ -134,6 +134,35 @@ def build_sidebar(app, parent: QWidget) -> None:
     heatmap_frame = build_heatmap_layout_sidebar(app, parent)
     heatmap_frame.setVisible(False)
 
+    # ── Phase 13 B8: compact "Saved" list (mockup-decoded.html §2.5) ────
+    # Read-only mirror of app._selections; mounting it in the rail gives
+    # the user a glance at which selections / groups exist without having
+    # to jump to Sample Definitions. Compact mode hides drag-handle / eye /
+    # kebab — the editable variant lives in the centre Groups sub-tab.
+    from widgets.saved_selections_list import SavedSelectionsList
+    from widgets.selection_chip import SelectionChip
+    saved_head = QWidget(parent)
+    sh_l = QHBoxLayout(saved_head)
+    sh_l.setContentsMargins(8, 10, 8, 2)
+    saved_lbl = QLabel("SAVED", saved_head)
+    saved_lbl.setObjectName("Caption")
+    sh_l.addWidget(saved_lbl)
+    sh_l.addStretch(1)
+    app._sidebar_saved_count_chip = SelectionChip(
+        "0", variant="muted", parent=saved_head,
+    )
+    sh_l.addWidget(app._sidebar_saved_count_chip)
+    layout.addWidget(saved_head)
+
+    app._sidebar_saved_list = SavedSelectionsList(parent)
+    app._sidebar_saved_list.setCompact(True)
+    # Forward activation clicks to the same handler the centre uses, so
+    # clicking a row in the sidebar Saved list activates that selection.
+    app._sidebar_saved_list.entryActivated.connect(
+        lambda sid: app._sel_select(sid) if hasattr(app, "_sel_select") else None
+    )
+    layout.addWidget(app._sidebar_saved_list)
+
     # Absorb leftover vertical space so the well picker stays pinned to the
     # top of the sidebar even when the sidebar is taller than its contents.
     layout.addStretch(1)

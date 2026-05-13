@@ -16,6 +16,8 @@ this session; rows that pass move out of this list at the next push.
 | `f05cce4` + `b26b7ff` | Rail UX + Phase 12b bindings | Rail hidden on launch; edge-handle button on the canvas's right edge always visible (arrow `◂` to open, `▸` to close). Titlebar IconButton mirrors. **Phase 12b**: changing Line width / Marker size / Grid opacity / Y log / X-Y limits / etc. in the Properties rail live-updates the active plot. |
 | `ca6e21a` | Phase 13 polish | Quick-select row reads "All 96 / Invert / Clear"; tip line below. ⌘O / ⌘K / ⌘E global shortcuts work. PreviewStrip in Lines & Markers live-updates. Plate top-left has a tiny cut-corner notch in rail colour. Selected wells render with the radial gradient. |
 | `8bb85f6` | Phase 12 rail content | Right rail interior: scope segmented + ⌘K search + 8 collapsible sections (Profile & Format / **Statistics** / Axes / Legend / Lines & Markers / Grid / Limits & Scale / Layout). |
+| `cf90561` | Mode-seg in titlebar / OS window title carries dataset name | Titlebar's redundant dataset chip + stats labels are gone; mode-seg (Review · Analyze) sits where they used to. OS window title now reads `All-Well — <dataset> · N wells · N timepoints`. Sidebar starts with SECTION nav directly (no mode-seg). |
+| _NEXT_ | Phase 13 final: compact Saved list in sidebar | Sidebar bottom shows a "SAVED [N]" caption + a compact `SavedSelectionsList` mirror of `app._selections` (dot + name + meta only — no kebab/eye/drag). Clicking a row activates that selection. Refreshes with every group edit. |
 
 ## Recently-cleared QA (most recent first)
 
