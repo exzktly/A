@@ -1827,11 +1827,11 @@ class WellViewerApp(QWidget):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_label_editor(self, parent) -> None:
-        from well_viewer.views.label_editor_view import build_label_editor as _v
+        from well_viewer.views.label_grid_view import build_label_grid as _v
         _v(self, parent)
 
     def _label_panel_refresh(self) -> None:
-        from well_viewer.views.label_editor_view import label_panel_refresh as _v
+        from well_viewer.views.label_grid_view import label_grid_refresh as _v
         _v(self)
 
     def _labels_clear_all(self) -> None:
@@ -1842,13 +1842,29 @@ class WellViewerApp(QWidget):
 
     def _labels_apply_affix(self, *, where: str) -> None:
         """Prompt for text and prepend/append it to the labels of every
-        well currently selected in the sidebar well picker."""
+        well currently selected.
+
+        Selection precedence: the Well-Labels grid's selection wins when
+        non-empty (rows / columns / Shift-clicked cells); otherwise the
+        sidebar's plate selection is used as a fallback.
+        """
         from well_viewer.ui_helpers import ask_name_dialog
 
-        selected = sorted(self._selected_wells, key=self._parse_rc)
+        grid = getattr(self, "_lbl_grid", None)
+        grid_sel: list[str] = []
+        if grid is not None:
+            try:
+                grid_sel = list(grid.selectedTokens())
+            except Exception:
+                grid_sel = []
+        if grid_sel:
+            selected = sorted(grid_sel, key=self._parse_rc)
+        else:
+            selected = sorted(self._selected_wells, key=self._parse_rc)
         if not selected:
             self._set_status(
-                f"Add {where.title()}: no wells selected in the picker."
+                f"Add {where.title()}: no wells selected — click a row/column "
+                "header on the Well Labels grid or select wells on the sidebar plate."
             )
             return
 
