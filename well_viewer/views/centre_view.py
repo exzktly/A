@@ -175,6 +175,12 @@ def build_centre(app, parent: QWidget) -> None:
     custom_tabbar.setExpanding(False)
     custom_tabbar.setElideMode(Qt.ElideNone)
     app._notebook.setTabBar(custom_tabbar)
+    # Phase 10 (A1): the section tabs migrate into the left rail's RailNav.
+    # We keep the QTabWidget as the page host (so every call site that uses
+    # tabText / setCurrentIndex / currentChanged still works) but hide its
+    # tab bar; the rail drives currentIndex externally.
+    custom_tabbar.setVisible(False)
+    app._notebook.setDocumentMode(True)
     layout.addWidget(app._notebook, 1)
 
     def _select_by_text(title: str, _nb=app._notebook) -> None:

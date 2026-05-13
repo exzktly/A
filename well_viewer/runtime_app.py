@@ -972,10 +972,38 @@ class WellViewerApp(QWidget):
         outer.addWidget(self._h_pane, 1)
 
         sidebar = QWidget()
-        sidebar.setMinimumWidth(260)
+        sidebar.setMinimumWidth(400)  # Q9: mockup 260 widened to 400 for plate breathing room
         sidebar.setMaximumWidth(600)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        # Phase 10 (A1): vertical section nav above the per-section frames.
+        # Replaces the horizontal QTabWidget tab bar in centre_view.py; the
+        # QTabWidget itself stays as page host (tab bar hidden) so existing
+        # callers using tabText / setCurrentIndex / currentChanged still work.
+        import theme as _theme_v2
+        from widgets.rail_nav import RailNav as _RailNav
+        self._section_nav = _RailNav(sidebar)
+        self._section_nav_keys: list[str] = []
+        self._section_nav_building = False
+        nav_head = QLabel("SECTION", sidebar)
+        nav_head.setObjectName("RailHead")
+        nav_head.setContentsMargins(13, 10, 13, 4)
+        nav_head.setStyleSheet(
+            f"color: {_theme_v2.Colors.text_muted}; "
+            f"font: 600 11px/1 {_theme_v2.Typography.family}; "
+            f"letter-spacing: 0.08em;"
+        )
+        sidebar_layout.addWidget(nav_head)
+        sidebar_layout.addWidget(self._section_nav)
+        sep_nav = QFrame()
+        sep_nav.setObjectName("Separator")
+        sep_nav.setFixedHeight(1)
+        sep_nav.setStyleSheet(
+            f"background-color: {_theme_v2.Colors.border_subtle};"
+        )
+        sidebar_layout.addWidget(sep_nav)
 
         self._sidebar_main_frame = QWidget()
         QVBoxLayout(self._sidebar_main_frame).setContentsMargins(0, 0, 0, 0)
@@ -1019,6 +1047,68 @@ class WellViewerApp(QWidget):
     def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
         _build_centre_view(self, parent)
+        # Phase 10 (A1): mirror the notebook's tab list into the rail nav.
+        # The nav drives the (hidden-tab-bar) QTabWidget; the QTabWidget's
+        # currentChanged signal keeps the nav in sync if anything else
+        # changes the index (deferred builders, programmatic select_by_text).
+        self._sync_section_nav_from_notebook()
+        self._section_nav.currentChanged.connect(self._on_section_nav_changed)
+        self._notebook.currentChanged.connect(self._on_notebook_current_changed)
+
+    # ── Phase 10 (A1) section-nav <-> notebook bridge ─────────────────────
+    _SECTION_ICONS = {
+        "Plotting":           "line-chart",
+        "smFISH":             "dna",
+        "Statistics":         "sigma",
+        "Image Table":        "layout-grid",
+        "Segmentation":       "scan-line",
+        "Review CSV":         "file-spreadsheet",
+        "Sample Definitions": "tag",
+        "Batch Export":       "boxes",
+    }
+
+    def _sync_section_nav_from_notebook(self) -> None:
+        nav = getattr(self, "_section_nav", None)
+        nb = getattr(self, "_notebook", None)
+        if nav is None or nb is None:
+            return
+        self._section_nav_building = True
+        try:
+            existing = set(nav.items())
+            for i in range(nb.count()):
+                title = nb.tabText(i)
+                if title in existing:
+                    continue
+                nav.addItem(title, icon=self._SECTION_ICONS.get(title), key=title)
+                self._section_nav_keys.append(title)
+            cur = nb.tabText(nb.currentIndex()) if nb.count() else None
+            if cur:
+                nav.setCurrentKey(cur)
+        finally:
+            self._section_nav_building = False
+
+    def _on_section_nav_changed(self, key: str) -> None:
+        if self._section_nav_building:
+            return
+        nb = self._notebook
+        for i in range(nb.count()):
+            if nb.tabText(i) == key:
+                if nb.currentIndex() != i:
+                    nb.setCurrentIndex(i)
+                return
+
+    def _on_notebook_current_changed(self, _idx: int) -> None:
+        nb = self._notebook
+        nav = getattr(self, "_section_nav", None)
+        if nav is None or nb is None:
+            return
+        title = nb.tabText(nb.currentIndex())
+        if title and nav.currentKey() != title:
+            self._section_nav_building = True
+            try:
+                nav.setCurrentKey(title)
+            finally:
+                self._section_nav_building = False
 
     # ── Statistics tab ────────────────────────────────────────────────────────
 
@@ -2955,6 +3045,9 @@ class WellViewerApp(QWidget):
             else:
                 self._sel_count_lbl.setText((f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
                           if n_vis else "No wells selected"))
+        if hasattr(self, "_sel_count_chip"):
+            total = len(self._well_paths) if hasattr(self, "_well_paths") else 96
+            self._sel_count_chip.setText(f"{n_vis} / {total or 96}")
         if hasattr(self, "_line_group_hint"):
             if rep_mode:
                 self._line_group_hint.setText("Click a well to toggle its set's visibility on the plot.")

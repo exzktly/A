@@ -90,6 +90,17 @@ class AllWellApp(QMainWindow):
         title.setObjectName("Title")
         hl.addWidget(title)
 
+        # Phase 10 (B2): version pill next to wordmark.
+        self._version_pill = QLabel("v2.4.1")
+        self._version_pill.setObjectName("VersionPill")
+        self._version_pill.setStyleSheet(
+            f"color: {theme_v2.Colors.text_faint}; "
+            f"font-family: {theme_v2.Typography.family_mono}; "
+            f"font-size: {theme_v2.Typography.caption_size}px; "
+            f"font-weight: 500; padding-left: 4px;"
+        )
+        hl.addWidget(self._version_pill)
+
         hl.addSpacing(theme_v2.Spacing.md)
         self._dataset_status = StatusDot("neutral")
         hl.addWidget(self._dataset_status)
@@ -97,8 +108,36 @@ class AllWellApp(QMainWindow):
         self._dataset_chip.setObjectName("Chip")
         self._dataset_chip.setProperty("variant", "muted")
         hl.addWidget(self._dataset_chip)
+        # Phase 10 (B1): faint trailing dataset stats (`· 96 wells · 8 tp`).
+        self._dataset_stats = QLabel("")
+        self._dataset_stats.setStyleSheet(
+            f"color: {theme_v2.Colors.text_faint}; "
+            f"font-size: {theme_v2.Typography.caption_size}px;"
+        )
+        self._dataset_stats.setVisible(False)
+        hl.addWidget(self._dataset_stats)
 
         hl.addStretch(1)
+
+        # Phase 10 (A2): mode-seg Review/Analyze. Mockup places this in the
+        # left rail, but the left rail belongs to WellViewerApp's internal
+        # sidebar — relocating mode-seg there would require hoisting plate
+        # + saved out of WellViewerApp. Keep the seg in the titlebar for
+        # now (still discoverable, still mockup-faithful for the toggle
+        # itself); revisit in Phase 12 when the shared rail lands.
+        from widgets.segmented_control import SegmentedControl as _SegmentedControl
+        self._mode_seg = _SegmentedControl()
+        self._mode_seg.addSegment("Review", icon=None, data="review")
+        self._mode_seg.addSegment("Analyze", icon=None, data="analyze")
+        self._mode_seg.currentChanged.connect(self._on_mode_seg_changed)
+        hl.addWidget(self._mode_seg)
+        hl.addSpacing(theme_v2.Spacing.sm)
+
+        # Phase 10 (B3): refresh action.
+        self._refresh_btn = IconButton("refresh-cw")
+        self._refresh_btn.setToolTip("Reload the active dataset")
+        self._refresh_btn.clicked.connect(self._on_refresh_clicked)
+        hl.addWidget(self._refresh_btn)
 
         # Global "presentation mode" toggle: flips every PlotCard in the app
         # between Screen (dark live-preview) and Publication (canonical
@@ -120,6 +159,15 @@ class AllWellApp(QMainWindow):
         hl.addWidget(self._help_btn)
         self._help_drawer = None  # built lazily on first open
 
+        # Phase 10 (B23 / Q1): rail-collapse toggle for the Properties rail.
+        # Glyph flips between panel-right-close (expanded) and panel-right-open
+        # (collapsed) per the v2 mockup. Wired below to a CollapsibleRail
+        # overlay mounted on the central widget.
+        self._rail_toggle_btn = IconButton("panel-right-close")
+        self._rail_toggle_btn.setToolTip("Hide the Properties rail")
+        self._rail_toggle_btn.clicked.connect(self._on_rail_toggle_clicked)
+        hl.addWidget(self._rail_toggle_btn)
+
         rl.addWidget(header)
 
         sep = QFrame()
@@ -127,24 +175,102 @@ class AllWellApp(QMainWindow):
         sep.setFixedHeight(1)
         rl.addWidget(sep)
 
-        # Notebook
-        self._nb = QTabWidget()
+        # Phase 10 (A2): outer Review/Analyze QTabWidget retired. Replaced
+        # by a QStackedWidget driven by the titlebar's mode-seg above; this
+        # is the central content area that the CollapsibleRail overlays.
+        from PySide6.QtWidgets import QStackedWidget as _QStackedWidget
+        self._central_host = QWidget()
+        self._central_host.setObjectName("CentralHost")
+        ch_layout = QVBoxLayout(self._central_host)
+        ch_layout.setContentsMargins(0, 0, 0, 0)
+        ch_layout.setSpacing(0)
+        self._nb = _QStackedWidget()
         self._nb.currentChanged.connect(self._on_tab_change)
-        nb_bar = self._nb.tabBar()
-        nb_bar.setExpanding(False)
-        nb_bar.setElideMode(Qt.ElideNone)
-        rl.addWidget(self._nb, 1)
+        ch_layout.addWidget(self._nb, 1)
+        rl.addWidget(self._central_host, 1)
 
         self._review = WellViewerApp(parent=None)
-        self._nb.addTab(self._review, "Review")
+        self._nb.addWidget(self._review)
         self._wrap_review_load_path()
 
         self._analyze = AnalyzeTab(
             parent=None,
             on_pipeline_complete=self._on_analyze_pipeline_complete,
         )
-        self._nb.addTab(self._analyze, "Analyze")
+        self._nb.addWidget(self._analyze)
         self._nb.setCurrentIndex(0)
+
+        # Phase 10 (A6 shell / B23 / Q11): Properties rail overlay + Log
+        # tray drawer at the bottom.
+        from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
+        self._properties_rail = _CollapsibleRail(
+            self._central_host, width=332, collapsed=False,
+        )
+        # Placeholder content for Phase 10 — Phase 12 builds the real
+        # scope segmented + ⌘K search + 8 sections.
+        ph = QWidget()
+        ph_layout = QVBoxLayout(ph)
+        ph_layout.setContentsMargins(theme_v2.Spacing.lg, theme_v2.Spacing.lg,
+                                     theme_v2.Spacing.lg, theme_v2.Spacing.lg)
+        head_lbl = QLabel("Properties")
+        head_lbl.setStyleSheet(
+            f"color: {theme_v2.Colors.text_primary}; "
+            f"font-size: {theme_v2.Typography.emph_size}px; font-weight: 600;"
+        )
+        ph_layout.addWidget(head_lbl)
+        ph_layout.addSpacing(theme_v2.Spacing.sm)
+        stub = QLabel(
+            "Phase 12 populates this rail with the scope segmented "
+            "(All / Plot 1 / Plot 2), ⌘K search, and eight collapsible "
+            "sections (Profile & Format / Statistics / Axes / Legend / "
+            "Lines & Markers / Grid / Limits & Scale / Layout)."
+        )
+        stub.setWordWrap(True)
+        stub.setStyleSheet(f"color: {theme_v2.Colors.text_muted};")
+        ph_layout.addWidget(stub)
+        ph_layout.addStretch(1)
+        self._properties_rail.setContentWidget(ph)
+        self._properties_rail.collapsedChanged.connect(self._on_rail_collapsed_changed)
+
+        # Status bar v2: status / kbd hints / Log tray IconButton.
+        from widgets.kbd_hint import KbdHint as _KbdHint
+        statusbar = QWidget(objectName="StatusBar")
+        sb_layout = QHBoxLayout(statusbar)
+        sb_layout.setContentsMargins(theme_v2.Spacing.md, 4,
+                                     theme_v2.Spacing.md, 4)
+        sb_layout.setSpacing(theme_v2.Spacing.sm)
+        self._status_dot = StatusDot("success")
+        sb_layout.addWidget(self._status_dot)
+        self._status_lbl_app = QLabel("Ready.")
+        self._status_lbl_app.setStyleSheet(
+            f"color: {theme_v2.Colors.text_secondary}; "
+            f"font-size: {theme_v2.Typography.caption_size}px;"
+        )
+        sb_layout.addWidget(self._status_lbl_app)
+        sb_layout.addStretch(1)
+        # Kbd hints (B16 wires the actual QShortcuts in Phase 13; the
+        # statusbar already advertises them per the mockup).
+        for label, hint in (("Open", "⌘O"), ("Search", "⌘K"), ("Export", "⌘E")):
+            l = QLabel(label)
+            l.setStyleSheet(
+                f"color: {theme_v2.Colors.text_muted}; "
+                f"font-size: {theme_v2.Typography.caption_size}px;"
+            )
+            sb_layout.addWidget(l)
+            sb_layout.addWidget(_KbdHint(hint))
+            sb_layout.addSpacing(theme_v2.Spacing.xs)
+        self._log_tray_btn = IconButton("terminal-square")
+        self._log_tray_btn.setText("  Log")
+        self._log_tray_btn.setToolTip("Open the log drawer")
+        self._log_tray_btn.clicked.connect(self._toggle_log_drawer)
+        sb_layout.addWidget(self._log_tray_btn)
+        statusbar.setStyleSheet(
+            f"#StatusBar {{ background-color: {theme_v2.Colors.titlebar}; "
+            f"border-top: 1px solid {theme_v2.Colors.border_subtle}; }}"
+        )
+        rl.addWidget(statusbar)
+        self._log_drawer = None  # lazy
+        self._log_ring: list[str] = []
 
     def _install_app_icon(self) -> None:
         """96-well plate icon whose lit wells spell A W across the fluorescence spectrum."""
@@ -255,15 +381,47 @@ class AllWellApp(QMainWindow):
         if path is None:
             self._dataset_chip.setText("No dataset")
             self._dataset_status.setStatus("neutral")
+            if hasattr(self, "_dataset_stats"):
+                self._dataset_stats.setVisible(False)
+                self._dataset_stats.setText("")
             return
         try:
             p = Path(path)
             name = p.name or str(p)
         except Exception:
             name = str(path)
-        self._dataset_chip.setText(name)
+            p = None
+        # Phase 10 (B1 / Q7): synthesise breadcrumb-ish path from the
+        # dataset path — grandparent · parent · <name>.
+        if p is not None:
+            parents = list(p.parents)
+            crumbs = []
+            for i in range(min(2, len(parents))):
+                if parents[i].name:
+                    crumbs.append(parents[i].name)
+            crumbs = list(reversed(crumbs))
+            display = (" · ".join(crumbs + [name])) if crumbs else name
+            self._dataset_chip.setText(display)
+        else:
+            self._dataset_chip.setText(name)
         self._dataset_chip.setToolTip(str(path))
         self._dataset_status.setStatus("success")
+        # Best-effort dataset stats from the Review widget's loaded state.
+        try:
+            wells = len(getattr(self._review, "_well_paths", {}) or {})
+            tps_attr = getattr(self._review, "_timepoints", None)
+            tps = len(tps_attr) if tps_attr is not None else 0
+            tail = []
+            if wells:
+                tail.append(f"{wells} wells")
+            if tps:
+                tail.append(f"{tps} timepoints")
+            text = "· " + " · ".join(tail) if tail else ""
+            if hasattr(self, "_dataset_stats"):
+                self._dataset_stats.setText(text)
+                self._dataset_stats.setVisible(bool(text))
+        except Exception:
+            pass
 
     def _on_present_toggled(self, on: bool) -> None:
         """Flip every known PlotCard's plotTheme together."""
@@ -321,6 +479,98 @@ class AllWellApp(QMainWindow):
             self._help_drawer.close()
         else:
             self._help_drawer.open()
+
+    # ── Phase 10 handlers ────────────────────────────────────────────────
+    def _on_mode_seg_changed(self, idx: int) -> None:
+        # 0 = Review, 1 = Analyze.
+        if self._nb.currentIndex() != idx:
+            self._nb.setCurrentIndex(idx)
+
+    def _on_refresh_clicked(self) -> None:
+        # Re-load the active dataset (Review's _load_path is the canonical
+        # entry point).
+        review = self._review
+        if review is None or not hasattr(review, "_load_path"):
+            return
+        cur = getattr(review, "_loaded_path", None)
+        if cur:
+            try:
+                review._load_path(Path(cur))
+            except Exception:
+                pass
+
+    def _on_rail_toggle_clicked(self) -> None:
+        rail = getattr(self, "_properties_rail", None)
+        if rail is None:
+            return
+        rail.toggle()
+
+    def _on_rail_collapsed_changed(self, collapsed: bool) -> None:
+        if not hasattr(self, "_rail_toggle_btn"):
+            return
+        self._rail_toggle_btn.setIconName(
+            "panel-right-open" if collapsed else "panel-right-close"
+        )
+        self._rail_toggle_btn.setToolTip(
+            "Show the Properties rail" if collapsed else "Hide the Properties rail"
+        )
+
+    def _toggle_log_drawer(self) -> None:
+        if self._log_drawer is None:
+            from widgets.drawer import Drawer
+            drawer = Drawer(self, width_hint=460)
+            body = QWidget(drawer)
+            bl = QVBoxLayout(body)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setSpacing(theme_v2.Spacing.sm)
+            head = QLabel("Application log")
+            head.setObjectName("Heading")
+            bl.addWidget(head)
+            from PySide6.QtWidgets import QTextEdit as _QTextEdit
+            self._log_view = _QTextEdit(body)
+            self._log_view.setReadOnly(True)
+            self._log_view.setStyleSheet(
+                f"QTextEdit {{ background-color: {theme_v2.Colors.panel}; "
+                f"color: {theme_v2.Colors.text_secondary}; "
+                f"font-family: {theme_v2.Typography.family_mono}; "
+                f"font-size: {theme_v2.Typography.caption_size}px; "
+                f"border: 1px solid {theme_v2.Colors.border_subtle}; }}"
+            )
+            bl.addWidget(self._log_view, 1)
+            drawer.setContentWidget(body)
+            self._log_drawer = drawer
+            self._attach_log_ring_buffer()
+        # Re-fill from ring buffer each open in case the drawer was rebuilt.
+        try:
+            self._log_view.setPlainText("\n".join(self._log_ring[-500:]))
+        except Exception:
+            pass
+        if self._log_drawer.isVisible():
+            self._log_drawer.close()
+        else:
+            self._log_drawer.open()
+
+    def _attach_log_ring_buffer(self) -> None:
+        """Install a logging.Handler that keeps the last N records in
+        ``self._log_ring`` so the Log drawer has something to show without
+        having to subscribe live."""
+        import logging as _logging
+
+        ring = self._log_ring
+
+        class _RingHandler(_logging.Handler):
+            def emit(self, record):  # noqa: N802
+                try:
+                    ring.append(self.format(record))
+                    if len(ring) > 1000:
+                        del ring[:500]
+                except Exception:
+                    pass
+
+        h = _RingHandler()
+        h.setFormatter(_logging.Formatter("%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+                                          datefmt="%H:%M:%S"))
+        _logging.getLogger().addHandler(h)
 
     def _open_dataset(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Open results directory")

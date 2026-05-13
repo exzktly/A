@@ -88,10 +88,23 @@ def build_sidebar(app, parent: QWidget) -> None:
         b.clicked.connect(lambda _=False, c=cmd: c())
         br_l.addWidget(b, 1)
 
-    # Selected-well count status text.
+    # Selected-well count status text (legacy plain QLabel kept so existing
+    # call sites in runtime_app keep writing to it). The mockup's pill-shaped
+    # SelectionChip in the plate header (Phase 10 B6) wraps the same value
+    # via _sel_count_chip; both render concurrently — the chip in the
+    # header, the long-form caption below it.
+    from widgets.selection_chip import SelectionChip as _SelectionChip
     app._sel_count_lbl = QLabel("", parent)
     app._sel_count_lbl.setObjectName("Caption")
-    layout.addWidget(app._sel_count_lbl)
+    chip_row = QWidget(parent)
+    chip_row_layout = QHBoxLayout(chip_row)
+    chip_row_layout.setContentsMargins(0, 0, 0, 0)
+    chip_row_layout.setSpacing(8)
+    chip_row_layout.addWidget(app._sel_count_lbl, 1)
+    app._sel_count_chip = _SelectionChip("0 / 96", icon="check", variant="accent",
+                                          parent=chip_row)
+    chip_row_layout.addWidget(app._sel_count_chip, 0)
+    layout.addWidget(chip_row)
 
     # Group-mode hint
     app._line_group_hint = QLabel("", parent)

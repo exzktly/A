@@ -38,9 +38,13 @@ class EmptyState(QWidget):
         self._icon_name = icon
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(theme.Spacing.xxl, theme.Spacing.xxl,
-                                 theme.Spacing.xxl, theme.Spacing.xxl)
-        outer.addStretch(1)
+        outer.setContentsMargins(theme.Spacing.lg, theme.Spacing.lg,
+                                 theme.Spacing.lg, theme.Spacing.lg)
+        # Anchor stack at the top with a single bottom stretch — when the
+        # host card is short, content grows downward into the stretch
+        # instead of overflowing past the card's bottom edge (a vertical
+        # centering layout with two stretches squeezes the wrapped hint
+        # off-screen when the card is constrained).
 
         self._glyph = QLabel(self)
         self._glyph.setAlignment(Qt.AlignCenter)
@@ -54,6 +58,7 @@ class EmptyState(QWidget):
         self._hint.setWordWrap(True)
         self._hint.setVisible(bool(hint))
 
+        outer.addSpacing(theme.Spacing.lg)
         for w, sp in ((self._glyph, theme.Spacing.md),
                       (self._text, theme.Spacing.xs),
                       (self._hint, 0)):
@@ -61,6 +66,11 @@ class EmptyState(QWidget):
             if sp:
                 outer.addSpacing(sp)
         outer.addStretch(1)
+        # Heightful hint: word-wrapped labels report a 1-line sizeHint until
+        # the layout has computed the actual width, which makes the bottom
+        # stretch oversize and the second wrapped line slip off the card.
+        # Reserve two-line minimum height up-front.
+        self._hint.setMinimumHeight(self.fontMetrics().height() * 2)
 
         self.setStyleSheet(self._build_qss())
         self._refresh_glyph()
