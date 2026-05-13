@@ -1083,28 +1083,23 @@ class WellViewerApp(QWidget):
         # is scoped to the Review centre area.
         from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
         self._properties_rail = _CollapsibleRail(centre, width=332, collapsed=False)
-        ph = QWidget()
-        ph_layout = QVBoxLayout(ph)
-        ph_layout.setContentsMargins(_theme_v2.Spacing.lg, _theme_v2.Spacing.lg,
-                                     _theme_v2.Spacing.lg, _theme_v2.Spacing.lg)
-        ph_head = QLabel("Properties")
-        ph_head.setStyleSheet(
-            f"color: {_theme_v2.Colors.text_primary}; "
-            f"font-size: {_theme_v2.Typography.emph_size}px; font-weight: 600;"
+        # Phase 12: populate the rail with the v2 Properties view (scope
+        # segmented + ⌘K search + eight CollapsibleSections, including
+        # the new Statistics section per Q4 / DESIGN_NOTES §6.2).
+        from well_viewer.views.properties_rail_view import (
+            build_properties_rail_view as _build_props_rail,
         )
-        ph_layout.addWidget(ph_head)
-        ph_layout.addSpacing(_theme_v2.Spacing.sm)
-        ph_stub = QLabel(
-            "Phase 12 populates this rail with the scope segmented "
-            "(All / Plot 1 / Plot 2), ⌘K search, and eight collapsible "
-            "sections (Profile & Format / Statistics / Axes / Legend / "
-            "Lines & Markers / Grid / Limits & Scale / Layout)."
-        )
-        ph_stub.setWordWrap(True)
-        ph_stub.setStyleSheet(f"color: {_theme_v2.Colors.text_muted};")
-        ph_layout.addWidget(ph_stub)
-        ph_layout.addStretch(1)
-        self._properties_rail.setContentWidget(ph)
+        self._properties_rail.setContentWidget(_build_props_rail(self, self._properties_rail))
+        # Wire the head's collapse IconButton to the rail's own toggle so
+        # the user can dismiss from inside the rail too (the titlebar
+        # toggle is mirrored — both work).
+        try:
+            head = getattr(self, "_props_rail_head_actions", {})
+            collapse = head.get("collapse")
+            if collapse is not None:
+                collapse.clicked.connect(self._properties_rail.toggle)
+        except Exception:
+            pass
 
         # Status + log — packed last so it sits below the splitter.
         self._build_bottom()
