@@ -98,7 +98,11 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     app._distribution_fig.subplots_adjust(top=0.93, bottom=0.12, left=0.10, right=0.97)
     app._distribution_canvas = card.canvas
     card.setControlsWidget(make_band_controls(app, card, with_fov=False))
-    card.plotThemeChanged.connect(lambda _m: _on_changed(app))
+    # NOTE: don't trigger a redraw on theme change — the distribution renderer
+    # doesn't use plot_style.apply_ax_style, so ax.clear() would wipe the
+    # widget-side theme styling that setPlotTheme already applied. Let
+    # PlotCard.setPlotTheme's own apply_axes_style walk handle spines / grid /
+    # ticks / title / labels for the existing axes.
     card.setStatsChipVisible(False)
     layout.addWidget(card, 1)
 
