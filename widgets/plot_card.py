@@ -34,12 +34,11 @@ if _ROOT not in _sys.path:
 
 from PySide6.QtCore import Qt, Signal  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import theme  # noqa: E402
-from widgets.icon_button import IconButton  # noqa: E402
+from widgets.mpl_toolbar import MplToolbar  # noqa: E402
 
 try:  # matplotlib is a project dependency; degrade gracefully if absent.
     import matplotlib  # noqa: E402
@@ -119,6 +118,7 @@ if _HAVE_MPL:
             # Hidden real toolbar — we reuse its handlers, not its UI.
             self._nav = _NavToolbar(self.canvas, self, coordinates=False)
             self._nav.hide()
+            self.toolbar = MplToolbar(self.canvas, self, nav=self._nav, owner=self)
 
             root = QVBoxLayout(self)
             m = theme.Spacing.md
@@ -126,9 +126,8 @@ if _HAVE_MPL:
             root.setSpacing(theme.Spacing.sm)
             root.addWidget(self._build_header())
             root.addWidget(self.canvas, 1)
-            root.addWidget(self._build_toolbar())
+            root.addWidget(self.toolbar)
 
-            self.canvas.mpl_connect("motion_notify_event", self._on_mouse_move)
             self.setStyleSheet(self._build_qss())
 
         # ── public API ───────────────────────────────────────────────────
@@ -274,74 +273,6 @@ if _HAVE_MPL:
             except Exception:
                 pass
 
-        # ── toolbar ──────────────────────────────────────────────────────
-        def _build_toolbar(self) -> QFrame:
-            bar = QFrame(self)
-            bar.setObjectName("PlotCardToolbar")
-            bar.setAttribute(Qt.WA_StyledBackground, True)
-            lay = QHBoxLayout(bar)
-            lay.setContentsMargins(0, 0, 0, 0)
-            lay.setSpacing(theme.Spacing.xs)
-
-            home = IconButton("home", tooltip="Reset view")
-            back = IconButton("arrow-left", tooltip="Back")
-            fwd = IconButton("arrow-right", tooltip="Forward")
-            pan = IconButton("move", tooltip="Pan", checkable=True)
-            zoom = IconButton("zoom-in", tooltip="Zoom to rectangle", checkable=True)
-            save = IconButton("download", tooltip="Save figure…")
-
-            grp = QButtonGroup(bar)
-            grp.setExclusive(False)  # allow toggling both off
-            grp.addButton(pan)
-            grp.addButton(zoom)
-
-            home.clicked.connect(self._nav.home)
-            back.clicked.connect(self._nav.back)
-            fwd.clicked.connect(self._nav.forward)
-            save.clicked.connect(self._nav.save_figure)
-
-            def _toggle_pan(on: bool):
-                if on and zoom.isChecked():
-                    zoom.setChecked(False)
-                # NavigationToolbar2QT.pan() toggles internally; only call to enter.
-                if on != (getattr(self._nav, "mode", "") == "pan"):
-                    self._nav.pan()
-
-            def _toggle_zoom(on: bool):
-                if on and pan.isChecked():
-                    pan.setChecked(False)
-                if on != (getattr(self._nav, "mode", "") == "zoom rect"):
-                    self._nav.zoom()
-
-            pan.toggled.connect(_toggle_pan)
-            zoom.toggled.connect(_toggle_zoom)
-
-            for w in (home, back, fwd):
-                lay.addWidget(w)
-            lay.addWidget(self._sep())
-            lay.addWidget(pan)
-            lay.addWidget(zoom)
-            lay.addWidget(self._sep())
-            lay.addWidget(save)
-            lay.addStretch(1)
-            self._coords = QLabel("x = —   ·   y = —", bar)
-            self._coords.setObjectName("PlotCardCoords")
-            lay.addWidget(self._coords)
-            return bar
-
-        def _sep(self) -> QFrame:
-            f = QFrame(self)
-            f.setObjectName("PlotCardSep")
-            f.setFrameShape(QFrame.VLine)
-            f.setFixedWidth(1)
-            return f
-
-        def _on_mouse_move(self, event) -> None:
-            if event.inaxes and event.xdata is not None and event.ydata is not None:
-                self._coords.setText(f"x = {event.xdata:.3g}   ·   y = {event.ydata:.3g}")
-            else:
-                self._coords.setText("x = —   ·   y = —")
-
         def _build_qss(self) -> str:
             c, t, r = theme.Colors, theme.Typography, theme.Radii
             return f"""
@@ -368,14 +299,6 @@ if _HAVE_MPL:
             QPushButton#PlotCardStatsChip:hover {{
                 color: {c.text_primary};
                 border-color: {c.border};
-            }}
-            QFrame#PlotCardToolbar {{ background: transparent; }}
-            QFrame#PlotCardSep {{ background-color: {c.border_subtle}; border: none; }}
-            QLabel#PlotCardCoords {{
-                color: {c.text_muted};
-                font-family: {t.family_mono};
-                font-size: {t.small_size}px;
-                background: transparent;
             }}
             """
 

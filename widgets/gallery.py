@@ -562,6 +562,35 @@ def _build_plotcard():
     return host
 
 
+def _build_mpl_toolbar():
+    from widgets.mpl_toolbar import MplToolbar
+    if MplToolbar is None:
+        lbl = QLabel("matplotlib not installed — MplToolbar unavailable")
+        lbl.setWordWrap(True)
+        return lbl
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _FC
+    from matplotlib.figure import Figure as _F
+    host = QWidget()
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(theme.Spacing.sm)
+    fig = _F(figsize=(4.6, 2.4), layout="constrained")
+    ax = fig.add_subplot(111)
+    import math
+    xs = [i * 0.1 for i in range(110)]
+    ax.plot(xs, [math.sin(x) for x in xs], color=theme.Colors.trace[0], linewidth=1.5)
+    ax.set_xlabel("x"); ax.set_ylabel("sin x")
+    canvas = _FC(fig)
+    canvas.setMinimumHeight(180)
+    v.addWidget(canvas, 1)
+    v.addWidget(MplToolbar(canvas))
+    out = QLabel("(home · back/fwd · pan/zoom · save — drives a hidden NavigationToolbar2QT; live x/y readout)")
+    out.setObjectName("Caption")
+    out.setWordWrap(True)
+    v.addWidget(out)
+    return host
+
+
 def _build_titlebar():
     from widgets.title_bar import TitleBar
     from widgets import _window_chrome
@@ -722,7 +751,8 @@ def build_gallery() -> QWidget:
         ("§", "Plate & plot"),
         ("WellPlateSelector", _build_plate, "select/passive modes · colours · header clicks"),
         ("SavedSelectionsList", _build_saved, "v2 editable + composable: rename · recolour · reorder · hide · expand → edit wells/replicates · + wells popover"),
-        ("PlotCard", _build_plotcard, "toolbar + coords · figure header + Stat·Error stats popover · screen/publication theme", "wide"),
+        ("MplToolbar", _build_mpl_toolbar, "v2 matplotlib nav toolbar — home · back/fwd · pan/zoom · save + live x/y readout (drives a hidden NavigationToolbar2QT)"),
+        ("PlotCard", _build_plotcard, "MplToolbar + figure header + Stat·Error stats popover · screen/publication theme", "wide"),
 
         ("§", "Window chrome"),
         ("TitleBar", _build_titlebar, "window controls · brand→menu · theme popover · ⌘O · setFramelessMode · should_use_frameless()", "wide"),
