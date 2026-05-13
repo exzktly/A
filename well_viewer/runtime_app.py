@@ -1751,6 +1751,49 @@ class WellViewerApp(QWidget):
         else:
             self._rebuild_all()
 
+    def _sel_set_color(self, sid, color) -> None:
+        """Recolour a saved selection. ``color`` is a ``#RRGGBB`` hex string
+        (or anything accepted by QColor); empty / falsy clears the override
+        and lets the rank-based colour fall back through."""
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        try:
+            from PySide6.QtGui import QColor
+            qc = QColor(color) if color else QColor()
+            new = qc.name(QColor.HexRgb).upper() if qc.isValid() else ""
+        except Exception:
+            new = str(color or "").strip()
+        if (s.get("color") or "") == new:
+            return
+        if new:
+            s["color"] = new
+        else:
+            s.pop("color", None)
+        self._rebuild_all()
+
+    def _sel_export_one(self, sid) -> None:
+        """Export a single saved selection (by id) to a standalone JSON file."""
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        import json as _json
+        default_name = f"{s.get('name') or 'selection'}.json"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export selection", default_name, "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            from well_viewer.selections_model import to_block
+            block = to_block([s], current_id=s.get("id"))
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(block, f, indent=2)
+            self._toast(f"Exported '{s.get('name')}' to {path}.", kind="success")
+        except Exception as exc:
+            self._toast(f"Export failed: {exc}", kind="danger", msec=6000)
+
     def _sel_toggle_hidden(self, sid) -> None:
         s = self._sel_by_id(sid)
         if s is not None:

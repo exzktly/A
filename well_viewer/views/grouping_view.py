@@ -23,6 +23,20 @@ def _grp_on_composition(app, sel_id) -> None:
             return
 
 
+def _grp_on_replicates(app, sel_id) -> None:
+    """Replicates-only edit (chip moves / un-group / group-solo) — push the
+    list's current ``replicates`` for ``sel_id`` into the app model without
+    touching ``wells`` (so the de-overlap pass in ``_sel_set_composition`` runs
+    against the unchanged membership)."""
+    lst = getattr(app, "_rep_list", None)
+    if lst is None:
+        return
+    for s in lst.selections():
+        if s.get("id") == sel_id:
+            app._sel_set_composition(sel_id, None, s.get("replicates"))
+            return
+
+
 def wire_selections_list(app, lst) -> None:
     """Connect a SavedSelectionsList's signals to the app's `_sel_*` mutators."""
     lst.entryActivated.connect(lambda sid: app._sel_select(sid))
@@ -30,8 +44,11 @@ def wire_selections_list(app, lst) -> None:
     lst.entryVisibilityToggled.connect(lambda sid, hidden: app._sel_set_hidden(sid, hidden))
     lst.entryDeleted.connect(lambda sid: app._sel_delete(sid))
     lst.entryDuplicated.connect(lambda new_id, src_id: app._sel_duplicate(src_id))
+    lst.entryRecoloured.connect(lambda sid, color: app._sel_set_color(sid, color))
+    lst.entryExportRequested.connect(lambda sid: app._sel_export_one(sid))
     lst.orderChanged.connect(lambda ids: app._sel_reorder(ids))
     lst.wellsChanged.connect(lambda sid, _w: _grp_on_composition(app, sid))
+    lst.replicatesChanged.connect(lambda sid, _r: _grp_on_replicates(app, sid))
     lst.addFromSelectionRequested.connect(app._rep_add)
     load_cb = getattr(app, "_bar_load_groups", None)
     if callable(load_cb):
