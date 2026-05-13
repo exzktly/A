@@ -1,9 +1,20 @@
 # All-Well v2 — Port Plan
 
-Maps the approved v2 mockup (`design/All-Well Redesign v2 _standalone_.html` — a
-self-unpacking bundle that isn't statically readable; this plan is built from
-`design/PYQT6_NOTES.md`, `design/DESIGN_TOKENS.md`, `design/DESIGN_NOTES.md`, and
-the current-app screenshot) onto the existing PySide6 codebase.
+Maps the approved v2 mockup onto the existing PySide6 codebase. The mockup
+itself lives in two forms in this repo:
+
+- **`design/All-Well Redesign v2 _standalone_.html`** — the source bundle (an
+  HTML shell + three `<script type="__bundler/*">` data blocks; assets are
+  base64+gzip in the manifest, UUID-placeholders in the template).
+- **`design/mockup-decoded.html`** — the canonical readable form for all
+  future work. Re-derivable from the bundle via `scripts/decode_mockup.py`;
+  re-run it if the source bundle ever changes. Asset files
+  (fonts + `lucide.min.js`) are written alongside under
+  `design/mockup-decoded-assets/` so the decoded HTML opens standalone.
+
+Sibling references that informed earlier sections of this plan before the
+decoder existed: `design/PYQT6_NOTES.md`, `design/DESIGN_TOKENS.md`,
+`design/DESIGN_NOTES.md`, and a screenshot of the running v1 app.
 
 Conventions:
 - "current code location" is the most specific file/class/function that owns the
