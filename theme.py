@@ -97,15 +97,15 @@ TRACE_PUB = list(CPub.trace)
 class Typography:
     """Type tokens (DESIGN_TOKENS.md §2)."""
 
-    # NOTE: Qt scans every named family in the QSS list on first match. Any
-    # CSS-style ``"SF Pro Text"`` / ``"Inter"`` / ``"Segoe UI"`` that isn't
-    # installed as a real font on the machine triggers a multi-ms alias
-    # scan + a `qt.qpa.fonts` warning. We sidestep that entirely by using
-    # generic CSS keywords (``system-ui``, ``ui-monospace``) plus
-    # ``sans-serif`` / ``monospace`` fallbacks — every Qt build resolves
-    # those without paying for an alias graph walk.
-    family      = "system-ui, sans-serif"
-    family_mono = "ui-monospace, monospace"
+    # NOTE: Qt's QSS parser treats every name in the family list as a real
+    # face. Modern CSS keywords like ``system-ui`` / ``ui-monospace`` are
+    # NOT understood — Qt logs ``qt.qpa.fonts: Populating font family
+    # aliases took NN ms. Replace uses of missing font family …`` and pays
+    # the alias-scan cost on every startup. ``sans-serif`` / ``monospace``
+    # are the only generic keywords Qt resolves without an alias walk,
+    # so we lead with those; the platform default font ultimately wins.
+    family      = "sans-serif"
+    family_mono = "monospace"
 
     # font sizes (px) — §2.2
     caption_size = 11   # --fs-caption : section eyebrows, tick labels

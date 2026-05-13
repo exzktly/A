@@ -129,11 +129,15 @@ class Toast(QWidget):
         self._fade.setDuration(220)
         self._fade.setStartValue(self.windowOpacity())
         self._fade.setEndValue(0.0)
+        # Connect via UniqueConnection so re-invocations don't accumulate
+        # duplicate close-on-finished slots, and no disconnect is needed
+        # (which would emit a non-fatal RuntimeWarning on first call when
+        # nothing is connected yet).
         try:
-            self._fade.finished.disconnect()
+            self._fade.finished.connect(self.close, Qt.UniqueConnection)
         except (RuntimeError, TypeError):
+            # Already connected — Qt raises on duplicate UniqueConnection.
             pass
-        self._fade.finished.connect(self.close)
         self._fade.start()
 
     def mousePressEvent(self, _event) -> None:  # noqa: N802
