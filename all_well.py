@@ -20,12 +20,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal, QRectF
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
+    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
 import theme as theme_v2
-from ui.theme import THEMES, ThemeManager, set_theme
+from widgets.brand_tile import BrandTile
 
 # Global tab-scoped debug toggles.
 REVIEW_TAB_DEBUG = False
@@ -47,21 +47,20 @@ class AllWellApp(QMainWindow):
 
         self._review: QWidget | None = None
         self._analyze: QWidget | None = None
-        self._theme_manager = ThemeManager("Dark")
         self._cell_threshold = 0.0
 
         self._build_ui()
         self._install_app_icon()
-        self._apply_stylesheet("Dark")
+        self._apply_stylesheet()
 
         if data_path is not None and self._review is not None:
             QTimer.singleShot(150, lambda: self._review._load_path(data_path))
 
     # ── UI construction ──────────────────────────────────────────────────
-    def _apply_stylesheet(self, theme_name: str | None = None) -> None:
+    def _apply_stylesheet(self) -> None:
         # Single source of truth for the app stylesheet (see theme.py /
-        # design/PHASE_4_DIAGNOSIS.md). The legacy ui/theme per-theme QSS is no
-        # longer applied; ui/theme is kept only for its color constants.
+        # design/PHASE_4_DIAGNOSIS.md). v2 ships one dark theme — there's no
+        # per-theme QSS to swap.
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(theme_v2.qss())
@@ -76,22 +75,18 @@ class AllWellApp(QMainWindow):
         rl.setSpacing(0)
         self.setCentralWidget(root)
 
-        # Header bar
+        # Header bar — v2: BrandTile + wordmark. (Single dark theme, so the
+        # legacy Theme dropdown has been removed; if a per-theme swap returns,
+        # this is where the control re-mounts.)
         header = QWidget(objectName="Sidebar")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(14, 7, 14, 7)
+        hl.setContentsMargins(12, 7, 14, 7)
+        hl.setSpacing(theme_v2.Spacing.sm)
+        hl.addWidget(BrandTile(side=24))
         title = QLabel("All-Well")
         title.setObjectName("Title")
         hl.addWidget(title)
         hl.addStretch(1)
-        theme_label = QLabel("Theme:")
-        theme_label.setObjectName("Muted")
-        hl.addWidget(theme_label)
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItems(self._theme_manager.get_available_themes())
-        self._theme_combo.setFixedWidth(90)
-        self._theme_combo.currentTextChanged.connect(self._on_theme_change)
-        hl.addWidget(self._theme_combo)
         rl.addWidget(header)
 
         sep = QFrame()
@@ -116,31 +111,6 @@ class AllWellApp(QMainWindow):
         )
         self._nb.addTab(self._analyze, "Analyze")
         self._nb.setCurrentIndex(0)
-
-    def _on_theme_change(self, theme_name: str) -> None:
-        old = self._theme_manager.current_theme
-        if theme_name == old:
-            return
-        self._theme_manager.set_theme(theme_name)
-        set_theme(theme_name)
-        self._apply_stylesheet(theme_name)
-
-        # Re-polish so dynamic property-based QSS rules reapply.
-        for w in self.findChildren(QWidget):
-            w.style().unpolish(w)
-            w.style().polish(w)
-
-        if self._review is not None and hasattr(self._review, "_on_theme_change"):
-            try:
-                self._review._on_theme_change(theme_name)
-            except Exception:
-                pass
-        try:
-            from well_viewer.ui_helpers import refresh_plot_toolbar_icons
-            refresh_plot_toolbar_icons(self)
-        except Exception:
-            pass
-        self._install_app_icon()
 
     def _install_app_icon(self) -> None:
         """96-well plate icon whose lit wells spell A W across the fluorescence spectrum."""
