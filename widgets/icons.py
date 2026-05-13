@@ -64,10 +64,12 @@ _GLYPHS: dict[str, str] = {
     # ── Phase 9 reconciliation additions ────────────────────────────────
     # Lucide-flavoured SVG paths (lucide-icons MIT). Section-nav icons:
     "line-chart":    '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
-    "dna":           ('<path d="M4 22c2 0 4-1 6-3 2-2 4-3 6-3"/>'
-                      '<path d="M4 2c2 0 4 1 6 3 2 2 4 3 6 3"/>'
-                      '<path d="M18 22c0-2-1-4-3-6-2-2-3-4-3-6"/>'
-                      '<path d="M6 2c0 2 1 4 3 6 2 2 3 4 3 6"/>'),
+    "dna":           ('<circle cx="12" cy="12" r="9"/>'
+                      '<circle cx="9" cy="9.5" r="0.5"/>'
+                      '<circle cx="14.5" cy="10" r="0.5"/>'
+                      '<circle cx="10" cy="14" r="0.5"/>'
+                      '<circle cx="15" cy="14.5" r="0.5"/>'
+                      '<circle cx="12" cy="11.5" r="0.5"/>'),
     "sigma":         '<path d="M18 7V5H6l6 7-6 7h12v-2"/>',
     "layout-grid":   ('<rect x="3" y="3" width="7" height="7" rx="1"/>'
                       '<rect x="14" y="3" width="7" height="7" rx="1"/>'

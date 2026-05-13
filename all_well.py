@@ -119,20 +119,6 @@ class AllWellApp(QMainWindow):
 
         hl.addStretch(1)
 
-        # Phase 10 (A2): mode-seg Review/Analyze. Mockup places this in the
-        # left rail, but the left rail belongs to WellViewerApp's internal
-        # sidebar — relocating mode-seg there would require hoisting plate
-        # + saved out of WellViewerApp. Keep the seg in the titlebar for
-        # now (still discoverable, still mockup-faithful for the toggle
-        # itself); revisit in Phase 12 when the shared rail lands.
-        from widgets.segmented_control import SegmentedControl as _SegmentedControl
-        self._mode_seg = _SegmentedControl()
-        self._mode_seg.addSegment("Review", icon=None, data="review")
-        self._mode_seg.addSegment("Analyze", icon=None, data="analyze")
-        self._mode_seg.currentChanged.connect(self._on_mode_seg_changed)
-        hl.addWidget(self._mode_seg)
-        hl.addSpacing(theme_v2.Spacing.sm)
-
         # Phase 10 (B3): refresh action.
         self._refresh_btn = IconButton("refresh-cw")
         self._refresh_btn.setToolTip("Reload the active dataset")
@@ -176,14 +162,42 @@ class AllWellApp(QMainWindow):
         rl.addWidget(sep)
 
         # Phase 10 (A2): outer Review/Analyze QTabWidget retired. Replaced
-        # by a QStackedWidget driven by the titlebar's mode-seg above; this
-        # is the central content area that the CollapsibleRail overlays.
+        # by a QStackedWidget driven by a top-of-rail mode-seg; this is
+        # the central content area that the CollapsibleRail overlays.
+        # The mode-seg sits at the top of the central host, left-anchored
+        # at the rail width (400 px Q9) so it visually crowns the SECTION
+        # nav + plate that live inside the Review page's sidebar — matching
+        # the mockup's top-of-rail placement. The mode-seg stays visible
+        # in both modes (it sits OUTSIDE the QStackedWidget) so the user
+        # can always switch back from Analyze.
         from PySide6.QtWidgets import QStackedWidget as _QStackedWidget
+        from widgets.segmented_control import SegmentedControl as _SegmentedControl
         self._central_host = QWidget()
         self._central_host.setObjectName("CentralHost")
         ch_layout = QVBoxLayout(self._central_host)
         ch_layout.setContentsMargins(0, 0, 0, 0)
         ch_layout.setSpacing(0)
+
+        mode_strip = QWidget(self._central_host)
+        mode_strip.setObjectName("ModeStrip")
+        mode_strip.setAttribute(Qt.WA_StyledBackground, True)
+        mode_strip.setStyleSheet(
+            f"#ModeStrip {{ background-color: {theme_v2.Colors.rail}; "
+            f"border-bottom: 1px solid {theme_v2.Colors.border_subtle}; }}"
+        )
+        mode_layout = QHBoxLayout(mode_strip)
+        mode_layout.setContentsMargins(theme_v2.Spacing.md, 8,
+                                       theme_v2.Spacing.md, 8)
+        mode_layout.setSpacing(0)
+        self._mode_seg = _SegmentedControl()
+        self._mode_seg.addSegment("Review", data="review")
+        self._mode_seg.addSegment("Analyze", data="analyze")
+        self._mode_seg.setFixedWidth(400 - 2 * theme_v2.Spacing.md)
+        self._mode_seg.currentChanged.connect(self._on_mode_seg_changed)
+        mode_layout.addWidget(self._mode_seg, 0, Qt.AlignLeft)
+        mode_layout.addStretch(1)
+        ch_layout.addWidget(mode_strip, 0)
+
         self._nb = _QStackedWidget()
         self._nb.currentChanged.connect(self._on_tab_change)
         ch_layout.addWidget(self._nb, 1)

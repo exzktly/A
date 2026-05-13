@@ -82,6 +82,9 @@ class _RailNavRow(QFrame):
         body = QFrame(self)
         body.setObjectName("RailNavRowBody")
         body.setAttribute(Qt.WA_StyledBackground, True)
+        body.setAttribute(Qt.WA_Hover, True)
+        body.setProperty("active", False)
+        self._body = body
         bl = QHBoxLayout(body)
         bl.setContentsMargins(9, 7, 9, 7)
         bl.setSpacing(theme.Spacing.sm)
@@ -109,8 +112,14 @@ class _RailNavRow(QFrame):
 
     def setActive(self, on: bool) -> None:
         self.setProperty("active", bool(on))
-        self.style().unpolish(self)
-        self.style().polish(self)
+        # Mirror the property onto the body widget so QSS rules targeting
+        # ``QFrame#RailNavRowBody[active="true"]`` resolve. Qt QSS's
+        # descendant + property combinator is unreliable across platforms;
+        # carrying the property on the body itself avoids that.
+        self._body.setProperty("active", bool(on))
+        for w in (self, self._body):
+            w.style().unpolish(w)
+            w.style().polish(w)
         self._refresh_icon()
 
     def setCount(self, n: int | None) -> None:
@@ -245,14 +254,17 @@ class RailNav(QFrame):
             border-bottom-right-radius: 2px;
         }}
         QFrame#RailNavRowBody {{
-            background: transparent;
+            background-color: transparent;
             border-radius: {r.sm}px;
             margin: 0 4px 0 6px;
         }}
-        QFrame#RailNavRow:hover QFrame#RailNavRowBody {{
+        QFrame#RailNavRowBody:hover {{
             background-color: {c.panel};
         }}
-        QFrame#RailNavRow[active="true"] QFrame#RailNavRowBody {{
+        QFrame#RailNavRowBody[active="true"] {{
+            background-color: {c.accent_dim};
+        }}
+        QFrame#RailNavRowBody[active="true"]:hover {{
             background-color: {c.accent_dim};
         }}
         QLabel#RailNavRowLabel {{
