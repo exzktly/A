@@ -257,8 +257,11 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         "No image table generated",
         icon="image",
         parent=inner,
-        hint="Choose wells/channels in the selector grid above and press Generate.",
+        hint="Choose wells/channels above, then press Generate.",
     )
+    # Give the placeholder enough vertical room so the wrapped hint never
+    # gets clipped by tight sibling rows.
+    app._image_table_empty_state.setMinimumHeight(180)
     il.addWidget(app._image_table_empty_state)
 
     render_host = QWidget(inner)
