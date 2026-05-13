@@ -61,6 +61,8 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Scatter Plot')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
     card.setFigureTitle("")
     app._scatter_card = card
     app._scatter_fig = card.figure

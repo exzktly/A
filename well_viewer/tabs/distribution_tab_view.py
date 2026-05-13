@@ -93,6 +93,8 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Distribution')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
     card.setFigureTitle("")
     app._distribution_card = card
     app._distribution_fig = card.figure

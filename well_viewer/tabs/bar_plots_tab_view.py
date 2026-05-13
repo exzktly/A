@@ -111,6 +111,8 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Bar Plots')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
     card.setFigureTitle("")
     app._bar_card = card
     app._bar_fig = card.figure

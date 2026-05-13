@@ -70,6 +70,8 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Line Graphs')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
     card.setFigureTitle("")          # the tab name is the title; keep the header lean
     app._line_card = card
     app._line_fig = card.figure

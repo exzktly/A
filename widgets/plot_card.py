@@ -201,6 +201,13 @@ if _HAVE_MPL:
         def headerWidget(self) -> QWidget:
             return self._header
 
+        def setHeaderVisible(self, visible: bool) -> None:
+            """Phase 11: the Plotting section's ctxbar replaces the per-card
+            header (view-switcher / Pub-Screen toggle / stats chip). Hide
+            the card header to avoid duplicating those controls on every
+            renderer."""
+            self._header.setVisible(bool(visible))
+
         def setLeftHeaderWidget(self, widget) -> None:
             """Mount *widget* at the far left of the header (e.g. a per-card
             view-switcher ``SegmentedControl``). Pass ``None`` to clear."""
