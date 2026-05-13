@@ -52,20 +52,25 @@ except Exception:  # pragma: no cover
     _HAVE_MPL = False
 
 
-def _plot_palette(mode: str):
+def plot_palette(mode: str):
     """Trace-colour cycle for ``"screen"`` (dark) or ``"publication"`` (light)."""
     if mode == "publication":
         return list(getattr(theme, "TRACE_PUB", theme.Colors.trace))
     return list(theme.Colors.trace)
 
 
-def _plot_tokens(mode: str):
+def plot_tokens(mode: str):
     """(bg, fg, muted, grid, spine) colours for the given plot theme."""
     if mode == "publication" and hasattr(theme, "CPub"):
         p = theme.CPub
         return (p.bg, p.text, getattr(p, "text_muted", p.text), p.grid, p.spine)
     c = theme.Colors
     return (c.plot_bg, c.text_primary, c.text_muted, c.plot_grid, c.plot_spine)
+
+
+# Back-compat aliases for the previously-private names.
+_plot_palette = plot_palette
+_plot_tokens = plot_tokens
 
 
 def _make_segmented(items, parent=None, *, current=None):
@@ -133,6 +138,9 @@ if _HAVE_MPL:
             self.figure = _Figure(figsize=figsize,
                                   layout=("constrained" if constrained else None))
             self.figure.set_facecolor(_plot_tokens(self._plot_theme)[0])
+            # Back-reference so plot renderers (e.g. well_viewer.plot_style.apply_ax_style)
+            # can look up the active card from any axes via ``ax.figure._plot_card``.
+            self.figure._plot_card = self  # type: ignore[attr-defined]
             self.canvas = _FigureCanvas(self.figure)
             self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 

@@ -65,7 +65,7 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     app._scatter_fig.subplots_adjust(hspace=0.3, top=0.95, bottom=0.12, left=0.12, right=0.97)
     app._scatter_canvas = card.canvas
     card.setControlsWidget(make_band_controls(app, card, with_fov=False))
-    card.setThemeToggleVisible(False)
+    card.plotThemeChanged.connect(lambda _m: app._redraw_scatter())
     card.setStatsChipVisible(False)
     layout.addWidget(card, 1)
 

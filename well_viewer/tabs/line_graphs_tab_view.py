@@ -85,11 +85,11 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     # plot toolbar) → the card's controls row beneath the header.
     card.setControlsWidget(make_band_controls(app, card, with_fov=True))
 
-    # The card's Publication↔Screen toggle + the stats chip are hidden here for
-    # now: the line plot's styling comes from plot_style.apply_ax_style (a redraw
-    # would override the card theme) and its stats UI is the Error Band/Spread
-    # toggles above — wiring those to the card chips is a follow-up.
-    card.setThemeToggleVisible(False)
+    # The Publication↔Screen toggle is wired through plot_style.apply_ax_style
+    # (it consults card.plotTheme() via ax.figure._plot_card). The stats chip is
+    # left hidden — its statsChanged signal isn't wired to app state yet (the
+    # error band lives on the controls row above; Mean/Median is unsupported).
+    card.plotThemeChanged.connect(lambda _m: app._redraw())
     card.setStatsChipVisible(False)
 
     app._line_scroll_canvas = QScrollArea(parent)

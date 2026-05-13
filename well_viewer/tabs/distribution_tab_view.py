@@ -98,7 +98,7 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     app._distribution_fig.subplots_adjust(top=0.93, bottom=0.12, left=0.10, right=0.97)
     app._distribution_canvas = card.canvas
     card.setControlsWidget(make_band_controls(app, card, with_fov=False))
-    card.setThemeToggleVisible(False)
+    card.plotThemeChanged.connect(lambda _m: _on_changed(app))
     card.setStatsChipVisible(False)
     layout.addWidget(card, 1)
 

@@ -173,7 +173,11 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     app._heatmap_cax = divider.append_axes("right", size="4%", pad=0.08)
     app._heatmap_canvas = card.canvas
     card.setControlsWidget(make_band_controls(app, card, with_fov=False))
-    card.setThemeToggleVisible(False)
+
+    def _redraw_heatmap_for_theme(_m=None):
+        from well_viewer.heatmap_controller import redraw_heatmap
+        redraw_heatmap(app)
+    card.plotThemeChanged.connect(_redraw_heatmap_for_theme)
     card.setStatsChipVisible(False)
     layout.addWidget(card, 1)
 

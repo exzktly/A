@@ -121,7 +121,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     card.setMinimumHeight(int(_FIG_H * _DPI) + 110)
 
     card.setControlsWidget(make_band_controls(app, card, with_fov=True))
-    card.setThemeToggleVisible(False)
+    card.plotThemeChanged.connect(lambda _m: app._redraw_bars())
     card.setStatsChipVisible(False)
 
     app._bar_scroll_canvas = QScrollArea(bar_right)
