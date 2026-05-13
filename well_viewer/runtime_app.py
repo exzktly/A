@@ -1363,6 +1363,7 @@ class WellViewerApp(QWidget):
         )
         from well_viewer.ui_helpers import btn_primary, btn_secondary
         from well_viewer.views.ratio_panel_view import build_ratios_inline_panel
+        from widgets.icon_button import IconButton as _IconButton
 
         outer_layout = parent.layout()
         if outer_layout is None:
@@ -1380,6 +1381,8 @@ class WellViewerApp(QWidget):
         tl.setContentsMargins(8, 6, 8, 6)
         tl.setSpacing(6)
 
+        # v2 polish: icon-led toolbar (Save / Load / Clear All). The labels
+        # stay as text alongside the glyph so the toolbar remains scannable.
         save_btn = btn_primary(toolbar, "Save", self._save_sample_definitions_all)
         save_btn.setToolTip(
             "Save every definition on this tab (well labels, replicate sets, "
@@ -1388,16 +1391,18 @@ class WellViewerApp(QWidget):
         )
         tl.addWidget(save_btn)
 
-        load_btn = btn_secondary(toolbar, "Load", self._load_sample_definitions_all)
-        load_btn.setToolTip("Reload every definition from the data folder, discarding unsaved edits.")
-        tl.addWidget(load_btn)
+        load_ib = _IconButton("download", toolbar)
+        load_ib.setToolTip("Reload every definition from the data folder, discarding unsaved edits.")
+        load_ib.clicked.connect(lambda _=False: self._load_sample_definitions_all())
+        tl.addWidget(load_ib)
 
-        clear_btn = btn_secondary(toolbar, "Clear All", self._clear_sample_definitions_all)
-        clear_btn.setToolTip(
+        clear_ib = _IconButton("x", toolbar)
+        clear_ib.setToolTip(
             "Clear every definition on this tab — well labels, replicate "
             "sets, bar groups, ratio metrics, and cell-gating thresholds."
         )
-        tl.addWidget(clear_btn)
+        clear_ib.clicked.connect(lambda _=False: self._clear_sample_definitions_all())
+        tl.addWidget(clear_ib)
 
         tl.addStretch(1)
         outer_layout.addWidget(toolbar)

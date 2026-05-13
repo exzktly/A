@@ -96,8 +96,9 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())
     cl.addWidget(app._bar_reset_order_btn)
 
-    style_btn = QPushButton("▸", bar_ctrl)
-    style_btn.setProperty("variant", "secondary")
+    from widgets.icon_button import IconButton as _IconButton
+    style_btn = _IconButton("sliders", bar_ctrl)
+    style_btn.setToolTip("Open export style panel for bar plots")
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("bar"))
     cl.addWidget(style_btn)
 
