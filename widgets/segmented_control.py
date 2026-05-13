@@ -54,6 +54,19 @@ class _Segment(QToolButton):
             ih = max(12, round(self.fontMetrics().height() * 0.95))
             self.setIconSize(QSize(ih, ih))
 
+    def minimumSizeHint(self):  # noqa: N802
+        # Force the parent layout to reserve room for the full text + icon
+        # so segments never truncate. fm.horizontalAdvance includes kerning;
+        # add the icon + spacing + padding the paintEvent uses.
+        fm = self.fontMetrics()
+        tw = fm.horizontalAdvance(self.text()) if self.text() else 0
+        iw = self.iconSize().width() if self.icon() is not None and not self.icon().isNull() else 0
+        spacing = 6 if (iw and tw) else 0
+        pad_h = 22   # 10 left + 10 right + 2 border slack (matches QSS padding 5x10).
+        pad_v = 14
+        return QSize(tw + iw + spacing + pad_h,
+                     fm.height() + pad_v)
+
     def paintEvent(self, _ev):  # noqa: N802
         """Paint the panel via the platform style, then draw the icon + text
         group centred horizontally in the button's content rect.
