@@ -665,12 +665,27 @@ ineffectively, but no live UI reaches them). `py_compile` clean; self-test
 sub-list (named `"<name> #k"`) instead of one per group; everything else (the
 common `rep_set`-source case — all groups created via `+ Add`) is unchanged.
 
-Next: sub-cluster 3 = Stage D — once the renderers / `_refresh_sidebar_map_now` /
-the rep-map plate read `app._selections` directly, delete the
-`_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp` shadow
-+ `_sync_legacy_from_selections` + `_sync_selections_from_legacy` (now unused)
-+ `from_legacy_appstate` + `selections_to_legacy` (or keep `selections_to_legacy`
-if nothing else needs the legacy shapes — TBD).
+### Stage D — cluster 1: the shadow becomes derived `@property`s — **done** (code, not runtime-verified)
+
+`_rep_sets` / `_bar_groups` / `_active_rep_idx` / `_bar_active_grp` / `_rep_hidden`
+are no longer stored attributes on `WellViewerApp` — they're read-only `@property`s
+that lazily compute `selections_to_legacy(self._selections, …)` and cache the
+5-tuple in `self._legacy_cache`. `_sync_legacy_from_selections()` is now just
+`self._legacy_cache = None` (cache invalidation); a new `_ensure_legacy()` does the
+compute-on-demand. Each property has a no-op setter so the dead `_bar_*` mutators
+(which still `self._bar_active_grp = …` etc.) don't `AttributeError`. Removed the
+unused `_sync_selections_from_legacy` method (and its `from_legacy_appstate` import).
+Net effect: identical behaviour, but the legacy shapes are now a pure projection of
+`_selections` — no separate state to drift. `py_compile` clean; self-test `ALL PASS`.
+
+Next Stage D clusters (one commit each, runtime-tested): delete the dead
+bar-group-panel code (`views/bar_group_panel_view.py`, the dead `_bar_*` mutators in
+`runtime_app`, `views/grouping_view.build_group_def_panel`/`grp_panel_refresh`,
+`grouping_controller.grp_*`/`bar_quick_groups`/`bg_on_well_change`,
+`selection_controller.sb_*`/`plate_drag_*`); delete `from_legacy_appstate`/`_reuse_ids`
+from `selections_model` (now unused); then remove the no-op `@property` setters once
+nothing assigns the legacy attrs; finally (optional) rewrite the plot renderers to read
+`app._selections` directly and drop `selections_to_legacy` + the `@property`s entirely.
 
 (Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
 only when no bar groups, `solo → [[w]]` round-trip — still apply until Stage D.)

@@ -763,19 +763,15 @@ class WellViewerApp(QWidget):
         self._bar_ylim_frac_lo_edit = None
         self._bar_ylim_frac_hi_edit = None
         self._bar_order: Optional[List] = None
-        # Unified saved-selections model (Phase 8.0) — source of truth; the
-        # legacy _rep_sets/_bar_groups/… below are a derived shadow for now
-        # (see design/SELECTIONS_MIGRATION.md). _selections_v2_writes_disabled
-        # latches True if a load-time v1→v2 migration ever fails.
+        # Unified saved-selections model (Phase 8.0) — THE in-memory source of
+        # truth. _rep_sets / _bar_groups / _active_rep_idx / _bar_active_grp /
+        # _rep_hidden are now read-only @propertys derived from it (cached in
+        # _legacy_cache, invalidated by _sync_legacy_from_selections()).
         self._selections:               list = []
         self._current_selection_id:     Optional[str] = None
+        self._legacy_cache = None        # (rep_sets, bar_groups, active_rep_idx, bar_active_grp, rep_hidden) | None
         self._selections_v2_writes_disabled: bool = False
-        self._rep_sets:          List[ReplicateSet] = []
-        self._active_rep_idx:    int               = -1
-        self._rep_hidden:        set               = set()
         self._well_labels:       Dict[str, str]    = {}
-        self._bar_groups:        List[BarGroup]    = []
-        self._bar_active_grp:    int               = -1
         self._rep_quick_pair_dir   = "row"
         self._rep_quick_iter_order = "row"
         self._bar_quick_pair_dir   = "row"
@@ -1791,33 +1787,66 @@ class WellViewerApp(QWidget):
     def _labels_add_suffix(self) -> None:
         self._labels_apply_affix(where="suffix")
 
-    def _sync_selections_from_legacy(self) -> None:
-        """Re-derive ``self._selections`` from the live legacy rep-set / bar-group
-        state (Phase 8.0 Stage B: keep the unified model a live mirror of the
-        legacy "shadow" that the group/rep edit code still mutates directly).
-        Ids are kept stable across the re-derive. Best-effort — a failure leaves
-        ``_selections`` as-is (the save path re-syncs as a backstop too)."""
-        try:
-            from well_viewer.selections_model import from_legacy_appstate
-            sels, cur = from_legacy_appstate(
-                self, prior_selections=getattr(self, "_selections", None))
-            self._selections = sels
-            self._current_selection_id = cur
-        except Exception:
-            _logger.exception("sync of _selections from legacy state failed")
-
     # ── unified-model (app._selections) — the in-memory source of truth ──────
-    # (Phase 8.0 Stage C: edits write app._selections; _rep_sets/_bar_groups/
-    # _active_rep_idx/_bar_active_grp/_rep_hidden are *re-derived* from it.)
+    # (Phase 8.0 Stage D: edits write app._selections; _rep_sets / _bar_groups /
+    # _active_rep_idx / _bar_active_grp / _rep_hidden are read-only @propertys
+    # *derived* from it — cached in self._legacy_cache, invalidated below.)
     def _sync_legacy_from_selections(self) -> None:
-        try:
-            from well_viewer.selections_model import selections_to_legacy
-            (self._rep_sets, self._bar_groups, self._active_rep_idx,
-             self._bar_active_grp, self._rep_hidden) = selections_to_legacy(
-                self._selections, getattr(self, "_current_selection_id", None),
-                tok_to_label=getattr(self, "_tok_to_label", None))
-        except Exception:
-            _logger.exception("derive of legacy shadow from _selections failed")
+        self._legacy_cache = None
+
+    def _ensure_legacy(self):
+        cache = getattr(self, "_legacy_cache", None)
+        if cache is None:
+            try:
+                from well_viewer.selections_model import selections_to_legacy
+                cache = selections_to_legacy(
+                    self._selections, getattr(self, "_current_selection_id", None),
+                    tok_to_label=getattr(self, "_tok_to_label", None))
+            except Exception:
+                _logger.exception("derive of legacy shadow from _selections failed")
+                cache = ([], [], -1, -1, set())
+            self._legacy_cache = cache
+        return cache
+
+    @property
+    def _rep_sets(self):
+        return self._ensure_legacy()[0]
+
+    @_rep_sets.setter
+    def _rep_sets(self, _v):  # derived — assignment is a no-op (Phase 8.0 Stage D)
+        pass
+
+    @property
+    def _bar_groups(self):
+        return self._ensure_legacy()[1]
+
+    @_bar_groups.setter
+    def _bar_groups(self, _v):
+        pass
+
+    @property
+    def _active_rep_idx(self) -> int:
+        return self._ensure_legacy()[2]
+
+    @_active_rep_idx.setter
+    def _active_rep_idx(self, _v):
+        pass
+
+    @property
+    def _bar_active_grp(self) -> int:
+        return self._ensure_legacy()[3]
+
+    @_bar_active_grp.setter
+    def _bar_active_grp(self, _v):
+        pass
+
+    @property
+    def _rep_hidden(self):
+        return self._ensure_legacy()[4]
+
+    @_rep_hidden.setter
+    def _rep_hidden(self, _v):
+        pass
 
     def _sel_by_id(self, sid):
         for s in self._selections:
