@@ -45,6 +45,8 @@ The legacy All-Well interface had accumulated the standard set of "scientific to
 
 **Later reversion (matplotlib parity).** When asked to re-align with matplotlib export semantics, the per-panel metric strips and inline view switchers were pulled out and replaced with a **single shared figure canvas** holding both subplots, with one toolbar at the bottom. This matches "one PNG = one figure" export convention. The earlier per-card metric strip is preserved in v2 history under git tags as an option to bring back if export semantics aren't a constraint.
 
+> **v2-port decision (`DECISIONS_NEEDED.md` #1, 2026-05): we go back to per-plot cards.** Each subplot is its own `widgets.PlotCard` with a hover-revealed toolbar (§2.8), a per-card view-switcher (`SegmentedControl`: Line/Bar/Scatter/Dist/Heat) and a channel chip; export is per-card, not "one PNG = one figure". So the single-canvas reversion above is **not** what's being built.
+
 ### 2.5 Property panel got scope
 **Change.** A segmented control at the top of the property panel — `All / Plot 1 / Plot 2` — explicitly targets edits. Plus a `⌘K` search. Plus a live preview value (swatch, number, or label) in every section header so collapsed groups still show their state.
 
@@ -66,6 +68,8 @@ The legacy All-Well interface had accumulated the standard set of "scientific to
 **Why.** The toolbar is reached for ~5% of the time but consumed ~15% of the panel height permanently. Hover-reveal returns that space to the data.
 
 **Later reversion.** When the single-canvas matplotlib model came back, the per-panel hover toolbar was replaced with one persistent bottom toolbar on the shared figure. The hover-reveal pattern is documented here for cases where individual subplots get isolated panels again.
+
+> **v2-port decision (`DECISIONS_NEEDED.md` #1): per-card hover toolbars are back in** (we're building per-plot `PlotCard`s, not the shared canvas). `widgets.HoverToolbarOverlay` / `MplToolbar` is in scope.
 
 ---
 
@@ -115,7 +119,10 @@ Five functional gaps surfaced once PyQt6 implementation began. Full mockups in `
 **Solution — LUT selector.** Trigger button shows the current LUT's gradient strip + name. Opens a searchable popover with four categories (Perceptual / Diverging / Categorical / Cyclic), each row being a 60-px live gradient strip + monospace name. A reverse-LUT and reset button sit next to the trigger. Match count in the search header (`3 / 27`) gives narrow-filter feedback.
 
 ### 6.5 Titlebar — keep custom, complete the affordances
-**Decision.** Keep the custom titlebar. It carries three load-bearing elements (breadcrumb, file chip with save-state dot, primary `Share` action) that don't survive a native bar; the dark chrome is identity-defining; native bars vary too much across platforms to design once.
+
+> **v2-port decision (`DECISIONS_NEEDED.md` #4, 2026-05): for v1 we keep the *native* window frame and just restyle the in-window header strip.** The breadcrumb / file chip / `StatusDot` / action `IconButton`s sit *beneath* the native title bar; no frameless mode, no resize grips, no custom window-control buttons. The frameless titlebar spec below (and the `widgets.TitleBar` frameless features) are preserved for a possible later revisit, but **are not what's being built now.**
+
+**Decision (original v2 design — superseded for v1 by the note above).** Keep the custom titlebar. It carries three load-bearing elements (breadcrumb, file chip with save-state dot, primary `Share` action) that don't survive a native bar; the dark chrome is identity-defining; native bars vary too much across platforms to design once.
 **Affordances now specified:**
 - Windows/Linux: 28-px min / max / close icon group at far right, separator-divided. Close hovers to `--danger`.
 - macOS: native traffic lights at far left; no min/max in the bar itself.
