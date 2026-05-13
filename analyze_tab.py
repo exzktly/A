@@ -15,6 +15,7 @@ from __future__ import annotations
 import queue
 import re as _re_well
 import sys as _sys
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -117,6 +118,8 @@ class AnalyzeTab(QWidget):
         self._well_total = 0
         self._well_done  = 0
         self._zipper_done = 0
+        self._phase_start_time: float | None = None
+        self._zipper_start_time: float | None = None
         self._on_pipeline_complete = on_pipeline_complete
         self._fluor_rows: list[tuple[QLineEdit, QCheckBox, QPushButton]] = []
         self._schema_cbs: list[QComboBox] = []
@@ -700,6 +703,11 @@ class AnalyzeTab(QWidget):
         self._progress.setValue(0)
         self._progress.setTextVisible(False)
         pl.addWidget(self._progress, 1)
+        self._eta_lbl = QLabel("", prog_widget)
+        self._eta_lbl.setObjectName("Muted")
+        self._eta_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._eta_lbl.setMinimumWidth(130)
+        pl.addWidget(self._eta_lbl)
         rl.addWidget(prog_widget)
 
         r2 = QFrame(parent); r2.setFrameShape(QFrame.HLine); r2.setObjectName("HRule")
@@ -885,14 +893,31 @@ class AnalyzeTab(QWidget):
     def _clear_log(self) -> None:
         self._log.clear()
 
+    @staticmethod
+    def _fmt_eta(elapsed: float, done: int, total: int) -> str:
+        """Return a human-readable ETA string, or '' if not yet estimable."""
+        remaining = total - done
+        if done <= 0 or remaining <= 0 or elapsed <= 0:
+            return ""
+        secs = int(elapsed / done * remaining)
+        if secs < 60:
+            return f"~{secs}s remaining"
+        m, s = divmod(secs, 60)
+        if m < 60:
+            return f"~{m}m {s:02d}s remaining"
+        h, m = divmod(m, 60)
+        return f"~{h}h {m:02d}m remaining"
+
     def _apply_progress_event(self, kind: str, payload: object) -> None:
         """Render a progress event from :class:`ProgressTracker` to the UI."""
         if kind == "well_total":
             total = int(payload)  # type: ignore[arg-type]
             self._well_total = total
+            self._phase_start_time = time.monotonic()
             self._progress.setRange(0, total)
             self._progress.setValue(0)
             self._prog_lbl.setText(f"Pipeline: 0 / {total} wells")
+            self._eta_lbl.setText("")
         elif kind == "well_done":
             done, total = payload  # type: ignore[misc]
             self._well_done = int(done)
@@ -901,6 +926,9 @@ class AnalyzeTab(QWidget):
             self._prog_lbl.setText(
                 f"Pipeline: {self._well_done} / {total} wells  ({pct}%)"
             )
+            if self._phase_start_time is not None:
+                elapsed = time.monotonic() - self._phase_start_time
+                self._eta_lbl.setText(self._fmt_eta(elapsed, self._well_done, total))
 
     def _poll_log(self) -> None:
         try:
@@ -918,20 +946,27 @@ class AnalyzeTab(QWidget):
                 elif kind == "zipper_start":
                     n = payload or 96
                     self._zipper_done = 0
+                    self._zipper_start_time = time.monotonic()
                     self._progress.setRange(0, n)
                     self._progress.setValue(0)
                     self._prog_lbl.setText(f"Grouping: 0 / {n} wells")
+                    self._eta_lbl.setText("")
                 elif kind == "zipper_well":
                     n_total = self._progress.maximum() or 96
                     self._zipper_done = getattr(self, "_zipper_done", 0) + 1
                     self._progress.setValue(self._zipper_done)
                     pct = int(self._zipper_done / n_total * 100)
                     self._prog_lbl.setText(f"Grouping: {self._zipper_done} / {n_total} wells  ({pct}%)")
+                    if self._zipper_start_time is not None:
+                        elapsed = time.monotonic() - self._zipper_start_time
+                        self._eta_lbl.setText(self._fmt_eta(elapsed, self._zipper_done, n_total))
                 elif kind == "zipper_done":
                     self._progress.setRange(0, 100)
                     self._progress.setValue(0)
                     self._well_total = 0
                     self._well_done  = 0
+                    self._zipper_start_time = None
+                    self._eta_lbl.setText("")
                     self._prog_lbl.setText("Grouping complete — starting pipeline…")
                 elif kind == "workers":
                     self._log_line(f"[info] Workers: {payload} parallel well(s).\n", "INFO")
@@ -939,6 +974,8 @@ class AnalyzeTab(QWidget):
                     self._progress.setValue(self._progress.maximum() or 100)
                     n = self._well_done or getattr(self, "_zipper_done", 0)
                     self._prog_lbl.setText(f"Complete — {n} well(s) processed")
+                    self._eta_lbl.setText("")
+                    self._phase_start_time = None
                     self._log_line(payload, "DONE")
                     self._log_line(
                         "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
