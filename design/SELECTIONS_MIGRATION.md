@@ -1,13 +1,25 @@
 # Phase 8.0 — Saved-selections data-model migration plan
 
-> **Status:** approved 2026-05-12 (Q1 migrate `bar_groups.json`; Q2 bake rank
-> colour immediately; Q3 drop the legacy shadow at phase end; Q4 implement §3.5
-> now). **Stage A is implemented** (see *Progress* at the bottom); Stages B–D
-> not started. This doc promotes `SELECTIONS_MODEL_CONTRACT.md` §3–§5 (which
-> only *sketched* the migration) into a complete, standalone plan: real legacy
-> shapes, the algorithm with edge cases, the full 20-file touch-site inventory,
-> schema versioning, backup/recovery, failure handling, a test plan, and a
-> staged rollout.
+> **Status: ✅ COMPLETE (code) — pending the user's runtime QA.** Approved
+> 2026-05-12 (Q1 migrate `bar_groups.json`; Q2 bake rank colour immediately;
+> Q3 drop the legacy shadow at phase end; Q4 implement §3.5 now). All of Stages
+> A–D are implemented and pushed (branch `claude/analyze-repo-structure-2uEVQ`,
+> PR #149). `app._selections: list[dict]` (schema v2) is the **only** in-memory
+> representation; the legacy `_rep_sets` / `_bar_groups` / `_active_rep_idx` /
+> `_bar_active_grp` / `_rep_hidden` shadow, `selections_to_legacy`,
+> `from_legacy_appstate`, `sync_selections_from_legacy`, and the dead bar-group
+> sidebar panel are all gone. `python well_viewer/_selftest_migration.py` →
+> `ALL PASS`; `py_compile` clean. **Remaining: the user's runtime test on a real
+> saved dataset** (T6 in §9) — see *§12 Status / what's left* at the bottom.
+>
+> §1–§10 below are the original plan as designed; a few details were superseded
+> in execution (e.g. the legacy-shadow machinery in §7 Stages A/D — it was built,
+> then removed once every consumer read `_selections` directly). **§11 (the
+> cluster-by-cluster Progress log) is authoritative for the as-built state.**
+> This doc promotes `SELECTIONS_MODEL_CONTRACT.md` §3–§5 into a complete plan:
+> real legacy shapes, the algorithm with edge cases, the full 20-file touch-site
+> inventory, schema versioning, backup/recovery, failure handling, a test plan,
+> and a staged rollout.
 
 **Honesty note (answering the question asked):** when I wrote contract §3–§5 I
 **inferred** the `_rep_sets` / `_bar_groups` shapes from the *class definitions*
@@ -768,46 +780,63 @@ Phase 8.0 is complete: the saved-selections / replicate-sets / bar-groups system
 (Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
 only when no bar groups, `solo → [[w]]` round-trip — still apply until that's done.)
 
-### Still to do
-- **T6 (yours):** open ≥1 real saved `pipeline_info.json` in the app — eyeball
-  the bar/line/stats/scatter plots & plate maps (colours **will** look different
-  now — by plate position, decision #1; verify they're *consistent* across
-  plate ↔ line ↔ bar ↔ stats ↔ scatter), the group/rep lists, **edit a
-  group/rep then Save → reopen** (the Stage-A save fix must persist the edit),
-  confirm `pipeline_info.json.pre-v2-backup` exists and restores cleanly;
-  `python well_viewer/_selftest_migration.py` → `ALL PASS`.
-- ~~`batch_export/*` colours~~ — **done**: `base_panel.py`'s plate map, single-well
-  refresh, group cards, and per-member overlay traces now use
-  `self._app._rank_color_rset` / `_rank_color_well` (last-group-wins for shared
-  wells); `scatter_panel.py` needs no change (it forwards through the now
-  rank-aware scatter collectors). `WELL_COLORS` is left imported-but-unused in
-  `base_panel.py`.
-- **Statistics-tab *widget* styling** — the Statistics tab still uses the
-  *legacy* `_stats_map_btns` QPushButton plate (themed to match `#WellButton`
-  in `theme.qss()`), **not** the v2 `widgets.WellPlateSelector` that the left
-  rail uses — so it looks a bit different (cell sizing, headers, hover, drag
-  visuals). Migrating the stats / image-table / segmentation / sample-defs
-  plates to `WellPlateSelector` is the deferred WellSelector migration
-  (`WELL_SELECTOR_GAP.md` Steps 2–8) — its own cluster, not part of the
-  colour work.
-- **Phase 6.5.12 (`SavedSelectionsList` composition extension)** — **done** (code,
-  not runtime-verified): `setComposable(True)` + editable replicate sub-lists +
-  per-chip move-menu + `+ wells…` `WellPlateSelector` popover + `setEnabledWells`
-  / `setWellPlateFactory` / `setSelectionWells` / `setSelectionReplicates` +
-  `wellsChanged` / `replicatesChanged` signals. See
-  `design/SAVED_SELECTIONS_COMPOSITION_SPEC.md`. **This unblocks Stage C** — the
-  view swap no longer loses group/rep composition.
-- **Stage B (rest)** — switch the remaining read-only consumers (`batch_export/*`,
-  the `runtime_app` rep-set helpers) to the unified model; **Stage C** (now
-  unblocked by 6.5.12) — flip the mutation paths (`grouping_controller`,
-  `selection_controller`, the `runtime_app` rep/group dialogs) to mutate
-  `_selections` directly (so `sync_selections_from_legacy` becomes a no-op), and
-  swap the Sample-Definitions rep-set/group view widgets for
-  `widgets.SavedSelectionsList` in composable mode (wiring `wellsChanged` /
-  `replicatesChanged` / `entry*` / `orderChanged` to the mutators, with an
-  optional "＋ from another selection…" affordance replacing legacy "add member
-  rep-set", and the legacy rep-map plate retargeted to drive the
-  currently-selected selection's `wells`); **Stage D** — delete the legacy
-  `_rep_sets`/`_bar_groups`/`_rep_hidden`/`_active_rep_idx`/`_bar_active_grp`
-  shadow + `from_legacy_appstate` + `sync_selections_from_legacy`. Each as its
-  own commit, with your runtime QA between.
+## 12. Status / what's left
+
+**Phase 8.0 is code-complete** (Stages A → D, Progress-log clusters 1 → 7, all
+pushed to `claude/analyze-repo-structure-2uEVQ` / PR #149). The saved-selections,
+replicate-sets, and bar-groups systems are now one `selections: list[dict]` model
+(`well_viewer/selections_model.py`, `schema_version: 2`), persisted in
+`pipeline_info.json::sample_definitions` (one-time `pipeline_info.json.pre-v2-backup`
++ fail-safe v1→v2 migration with a writes-disabled latch on failure) and round-tripped
+by the standalone `bar_groups.json`. There is **no legacy shadow** — `_rep_sets` /
+`_bar_groups` / `_active_rep_idx` / `_bar_active_grp` / `_rep_hidden`,
+`selections_to_legacy`, `from_legacy_appstate`, `sync_selections_from_legacy`, and the
+dead bar-group sidebar panel (`views/bar_group_panel_view.py` + the `_bar_*` / `_bg_*` /
+`_grp_*` / `sb_*` / `plate_drag_*` machinery, ~2 600 lines total) have been deleted.
+The Sample-Definitions "GROUPS" panel is a `widgets.SavedSelectionsList` (composable
+mode) wired straight to the `WellViewerApp._sel_*` mutators (keyed by selection id); the
+plot renderers (bar / line / scatter / stats / heat-map / distribution / batch-export)
+read `app._selections` via the thin derivations `_rep_sets_loaded()` / `_rep_sets_active()`
+/ `_groups_from_rep_sets()` / `_rank_color_*` / `_rep_color_for`. `py_compile` clean;
+`python well_viewer/_selftest_migration.py` → `ALL PASS`. Everything below is what is
+*not* yet done.
+
+### 12.1 The one blocker — T6, the user's runtime QA
+
+This is "code-complete" but **not runtime-verified** — there is no PySide6 / sample data
+in the dev environment, so every cluster has been QA'd by the user instead. To call
+Phase 8.0 *done-done*, open ≥1 real saved `pipeline_info.json` in the app and exercise:
+
+- every plot tab — Line Graphs, Bar Plots, Scatter Plot (cells **and** aggregate, single
+  **and** multi-timepoint), Distribution, Heat Map;
+- the Sample-Definitions **GROUPS** panel — create / rename / delete / hide a group,
+  drag-edit a group's wells on the rep-map plate, "Apply Quick Replicates";
+- the line-graph **sidebar plate** — rep-mode visibility toggle (click a well → toggles
+  its group on the plot) and the "N/M set(s) visible" count label;
+- the **batch-export** panels — Run Batch, per-row / per-col quick groups, Save… / Load…
+  export groups, and **batch scatter export with groups defined** (this path swaps
+  `app._selections` via `ScatterBatchExportPanel._app_group_scope`);
+- **persistence round-trip** — edit a group → Save → reopen (the edit must persist);
+  confirm `pipeline_info.json.pre-v2-backup` exists after the first v1→v2 upgrade and
+  restores cleanly; load + save a standalone `bar_groups.json`.
+
+Colours are intentionally **plate-position-based** now (decision #1, "the plate is the
+legend") — verify they're *consistent* across plate ↔ line ↔ bar ↔ stats ↔ scatter, not
+that they match the pre-v2 palette.
+
+### 12.2 Known limitations carried forward (by design, not regressions)
+
+- Editing a rep-set's *replicate sub-lists* via the composable list flattens to one
+  sub-list per the `_deoverlap_replicates` hygiene pass (`solo → [[w]]` round-trips).
+- Drag-to-**remove** a rep-set from a stats / batch-export group doesn't fire —
+  `well_viewer.batch_models.ReplicateSet` has no `__eq__`, so a freshly-derived object is
+  never `==` the one already in the group. Pre-existing; unchanged by this migration.
+
+### 12.3 Out of scope of Phase 8.0 (separate future work)
+
+- **WellSelector widget migration** (`WELL_SELECTOR_GAP.md` Steps 2–8) — the Statistics /
+  image-table / segmentation / Sample-Definitions plates are still legacy `QPushButton`-grid
+  maps themed to match `#WellButton`, not the v2 `widgets.WellPlateSelector` used by the
+  left rail, so they look a bit different (cell sizing, headers, hover, drag visuals).
+- Tiny remaining dead bits left in place (harmless, easy to drop later): `_sidebar_bar_frame`
+  (created hidden, never shown) and the module-level `_bar_groups_to_dict` lazy in `runtime_app`.

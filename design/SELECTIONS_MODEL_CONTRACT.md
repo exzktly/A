@@ -11,6 +11,13 @@ reshaping the widget.
 resolved (all per the recommendation). 6.5.8 (the editable `SavedSelectionsList`)
 is built against this; the Phase-8 migration targets it.
 
+> **Update — Phase 8.0 complete (code).** This contract is now *the* model; see
+> `well_viewer/selections_model.py` and `SELECTIONS_MIGRATION.md` §12.
+> `app._selections` is the **only** in-memory representation — the legacy
+> `_rep_sets` / `_bar_groups` / `_rep_hidden` / `_active_rep_idx` / `_bar_active_grp`
+> state described below under "what it replaces" has been **deleted**, not shadowed.
+> Awaiting the user's runtime QA (T6 in the migration doc).
+
 References: `DESIGN_NOTES.md` §6.3 (the design intent), `well_viewer/batch_models.py`
 (`ReplicateSet`, `BarGroup`), `well_viewer/sample_definitions.py` (the current
 `pipeline_info.json::sample_definitions` schema), `well_viewer/selection_controller.py`
