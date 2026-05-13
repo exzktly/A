@@ -1622,7 +1622,9 @@ class WellViewerApp(QWidget):
         # ── Sub-tabs ────────────────────────────────────────────────────────
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
-        sub_tabs.tabBar().setExpanding(True)
+        sub_tabs.tabBar().setExpanding(False)
+        sub_tabs.tabBar().setElideMode(Qt.ElideNone)
+        sub_tabs.tabBar().setUsesScrollButtons(True)
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 
