@@ -45,6 +45,7 @@ from widgets.search_input import SearchInput  # noqa: E402
 _CATEGORIES: dict[str, list[str]] = {
     "Perceptual": ["viridis", "plasma", "inferno", "magma", "cividis",
                    "mako", "rocket", "turbo"],
+    "Monochrome": ["Greys", "Greens", "Reds", "Blues", "Purples", "Oranges"],
     "Diverging":  ["coolwarm", "RdBu", "PiYG", "PRGn", "BrBG", "Spectral",
                    "RdYlBu"],
     "Categorical": ["tab10", "tab20", "Set1", "Set2", "Set3", "Paired",

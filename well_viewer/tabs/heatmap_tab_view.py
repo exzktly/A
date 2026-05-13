@@ -332,7 +332,13 @@ def _on_log_scale_changed(app) -> None:
 def _on_cmap_changed(app) -> None:
     cb = getattr(app, "_heatmap_cmap_cb", None)
     if cb is not None:
-        app._heatmap_cmap_name = str(cb.currentText() or "")
+        if hasattr(cb, "lut"):
+            name = cb.lut() or ""
+            if hasattr(cb, "isReversed") and cb.isReversed():
+                name = f"{name}_r"
+        else:
+            name = str(cb.currentText() or "")
+        app._heatmap_cmap_name = name
     _persist_settings(app)
     _redraw(app)
 
