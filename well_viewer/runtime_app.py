@@ -1683,16 +1683,7 @@ class WellViewerApp(QWidget):
             self._sel_clear_all()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Group definition panel
     # ─────────────────────────────────────────────────────────────────────────
-
-    def _build_group_def_panel(self, parent) -> None:
-        from well_viewer.views.grouping_view import build_group_def_panel as _v
-        _v(self, parent)
-
-    def _grp_panel_refresh(self) -> None:
-        from well_viewer.views.grouping_view import grp_panel_refresh as _v
-        _v(self)
 
     def _ask_name_dialog(self, default: str) -> Optional[str]:
         return ask_name_dialog(self, default=default)
@@ -2042,7 +2033,6 @@ class WellViewerApp(QWidget):
 
         if tab_visible:
             self._rep_panel_refresh()
-            self._grp_panel_refresh()
             self._label_panel_refresh()
         self._rep_refresh_map()
 
@@ -3200,8 +3190,6 @@ class WellViewerApp(QWidget):
 
         if hasattr(self, '_rep_cards_frame') and self._rep_cards_frame:
             self._rep_panel_refresh()
-        if hasattr(self, '_grp_cards_frame') and self._grp_cards_frame:
-            self._grp_panel_refresh()
         if hasattr(self, '_stats_fig') and self._stats_fig:
             self._stats_refresh_colors()
         if hasattr(self, "_sidebar_btns"):
