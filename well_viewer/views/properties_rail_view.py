@@ -54,6 +54,181 @@ from widgets.styled_slider import StyledSlider  # noqa: E402
 from widgets.toggle_switch import ToggleSwitch  # noqa: E402
 
 
+# ── Phase 12b: rail → active-figure binding pipeline ─────────────────────
+def _bind_to_prefs(app, key: str, getter, setter, change_signal):
+    """Connect a rail widget to ``app._export_style_prefs[key]``.
+
+    The rail is the single source of truth at the UX layer; the existing
+    per-figure ``_export_style_prefs`` is the single source of truth at the
+    model layer. Writes go through ``apply_export_style_to_current`` on
+    whichever PlotCard is currently visible, mirroring the floating
+    ExportStyleSidebar's behaviour.
+    """
+    from well_viewer.figure_export_editor import (
+        _ensure_export_style_prefs, apply_export_style_to_current,
+    )
+
+    def _initial():
+        prefs = _ensure_export_style_prefs(app)
+        if key in prefs:
+            try:
+                setter(prefs[key])
+            except Exception:
+                pass
+
+    _initial()
+
+    def _on_change(*_args):
+        prefs = _ensure_export_style_prefs(app)
+        try:
+            prefs[key] = getter()
+        except Exception:
+            return
+        # Apply to whichever PlotCard is currently visible. Each renderer
+        # also has a per-card sidebar that mirrors the same prefs dict;
+        # we just re-use the existing apply_export_style_to_current entry
+        # point so both stay in sync.
+        for attr in ("_line_card", "_bar_card", "_scatter_card",
+                     "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+            card = getattr(app, attr, None)
+            if card is None or not card.isVisible():
+                continue
+            try:
+                apply_export_style_to_current(app, card.figure, card.canvas)
+            except Exception:
+                pass
+            break
+
+    change_signal.connect(_on_change)
+
+
+def _slider_pref(app, key: str, *, lo: int, hi: int, default: int, scale: float = 1.0,
+                 default_fmt: str = "{:.0f}") -> QWidget:
+    """A StyledSlider + numeric chip pair bound to ``_export_style_prefs[key]``.
+
+    ``scale`` lets the prefs value differ from the slider's integer range
+    (e.g. slider 0–60 with scale=0.1 stores 0.0–6.0). ``default_fmt`` is
+    the format string for the side chip.
+    """
+    host = QWidget()
+    lay = QHBoxLayout(host)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(theme.Spacing.sm)
+    s = StyledSlider()
+    s.setRange(lo, hi)
+    s.setValue(default)
+    val = QLabel(default_fmt.format(default * scale))
+    val.setFixedWidth(48)
+    val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    val.setStyleSheet(
+        f"color: {theme.Colors.text_primary}; "
+        f"font-family: {theme.Typography.family_mono}; "
+        f"font-size: {theme.Typography.small_size}px;"
+    )
+    s.valueChanged.connect(lambda v: val.setText(default_fmt.format(v * scale)))
+    lay.addWidget(s, 1)
+    lay.addWidget(val, 0)
+    _bind_to_prefs(
+        app, key,
+        getter=lambda: s.value() * scale,
+        setter=lambda v: s.setValue(int(round(float(v) / scale))),
+        change_signal=s.valueChanged,
+    )
+    return host
+
+
+def _toggle_pref(app, key: str, *, default: bool = False) -> ToggleSwitch:
+    sw = ToggleSwitch(checked=default)
+    _bind_to_prefs(
+        app, key,
+        getter=lambda: sw.isChecked(),
+        setter=lambda v: sw.setChecked(bool(v)),
+        change_signal=sw.toggled,
+    )
+    return sw
+
+
+def _chips_pref(app, key: str, *labels: str, default: str | None = None,
+                value_map: dict[str, object] | None = None) -> SegmentedControl:
+    seg = SegmentedControl()
+    fwd = value_map or {}
+    inv = {v: k for k, v in fwd.items()} if value_map else {}
+    for label in labels:
+        seg.addSegment(label, data=fwd.get(label, label))
+    if default is not None:
+        seg.setCurrentByData(fwd.get(default, default))
+    _bind_to_prefs(
+        app, key,
+        getter=lambda: seg.currentData(),
+        setter=lambda v: seg.setCurrentByData(v),
+        change_signal=seg.currentChanged,
+    )
+    return seg
+
+
+def _stepper_pref(app, key: str, *, lo: float, hi: float, step: float,
+                  default: float, decimals: int) -> Stepper:
+    st = Stepper(minimum=lo, maximum=hi, single_step=step,
+                 value=default, decimals=decimals)
+    _bind_to_prefs(
+        app, key,
+        getter=lambda: st.value(),
+        setter=lambda v: st.setValue(float(v)),
+        change_signal=st.valueChanged,
+    )
+    return st
+
+
+def _combo_pref(app, key: str, items: list[str], *,
+                default: str | None = None) -> QComboBox:
+    cb = QComboBox()
+    cb.addItems(items)
+    if default and default in items:
+        cb.setCurrentText(default)
+    _bind_to_prefs(
+        app, key,
+        getter=lambda: cb.currentText(),
+        setter=lambda v: cb.setCurrentText(str(v)),
+        change_signal=cb.currentTextChanged,
+    )
+    return cb
+
+
+def _range_pair_pref(app, low_key: str, high_key: str, *,
+                     separator: str = "–",
+                     placeholder: tuple[str, str] = ("", "")) -> RangePair:
+    rp = RangePair(separator=separator, placeholder=placeholder)
+    # Two separate bindings — but RangePair emits one valueChanged for both
+    # halves, so we route both writes from the same signal.
+    from well_viewer.figure_export_editor import (
+        _ensure_export_style_prefs, apply_export_style_to_current,
+    )
+
+    def _initial():
+        prefs = _ensure_export_style_prefs(app)
+        rp.setValue(str(prefs.get(low_key, "")), str(prefs.get(high_key, "")))
+
+    _initial()
+
+    def _on_changed(lo: str, hi: str):
+        prefs = _ensure_export_style_prefs(app)
+        prefs[low_key] = lo
+        prefs[high_key] = hi
+        for attr in ("_line_card", "_bar_card", "_scatter_card",
+                     "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+            card = getattr(app, attr, None)
+            if card is None or not card.isVisible():
+                continue
+            try:
+                apply_export_style_to_current(app, card.figure, card.canvas)
+            except Exception:
+                pass
+            break
+
+    rp.valueChanged.connect(_on_changed)
+    return rp
+
+
 def _row(label: str, control: QWidget, *, label_w: int = 88) -> QWidget:
     """Build a one-row label + control container that matches the mockup's
     ``.row`` style (88-px label column, control fills remainder)."""
@@ -206,10 +381,14 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     # ── 1. Profile & Format ─────────────────────────────────────────────
     sec_profile = CollapsibleSection("Profile & Format", expanded=True)
     sec_profile.setValueWidget(_preview_label("Custom · PNG"))
-    profile_cb = QComboBox()
-    profile_cb.addItems(["Custom", "Publication", "Slide", "Print A4"])
+    profile_cb = _combo_pref(app, "export_profile",
+                             ["Custom", "Publication", "Slide", "Print A4"],
+                             default="Custom")
     sec_profile.addWidget(_row("Profile", profile_cb))
-    fmt_chips = _chips("PNG", "SVG", "PDF", "TIFF", default="PNG")
+    fmt_chips = _chips_pref(
+        app, "format", "PNG", "SVG", "PDF", "TIFF", default="PNG",
+        value_map={"PNG": "png", "SVG": "svg", "PDF": "pdf", "TIFF": "tiff"},
+    )
     sec_profile.addWidget(_row("Format", fmt_chips))
     bl.addWidget(sec_profile)
 
@@ -227,26 +406,38 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     # ── 3. Axes ─────────────────────────────────────────────────────────
     sec_axes = CollapsibleSection("Axes", expanded=False)
     sec_axes.setValueWidget(_preview_label("22 · 22 · 22"))
-    for label in ("Axis size", "Tick size", "Title size"):
-        sec_axes.addWidget(_row(label, _slider_with_value(lo=6, hi=40, default=22)))
-    sec_axes.addWidget(_row("X rotation", _chips("0°", "30°", "45°", "90°", default="0°")))
-    sec_axes.addWidget(_row("Tick vis.", _chips("Major", "Minor", "Both", "None", default="Major")))
-    sec_axes.addWidget(_row("Tick dir", _chips("In", "Out", "In/Out", default="Out")))
-    tick_len = Stepper(minimum=0.0, maximum=20.0, single_step=0.5, value=4.0, decimals=1)
+    sec_axes.addWidget(_row("Axis size",  _slider_pref(app, "axis_label_size",
+                                                       lo=6, hi=40, default=22)))
+    sec_axes.addWidget(_row("Tick size",  _slider_pref(app, "tick_label_size",
+                                                       lo=6, hi=40, default=22)))
+    sec_axes.addWidget(_row("Title size", _slider_pref(app, "title_size",
+                                                       lo=6, hi=40, default=22)))
+    sec_axes.addWidget(_row("X rotation", _chips_pref(
+        app, "x_tick_angle", "0°", "30°", "45°", "90°", default="0°",
+        value_map={"0°": 0, "30°": 30, "45°": 45, "90°": 90},
+    )))
+    sec_axes.addWidget(_row("Tick dir", _chips_pref(
+        app, "tick_direction", "In", "Out", "In/Out", default="Out",
+        value_map={"In": "in", "Out": "out", "In/Out": "inout"},
+    )))
+    tick_len = _stepper_pref(app, "tick_length",
+                             lo=0.0, hi=20.0, step=0.5, default=4.0, decimals=1)
     sec_axes.addWidget(_row("Tick len", tick_len))
     bl.addWidget(sec_axes)
 
     # ── 4. Legend ───────────────────────────────────────────────────────
     sec_legend = CollapsibleSection("Legend", expanded=False)
     sec_legend.setValueWidget(_preview_label("On · best · 12pt"))
-    sec_legend.addWidget(_row("Show legend", ToggleSwitch(checked=True)))
-    sec_legend.addWidget(_row("In-plot box", ToggleSwitch(checked=True)))
-    legend_sz = Stepper(minimum=6, maximum=24, single_step=1, value=12, decimals=0)
-    sec_legend.addWidget(_row("Size", legend_sz))
-    legend_loc = QComboBox()
-    legend_loc.addItems(["Best", "Upper right", "Upper left", "Lower right",
-                         "Lower left", "Outside right"])
-    sec_legend.addWidget(_row("Location", legend_loc))
+    sec_legend.addWidget(_row("Show legend", _toggle_pref(app, "legend_show", default=True)))
+    sec_legend.addWidget(_row("Size", _stepper_pref(
+        app, "legend_font_size", lo=6, hi=24, step=1, default=12, decimals=0,
+    )))
+    sec_legend.addWidget(_row("Location", _combo_pref(
+        app, "legend_loc",
+        ["best", "upper right", "upper left", "lower right",
+         "lower left", "center right"],
+        default="best",
+    )))
     bl.addWidget(sec_legend)
 
     # ── 5. Lines & Markers ──────────────────────────────────────────────
@@ -255,85 +446,95 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     preview = PreviewStrip()
     sec_lm.addWidget(preview)
 
-    # B17: wire the line/marker sliders + Stepper into the PreviewStrip so
-    # the inline preview live-updates while the user drags. Build the
-    # rows by hand (the helper hides the inner slider) so we can hook
-    # valueChanged on each.
-    lw_row = QWidget(); lwl = QHBoxLayout(lw_row)
-    lwl.setContentsMargins(0, 4, 0, 4); lwl.setSpacing(s.md)
-    lwl_lbl = QLabel("Line width"); lwl_lbl.setFixedWidth(88)
-    lwl_lbl.setStyleSheet(f"color: {c.text_secondary}; font-size: {t.small_size}px;")
-    lw_slider = StyledSlider(); lw_slider.setRange(0, 60); lw_slider.setValue(18)
-    lw_val = QLabel("1.80"); lw_val.setFixedWidth(42)
-    lw_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    lw_val.setStyleSheet(
-        f"color: {c.text_primary}; font-family: {t.family_mono}; "
-        f"font-size: {t.small_size}px;"
-    )
-    def _on_lw(v):
-        lw_val.setText(f"{v/10.0:.2f}")
-        preview.setStyle(line_width=v / 10.0)
-    lw_slider.valueChanged.connect(_on_lw)
-    lwl.addWidget(lwl_lbl, 0); lwl.addWidget(lw_slider, 1); lwl.addWidget(lw_val, 0)
-    sec_lm.addWidget(lw_row)
-
-    ms_row = QWidget(); msl = QHBoxLayout(ms_row)
-    msl.setContentsMargins(0, 4, 0, 4); msl.setSpacing(s.md)
-    msl_lbl = QLabel("Marker size"); msl_lbl.setFixedWidth(88)
-    msl_lbl.setStyleSheet(f"color: {c.text_secondary}; font-size: {t.small_size}px;")
-    ms_slider = StyledSlider(); ms_slider.setRange(0, 28); ms_slider.setValue(10)
-    ms_val = QLabel("5.00"); ms_val.setFixedWidth(42)
-    ms_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    ms_val.setStyleSheet(
-        f"color: {c.text_primary}; font-family: {t.family_mono}; "
-        f"font-size: {t.small_size}px;"
-    )
-    def _on_ms(v):
-        ms_val.setText(f"{v/2.0:.2f}")
-        preview.setStyle(marker_size=v / 2.0)
-    ms_slider.valueChanged.connect(_on_ms)
-    msl.addWidget(msl_lbl, 0); msl.addWidget(ms_slider, 1); msl.addWidget(ms_val, 0)
-    sec_lm.addWidget(ms_row)
-
-    me_step = Stepper(minimum=0.0, maximum=5.0, single_step=0.1, value=0.8, decimals=1)
-    me_step.valueChanged.connect(lambda v: preview.setStyle(marker_edge=v))
+    # Line width + Marker size + Marker edge — all bound to prefs and
+    # live-mirroring into the inline PreviewStrip (B17).
+    lw_row = _slider_pref(app, "line_width", lo=0, hi=60, default=18,
+                          scale=0.1, default_fmt="{:.2f}")
+    sec_lm.addWidget(_row("Line width", lw_row))
+    ms_row = _slider_pref(app, "marker_size", lo=0, hi=28, default=10,
+                          scale=0.5, default_fmt="{:.2f}")
+    sec_lm.addWidget(_row("Marker size", ms_row))
+    me_step = _stepper_pref(app, "marker_edge_width",
+                            lo=0.0, hi=5.0, step=0.1, default=0.8, decimals=1)
     sec_lm.addWidget(_row("Marker edge", me_step))
+
+    # Wire PreviewStrip live-update — read the current prefs after each
+    # rail-driven write and reflect into the inline preview.
+    from well_viewer.figure_export_editor import _ensure_export_style_prefs as _ensure
+    def _refresh_preview(*_):
+        prefs = _ensure(app)
+        preview.setStyle(
+            line_width=prefs.get("line_width", 1.8),
+            marker_size=prefs.get("marker_size", 5.0),
+            marker_edge=prefs.get("marker_edge_width", 0.8),
+        )
+    # Hook every interesting signal we already know about.
+    for child in lw_row.findChildren(StyledSlider) + ms_row.findChildren(StyledSlider):
+        child.valueChanged.connect(_refresh_preview)
+    me_step.valueChanged.connect(_refresh_preview)
+    _refresh_preview()
+
     bl.addWidget(sec_lm)
     app._props_preview_strip = preview
 
     # ── 6. Grid ─────────────────────────────────────────────────────────
     sec_grid = CollapsibleSection("Grid", expanded=False)
     sec_grid.setValueWidget(_preview_label("On · 0.25 · --"))
-    sec_grid.addWidget(_row("Show grid", ToggleSwitch(checked=True)))
+    sec_grid.addWidget(_row("Show grid", _toggle_pref(app, "grid_show", default=True)))
     sec_grid.addWidget(_row("Opacity",
-                            _slider_with_value(lo=0, hi=100, default=25)))
-    sec_grid.addWidget(_row("Line style",
-                            _chips("—", "- -", "·", "-·", default="- -")))
+                            _slider_pref(app, "grid_alpha",
+                                         lo=0, hi=100, default=25,
+                                         scale=0.01, default_fmt="{:.2f}")))
+    sec_grid.addWidget(_row("Line style", _chips_pref(
+        app, "grid_style", "—", "- -", "·", "-·", default="- -",
+        value_map={"—": "-", "- -": "--", "·": ":", "-·": "-."},
+    )))
     bl.addWidget(sec_grid)
 
     # ── 7. Limits & Scale ───────────────────────────────────────────────
     sec_lim = CollapsibleSection("Limits & Scale", expanded=False)
     sec_lim.setValueWidget(_preview_label("auto · auto"))
-    sec_lim.addWidget(_row("X limits",
-                           RangePair(separator="–", placeholder=("auto", "auto"))))
-    sec_lim.addWidget(_row("Y limits",
-                           RangePair(separator="–", placeholder=("auto", "auto"))))
-    sec_lim.addWidget(_row("X log", ToggleSwitch()))
-    sec_lim.addWidget(_row("Y log", ToggleSwitch()))
+    sec_lim.addWidget(_row("X limits", _range_pair_pref(
+        app, "x_lim_min", "x_lim_max", separator="–", placeholder=("auto", "auto"),
+    )))
+    sec_lim.addWidget(_row("Y limits", _range_pair_pref(
+        app, "y_lim_min", "y_lim_max", separator="–", placeholder=("auto", "auto"),
+    )))
+    sec_lim.addWidget(_row("X log", _toggle_pref(app, "x_log")))
+    sec_lim.addWidget(_row("Y log", _toggle_pref(app, "y_log")))
     bl.addWidget(sec_lim)
 
     # ── 8. Layout ───────────────────────────────────────────────────────
     sec_layout = CollapsibleSection("Layout", expanded=False)
     sec_layout.setValueWidget(_preview_label("Constrained"))
-    sec_layout.addWidget(_row("Spacing",
-                              _chips("Tight", "Constrained", "Manual",
-                                     default="Constrained")))
-    well_order = QComboBox()
-    well_order.addItems(["Plate order", "Selection order", "Custom…"])
-    sec_layout.addWidget(_row("Well order", well_order))
-    sec_layout.addWidget(_row("Aspect",
-                              RangePair(separator="×",
-                                        value=("1.618", "1.000"))))
+    # Spacing chips drive two booleans (tight / constrained) that the
+    # existing apply_export_style_prefs reads.
+    spacing = SegmentedControl()
+    for label in ("Tight", "Constrained", "Manual"):
+        spacing.addSegment(label, data=label.lower())
+    spacing.setCurrentByData("constrained")
+
+    def _on_spacing(_idx):
+        from well_viewer.figure_export_editor import (
+            _ensure_export_style_prefs, apply_export_style_to_current,
+        )
+        prefs = _ensure_export_style_prefs(app)
+        which = spacing.currentData()
+        prefs["layout_tight"] = (which == "tight")
+        prefs["layout_constrained"] = (which == "constrained")
+        for attr in ("_line_card", "_bar_card", "_scatter_card",
+                     "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+            card = getattr(app, attr, None)
+            if card is None or not card.isVisible():
+                continue
+            try:
+                apply_export_style_to_current(app, card.figure, card.canvas)
+            except Exception:
+                pass
+            break
+
+    spacing.currentChanged.connect(_on_spacing)
+    sec_layout.addWidget(_row("Spacing", spacing))
     bl.addWidget(sec_layout)
 
     bl.addStretch(1)
