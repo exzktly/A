@@ -151,7 +151,8 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     sl = QHBoxLayout(slider_row)
     sl.setContentsMargins(10, 4, 10, 6)
     sl.addWidget(QLabel("t (h):", slider_row))
-    app._heatmap_tp_slider = QSlider(Qt.Horizontal, slider_row)
+    from widgets.styled_slider import StyledSlider as _StyledSlider
+    app._heatmap_tp_slider = _StyledSlider(Qt.Horizontal, slider_row)
     app._heatmap_tp_slider.setMinimum(0)
     app._heatmap_tp_slider.setMaximum(0)
     app._heatmap_tp_slider.valueChanged.connect(lambda _v: _on_tp_changed(app))

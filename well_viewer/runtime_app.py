@@ -1396,6 +1396,11 @@ class WellViewerApp(QWidget):
         load_ib.clicked.connect(lambda _=False: self._load_sample_definitions_all())
         tl.addWidget(load_ib)
 
+        import_ib = _IconButton("plus", toolbar)
+        import_ib.setToolTip("Import selections from a JSON file (merges into the current set).")
+        import_ib.clicked.connect(lambda _=False: self._import_selections_from_json())
+        tl.addWidget(import_ib)
+
         clear_ib = _IconButton("x", toolbar)
         clear_ib.setToolTip(
             "Clear every definition on this tab — well labels, replicate "
@@ -2008,6 +2013,59 @@ class WellViewerApp(QWidget):
     def _clear_sample_definitions_all(self) -> None:
         from well_viewer.persistence import sample_definitions as _sd
         _sd.clear_all(self)
+
+    def _import_selections_from_json(self) -> None:
+        """Import a selections JSON file (the same schema used by Save) and
+        merge it into ``self._selections``. Existing names get a ``_v2``
+        suffix on collision so nothing already loaded is overwritten."""
+        import json
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import selections from JSON", "", "JSON (*.json);;All files (*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path) as fh:
+                payload = json.load(fh)
+        except Exception as exc:
+            QMessageBox.critical(self, "Import failed", f"Could not parse JSON:\n{exc}")
+            return
+
+        # Accept either a v2 sample-definitions block (with a 'selections' key)
+        # or a bare list of selection dicts.
+        items = None
+        if isinstance(payload, dict):
+            items = payload.get("selections") or payload.get("sample_definitions", {}).get("selections")
+        elif isinstance(payload, list):
+            items = payload
+        if not items:
+            QMessageBox.warning(self, "Import", "No selections found in that file.")
+            return
+
+        added = 0
+        for sel in items:
+            if not isinstance(sel, dict):
+                continue
+            name = sel.get("name") or "Imported"
+            wells = sel.get("wells") or []
+            replicates = sel.get("replicates")
+            source = sel.get("source") or "imported"
+            try:
+                self._sel_add(name=name, wells=list(wells),
+                              replicates=replicates, source=source)
+                added += 1
+            except Exception:
+                _logger = __import__("logging").getLogger("well_viewer.runtime_app")
+                _logger.exception("Import selection failed for %r", name)
+
+        if hasattr(self, "_groups_centre_refresh"):
+            try:
+                self._groups_centre_refresh()
+            except Exception:
+                pass
+        self._set_status(f"Imported {added} selection(s) from {path}.")
 
     def _save_gating_to_pipeline_info(self) -> None:
         from well_viewer.persistence import cell_gating as _cg

@@ -81,7 +81,8 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_violin = False
 
     cl.addWidget(QLabel("Smooth:", bar_ctrl))
-    app._violin_slider = QSlider(Qt.Horizontal, bar_ctrl)
+    from widgets.styled_slider import StyledSlider as _StyledSlider
+    app._violin_slider = _StyledSlider(Qt.Horizontal, bar_ctrl)
     app._violin_slider.setRange(5, 200)
     app._violin_slider.setValue(100)
     app._violin_slider.setFixedWidth(80)

@@ -249,6 +249,18 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     render_lbl.setProperty("role", "section")
     il.addWidget(render_lbl)
 
+    # EmptyState placeholder shown until the controller populates the grid.
+    # ``image_table_generate`` hides this and reveals the render host once the
+    # first table is produced.
+    from widgets.empty_state import EmptyState as _EmptyState
+    app._image_table_empty_state = _EmptyState(
+        "No image table generated",
+        icon="image",
+        parent=inner,
+        hint="Choose wells/channels in the selector grid above and press Generate.",
+    )
+    il.addWidget(app._image_table_empty_state)
+
     render_host = QWidget(inner)
     render_grid = QGridLayout(render_host)
     render_grid.setContentsMargins(0, 0, 0, 0)

@@ -362,11 +362,21 @@ class ExportStyleSidebar(QWidget):
 
         _update_stats_preview()
 
+        # Axes preview: shows the current axis target on the section header.
+        _axes_preview = QLabel(self._current_axis)
+        _axes_preview.setObjectName("Muted")
+        s_axes.setValueWidget(_axes_preview)
+        axis_cb.currentTextChanged.connect(lambda t, _l=_axes_preview: _l.setText(t))
+
         # ── Legend ──────────────────────────────────────────────────────────
         s_leg = section("Legend", expanded=False)
         leg_show = ToggleSwitch("Show legend")
         leg_show.setChecked(bool(self._prefs["legend_show"]))
         add_row(s_leg, "", leg_show, "legend_show")
+        _leg_preview = QLabel("On" if leg_show.isChecked() else "Off")
+        _leg_preview.setObjectName("Muted")
+        s_leg.setValueWidget(_leg_preview)
+        leg_show.toggled.connect(lambda on, _l=_leg_preview: _l.setText("On" if on else "Off"))
         leg_sz = QSpinBox()
         leg_sz.setRange(6, 24)
         leg_sz.setValue(int(self._prefs["legend_font_size"]))
@@ -403,6 +413,10 @@ class ExportStyleSidebar(QWidget):
         g_style.addItems(["-", "--", ":", "-."])
         g_style.setCurrentText(str(self._prefs["grid_style"]))
         add_row(s_grid, "Line style", g_style, "grid_style")
+        _grid_preview = QLabel("On" if g_show.isChecked() else "Off")
+        _grid_preview.setObjectName("Muted")
+        s_grid.setValueWidget(_grid_preview)
+        g_show.toggled.connect(lambda on, _l=_grid_preview: _l.setText("On" if on else "Off"))
 
         # ── Limits & Scale ──────────────────────────────────────────────────
         s_lim = section("Limits & Scale", expanded=False)
@@ -421,6 +435,20 @@ class ExportStyleSidebar(QWidget):
         self._bind_getter_setter("x_log", xlog_cb)
         self._bind_getter_setter("y_log", ylog_cb)
         add_row(s_lim, "Log scale", hrow(xlog_cb, ylog_cb))
+
+        def _lim_preview_text() -> str:
+            tags = []
+            if xlog_cb.isChecked():
+                tags.append("X log")
+            if ylog_cb.isChecked():
+                tags.append("Y log")
+            return ", ".join(tags) if tags else "linear"
+
+        _lim_preview = QLabel(_lim_preview_text())
+        _lim_preview.setObjectName("Muted")
+        s_lim.setValueWidget(_lim_preview)
+        xlog_cb.toggled.connect(lambda *_a, _l=_lim_preview: _l.setText(_lim_preview_text()))
+        ylog_cb.toggled.connect(lambda *_a, _l=_lim_preview: _l.setText(_lim_preview_text()))
 
         # ── Layout (+ draw order) ───────────────────────────────────────────
         s_layout = section("Layout", expanded=False)

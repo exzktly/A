@@ -1013,6 +1013,11 @@ def image_table_generate(app) -> None:
         app._set_status("Image Table: build a grid first (set rows/cols and click Apply).")
         return
 
+    # Once the user has triggered a Generate, hide the EmptyState placeholder.
+    empty = getattr(app, "_image_table_empty_state", None)
+    if empty is not None:
+        empty.setVisible(False)
+
     cache: Dict[Tuple[str, str, str], Dict] = {}
     rendered: Dict[Tuple[int, int], Any] = {}
     crop_tool = getattr(app, "_image_table_crop_tool", None)
