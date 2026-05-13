@@ -15,10 +15,11 @@ from __future__ import annotations
 from ui.theme import PLOT_BG, PLOT_GRD, PLOT_SPN, PLOT_TXT, TXT_PRI
 
 
-def _tokens_for(ax) -> tuple:
+def tokens_for(ax) -> tuple:
     """Return ``(bg, title_fg, muted_fg, grid, spine)`` for *ax*'s figure: the
     active ``PlotCard`` theme tokens if the figure is hosted in a card, else the
-    legacy ``ui.theme`` constants."""
+    legacy ``ui.theme`` constants. Public — renderers use it to keep legends /
+    placeholder text / other in-axes chrome in step with the card theme."""
     fig = getattr(ax, "figure", None)
     card = getattr(fig, "_plot_card", None) if fig is not None else None
     if card is not None:
@@ -31,9 +32,13 @@ def _tokens_for(ax) -> tuple:
     return PLOT_BG, TXT_PRI, PLOT_TXT, PLOT_GRD, PLOT_SPN
 
 
+# Internal alias (was the original name).
+_tokens_for = tokens_for
+
+
 def apply_ax_style(ax, title: str, ylabel: str) -> None:
     """Apply the standard plot style to *ax*."""
-    bg, title_fg, muted_fg, grid, spine = _tokens_for(ax)
+    bg, title_fg, muted_fg, grid, spine = tokens_for(ax)
     ax.set_facecolor(bg)
     fig = getattr(ax, "figure", None)
     if fig is not None:

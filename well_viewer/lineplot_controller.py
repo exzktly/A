@@ -64,7 +64,11 @@ def redraw_line_plots(
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
-    legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=plot_bg, edgecolor=plot_spn, labelcolor=txt_pri)
+    # Theme-aware chrome colors (track the active PlotCard's Publication/Screen
+    # state) — the renderer's *trace* colours stay rank-based.
+    from well_viewer.plot_style import tokens_for as _tokens_for_ax
+    _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(app._line_ax_mean)
+    legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=_bg, edgecolor=_spine, labelcolor=_title_fg)
 
     _ch = app._active_channel.upper()
     apply_ax_style(app._line_ax_mean, f"Mean {_ch} {metric_label} (above threshold) ± {band_lbl}", f"Mean {metric_label}")
@@ -80,7 +84,7 @@ def redraw_line_plots(
     if not selected and not active_rsets:
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
             ax.set_title("")
-            ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
+            ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
             ax.set_axis_off()
         app._line_canvas.draw_idle()
         app._set_status("No wells selected.")
@@ -194,7 +198,7 @@ def redraw_line_plots(
         leg_cdf.set_visible(app._legend_visible["cdf"])
         app._line_ax_cdf.set_xlim(cdf_lo, cdf_hi)
     else:
-        app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=txt_mut, fontsize=10)
+        app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
 
     if active_rsets:
         n_wells = sum(sum(1 for w in r.wells if w in app._well_paths) for r in active_rsets)
