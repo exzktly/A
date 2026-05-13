@@ -115,7 +115,7 @@ if _HAVE_MPL:
         statsChanged = Signal(str, str)   # (statistic, error-band)
         plotThemeChanged = Signal(str)    # "screen" | "publication"
 
-        def __init__(self, parent=None, *, figsize=(4.0, 3.0)) -> None:
+        def __init__(self, parent=None, *, figsize=(4.0, 3.0), constrained=True) -> None:
             super().__init__(parent)
             self.setObjectName("Panel")
             self.setAttribute(Qt.WA_StyledBackground, True)
@@ -130,7 +130,8 @@ if _HAVE_MPL:
             self._error = "SEM"
             self._stats_pop = None
 
-            self.figure = _Figure(figsize=figsize, layout="constrained")
+            self.figure = _Figure(figsize=figsize,
+                                  layout=("constrained" if constrained else None))
             self.figure.set_facecolor(_plot_tokens(self._plot_theme)[0])
             self.canvas = _FigureCanvas(self.figure)
             self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -173,6 +174,21 @@ if _HAVE_MPL:
         def setFigureTitle(self, text: str) -> None:
             self._title_lbl.setText(str(text))
             self._title_lbl.setVisible(bool(text))
+
+        def setStatsChipVisible(self, visible: bool) -> None:
+            """Hide the ``Mean · SEM`` chip (e.g. on a tab whose stats UI lives
+            elsewhere). The popover/stat/error API still works programmatically."""
+            self._stats_chip.setVisible(bool(visible))
+
+        def setThemeToggleVisible(self, visible: bool) -> None:
+            """Hide the in-header ``Publication ↔ Screen`` toggle (and the
+            'preview only' chip). ``setPlotTheme`` still works programmatically."""
+            if getattr(self, "_theme_sc", None) is not None:
+                self._theme_sc.setVisible(bool(visible))
+            if not visible:
+                self._preview_chip.setVisible(False)
+            else:
+                self._sync_theme_ui()
 
         def headerWidget(self) -> QWidget:
             return self._header
