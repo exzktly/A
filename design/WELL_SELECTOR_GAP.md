@@ -1,30 +1,32 @@
 # Well selector gap analysis
 
-> **Status update (post-Phase-8.0 — this doc is partly stale below).** Since
-> this was written: **Step 1 (the left-rail swap) is done** — the rail is a
-> `widgets.WellPlateSelector` (`app._sidebar_plate`) wired to `app._selected_wells`
-> + `_on_sidebar_plate_*` handlers; `app._sidebar_btns` survives only as a
-> `{token: None}` tokens-only stub (the "sidebar built" sentinel + loaded-token
-> list). And **Phase 8.0 deleted the whole legacy plate-drag engine and the
-> bar-group sidebar panel**: `selection_controller.sb_press/sb_drag/sb_release` +
-> `plate_drag_press/apply/release`, the `runtime_app` `_sb_*` / `_plate_drag_*` /
-> `_sidebar_tok_at` / `_rep_idx_for_label` wrappers, `_sb_ds`, and
-> `views/bar_group_panel_view.py` + `_bar_map_btns` + the `_bg_*` handlers + the
-> `_bar_*` mutators are **gone**; `app._rep_sets` / `_bar_groups` / `_rep_hidden`
-> / `_active_rep_idx` / `_bar_active_grp` no longer exist (the model is now
-> `app._selections`). So the §1/§7/§8 narratives below that describe those as
-> live are historical. **What's actually left:** migrate the *remaining*
-> `QPushButton`-grid plate maps — the GROUPS-panel rep-map (`app._rep_map_btns`),
-> the Statistics plate (`app._stats_map_btns`), the image-table plate, and the
-> segmentation plate — onto `WellPlateSelector` (one per commit, §7 Steps 2–7),
-> then **Step 8**: delete `well_viewer/views/well_button.py` (`WellButton` +
-> `build_plate_grid`) and `runtime_app._plate_apply_*` / `_style_plate_button` /
-> `_mute_color` / `_plate_theme_colors` once nothing reads them. (The `_plate_drag_*`
-> engine in Step 8's old delete-list is already gone.) §2–§4 (per-gap widget
-> extensions + effort estimate) and §5/§6 (the widget-side work done) still hold.
+> **Status: ✅ DONE — `WellButton` is gone; everything uses `widgets.WellPlateSelector`.**
+> (Code-complete; runtime QA on the user's machine.) The body below is **historical** —
+> it described the gap *before* the migration. As built:
+> - **Left rail** (line picker) → `WellPlateSelector` (`app._sidebar_plate`), wired to
+>   `app._selected_wells` + `_on_sidebar_plate_*`; `app._sidebar_btns` survives only as a
+>   `{token: None}` "sidebar built" sentinel / loaded-token list.
+> - **GROUPS-panel rep-map** → `WellPlateSelector` (`app._rep_map_plate`); `_rep_refresh_map`
+>   pushes `setWellColors` (each selection's wells in its rank colour) + `setSelectedWellIds`
+>   (the current selection, sunken); a `selectionDragFinished` handler diffs the plate
+>   selection vs the current selection's wells and calls `_sel_set_composition`.
+> - **Statistics plate** → `WellPlateSelector` (`app._stats_map_plate`); same colour/selection
+>   push, drag-finished handler replays `stats_apply_drag` per added/removed token.
+> - **Image-table picker** → `WellPlateSelector` (`app._sidebar_image_table_plate`), "select"
+>   mode; **preview picker** → `WellPlateSelector` (`app._sidebar_preview_plate`), single-select.
+> - Phase 8.0 had already deleted the legacy plate-drag engine
+>   (`selection_controller.sb_*` / `plate_drag_*`, the `_sb_*` / `_plate_drag_*` wrappers,
+>   `_sb_ds`) and the bar-group sidebar panel (`views/bar_group_panel_view.py`,
+>   `_bar_map_btns`, the `_bg_*` handlers, the `_bar_*` mutators); the WellSelector migration
+>   then deleted `well_viewer/views/well_button.py` (`WellButton` + `build_plate_grid`),
+>   `grouping_controller.rep_map_*`, and `runtime_app._style_plate_button` /
+>   `_plate_theme_colors` / `_plate_apply_*`. (`_mute_color` stays — the rail's hidden-selection
+>   shading uses it. The batch-export panels keep their own `_WellGridButton` grid — separate
+>   widget, out of scope here.) §2–§4 (per-gap widget extensions + effort estimate) and
+>   §5/§6 (the widget-side work) describe the analysis that fed this.
 
-What the legacy `WellButton` plate grid does that `widgets.WellPlateSelector`
-(as built in Phase 6) does not, and what it would take to close the gap.
+What the legacy `WellButton` plate grid *did* that `widgets.WellPlateSelector`
+(as built in Phase 6) did not, and what it took to close the gap.
 
 **Scope note.** I audited the actual code, not the mockup. Several behaviours
 people *expect* to find on a plate widget — right‑click context menus, hover

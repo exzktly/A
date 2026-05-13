@@ -824,9 +824,11 @@ line ↔ bar ↔ stats ↔ scatter. Phase 8.0 is closed.
 
 ### 12.3 Out of scope of Phase 8.0 (separate future work)
 
-- **WellSelector widget migration** (`WELL_SELECTOR_GAP.md` Steps 2–8) — the Statistics /
-  image-table / segmentation / Sample-Definitions plates are still legacy `QPushButton`-grid
-  maps themed to match `#WellButton`, not the v2 `widgets.WellPlateSelector` used by the
-  left rail, so they look a bit different (cell sizing, headers, hover, drag visuals).
+- **WellSelector widget migration** (`WELL_SELECTOR_GAP.md` Steps 1–8) — **now done** (code;
+  runtime QA on the user's machine): every plate-map (left rail, GROUPS-panel rep-map,
+  Statistics plate, image-table picker, preview picker) is a `widgets.WellPlateSelector`,
+  and `WellButton` / `build_plate_grid` / `runtime_app._style_plate_button` / `_plate_apply_*`
+  / `_plate_theme_colors` are deleted. (The batch-export panels keep their own `_WellGridButton`
+  grid — a separate widget, still out of scope.)
 - Tiny remaining dead bits left in place (harmless, easy to drop later): `_sidebar_bar_frame`
   (created hidden, never shown) and the module-level `_bar_groups_to_dict` lazy in `runtime_app`.

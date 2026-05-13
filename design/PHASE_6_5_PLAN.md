@@ -5,10 +5,12 @@
 > harness QA confirmed by the user (2026-05-12). Phase 8 has since resumed *and*
 > Phase 8.0 (the saved-selections data-model migration) is itself **done** —
 > code-complete + runtime-QA'd by the user (see `SELECTIONS_MIGRATION.md`
-> §11/§12). Remaining Phase-8 *area* ports (plot/figure area, centre/tabs,
-> app-shell/titlebar, the per-tab sidebar swaps, the `WellPlateSelector` full
-> migration in `WELL_SELECTOR_GAP.md` §7 Steps 2–8) are still ahead and gated on
-> the `OPEN_DECISIONS.md` calls + the 8.1–8.5 numbering confirm.
+> §11/§12). The `WellPlateSelector` full migration (`WELL_SELECTOR_GAP.md`
+> Steps 1–8) is **also done** — every plate-map is the v2 widget now and
+> `WellButton` / `build_plate_grid` are deleted. Remaining Phase-8 *area* ports
+> (plot/figure area, centre/tabs, app-shell/titlebar, the per-tab sidebar /
+> property-panel ports) are still ahead and gated on the `OPEN_DECISIONS.md`
+> calls + the 8.1–8.5 numbering confirm.
 
 A focused round to build the new widgets and extensions surfaced by the v3
 additions + `OPEN_DECISIONS.md`, so that when Phase 8 (the per-area port)
