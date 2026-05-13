@@ -335,24 +335,45 @@ def build_centre(app, parent: QWidget) -> None:
         arl.setContentsMargins(_S.md, 4, _S.md, 4)
         arl.setSpacing(_S.sm)
 
-        # Channel chip — placeholder for Phase 11b. A4 says channel selection
-        # becomes global in ctxbar.right; today it's per-renderer. Surface a
-        # display-only chip that mirrors the active renderer's channel combo.
+        # Phase 11b (A4): the channel selector is now a single global combo
+        # in the ctxbar. The per-renderer combos still exist for back-compat
+        # but ``app._on_plot_channel_selected`` mirrors every change back to
+        # all of them, so editing here re-renders every renderer's view
+        # against the new channel.
+        from PySide6.QtWidgets import QComboBox as _QComboBox
         chan_lbl = QLabel("Channel")
         chan_lbl.setStyleSheet(
             f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
             f"letter-spacing: 0.08em;"
         )
         arl.addWidget(chan_lbl)
-        app._plotting_channel_chip = QLabel("—")
-        app._plotting_channel_chip.setStyleSheet(
+        app._plotting_channel_cb = _QComboBox()
+        app._plotting_channel_cb.setMinimumContentsLength(8)
+        app._plotting_channel_cb.setStyleSheet(
+            f"QComboBox {{ background-color: {_C.panel_elevated}; "
             f"color: {_C.text_secondary}; "
-            f"background-color: {_C.panel_elevated}; "
             f"border: 1px solid {_C.border_subtle}; "
-            f"border-radius: {_R.pill}px; padding: 2px 8px; "
-            f"font-size: {_T.caption_size}px; font-weight: 500;"
+            f"border-radius: {_R.pill}px; padding: 2px 22px 2px 10px; "
+            f"font-size: {_T.caption_size}px; font-weight: 500; "
+            f"min-width: 88px; }}"
+            f"QComboBox:hover {{ color: {_C.text_primary}; }}"
         )
-        arl.addWidget(app._plotting_channel_chip)
+
+        def _on_global_channel(_idx: int) -> None:
+            on_select = getattr(app, "_on_plot_channel_selected", None)
+            if on_select is None:
+                return
+            try:
+                on_select(app._plotting_channel_cb)
+            except Exception:
+                pass
+
+        app._plotting_channel_cb.currentIndexChanged.connect(_on_global_channel)
+        arl.addWidget(app._plotting_channel_cb)
+        # Legacy display-only chip remains as an attribute for code that
+        # still pokes at ``_plotting_channel_chip`` — point it at the new
+        # combo so callers that read its text still work.
+        app._plotting_channel_chip = app._plotting_channel_cb
 
         hint = QLabel("· click a trace to filter properties")
         hint.setStyleSheet(
@@ -419,21 +440,33 @@ def build_centre(app, parent: QWidget) -> None:
         sub_seg.setCurrentByData("Line Graphs")
 
         def _refresh_channel_chip(title: str) -> None:
-            chip = getattr(app, "_plotting_channel_chip", None)
-            if chip is None:
+            """Re-populate the global ctxbar channel combo from whichever
+            renderer just became active. The renderer's own combo is the
+            canonical item list (it gets populated from the loaded dataset)
+            — we mirror it into the global, blocking signals so the mirror
+            itself doesn't trigger ``_on_plot_channel_selected``."""
+            global_cb = getattr(app, "_plotting_channel_cb", None)
+            if global_cb is None:
                 return
             attr_map = {
-                "Line Graphs":   "_chan_cb",
+                "Line Graphs":   "_chan_cb_line",
                 "Bar Plots":     "_chan_cb_bar",
                 "Scatter Plot":  "_chan_cb_scatter",
                 "Distribution":  "_chan_cb_distribution",
                 "Heat Map":      "_chan_cb_heatmap",
             }
             cb = getattr(app, attr_map.get(title, ""), None)
-            if cb is not None and hasattr(cb, "currentText"):
-                chip.setText(cb.currentText() or "—")
-            else:
-                chip.setText("—")
+            blocked = global_cb.blockSignals(True)
+            try:
+                global_cb.clear()
+                if cb is not None and hasattr(cb, "count"):
+                    for i in range(cb.count()):
+                        global_cb.addItem(cb.itemText(i))
+                    idx = cb.currentIndex()
+                    if 0 <= idx < global_cb.count():
+                        global_cb.setCurrentIndex(idx)
+            finally:
+                global_cb.blockSignals(blocked)
 
         # Wire the buttons.
         def _add_panel() -> None:
