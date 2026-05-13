@@ -59,13 +59,10 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._sidebar_plate = plate
     app._sidebar_map_outer = plate
 
-    # Tokens-only stub kept for the legacy token-resolution helpers
-    # (selection_controller.sidebar_tok_at) — set_state calls land on the None
-    # values and are skipped.
+    # Tokens-only stub: a {tok: None} dict that doubles as the "sidebar built"
+    # sentinel and the loaded-well token list for _refresh_sidebar_map and the
+    # rep-colour map. (set_state calls land on the None values and are skipped.)
     app._sidebar_btns = {f"{r}{c}": None for r in _PLATE_ROWS for c in _PLATE_COLS}
-    app._sidebar_drag_adding = True
-    app._sidebar_drag_visited = set()
-    app._sb_ds = {"adding": True, "visited": set(), "rep_toggled": set()}
 
     # Wire the plate to the app's selection / replicate-set / heat-map handlers.
     plate.selectionChanged.connect(app._on_sidebar_plate_selection_changed)

@@ -720,11 +720,24 @@ nothing assigns the legacy attrs; finally (optional) rewrite the plot renderers 
   lines removed; `py_compile` clean. *(Still present, intentionally: `selection_controller.sb_*`
   / `plate_drag_*` + the `_sb_*` wrappers + `_sb_ds`, which are now orphaned — next cluster.)*
 
-Still to do: delete `selection_controller.sb_*` / `plate_drag_*` + the runtime_app `_sb_*` /
-`_plate_drag_*` wrappers + `_sb_ds` / `_sidebar_btns` stub (orphaned by cluster 5); drop the
-no-op `@property` setters now nothing assigns the legacy attrs; optionally rewrite the
-batch-export panels off `_rep_sets` / `_bar_groups` and retire `selections_to_legacy` + the
-`@property`s entirely.
+- **cluster 6** — deleted the orphaned legacy plate-drag engine: `selection_controller.sb_*` /
+  `plate_drag_*` / `sidebar_tok_at` and the runtime_app `_sb_press` / `_sb_drag` / `_sb_release` /
+  `_sb_on_rep_change` / `_plate_drag_*` / `_sidebar_tok_at` / `_rep_idx_for_label` wrappers, plus
+  `_sb_ds` / `_sidebar_drag_adding` / `_sidebar_drag_visited` from `sidebar_view` (the `_sidebar_btns`
+  `{tok: None}` stub stays — it's the "sidebar built" sentinel + loaded-token list for the rep-colour
+  map). `selection_controller` is now just `_active_tab` / `_refresh_after_selection_change` /
+  `on_plate_sel_change` / `select_row`/`select_col`/`select_all`/`select_none` / `_set_groups_hidden`.
+  Dropped the no-op `@property` setters on `_rep_sets` / `_bar_groups` / `_active_rep_idx` /
+  `_bar_active_grp` / `_rep_hidden` (nothing assigns them any more) and the dead
+  `app._rep_sets = []` / `app._bar_groups = []` clears in `persistence/sample_definitions`.
+  **Also** (fixing a regression from cluster 3): `batch_export/scatter_panel.py`'s per-group
+  export used to swap `app._rep_sets` so the scatter collectors saw just that group; now that
+  `_rep_sets_active()` derives from `_selections`, it swaps `_selections` instead via a new
+  `_app_group_scope(grp)` context manager.
+
+Still to do (optional): rewrite the batch-export panels (`batch_export/base_panel.py` reads
+`app._rep_sets` / `app._bar_groups`) off the legacy shapes and `stats_controller` off `app._rep_sets`,
+then retire `selections_to_legacy` + the `_rep_sets`/`_bar_groups`/… `@property`s entirely.
 
 (Prior known limits — replicate-sub-list edit on a rep-set flattens, drag-reorder
 only when no bar groups, `solo → [[w]]` round-trip — still apply until that's done.)

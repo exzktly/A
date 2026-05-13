@@ -1754,41 +1754,21 @@ class WellViewerApp(QWidget):
     def _rep_sets(self):
         return self._ensure_legacy()[0]
 
-    @_rep_sets.setter
-    def _rep_sets(self, _v):  # derived — assignment is a no-op (Phase 8.0 Stage D)
-        pass
-
     @property
     def _bar_groups(self):
         return self._ensure_legacy()[1]
-
-    @_bar_groups.setter
-    def _bar_groups(self, _v):
-        pass
 
     @property
     def _active_rep_idx(self) -> int:
         return self._ensure_legacy()[2]
 
-    @_active_rep_idx.setter
-    def _active_rep_idx(self, _v):
-        pass
-
     @property
     def _bar_active_grp(self) -> int:
         return self._ensure_legacy()[3]
 
-    @_bar_active_grp.setter
-    def _bar_active_grp(self, _v):
-        pass
-
     @property
     def _rep_hidden(self):
         return self._ensure_legacy()[4]
-
-    @_rep_hidden.setter
-    def _rep_hidden(self, _v):
-        pass
 
     def _sel_by_id(self, sid):
         for s in self._selections:
@@ -3178,82 +3158,6 @@ class WellViewerApp(QWidget):
             activebackground=bg, activeforeground=fg,
             disabledforeground=fg_disabled,
         )
-
-    def _sidebar_tok_at(self, event) -> Optional[str]:
-        from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at
-
-        return _sidebar_tok_at(self, event)
-
-    # =========================================================================
-    # Shared plate-map drag engine
-    # Both the line sidebar (_sidebar_btns / _selected_wells) and the
-    # bar sidebar uses identical
-    # rep-set toggle logic.  The three helpers below centralise it.
-    #
-    # Callers supply:
-    #   btn_dict  – {tok: QPushButton} for the active map
-    #   well_set  – mutable set used in per-well mode
-    #   ds        – drag-state dict  {"adding": bool,
-    #                                 "visited": set,
-    #                                 "rep_toggled": set}
-    # =========================================================================
-
-    def _plate_drag_press(self, label: str, well_set: set, ds: dict) -> None:
-        from well_viewer.selection_controller import plate_drag_press as _plate_drag_press
-
-        _plate_drag_press(self, label, well_set, ds)
-
-    def _plate_drag_apply(
-        self,
-        tok: str,
-        btn_dict: "Dict[str, QPushButton]",
-        well_set: set,
-        ds: dict,
-    ) -> None:
-        from well_viewer.selection_controller import plate_drag_apply as _plate_drag_apply
-
-        _plate_drag_apply(self, tok, btn_dict, well_set, ds)
-
-    def _plate_drag_release(
-        self,
-        ds: dict,
-        on_rep_change,
-        on_well_change,
-    ) -> None:
-        from well_viewer.selection_controller import plate_drag_release as _plate_drag_release
-
-        _plate_drag_release(self, ds, on_rep_change, on_well_change)
-
-    def _rep_idx_for_label(self, label: str) -> Optional[int]:
-        """Return _rep_sets_loaded() index of the set owning *label*, or None."""
-        for si, rset in enumerate(self._rep_sets_loaded()):
-            if label in rset.wells:
-                return si
-        return None
-
-    # ── Line-graph sidebar wrappers ───────────────────────────────────────────
-
-    def _sb_press(self, event) -> None:
-        from well_viewer.selection_controller import sb_press as _sb_press
-
-        _sb_press(self, event)
-
-    def _sb_drag(self, event) -> None:
-        from well_viewer.selection_controller import sb_drag as _sb_drag
-
-        _sb_drag(self, event)
-
-    def _sb_release(self, _event=None) -> None:
-        from well_viewer.selection_controller import sb_release as _sb_release
-
-        _sb_release(self)
-
-    def _sb_on_rep_change(self) -> None:
-        """Rep-set visibility changed — refresh unified picker + both plots."""
-        self._sync_legacy_from_selections()
-        self._refresh_sidebar_map()
-        self._redraw()
-        self._redraw_bars()
 
     def _on_plate_sel_change(self) -> None:
         from well_viewer.selection_controller import on_plate_sel_change as _on_plate_sel_change

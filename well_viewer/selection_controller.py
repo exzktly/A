@@ -1,14 +1,6 @@
-"""Plate/sidebar selection and drag handlers for WellViewerApp."""
+"""Plate/sidebar selection handlers for WellViewerApp."""
 
 from __future__ import annotations
-
-from typing import Optional
-
-from well_viewer.ui_helpers import tok_at_event as _tok_at_event
-
-
-def sidebar_tok_at(app, event) -> Optional[str]:
-    return _tok_at_event(event, app._sidebar_btns)
 
 
 def _active_tab(app) -> str:
@@ -58,85 +50,6 @@ def _refresh_after_selection_change(app) -> None:
         # require a plot redraw.
     else:
         app._redraw()
-
-
-def plate_drag_press(app, tok: str, well_set: set, ds: dict) -> None:
-    ds["visited"] = set()
-    ds["rep_toggled"] = set()
-    if app._rep_sets:
-        si = app._rep_idx_for_label(tok)
-        ds["adding"] = (si is None or si in app._rep_hidden)
-    else:
-        ds["adding"] = tok not in well_set
-
-
-def plate_drag_apply(app, tok: str, btn_dict, well_set: set, ds: dict) -> None:
-    if tok in ds["visited"]:
-        return
-    ds["visited"].add(tok)
-    if tok not in app._well_paths:
-        return
-
-    if app._rep_sets:
-        si = app._rep_idx_for_label(tok)
-        if si is None or si in ds["rep_toggled"]:
-            return
-        ds["rep_toggled"].add(si)
-        if ds["adding"]:
-            app._rep_hidden.discard(si)
-        else:
-            app._rep_hidden.add(si)
-        loaded = app._rep_sets_loaded()
-        if si < len(loaded):
-            rset = loaded[si]
-            hidden = si in app._rep_hidden
-            for w in rset.wells:
-                b = btn_dict.get(w)
-                if b is not None and hasattr(b, "set_state"):
-                    b.set_state("rep_hidden" if hidden else "active")
-    else:
-        if ds["adding"]:
-            well_set.add(tok)
-        else:
-            well_set.discard(tok)
-        btn = btn_dict.get(tok)
-        if btn is not None and hasattr(btn, "set_state"):
-            btn.set_state("selected" if tok in well_set else "empty")
-
-
-def plate_drag_release(app, ds: dict, on_rep_change, on_well_change) -> None:
-    if not ds["visited"]:
-        return
-    if app._rep_sets and ds["rep_toggled"]:
-        app._invalidate_stats_cache()
-        on_rep_change()
-    elif not app._rep_sets:
-        on_well_change()
-
-
-def sb_press(app, event) -> None:
-    tok = sidebar_tok_at(app, event)
-    if tok is None or tok not in app._well_paths:
-        return
-    plate_drag_press(app, tok, app._selected_wells, app._sb_ds)
-    plate_drag_apply(app, tok, app._sidebar_btns, app._selected_wells, app._sb_ds)
-
-
-def sb_drag(app, event) -> None:
-    tok = sidebar_tok_at(app, event)
-    if tok is None or tok not in app._well_paths:
-        return
-    plate_drag_apply(app, tok, app._sidebar_btns, app._selected_wells, app._sb_ds)
-
-
-def sb_release(app) -> None:
-    plate_drag_release(
-        app,
-        app._sb_ds,
-        on_rep_change=app._sb_on_rep_change,
-        on_well_change=app._on_plate_sel_change,
-    )
-    app._sb_ds["visited"] = set()
 
 
 def on_plate_sel_change(app) -> None:

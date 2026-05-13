@@ -226,12 +226,7 @@ def clear_all(app) -> None:
 
     app._selections = []
     app._current_selection_id = None
-
-    app._rep_sets = []
-    app._active_rep_idx = -1
-
-    app._bar_groups = []
-    app._bar_active_grp = -1
+    app._legacy_cache = None
 
     app._set_ratio_metrics([])
 
