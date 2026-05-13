@@ -5,9 +5,9 @@
 > gallery card + `__main__`); and **now in use as the live Sample-Definitions
 > "GROUPS" panel** — Phase 8.0 Stage C swapped the panel onto this widget and
 > Stage D removed the legacy shadow (see `SELECTIONS_MIGRATION.md` §11/§12).
-> `py_compile` clean. The only thing still pending is the user's end-to-end
-> runtime QA on a real dataset (Phase 8.0 T6). The text below is the as-built
-> spec; minor as-built deviations are noted inline.
+> `py_compile` clean; Phase 8.0 has since been runtime-QA'd by the user and
+> closed (T6 ✅). The text below is the as-built spec; minor as-built deviations
+> are noted inline.
 >
 > The user reframed this as "the 6.5.10 widget round we missed"; numbered here
 > **6.5.12** to avoid clashing with the already-completed 6.5.10 (`PlotCard`

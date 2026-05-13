@@ -3,12 +3,12 @@
 > **Status: ✅ DONE.** All four deliverables met (6.5.1 → 6.5.12 — see the
 > Progress log at the bottom); `py_compile` clean throughout, gallery + binding
 > harness QA confirmed by the user (2026-05-12). Phase 8 has since resumed *and*
-> Phase 8.0 (the saved-selections data-model migration) is itself code-complete
-> — see `SELECTIONS_MIGRATION.md` §11/§12. Remaining Phase-8 *area* ports
-> (plot/figure area, centre/tabs, app-shell/titlebar, the per-tab sidebar swaps,
-> the `WellPlateSelector` full migration in `WELL_SELECTOR_GAP.md` §7 Steps 2–8)
-> are still ahead and gated on the `OPEN_DECISIONS.md` calls + the 8.1–8.5
-> numbering confirm.
+> Phase 8.0 (the saved-selections data-model migration) is itself **done** —
+> code-complete + runtime-QA'd by the user (see `SELECTIONS_MIGRATION.md`
+> §11/§12). Remaining Phase-8 *area* ports (plot/figure area, centre/tabs,
+> app-shell/titlebar, the per-tab sidebar swaps, the `WellPlateSelector` full
+> migration in `WELL_SELECTOR_GAP.md` §7 Steps 2–8) are still ahead and gated on
+> the `OPEN_DECISIONS.md` calls + the 8.1–8.5 numbering confirm.
 
 A focused round to build the new widgets and extensions surfaced by the v3
 additions + `OPEN_DECISIONS.md`, so that when Phase 8 (the per-area port)

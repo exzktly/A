@@ -1,16 +1,18 @@
 # Phase 8.0 — Saved-selections data-model migration plan
 
-> **Status: ✅ COMPLETE (code) — pending the user's runtime QA.** Approved
-> 2026-05-12 (Q1 migrate `bar_groups.json`; Q2 bake rank colour immediately;
-> Q3 drop the legacy shadow at phase end; Q4 implement §3.5 now). All of Stages
-> A–D are implemented and pushed (branch `claude/analyze-repo-structure-2uEVQ`,
-> PR #149). `app._selections: list[dict]` (schema v2) is the **only** in-memory
-> representation; the legacy `_rep_sets` / `_bar_groups` / `_active_rep_idx` /
-> `_bar_active_grp` / `_rep_hidden` shadow, `selections_to_legacy`,
-> `from_legacy_appstate`, `sync_selections_from_legacy`, and the dead bar-group
-> sidebar panel are all gone. `python well_viewer/_selftest_migration.py` →
-> `ALL PASS`; `py_compile` clean. **Remaining: the user's runtime test on a real
-> saved dataset** (T6 in §9) — see *§12 Status / what's left* at the bottom.
+> **Status: ✅ DONE — runtime-QA'd & signed off.** Approved 2026-05-12 (Q1
+> migrate `bar_groups.json`; Q2 bake rank colour immediately; Q3 drop the legacy
+> shadow at phase end; Q4 implement §3.5 now). All of Stages A–D are implemented,
+> pushed (branch `claude/analyze-repo-structure-2uEVQ`, PR #149), **and confirmed
+> working in the app by the user** (T6 — opened a real saved dataset, exercised
+> the plot tabs / GROUPS panel / sidebar plate / batch export / save↔reopen
+> round-trip). `app._selections: list[dict]` (schema v2) is the **only**
+> in-memory representation; the legacy `_rep_sets` / `_bar_groups` /
+> `_active_rep_idx` / `_bar_active_grp` / `_rep_hidden` shadow,
+> `selections_to_legacy`, `from_legacy_appstate`, `sync_selections_from_legacy`,
+> and the dead bar-group sidebar panel are all gone. `python
+> well_viewer/_selftest_migration.py` → `ALL PASS`; `py_compile` clean. **Phase
+> 8.0 is closed.** (Carried-forward known limits + out-of-scope follow-ups: §12.)
 >
 > §1–§10 below are the original plan as designed; a few details were superseded
 > in execution (e.g. the legacy-shadow machinery in §7 Stages A/D — it was built,
@@ -782,47 +784,35 @@ only when no bar groups, `solo → [[w]]` round-trip — still apply until that'
 
 ## 12. Status / what's left
 
-**Phase 8.0 is code-complete** (Stages A → D, Progress-log clusters 1 → 7, all
-pushed to `claude/analyze-repo-structure-2uEVQ` / PR #149). The saved-selections,
-replicate-sets, and bar-groups systems are now one `selections: list[dict]` model
-(`well_viewer/selections_model.py`, `schema_version: 2`), persisted in
-`pipeline_info.json::sample_definitions` (one-time `pipeline_info.json.pre-v2-backup`
-+ fail-safe v1→v2 migration with a writes-disabled latch on failure) and round-tripped
-by the standalone `bar_groups.json`. There is **no legacy shadow** — `_rep_sets` /
-`_bar_groups` / `_active_rep_idx` / `_bar_active_grp` / `_rep_hidden`,
-`selections_to_legacy`, `from_legacy_appstate`, `sync_selections_from_legacy`, and the
-dead bar-group sidebar panel (`views/bar_group_panel_view.py` + the `_bar_*` / `_bg_*` /
-`_grp_*` / `sb_*` / `plate_drag_*` machinery, ~2 600 lines total) have been deleted.
-The Sample-Definitions "GROUPS" panel is a `widgets.SavedSelectionsList` (composable
-mode) wired straight to the `WellViewerApp._sel_*` mutators (keyed by selection id); the
-plot renderers (bar / line / scatter / stats / heat-map / distribution / batch-export)
-read `app._selections` via the thin derivations `_rep_sets_loaded()` / `_rep_sets_active()`
-/ `_groups_from_rep_sets()` / `_rank_color_*` / `_rep_color_for`. `py_compile` clean;
-`python well_viewer/_selftest_migration.py` → `ALL PASS`. Everything below is what is
-*not* yet done.
+**Phase 8.0 is done — code-complete (Stages A → D, Progress-log clusters 1 → 7,
+all on `claude/analyze-repo-structure-2uEVQ` / PR #149) *and* runtime-QA'd by the
+user (T6 ✅).** The saved-selections, replicate-sets, and bar-groups systems are
+now one `selections: list[dict]` model (`well_viewer/selections_model.py`,
+`schema_version: 2`), persisted in `pipeline_info.json::sample_definitions` (one-time
+`pipeline_info.json.pre-v2-backup` + fail-safe v1→v2 migration with a writes-disabled
+latch on failure) and round-tripped by the standalone `bar_groups.json`. There is
+**no legacy shadow** — `_rep_sets` / `_bar_groups` / `_active_rep_idx` / `_bar_active_grp`
+/ `_rep_hidden`, `selections_to_legacy`, `from_legacy_appstate`, `sync_selections_from_legacy`,
+and the dead bar-group sidebar panel (`views/bar_group_panel_view.py` + the `_bar_*` /
+`_bg_*` / `_grp_*` / `sb_*` / `plate_drag_*` machinery, ~2 600 lines total) have been
+deleted. The Sample-Definitions "GROUPS" panel is a `widgets.SavedSelectionsList`
+(composable mode) wired straight to the `WellViewerApp._sel_*` mutators (keyed by
+selection id); the plot renderers (bar / line / scatter / stats / heat-map / distribution
+/ batch-export) read `app._selections` via the thin derivations `_rep_sets_loaded()` /
+`_rep_sets_active()` / `_groups_from_rep_sets()` / `_rank_color_*` / `_rep_color_for`.
+`py_compile` clean; `python well_viewer/_selftest_migration.py` → `ALL PASS`. Everything
+below is the residue — known limits and out-of-scope follow-ups, not blockers.
 
-### 12.1 The one blocker — T6, the user's runtime QA
+### 12.1 T6 — runtime QA: ✅ passed
 
-This is "code-complete" but **not runtime-verified** — there is no PySide6 / sample data
-in the dev environment, so every cluster has been QA'd by the user instead. To call
-Phase 8.0 *done-done*, open ≥1 real saved `pipeline_info.json` in the app and exercise:
-
-- every plot tab — Line Graphs, Bar Plots, Scatter Plot (cells **and** aggregate, single
-  **and** multi-timepoint), Distribution, Heat Map;
-- the Sample-Definitions **GROUPS** panel — create / rename / delete / hide a group,
-  drag-edit a group's wells on the rep-map plate, "Apply Quick Replicates";
-- the line-graph **sidebar plate** — rep-mode visibility toggle (click a well → toggles
-  its group on the plot) and the "N/M set(s) visible" count label;
-- the **batch-export** panels — Run Batch, per-row / per-col quick groups, Save… / Load…
-  export groups, and **batch scatter export with groups defined** (this path swaps
-  `app._selections` via `ScatterBatchExportPanel._app_group_scope`);
-- **persistence round-trip** — edit a group → Save → reopen (the edit must persist);
-  confirm `pipeline_info.json.pre-v2-backup` exists after the first v1→v2 upgrade and
-  restores cleanly; load + save a standalone `bar_groups.json`.
-
-Colours are intentionally **plate-position-based** now (decision #1, "the plate is the
-legend") — verify they're *consistent* across plate ↔ line ↔ bar ↔ stats ↔ scatter, not
-that they match the pre-v2 palette.
+The user opened a real saved dataset and confirmed the plot tabs, the Sample-Definitions
+GROUPS panel (create / rename / delete / hide, rep-map drag-edit, "Apply Quick Replicates"),
+the line-graph sidebar plate (rep-mode visibility toggle + the "N/M set(s) visible" label),
+the batch-export panels (Run Batch, per-row/per-col quick groups, Save…/Load… export groups,
+batch scatter export with groups), and the persistence round-trip (edit → Save → reopen;
+`pipeline_info.json.pre-v2-backup` present + restorable; `bar_groups.json` load/save) all
+work. Colours are plate-position-based now (decision #1) and consistent across plate ↔
+line ↔ bar ↔ stats ↔ scatter. Phase 8.0 is closed.
 
 ### 12.2 Known limitations carried forward (by design, not regressions)
 

@@ -16,7 +16,8 @@ is built against this; the Phase-8 migration targets it.
 > `app._selections` is the **only** in-memory representation — the legacy
 > `_rep_sets` / `_bar_groups` / `_rep_hidden` / `_active_rep_idx` / `_bar_active_grp`
 > state described below under "what it replaces" has been **deleted**, not shadowed.
-> Awaiting the user's runtime QA (T6 in the migration doc).
+> Phase 8.0 is closed — runtime-QA'd & signed off by the user (T6 ✅, see the
+> migration doc §12.1).
 
 References: `DESIGN_NOTES.md` §6.3 (the design intent), `well_viewer/batch_models.py`
 (`ReplicateSet`, `BarGroup`), `well_viewer/sample_definitions.py` (the current
