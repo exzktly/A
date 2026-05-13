@@ -44,7 +44,12 @@ from widgets.toggle_switch import ToggleSwitch
 #: it sizes the dock container. Bumping this value here resizes both
 #: ends in lock-step (sizeHint() can lag the actual fixed width on the
 #: first show, which is why launch path must NOT rely on sizeHint).
-EXPORT_STYLE_PANEL_WIDTH = 680
+#: Width of the floating Export Style sidebar (the legacy per-card dock
+#: opened by the sliders IconButton). Set so the panel fits inside the
+#: centre column even on smaller screens — every internal row uses a
+#: narrow fixed label column (88 px) plus an expanding control column so
+#: the contents reflow within the panel rather than overflowing.
+EXPORT_STYLE_PANEL_WIDTH = 440
 
 
 class ExportStyleSidebar(QWidget):
@@ -144,6 +149,11 @@ class ExportStyleSidebar(QWidget):
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setHorizontalSpacing(sp.sm)
             grid.setVerticalSpacing(sp.xs)
+            # Fixed narrow label column + expanding control column. Without
+            # this, the longest label dictates the column width and pushes
+            # controls past the panel's fixed width.
+            grid.setColumnMinimumWidth(0, 96)
+            grid.setColumnStretch(0, 0)
             grid.setColumnStretch(1, 1)
             sec.addLayout(grid)
             grids[sec] = [grid, 0]
@@ -549,9 +559,13 @@ class ExportStyleSidebar(QWidget):
         exp_btn = QPushButton("Export…")
         exp_btn.setObjectName("Primary")
         exp_btn.clicked.connect(lambda _=False: self._export())
-        act_row.addWidget(reset_btn)
-        act_row.addWidget(save_btn)
-        act_row.addWidget(exp_btn)
+        # Equal flex on the three action buttons so they share the row
+        # cleanly inside the 440-px panel; without this the QPushButton
+        # default minimum-width can push Export… off the right edge.
+        for btn in (reset_btn, save_btn, exp_btn):
+            btn.setSizePolicy(btn.sizePolicy().horizontalPolicy(),
+                              btn.sizePolicy().verticalPolicy())
+            act_row.addWidget(btn, 1)
         fl.addLayout(act_row)
         root.addWidget(footer)
 
