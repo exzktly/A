@@ -105,18 +105,20 @@ class AllWellApp(QMainWindow):
         hl.addSpacing(theme_v2.Spacing.md)
         self._dataset_status = StatusDot("neutral")
         hl.addWidget(self._dataset_status)
-        self._dataset_chip = QLabel("No dataset")
-        self._dataset_chip.setObjectName("Chip")
-        self._dataset_chip.setProperty("variant", "muted")
-        hl.addWidget(self._dataset_chip)
-        # Phase 10 (B1): faint trailing dataset stats (`· 96 wells · 8 tp`).
-        self._dataset_stats = QLabel("")
-        self._dataset_stats.setStyleSheet(
-            f"color: {theme_v2.Colors.text_faint}; "
-            f"font-size: {theme_v2.Typography.caption_size}px;"
-        )
-        self._dataset_stats.setVisible(False)
-        hl.addWidget(self._dataset_stats)
+        # Mode segmented control (Review / Analyze) lives in the titlebar
+        # strip where the redundant dataset chip used to sit. The dataset
+        # name is set on the OS window title instead.
+        from widgets.segmented_control import SegmentedControl as _SegmentedControl
+        from widgets import icons as _icons
+        dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
+        _eye_icon = _icons.make_icon("eye", 14, dpr=dpr or 1.0)
+        _slider_icon = _icons.make_icon("sliders-horizontal", 14, dpr=dpr or 1.0)
+        self._mode_seg = _SegmentedControl()
+        self._mode_seg.addSegment("Review", icon=_eye_icon, data="review")
+        self._mode_seg.addSegment("Analyze", icon=_slider_icon, data="analyze")
+        self._mode_seg.currentChanged.connect(self._on_titlebar_mode_seg)
+        self._mode_seg.setFixedWidth(220)
+        hl.addWidget(self._mode_seg)
 
         hl.addStretch(1)
 
@@ -396,12 +398,17 @@ class AllWellApp(QMainWindow):
         review._load_path = _patched  # type: ignore[assignment]
 
     def _update_dataset_chip(self, path) -> None:
+        """The titlebar's dataset chip + stats labels were retired (the OS
+        window title now carries that information). This setter survives
+        as a back-compat shim — every call updates the StatusDot, sets the
+        QMainWindow title (which the host OS renders at the top of the
+        window), and refreshes the in-window status bar string.
+        """
         if path is None:
-            self._dataset_chip.setText("No dataset")
             self._dataset_status.setStatus("neutral")
-            if hasattr(self, "_dataset_stats"):
-                self._dataset_stats.setVisible(False)
-                self._dataset_stats.setText("")
+            self.setWindowTitle("All-Well")
+            if hasattr(self, "_status_lbl_app"):
+                self._status_lbl_app.setText("Ready.")
             return
         try:
             p = Path(path)
@@ -409,37 +416,27 @@ class AllWellApp(QMainWindow):
         except Exception:
             name = str(path)
             p = None
-        # Phase 10 (B1 / Q7): synthesise breadcrumb-ish path from the
-        # dataset path — grandparent · parent · <name>.
-        if p is not None:
-            parents = list(p.parents)
-            crumbs = []
-            for i in range(min(2, len(parents))):
-                if parents[i].name:
-                    crumbs.append(parents[i].name)
-            crumbs = list(reversed(crumbs))
-            display = (" · ".join(crumbs + [name])) if crumbs else name
-            self._dataset_chip.setText(display)
-        else:
-            self._dataset_chip.setText(name)
-        self._dataset_chip.setToolTip(str(path))
-        self._dataset_status.setStatus("success")
         # Best-effort dataset stats from the Review widget's loaded state.
+        wells = 0
+        tps = 0
         try:
             wells = len(getattr(self._review, "_well_paths", {}) or {})
             tps_attr = getattr(self._review, "_timepoints", None)
             tps = len(tps_attr) if tps_attr is not None else 0
-            tail = []
-            if wells:
-                tail.append(f"{wells} wells")
-            if tps:
-                tail.append(f"{tps} timepoints")
-            text = "· " + " · ".join(tail) if tail else ""
-            if hasattr(self, "_dataset_stats"):
-                self._dataset_stats.setText(text)
-                self._dataset_stats.setVisible(bool(text))
         except Exception:
             pass
+        tail_bits = []
+        if wells:
+            tail_bits.append(f"{wells} wells")
+        if tps:
+            tail_bits.append(f"{tps} timepoints")
+        tail = (" · " + " · ".join(tail_bits)) if tail_bits else ""
+        # OS window title — visible at the top of the window, which is
+        # exactly where the in-titlebar chip used to be redundant with.
+        self.setWindowTitle(f"All-Well — {name}{tail}")
+        self._dataset_status.setStatus("success")
+        if hasattr(self, "_status_lbl_app"):
+            self._status_lbl_app.setText(f"Loaded: {name}{tail}")
 
     def _on_present_toggled(self, on: bool) -> None:
         """Flip every known PlotCard's plotTheme together."""
@@ -499,9 +496,26 @@ class AllWellApp(QMainWindow):
             self._help_drawer.open()
 
     # ── Phase 10 / 11 handlers ───────────────────────────────────────────
+    def _on_titlebar_mode_seg(self, idx: int) -> None:
+        """Titlebar mode-seg → WellViewerApp's central pane stack."""
+        review = getattr(self, "_review", None)
+        if review is None:
+            return
+        target = 1 if idx == 1 else 0
+        stack = getattr(review, "_central_pane_stack", None)
+        if stack is not None and stack.currentIndex() != target:
+            stack.setCurrentIndex(target)
+
     def _on_review_mode_changed(self, mode: str) -> None:
-        """Mirror WellViewerApp's mode change into status / dataset chip."""
-        # No external work needed today beyond status; keep for hookability.
+        """Mirror WellViewerApp's mode change into the titlebar seg + status."""
+        idx = 1 if mode == "analyze" else 0
+        seg = getattr(self, "_mode_seg", None)
+        if seg is not None and seg.currentIndex() != idx:
+            blocked = seg.blockSignals(True)
+            try:
+                seg.setCurrentIndex(idx)
+            finally:
+                seg.blockSignals(blocked)
         try:
             dot = getattr(self, "_status_dot", None)
             if dot is not None:
