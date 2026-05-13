@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    btn_primary, make_band_controls, make_plot_with_right_dock,
-)
+    btn_primary, make_band_controls, make_plot_with_right_dock, make_plot_view_switcher)
 
 
 def build_scatter_cells_tab(app, parent: QWidget) -> None:
@@ -58,6 +57,9 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     layout.addWidget(ctrl)
 
     card = PlotCard(parent, figsize=(8, 6), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Scatter Plot')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
     card.setFigureTitle("")
     app._scatter_card = card
     app._scatter_fig = card.figure

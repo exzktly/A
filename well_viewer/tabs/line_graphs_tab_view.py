@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (
 
 from well_viewer.ui_helpers import (
     btn_primary, install_canvas_wheel_scroll, make_band_controls,
-    make_plot_with_right_dock,
-)
+    make_plot_with_right_dock, make_plot_view_switcher)
 
 # The Line Graphs figure: three stacked subplots (mean / fraction / CDF).
 _FIG_W, _FIG_H, _DPI = 7.2, 10.5, 100
@@ -68,6 +67,9 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
     card = PlotCard(parent, figsize=(_FIG_W, _FIG_H), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Line Graphs')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
     card.setFigureTitle("")          # the tab name is the title; keep the header lean
     app._line_card = card
     app._line_fig = card.figure

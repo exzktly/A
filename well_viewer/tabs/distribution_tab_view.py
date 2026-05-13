@@ -12,8 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    btn_primary, make_band_controls, make_plot_with_right_dock,
-)
+    btn_primary, make_band_controls, make_plot_with_right_dock, make_plot_view_switcher)
 
 
 _MODE_OPTIONS = ["Histogram", "Histogram + KDE", "KDE only", "Violin (per group)"]
@@ -91,6 +90,9 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     layout.addWidget(ctrl)
 
     card = PlotCard(parent, figsize=(7.2, 5.4), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Distribution')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
     card.setFigureTitle("")
     app._distribution_card = card
     app._distribution_fig = card.figure

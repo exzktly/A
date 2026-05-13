@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
     QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import btn_primary, make_band_controls, make_plot_with_right_dock
+from well_viewer.ui_helpers import (
+    btn_primary, make_band_controls, make_plot_view_switcher, make_plot_with_right_dock,
+)
 
 
 _CMAP_OPTIONS = ["viridis", "magma", "coolwarm", "RdYlBu_r", "Greys"]
@@ -159,6 +161,9 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     # ── Figure (in a v2 PlotCard — card chrome + MplToolbar) ────────────────
     from widgets.plot_card import PlotCard
     card = PlotCard(parent, figsize=(8.0, 6.0), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Heat Map')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
     card.setFigureTitle("")
     app._heatmap_card = card
     app._heatmap_fig = card.figure

@@ -10,8 +10,7 @@ from PySide6.QtWidgets import (
 
 from well_viewer.ui_helpers import (
     btn_primary, install_canvas_wheel_scroll, make_band_controls,
-    make_plot_with_right_dock,
-)
+    make_plot_with_right_dock, make_plot_view_switcher)
 
 # The Bar Plots figure: three stacked subplots (mean / fraction / n).
 _FIG_W, _FIG_H, _DPI = 6.2, 11.0, 100
@@ -107,6 +106,9 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
     card = PlotCard(bar_right, figsize=(_FIG_W, _FIG_H), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Bar Plots')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
     card.setFigureTitle("")
     app._bar_card = card
     app._bar_fig = card.figure

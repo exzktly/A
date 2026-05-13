@@ -338,6 +338,47 @@ def make_band_controls(app: Any, parent: QWidget, *, with_fov: bool = False) -> 
     return w
 
 
+_PLOT_VIEWS = [
+    ("Line", "Line Graphs"),
+    ("Bar", "Bar Plots"),
+    ("Scatter", "Scatter Plot"),
+    ("Dist", "Distribution"),
+    ("Heat", "Heat Map"),
+]
+
+
+def make_plot_view_switcher(app: Any, current_name: str):
+    """The 5-segment per-card view-switcher (Line / Bar / Scatter / Dist / Heat).
+
+    Switches the Plotting sub-notebook (``app._plotting_notebook``) to the picked
+    tab when the user changes the segment. Returns the ``SegmentedControl`` (or
+    ``None`` if it's not importable). Each plot tab mounts one of these in its
+    PlotCard's left-header slot, pre-selected to its own outer tab name.
+    """
+    try:
+        from widgets.segmented_control import SegmentedControl
+    except Exception:  # pragma: no cover
+        return None
+    sc = SegmentedControl()
+    for label, data in _PLOT_VIEWS:
+        sc.addSegment(label, data=data)
+    sc.setCurrentByData(current_name)
+
+    def _on_change(_idx=None) -> None:
+        target = sc.currentData()
+        nb = getattr(app, "_plotting_notebook", None)
+        if not target or nb is None:
+            return
+        for i in range(nb.count()):
+            if nb.tabText(i) == target:
+                if i != nb.currentIndex():
+                    nb.setCurrentIndex(i)
+                return
+
+    sc.currentChanged.connect(_on_change)
+    return sc
+
+
 def attach_plot_toolbar(
     layout,
     canvas,
