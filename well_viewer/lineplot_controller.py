@@ -168,7 +168,6 @@ def redraw_line_plots(
                 any_cdf = True
 
     if any_ts:
-        app._line_ax_mean.axhline(threshold, color=warn, lw=1.0, ls="--", alpha=0.8, zorder=1)
         leg_mean = app._line_ax_mean.legend(**legend_kw)
         leg_frac = app._line_ax_frac.legend(**legend_kw)
         leg_mean.set_draggable(True)

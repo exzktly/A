@@ -99,6 +99,16 @@ class AllWellApp(QMainWindow):
 
         hl.addStretch(1)
 
+        # Global "presentation mode" toggle: flips every PlotCard in the app
+        # between Screen (dark live-preview) and Publication (canonical
+        # white-bg export). Per-card toggles still work; this is the master.
+        self._present_mode = "publication"
+        self._present_btn = IconButton("image")
+        self._present_btn.setCheckable(True)
+        self._present_btn.setToolTip("Presentation mode: toggle all plots screen ↔ publication")
+        self._present_btn.toggled.connect(self._on_present_toggled)
+        hl.addWidget(self._present_btn)
+
         self._open_btn = IconButton("home")
         self._open_btn.setToolTip("Open results directory…")
         self._open_btn.clicked.connect(self._open_dataset)
@@ -251,6 +261,27 @@ class AllWellApp(QMainWindow):
         self._dataset_chip.setText(name)
         self._dataset_chip.setToolTip(str(path))
         self._dataset_status.setStatus("success")
+
+    def _on_present_toggled(self, on: bool) -> None:
+        """Flip every known PlotCard's plotTheme together."""
+        self._present_mode = "screen" if on else "publication"
+        self._present_btn.setToolTip(
+            f"Presentation mode: currently {self._present_mode} — click to toggle"
+        )
+        if self._review is None:
+            return
+        card_attrs = (
+            "_line_card", "_bar_card", "_scatter_card",
+            "_scatter_agg_card", "_distribution_card", "_heatmap_card",
+        )
+        for attr in card_attrs:
+            card = getattr(self._review, attr, None)
+            if card is None or not hasattr(card, "setPlotTheme"):
+                continue
+            try:
+                card.setPlotTheme(self._present_mode)
+            except Exception:
+                pass
 
     def _open_dataset(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Open results directory")

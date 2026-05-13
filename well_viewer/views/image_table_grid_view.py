@@ -110,7 +110,8 @@ def build_image_table_grid(
                 _initial = prev_name
         row_color_cb.setLut(_initial, reversed=False)
         rbl.addWidget(row_color_cb)
-        row_color_cb.lutChanged.connect(lambda *_a: on_generate(app))
+        # Intentionally no auto-redraw: image-table renders are expensive, so
+        # LUT-colour changes wait for the user to press Generate.
 
         layout.addWidget(row_box, r, 0)
         row_chan_cbs.append(row_chan_cb)
@@ -203,13 +204,13 @@ def build_lut_row(
         cb_l.addWidget(QLabel("min:", chan_box))
         min_edit = QLineEdit(prev_min, chan_box)
         min_edit.setFixedWidth(70)
-        min_edit.editingFinished.connect(lambda: on_generate(app))
+        # No auto-generate on edit — wait for the user to press Generate.
         cb_l.addWidget(min_edit)
 
         cb_l.addWidget(QLabel("max:", chan_box))
         max_edit = QLineEdit(prev_max, chan_box)
         max_edit.setFixedWidth(70)
-        max_edit.editingFinished.connect(lambda: on_generate(app))
+        # No auto-generate on edit — wait for the user to press Generate.
         cb_l.addWidget(max_edit)
 
         auto_btn = btn_secondary(

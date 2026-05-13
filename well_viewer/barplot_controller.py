@@ -280,7 +280,6 @@ def render_bar_items(
                 else:
                     ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
 
-    ax_mean.axhline(threshold, color=warn_color, lw=1.0, ls="--", alpha=0.7, zorder=1, label=f"threshold={threshold:.2f}")
     ax_frac.axhline(0.5, color=border_color, lw=0.8, ls="--", alpha=0.5, zorder=1)
     # Add threshold context label to fraction axis
     ax_frac.text(0.02, 0.98, f"threshold={threshold:.2f}", transform=ax_frac.transAxes,

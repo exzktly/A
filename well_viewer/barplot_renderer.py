@@ -125,7 +125,6 @@ def draw_violin(
             ax_frac.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
                             marker="x", zorder=3, linewidths=1)
 
-    ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.7, zorder=1)
     ax_frac.axhline(0.5, color=BORDER, lw=0.8, ls="--", alpha=0.5, zorder=1)
     for ax in (ax_mean, ax_frac):
         ax.set_xticks(xs_ticks)
@@ -206,8 +205,6 @@ def draw_beeswarm(
             ax_frac.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
                             marker="x", zorder=3, linewidths=1)
 
-    ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--",
-                    alpha=0.7, zorder=1)
     ax_frac.axhline(0.5, color=BORDER, lw=0.8, ls="--",
                     alpha=0.5, zorder=1)
     for ax in (ax_mean, ax_frac):
