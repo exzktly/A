@@ -242,13 +242,18 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
 
             if dock is not None and dock.layout() is not None:
                 dock.layout().addWidget(sb)
-                # The dock floats over the plot area now (a ``_PlotDockHost``
-                # child overlay) — register its width so the host can size and
-                # position it without ever resizing the plot canvas.
+                # Pin the dock container's width to the SAME constant the
+                # sidebar uses for its own setFixedWidth — ``sizeHint()``
+                # can lag the fixed-width on the first show (which left
+                # the container narrower than its child, clipping content
+                # against the window edge). Importing the constant here
+                # keeps the two sides in lock-step.
+                from well_viewer.views.export_style_sidebar_view import (
+                    EXPORT_STYLE_PANEL_WIDTH as _PANEL_W,
+                )
                 host = getattr(dock, "_dock_host", None)
                 if host is not None and hasattr(host, "set_overlay_dock"):
-                    width = sb.sizeHint().width() or 260
-                    host.set_overlay_dock(dock, width)
+                    host.set_overlay_dock(dock, _PANEL_W)
             elif canvas is not None:
                 canvas_parent = canvas.parentWidget()
                 if canvas_parent is not None:
@@ -257,9 +262,12 @@ def launch_export_editor(app, fig, default_name: str, *, plot_bg: str = "",
                         parent_layout.addWidget(sb)
 
         if dock is not None:
+            from well_viewer.views.export_style_sidebar_view import (
+                EXPORT_STYLE_PANEL_WIDTH as _PANEL_W,
+            )
             host = getattr(dock, "_dock_host", None)
             if host is not None and hasattr(host, "set_overlay_dock"):
-                host.set_overlay_dock(dock, sb.sizeHint().width() or 260)
+                host.set_overlay_dock(dock, _PANEL_W)
             dock.setVisible(True)
         sb.show()
         sb.raise_()

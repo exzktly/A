@@ -39,6 +39,14 @@ from widgets.collapsible_section import CollapsibleSection
 from widgets.toggle_switch import ToggleSwitch
 
 
+#: Single source of truth for the style-panel width — read by both the
+#: sidebar itself and ``figure_export_editor.launch_export_editor`` when
+#: it sizes the dock container. Bumping this value here resizes both
+#: ends in lock-step (sizeHint() can lag the actual fixed width on the
+#: first show, which is why launch path must NOT rely on sizeHint).
+EXPORT_STYLE_PANEL_WIDTH = 680
+
+
 class ExportStyleSidebar(QWidget):
     def __init__(self, app, parent, fig, canvas, default_name: str):
         super().__init__(parent)
@@ -55,7 +63,8 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(575)
+        self.setFixedWidth(EXPORT_STYLE_PANEL_WIDTH)
+        self.setMinimumWidth(EXPORT_STYLE_PANEL_WIDTH)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
