@@ -81,9 +81,9 @@ def build_distribution_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
-    style_btn = QPushButton("▸", ctrl)
-    style_btn.setProperty("variant", "secondary")
-    style_btn.setToolTip("Export style / figure settings")
+    from widgets.icon_button import IconButton as _IconButton
+    style_btn = _IconButton("sliders", ctrl)
+    style_btn.setToolTip("Open export style panel for distribution")
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("distribution"))
     cl.addWidget(style_btn)
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_distribution_data))

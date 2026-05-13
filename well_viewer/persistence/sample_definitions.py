@@ -77,6 +77,14 @@ def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, d
     """
     from well_viewer import selections_model as _sel
     tok_to_label = getattr(app, "_tok_to_label", {})
+    # Detect a legacy v1 block so we can surface a one-time migration toast
+    # after the upgrade succeeds. v2 blocks carry schema_version ≥ 2.
+    was_v1 = False
+    try:
+        if isinstance(block, dict):
+            was_v1 = int(block.get("schema_version", 1)) < 2
+    except Exception:
+        was_v1 = False
     try:
         # Don't honour line order here — line_order.json loads *after* this; its
         # loader re-applies the reorder.
@@ -95,6 +103,21 @@ def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, d
 
     app._selections = selections
     app._current_selection_id = current_id
+    if was_v1:
+        # Surface the migration so users know an upgrade happened; the new
+        # state will be persisted with a backup the next time they Save.
+        try:
+            toast = getattr(app, "_toast", None)
+            msg = (
+                f"Migrated legacy v1 sample-definitions to v2 "
+                f"({len(selections)} selection(s)). Save to persist."
+            )
+            if callable(toast):
+                toast(msg, kind="info", msec=6000)
+            else:
+                app._set_status(msg)
+        except Exception:
+            pass
     if set_notes:
         app._notes_text = notes
         notes_edit = getattr(app, "_notes_edit", None)

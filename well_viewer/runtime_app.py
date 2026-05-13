@@ -2065,7 +2065,7 @@ class WellViewerApp(QWidget):
                 self._groups_centre_refresh()
             except Exception:
                 pass
-        self._set_status(f"Imported {added} selection(s) from {path}.")
+        self._toast(f"Imported {added} selection(s) from {path}.", kind="success")
 
     def _save_gating_to_pipeline_info(self) -> None:
         from well_viewer.persistence import cell_gating as _cg
@@ -6130,6 +6130,20 @@ class WellViewerApp(QWidget):
 
     def _set_status(self, msg: str) -> None:
         self._status_lbl.setText(msg)
+
+    def _toast(self, msg: str, *, kind: str = "info", msec: int = 3500) -> None:
+        """Show a transient v2 Toast over the main window.
+
+        ``kind`` matches widgets.toast.Toast: 'info' / 'success' / 'warn' /
+        'danger'. Falls back to _set_status if anything goes wrong so the
+        message is never silently lost.
+        """
+        try:
+            from widgets.toast import Toast
+            Toast.show_message(self, msg, kind=kind, msec=msec)
+        except Exception:
+            pass
+        self._set_status(msg)
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""

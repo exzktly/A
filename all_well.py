@@ -114,8 +114,10 @@ class AllWellApp(QMainWindow):
         self._open_btn.clicked.connect(self._open_dataset)
         hl.addWidget(self._open_btn)
         self._help_btn = IconButton("info")
-        self._help_btn.setToolTip("All-Well — see design/PORT_PLAN.md")
+        self._help_btn.setToolTip("Open the help drawer")
+        self._help_btn.clicked.connect(self._toggle_help_drawer)
         hl.addWidget(self._help_btn)
+        self._help_drawer = None  # built lazily on first open
 
         rl.addWidget(header)
 
@@ -282,6 +284,42 @@ class AllWellApp(QMainWindow):
                 card.setPlotTheme(self._present_mode)
             except Exception:
                 pass
+
+    def _toggle_help_drawer(self) -> None:
+        """Show / hide a v2 Drawer with quick help. Lazy-built on first call."""
+        if self._help_drawer is None:
+            from widgets.drawer import Drawer
+            drawer = Drawer(self, width_hint=420)
+            content = QWidget(drawer)
+            cl = QVBoxLayout(content)
+            cl.setContentsMargins(0, 0, 0, 0)
+            cl.setSpacing(theme_v2.Spacing.md)
+            heading = QLabel("All-Well — quick help", content)
+            heading.setObjectName("Heading")
+            cl.addWidget(heading)
+            body = QLabel(content)
+            body.setWordWrap(True)
+            body.setText(
+                "<b>Review tab</b> — explore an already-analyzed dataset: "
+                "Line / Bar / Scatter / Distribution / Heat Map plots, "
+                "per-cell Segmentation review, and the rendered Image Table.<br><br>"
+                "<b>Analyze tab</b> — run the segmentation + measurement "
+                "pipeline on a fresh dataset.<br><br>"
+                "<b>Header buttons</b> — Open a results directory, toggle "
+                "presentation mode (all plots Screen ↔ Publication), or this "
+                "help drawer.<br><br>"
+                "<b>Style panel</b> — the per-card sliders button on every "
+                "plot opens the export-style sidebar; click again to hide.<br><br>"
+                "For the full design notes see <tt>design/PORT_PLAN.md</tt>."
+            )
+            cl.addWidget(body)
+            cl.addStretch(1)
+            drawer.setContentWidget(content)
+            self._help_drawer = drawer
+        if self._help_drawer.isVisible():
+            self._help_drawer.close()
+        else:
+            self._help_drawer.open()
 
     def _open_dataset(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Open results directory")
