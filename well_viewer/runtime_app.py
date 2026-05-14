@@ -3209,14 +3209,17 @@ class WellViewerApp(QWidget):
             self._sidebar_map_refresh_pending = False
             return
 
-        # Sample Definitions tab needs per-well selection even when groups
-        # exist, so Add Prefix / Add Suffix can target user-chosen wells.
-        on_sample_defs = False
+        # Some tabs need per-well selection even when groups exist:
+        # Sample Definitions (Cell Gating / Add Prefix / Add Suffix all
+        # need user-chosen wells), and Review CSV (the user has to pick
+        # which wells' rows to load). For those tabs the plate stays in
+        # ``select`` mode and ``_selected_wells`` is honoured.
         try:
-            on_sample_defs = self._current_centre_tab() == "Sample Definitions"
+            tab_name = self._current_centre_tab()
         except Exception:
-            on_sample_defs = False
-        rep_mode = bool(self._selections) and not on_sample_defs
+            tab_name = ""
+        per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
+        rep_mode = bool(self._selections) and not per_well_tab
 
         colors: Dict[str, object] = {}
         if rep_mode:
@@ -3287,13 +3290,14 @@ class WellViewerApp(QWidget):
         # on user-chosen wells. We let the click through and update
         # ``_selected_wells`` normally; ``_refresh_sidebar_map_now`` mirrors the
         # same exception so the painted selection doesn't get wiped on the next
-        # refresh tick.
-        on_sample_defs = False
+        # refresh tick. Review CSV gets the same exception so the user can pick
+        # which wells' rows to load even when groups are defined.
         try:
-            on_sample_defs = self._current_centre_tab() == "Sample Definitions"
+            tab_name = self._current_centre_tab()
         except Exception:
-            on_sample_defs = False
-        if self._selections and not on_sample_defs:
+            tab_name = ""
+        per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
+        if self._selections and not per_well_tab:
             return  # rep-set mode: the plate is passive; its selection is unused
         # Keep the invariant ``_selected_wells ⊆ _well_paths`` — downstream
         # code (e.g. redraw_line_plots → _get_rows) assumes it.
@@ -3304,12 +3308,12 @@ class WellViewerApp(QWidget):
         self._refresh_sidebar_map()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
-        on_sample_defs = False
         try:
-            on_sample_defs = self._current_centre_tab() == "Sample Definitions"
+            tab_name = self._current_centre_tab()
         except Exception:
-            on_sample_defs = False
-        if self._selections and not on_sample_defs:
+            tab_name = ""
+        per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
+        if self._selections and not per_well_tab:
             return
         self._on_plate_sel_change()
 
@@ -5137,6 +5141,17 @@ class WellViewerApp(QWidget):
         if not hasattr(self, "_review_csv_table"):
             return
         sels = sorted(self._selected_wells, key=self._parse_rc)
+        # When the user has no explicit picks but rep-sets exist, fall back
+        # to every well in the active groups so the table populates on first
+        # visit. Previously this path took the "Select one or more wells"
+        # branch and left Review CSV empty whenever groups were defined.
+        if not sels and self._selections:
+            seen: set = set()
+            for rset in self._rep_sets_active():
+                for w in rset.wells:
+                    if w in self._well_paths and w not in seen:
+                        seen.add(w)
+            sels = sorted(seen, key=self._parse_rc)
         if not sels:
             self._review_well_lbl.setText("(select well(s))")
             _set_combo_values(self._review_fov_cb, [])
@@ -5505,10 +5520,19 @@ class WellViewerApp(QWidget):
         )
 
     def _draw_bar_empty_state(self, ax_mean, ax_frac, message: str, *, ax_n=None) -> None:
+        # Honour Screen vs Publication mode so the placeholder doesn't
+        # render as a glaring white block when the rest of the app is dark.
+        from well_viewer.plot_style import tokens_for as _tokens_for_ax
+        _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(ax_mean)
+        try:
+            ax_mean.figure.set_facecolor(_bg)
+        except Exception:
+            pass
         axes = [ax_mean, ax_frac]
         if ax_n is not None:
             axes.append(ax_n)
         for ax in axes:
+            ax.set_facecolor(_bg)
             ax.text(
                 0.5,
                 0.5,
@@ -5516,7 +5540,7 @@ class WellViewerApp(QWidget):
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
-                color=TXT_MUT,
+                color=_muted_fg,
                 fontsize=10,
             )
             ax.set_axis_off()
