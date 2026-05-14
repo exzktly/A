@@ -30,7 +30,7 @@ The v2 mockup re-anchoring has been executed in 6 phases (`Phase 9–14` in
 | **12b** | Rail controls bound to active figure via `_export_style_prefs` | ✅ shipped |
 | **13** | Group B polish (Invert / ⌘ shortcuts / preview wire / cut-corner / compact sidebar Saved list) | ✅ shipped |
 | **14** | Doc reconciliation — flip the contradicted decisions in `DECISIONS_NEEDED.md` / `OPEN_DECISIONS.md` / `PORT_PLAN.md` / `DESIGN_NOTES.md` (C1–C17) | ⏳ **PENDING** |
-| **15** | Centre stack v2 native — replace outer `app._notebook` + nested `app._plotting_notebook` `QTabWidget`s with a `NamedPageStack` (`QStackedWidget` subclass); retire `_GroupedTabBar`. Plan: `design/plans/phase_15_named_page_stack.md`. | 🚧 **IN PROGRESS** (commit 1 ✅ outer `_notebook` swapped) |
+| **15** | Centre stack v2 native — replace outer `app._notebook` + nested `app._plotting_notebook` `QTabWidget`s with a `NamedPageStack` (`QStackedWidget` subclass); retire `_GroupedTabBar`. Plan: `design/plans/phase_15_named_page_stack.md`. | 🚧 **IN PROGRESS** (commits 1–2 ✅ both notebooks swapped) |
 
 In addition to the planned phases, a number of **ad-hoc UX fixes** landed
 during runtime QA: navigation re-layout, plate sizing, sample-definitions

@@ -449,22 +449,22 @@ def build_centre(app, parent: QWidget) -> None:
 
         plotting_container.layout().addWidget(action_row, 0)
 
-        # ── renderer pages (existing per-tab views in a hidden-tab QTabWidget) ─
-        plotting_nb = QTabWidget(plotting_container)
+        # ── renderer pages (per-tab views in a NamedPageStack — Phase 15) ─
+        plotting_nb = NamedPageStack(plotting_container)
         plotting_nb.setObjectName("PlottingSubTabs")
-        plotting_nb.tabBar().setVisible(False)
-        plotting_nb.setDocumentMode(True)
         plotting_container.layout().addWidget(plotting_nb, 1)
         app._plotting_notebook = plotting_nb
 
+        # Register all pages BEFORE wiring currentChanged so the first emit
+        # always sees a valid currentName().
         for title in _PLOT_SUBTABS:
-            plotting_nb.addTab(tab_frames[title], title)
+            plotting_nb.addPage(title, tab_frames[title])
 
         # Build the first sub-tab immediately so the user sees content.
         _build_pending("Line Graphs")
 
         def _on_plotting_subtab(_i: int = 0) -> None:
-            sub_title = plotting_nb.tabText(plotting_nb.currentIndex())
+            sub_title = plotting_nb.currentName()
             if sub_title in pending:
                 _build_pending(sub_title)
             app._on_tab_change(None)
@@ -480,11 +480,8 @@ def build_centre(app, parent: QWidget) -> None:
 
         def _on_sub_seg(idx: int) -> None:
             target = sub_seg.currentData()
-            for i in range(plotting_nb.count()):
-                if plotting_nb.tabText(i) == target:
-                    if plotting_nb.currentIndex() != i:
-                        plotting_nb.setCurrentIndex(i)
-                    return
+            if target:
+                plotting_nb.setCurrentByName(target)
 
         sub_seg.currentChanged.connect(_on_sub_seg)
         sub_seg.setCurrentByData("Line Graphs")
