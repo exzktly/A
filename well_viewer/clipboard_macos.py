@@ -36,14 +36,21 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
     the platform isn't macOS, PyObjC isn't importable, or the write
     itself failed.
 
-    Deliberately writes *only* the PDF slot. Keynote (and probably
-    Pages) reads ``public.png`` ahead of ``com.adobe.pdf`` when both
-    are present on the pasteboard — even with ``declareTypes:owner:``
-    putting PDF first — so a raster fallback in the same write would
-    silently win in iWork and you'd get a PNG paste instead of vector.
-    Raster-only consumers (Slack, Mail, Linux Qt clipboard) are
-    handled by the QMimeData fallback in callers; the native path is
-    reserved for vector-aware targets.
+    Uses the modern :class:`NSPasteboardItem` + ``writeObjects:`` API
+    instead of the legacy ``setData:forType:``. The legacy path
+    registers data with NSPasteboard's dynamic-type translators, and
+    some consumers (Keynote in particular) read the translated /
+    rasterised representation when a vector PDF is the only declared
+    type — even though Illustrator / Affinity / Preview read the raw
+    PDF bytes correctly. ``NSPasteboardItem`` bypasses the dynamic
+    translators: only the exact types we set are advertised, no
+    PDF-to-image conversion happens, and Keynote's paste path falls
+    through to handling ``com.adobe.pdf`` as vector.
+
+    Deliberately writes *only* the PDF slot. A PNG fallback in the
+    same item would let iWork pick the raster path; raster-only
+    consumers (Slack, Mail, Linux Qt clipboard) are served by the
+    QMimeData fallback in callers when the native path returns False.
     """
     global last_failure_reason
     last_failure_reason = ""
@@ -55,7 +62,7 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
         last_failure_reason = "no PDF bytes"
         return False
     try:
-        from AppKit import NSPasteboard
+        from AppKit import NSPasteboard, NSPasteboardItem
         from Foundation import NSData
     except Exception as exc:
         last_failure_reason = (
@@ -65,10 +72,15 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
         )
         return False
 
+    pdf_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
+    item = NSPasteboardItem.alloc().init()
+    if not bool(item.setData_forType_(pdf_data, _UTI_PDF)):
+        last_failure_reason = "NSPasteboardItem rejected PDF data"
+        return False
+
     pb = NSPasteboard.generalPasteboard()
     pb.clearContents()
-    pdf_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
-    if not bool(pb.setData_forType_(pdf_data, _UTI_PDF)):
-        last_failure_reason = "NSPasteboard rejected PDF data"
+    if not bool(pb.writeObjects_([item])):
+        last_failure_reason = "NSPasteboard.writeObjects: returned NO"
         return False
     return True
