@@ -1552,7 +1552,7 @@ def image_table_copy_svg(app) -> None:
     get the raw markup.
     """
     import io
-    from PySide6.QtCore import QMimeData
+    from PySide6.QtCore import QByteArray, QMimeData
     from PySide6.QtGui import QGuiApplication
 
     fig, save_kwargs = _build_export_figure(app)
@@ -1567,8 +1567,9 @@ def image_table_copy_svg(app) -> None:
         return
     svg_bytes = buf.getvalue()
     md = QMimeData()
-    md.setData("image/svg+xml", svg_bytes)
-    md.setData("image/svg", svg_bytes)
+    svg_qba = QByteArray(svg_bytes)
+    md.setData("image/svg+xml", svg_qba)
+    md.setData("image/svg", svg_qba)
     md.setText(svg_bytes.decode("utf-8", errors="replace"))
     QGuiApplication.clipboard().setMimeData(md)
     app._set_status("Image table copied to clipboard (SVG).")
