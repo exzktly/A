@@ -571,7 +571,7 @@ class AllWellApp(QMainWindow):
         review = self._review
         if review is None or not hasattr(review, "_load_path"):
             return
-        cur = getattr(review, "_loaded_path", None)
+        cur = getattr(review, "_data_dir", None)
         if cur:
             try:
                 review._load_path(Path(cur))
@@ -667,7 +667,11 @@ class AllWellApp(QMainWindow):
         manager via ``xdg-open`` on Linux). Falls back to the standard
         Open-directory dialog when no dataset is loaded yet."""
         review = getattr(self, "_review", None)
-        cur = getattr(review, "_loaded_path", None) if review is not None else None
+        # The previously-loaded directory is on ``app._data_dir``
+        # (``well_viewer/load_controller.py`` sets it). The earlier code
+        # consulted a never-set ``_loaded_path`` attribute and therefore
+        # always fell into the "open a dataset" dialog branch.
+        cur = getattr(review, "_data_dir", None) if review is not None else None
         if cur is None or not Path(cur).exists():
             # Nothing loaded — fall through to the "load a dataset" path so
             # the button still does something useful on a cold start.
