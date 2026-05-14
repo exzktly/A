@@ -295,12 +295,9 @@ def build_centre(app, parent: QWidget) -> None:
         # multi-subplot story was never wired (the _add_panel handler
         # just toasted a "coming soon" message), so the button only
         # added clutter.
-        config_btn = _IconButton("sliders")
-        config_btn.setToolTip("Configure subplots…")
-        arl.addWidget(config_btn)
-        edit_btn = _IconButton("settings-2")
-        edit_btn.setToolTip("Edit axes / curve…")
-        arl.addWidget(edit_btn)
+        # Configure-subplots and edit-axes buttons moved to the bottom of
+        # the Properties rail (slide-out drawer); the centre action-row now
+        # only carries the canvas-wide actions (channel selector + copy).
         export_btn = _IconButton("copy", text=" Copy SVG")
         export_btn.setToolTip("Copy the current figure to the clipboard as SVG")
         arl.addWidget(export_btn)
@@ -378,10 +375,10 @@ def build_centre(app, parent: QWidget) -> None:
             finally:
                 global_cb.blockSignals(blocked)
 
-        # Wire the buttons.
+        # Configure-subplots / Edit-axes are wired by the Properties rail
+        # (build_properties_rail_view). The handlers themselves live on
+        # ``app`` so the rail can reach them without importing centre_view.
         def _config_subplots() -> None:
-            # Delegate to matplotlib's built-in dialog on whichever PlotCard
-            # is currently active.
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
                 card = getattr(app, attr, None)
@@ -394,7 +391,6 @@ def build_centre(app, parent: QWidget) -> None:
                     except Exception:
                         pass
                 return
-        config_btn.clicked.connect(_config_subplots)
 
         def _edit_axes() -> None:
             for attr in ("_line_card", "_bar_card", "_scatter_card",
@@ -409,7 +405,9 @@ def build_centre(app, parent: QWidget) -> None:
                     except Exception:
                         pass
                 return
-        edit_btn.clicked.connect(_edit_axes)
+
+        app._plot_config_subplots = _config_subplots
+        app._plot_edit_axes = _edit_axes
 
         def _copy_svg() -> None:
             """Serialise the active card's matplotlib figure to SVG and put

@@ -6,7 +6,7 @@ import math
 
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
-NO_DATA_MSG = "Load a results directory to begin.\nUse the Open button at the top-right (⌘O) to pick a folder."
+NO_DATA_MSG = "Load a directory.\nUse the Open button at the top-right (⌘O) to pick a folder."
 
 
 def _apply_order(items, saved_order, key):

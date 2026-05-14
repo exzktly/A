@@ -3326,6 +3326,17 @@ class WellViewerApp(QWidget):
         plotting_tab = tab_name in self._PLOTTING_TABS
         if rep_mode and not plotting_tab:
             plate.setSelectedWellIds([])
+        elif rep_mode and not self._selected_wells:
+            # Default rep-mode look on a plotting tab: every well in a
+            # visible (non-hidden) group is "selected" so it renders
+            # raised + bright. Hidden groups' wells stay recessed with a
+            # muted tint. A subsequent well-click narrows ``_selected_wells``
+            # to one group and that focus is honoured here.
+            visible_wells = [
+                w for s in self._selections if not s.get("hidden")
+                for w in (s.get("wells") or []) if w in self._well_paths
+            ]
+            plate.setSelectedWellIds(visible_wells)
         else:
             plate.setSelectedWellIds(list(self._selected_wells))
 
