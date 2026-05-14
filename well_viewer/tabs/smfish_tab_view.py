@@ -191,9 +191,9 @@ def build_smfish_tab(app, parent: QWidget) -> None:
     app._smfish_canvas_img = FigureCanvas(app._smfish_fig_img)
     root.addWidget(app._smfish_canvas_img, 1)
 
-    app._smfish_toolbar = attach_plot_toolbar(
-        root, app._smfish_canvas_img, parent, with_sem=False,
-    )
+    from widgets.mpl_toolbar import MplToolbar
+    app._smfish_toolbar = MplToolbar(app._smfish_canvas_img, parent)
+    root.addWidget(app._smfish_toolbar)
 
     app._smfish_canvas_img.mpl_connect(
         "motion_notify_event", lambda ev: _smfish_on_img_hover(app, ev)
