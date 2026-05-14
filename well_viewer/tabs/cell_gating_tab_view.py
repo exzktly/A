@@ -414,6 +414,12 @@ class _AutoThresholdWorker(QThread):
         self._channels = list(channels)
 
     def run(self) -> None:  # noqa: D401 - QThread override
+        # Stream traceback into the log drawer too — the previous "fail
+        # silently with just an exception message" behaviour made it
+        # impossible to tell *why* the button hung up.
+        import logging as _logging
+        import traceback as _tb
+        _log = _logging.getLogger("well_viewer.auto_threshold")
         try:
             from well_viewer.auto_threshold import compute_auto_thresholds
             result = compute_auto_thresholds(
@@ -422,6 +428,10 @@ class _AutoThresholdWorker(QThread):
                 progress=lambda msg: self.progress.emit(str(msg)),
             )
         except Exception as exc:
+            _log.error(
+                "Auto-threshold worker failed: %s\n%s",
+                exc, _tb.format_exc(),
+            )
             self.failed.emit(str(exc))
             self.done.emit({})
             return
@@ -517,6 +527,10 @@ def cell_gating_auto_threshold(app) -> None:
             pass
 
     def _on_failed(msg: str) -> None:
+        import logging as _logging
+        _logging.getLogger("well_viewer.auto_threshold").error(
+            "Auto-threshold failed: %s", msg,
+        )
         try:
             app._set_status(f"Auto-threshold failed: {msg}")
         except Exception:
