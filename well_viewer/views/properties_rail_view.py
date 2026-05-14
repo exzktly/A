@@ -605,11 +605,34 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     scroll.setWidget(body)
     outer.addWidget(scroll, 1)
 
+    # ── footer: matplotlib helpers (Configure subplots / Edit axes) ─────
+    foot = QWidget(host)
+    foot.setObjectName("PropsFoot")
+    fl = QHBoxLayout(foot)
+    fl.setContentsMargins(s.lg, s.sm, s.lg, s.md)
+    fl.setSpacing(s.sm)
+    config_btn = IconButton("sliders")
+    config_btn.setToolTip("Configure subplots…")
+    config_btn.clicked.connect(
+        lambda: (getattr(app, "_plot_config_subplots", lambda: None)())
+    )
+    edit_btn = IconButton("axis")
+    edit_btn.setToolTip("Edit axes / curve…")
+    edit_btn.clicked.connect(
+        lambda: (getattr(app, "_plot_edit_axes", lambda: None)())
+    )
+    fl.addStretch(1)
+    fl.addWidget(config_btn)
+    fl.addWidget(edit_btn)
+    outer.addWidget(foot)
+
     host.setStyleSheet(
         f"#PropertiesRailContent {{ background-color: {c.rail}; }}"
         f"#PropsHead {{ background-color: {c.rail}; "
         f"border-bottom: 1px solid {c.border_subtle}; }}"
         f"#PropertiesBody {{ background-color: {c.rail}; }}"
+        f"#PropsFoot {{ background-color: {c.rail}; "
+        f"border-top: 1px solid {c.border_subtle}; }}"
     )
 
     return host

@@ -251,9 +251,6 @@ class AnalyzeTab(QWidget):
 
         sep_row = self._row(sec, "Separator char")
         self._filename_sep_edit = self._entry(sep_row, DEFAULT_SEP, width=30)
-        hint = QLabel("character between fields", sep_row)
-        hint.setObjectName("Muted")
-        sep_row.layout().addWidget(hint)
         sep_row.layout().addStretch(1)
         self._filename_sep_edit.textChanged.connect(lambda _: self._refresh_schema_preview())
 
@@ -271,7 +268,7 @@ class AnalyzeTab(QWidget):
 
         schema_str_row = self._row(sec, "Schema string")
         self._schema_str_edit = QLineEdit(DEFAULT_SCHEMA, schema_str_row)
-        self._schema_str_edit.setMinimumWidth(200)
+        self._schema_str_edit.setFixedWidth(170)
         schema_str_row.layout().addWidget(self._schema_str_edit)
         schema_str_row.layout().addStretch(1)
         self._schema_str_edit.editingFinished.connect(self._sync_dropdowns_from_string)
@@ -292,16 +289,13 @@ class AnalyzeTab(QWidget):
         seg_row = self._row(sec, "Segmentation")
         self._seg_method_cb = QComboBox(seg_row)
         self._seg_method_cb.addItems(["stardist_nuclei", "stardist_seeded_watershed_cell"])
-        self._seg_method_cb.setFixedWidth(240)
+        self._seg_method_cb.setFixedWidth(170)
         seg_row.layout().addWidget(self._seg_method_cb)
         seg_row.layout().addStretch(1)
         self._seg_method_cb.currentIndexChanged.connect(lambda _: self._refresh_segmentation_hints())
 
         nuc_row = self._row(sec, "Nuclear (seg)")
         self._nuclear_token_edit = self._entry(nuc_row, "NIR")
-        nuc_hint = QLabel("segmentation + quantified", nuc_row)
-        nuc_hint.setObjectName("Muted")
-        nuc_row.layout().addWidget(nuc_hint)
         nuc_row.layout().addStretch(1)
         self._nuclear_token_edit.textChanged.connect(lambda _: self._refresh_schema_preview())
         self._nuclear_token_edit.textChanged.connect(lambda _: self._refresh_segmentation_hints())
@@ -323,6 +317,7 @@ class AnalyzeTab(QWidget):
 
         add_btn = QPushButton("+ Add channel", sec)
         add_btn.setProperty("variant", "secondary")
+        add_btn.setFixedWidth(130)
         add_btn.clicked.connect(lambda _=False: self._fluor_add_row())
         sec.layout().addWidget(add_btn)
 
@@ -380,6 +375,8 @@ class AnalyzeTab(QWidget):
         self._input_edit.setReadOnly(True)
         self._input_edit.setPlaceholderText("(not set)")
         self._input_edit.setEnabled(False)
+        self._input_edit.setMinimumWidth(0)
+        self._input_edit.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         ipl.addWidget(self._input_edit, 1)
         self._browse_btn = QPushButton("Browse…", in_pick)
         self._browse_btn.setProperty("variant", "secondary")
