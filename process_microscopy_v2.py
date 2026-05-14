@@ -1385,6 +1385,43 @@ def write_csvs_per_well(
 # Worker initialiser
 # ---------------------------------------------------------------------------
 
+def _ensure_pkg_resources_shim() -> None:
+    """Install a minimal ``pkg_resources`` stand-in if setuptools' real
+    one is missing.
+
+    setuptools >= 80 and recent Python builds drop ``pkg_resources``,
+    but stardist's ``bioimageio_utils`` still does
+    ``from pkg_resources import get_distribution`` at import time. Back
+    that single call with ``importlib.metadata`` so the worker keeps
+    loading even when setuptools no longer ships the legacy module.
+    """
+    import sys as _sys
+    try:
+        import pkg_resources  # noqa: F401
+        return
+    except Exception:
+        pass
+    import types
+    from importlib import metadata as _md
+
+    class _DistInfo:
+        def __init__(self, version: str) -> None:
+            self.version = version
+
+    def _get_distribution(name: str) -> _DistInfo:
+        try:
+            return _DistInfo(_md.version(name))
+        except _md.PackageNotFoundError as exc:
+            raise Exception(f"DistributionNotFound: {exc}") from exc
+
+    shim = types.ModuleType("pkg_resources")
+    shim.get_distribution = _get_distribution           # type: ignore[attr-defined]
+    shim.DistributionNotFound = Exception               # type: ignore[attr-defined]
+    shim.VersionConflict = Exception                    # type: ignore[attr-defined]
+    shim.parse_version = lambda v: v                    # type: ignore[attr-defined]
+    _sys.modules["pkg_resources"] = shim
+
+
 def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
     """
     Called once in each worker process before any image pairs are processed.
@@ -1478,6 +1515,11 @@ def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
 
     # Import StarDist and its TF dependency HERE, after env vars are set.
     # This is the first point in the worker where TF is allowed to initialise.
+    # stardist's bioimageio_utils imports ``pkg_resources``, which was
+    # removed from setuptools >= 80 / Python 3.12+. Install a tiny shim
+    # backed by importlib.metadata before stardist loads so the worker
+    # doesn't crash with ``ModuleNotFoundError: pkg_resources``.
+    _ensure_pkg_resources_shim()
     from csbdeep.utils import normalize as _normalize   # noqa: F401 — triggers TF init
     from stardist.models import StarDist2D as _StarDist2D
 
