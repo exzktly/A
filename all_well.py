@@ -227,8 +227,23 @@ class AllWellApp(QMainWindow):
         sb_layout.setContentsMargins(theme_v2.Spacing.md, 4,
                                      theme_v2.Spacing.md, 4)
         sb_layout.setSpacing(theme_v2.Spacing.sm)
-        self._status_dot = StatusDot("success")
+        self._status_dot = StatusDot("neutral")
         sb_layout.addWidget(self._status_dot)
+        # Wire the status-signal registry to this dot so every long-running
+        # operation in the package (workers, redraws, dataset loads) can
+        # flip the colour without taking a hard dependency on this module.
+        from well_viewer import status_signal as _status_signal
+        _status_signal.register_driver(
+            lambda state: self._status_dot.setStatus(state),
+            initial_state="neutral",
+        )
+        # The danger pulse auto-clears after DANGER_HOLD_SECS seconds —
+        # use a single recurring QTimer to recompute the effective state
+        # so the red doesn't stick.
+        self._status_dot_tick = QTimer(self)
+        self._status_dot_tick.setInterval(500)
+        self._status_dot_tick.timeout.connect(_status_signal.refresh)
+        self._status_dot_tick.start()
         self._status_lbl_app = QLabel("Ready.")
         self._status_lbl_app.setStyleSheet(
             f"color: {theme_v2.Colors.text_secondary}; "
@@ -432,10 +447,10 @@ class AllWellApp(QMainWindow):
         QMainWindow title (which the host OS renders at the top of the
         window), and refreshes the in-window status bar string.
         """
+        from well_viewer import status_signal as _status_signal
         if path is None:
             self._dataset_status.setStatus("neutral")
-            if hasattr(self, "_status_dot"):
-                self._status_dot.setStatus("neutral")
+            _status_signal.set_idle_state("neutral")
             self.setWindowTitle("All-Well")
             if hasattr(self, "_status_lbl_app"):
                 self._status_lbl_app.setText("Ready.")
@@ -465,8 +480,7 @@ class AllWellApp(QMainWindow):
         # exactly where the in-titlebar chip used to be redundant with.
         self.setWindowTitle(f"All-Well — {name}{tail}")
         self._dataset_status.setStatus("success")
-        if hasattr(self, "_status_dot"):
-            self._status_dot.setStatus("success")
+        _status_signal.set_idle_state("success")
         if hasattr(self, "_status_lbl_app"):
             self._status_lbl_app.setText(f"Loaded: {name}{tail}")
 
@@ -639,12 +653,20 @@ class AllWellApp(QMainWindow):
 
         ring = self._log_ring
 
+        # Trip the bottom-left StatusDot red on any logged ERROR record —
+        # workers that catch + log exceptions don't have to call
+        # ``signal_failed`` themselves. Auto-clears after the configured
+        # DANGER_HOLD_SECS in well_viewer.status_signal.
+        from well_viewer import status_signal as _status_signal
+
         class _RingHandler(_logging.Handler):
             def emit(self, record):  # noqa: N802
                 try:
                     ring.append(self.format(record))
                     if len(ring) > 1000:
                         del ring[:500]
+                    if record.levelno >= _logging.ERROR:
+                        _status_signal.signal_failed()
                 except Exception:
                     pass
 
