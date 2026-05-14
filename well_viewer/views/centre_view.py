@@ -412,16 +412,24 @@ def build_centre(app, parent: QWidget) -> None:
 
         def _copy_svg() -> None:
             """Copy the active card's matplotlib figure to the clipboard
-            in publication mode. Sets SVG + PDF for vector-aware
-            destinations, plus a PNG raster *and* the raw SVG markup as
-            text so apps that don't accept either vector format still
-            get something pastable. PNG is attached via setData rather
-            than setImageData — setImageData registers the raster as
-            the canonical clipboard image, which made Keynote prefer
-            it over the PDF slot."""
+            in publication mode. On macOS, Qt6's clipboard adapter only
+            surfaces a fixed set of MIME types to the OS pasteboard —
+            custom types like ``image/svg+xml`` / ``application/pdf``
+            registered via setData stay inside the Qt QMimeData object
+            and never reach Keynote / Pages / Preview. The only slot
+            those apps reliably see is the QImage one set via
+            setImageData (bridged to ``public.png`` / ``public.tiff``).
+            We *also* register the vector formats via setData wrapped
+            in QByteArray so vector editors on Linux (and any app that
+            reads the Qt clipboard directly) still get SVG / PDF, but
+            on macOS the practical paste is raster from setImageData.
+            setText is deliberately *not* set: when both text/plain
+            and image are offered, several macOS targets default to
+            the text slot, which is what made Copy SVG paste as a
+            block of text instead of as the figure."""
             import io
             from PySide6.QtCore import QByteArray, QMimeData
-            from PySide6.QtGui import QGuiApplication
+            from PySide6.QtGui import QGuiApplication, QImage
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
                 card = getattr(app, attr, None)
@@ -439,24 +447,22 @@ def build_centre(app, parent: QWidget) -> None:
                         card.setPlotTheme("publication")
                     md = QMimeData()
                     wrote_any = False
-                    svg_bytes: bytes | None = None
-                    # SVG — vector editors. Payload MUST be wrapped in
-                    # QByteArray; PySide6's setData silently stores an
-                    # empty slot when handed raw Python bytes, which
-                    # makes destination apps see "image/svg+xml is
-                    # offered" but receive nothing on paste.
+                    # SVG — vector editors that read the Qt clipboard
+                    # directly (Linux Inkscape, etc.). Payload MUST be
+                    # wrapped in QByteArray; PySide6's setData silently
+                    # stores an empty slot when handed raw Python bytes.
                     try:
                         svg_buf = io.BytesIO()
                         fig.savefig(svg_buf, format="svg", bbox_inches="tight")
-                        svg_bytes = svg_buf.getvalue()
-                        svg_qba = QByteArray(svg_bytes)
+                        svg_qba = QByteArray(svg_buf.getvalue())
                         md.setData("image/svg+xml", svg_qba)
                         md.setData("image/svg", svg_qba)
                         wrote_any = True
                     except Exception:
                         pass
-                    # PDF — what Keynote / Pages / Preview paste as a
-                    # vector graphic. Cross-platform MIME + Apple UTI.
+                    # PDF — cross-platform MIME + Apple UTI. Largely a
+                    # no-op on macOS (Qt6's pasteboard bridge ignores
+                    # these), but harmless and helps on other OSes.
                     try:
                         pdf_buf = io.BytesIO()
                         fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
@@ -466,24 +472,22 @@ def build_centre(app, parent: QWidget) -> None:
                         wrote_any = True
                     except Exception:
                         pass
-                    # PNG — raster fallback for Slack / email / browsers
-                    # and anywhere else that doesn't accept SVG or PDF.
-                    # Attached as raw image/png rather than via
-                    # setImageData so it doesn't outrank the vector
-                    # slots on the macOS pasteboard.
+                    # PNG — the slot that actually reaches the macOS
+                    # pasteboard. Set via setImageData so Qt6 maps it
+                    # to public.png / public.tiff (and as a raw
+                    # image/png blob for non-macOS clipboards).
                     try:
                         png_buf = io.BytesIO()
                         fig.savefig(png_buf, format="png",
                                     bbox_inches="tight", dpi=200)
-                        md.setData("image/png", QByteArray(png_buf.getvalue()))
+                        png_bytes = png_buf.getvalue()
+                        md.setData("image/png", QByteArray(png_bytes))
+                        img = QImage.fromData(png_bytes, "PNG")
+                        if not img.isNull():
+                            md.setImageData(img)
                         wrote_any = True
                     except Exception:
                         pass
-                    # Plain-text — last-resort fallback so apps that
-                    # only accept text/plain still receive the SVG
-                    # markup instead of an empty paste.
-                    if svg_bytes is not None:
-                        md.setText(svg_bytes.decode("utf-8", errors="replace"))
                     if not wrote_any:
                         return
                     QGuiApplication.clipboard().setMimeData(md)
@@ -495,7 +499,7 @@ def build_centre(app, parent: QWidget) -> None:
                         except Exception:
                             pass
                 if hasattr(app, "_set_status"):
-                    app._set_status("Copied figure to clipboard (SVG + PDF + PNG, publication).")
+                    app._set_status("Copied figure to clipboard (PNG image; SVG + PDF where supported).")
                 return
         app._copy_active_card_as_svg = _copy_svg
 

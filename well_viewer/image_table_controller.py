@@ -1545,31 +1545,45 @@ def image_table_copy_png(app) -> None:
 
 
 def image_table_copy_svg(app) -> None:
-    """Render the image table and place an SVG of it on the system clipboard.
+    """Render the image table and place it on the system clipboard.
 
-    Sets multiple MIME types so vector-aware editors (Illustrator, Inkscape,
-    Affinity, Figma) recognise it as SVG, while plain-text consumers still
-    get the raw markup.
+    Registers ``image/svg+xml`` for vector editors that read the Qt
+    clipboard directly, but the slot that actually reaches the macOS
+    pasteboard is the QImage one set via ``setImageData`` (bridged to
+    ``public.png`` / ``public.tiff``). ``setText`` is deliberately not
+    set: when both text/plain and image data are offered, several
+    macOS paste targets default to the text slot.
     """
     import io
     from PySide6.QtCore import QByteArray, QMimeData
-    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtGui import QGuiApplication, QImage
 
     fig, save_kwargs = _build_export_figure(app)
     if fig is None:
         return
     save_kwargs.pop("_dpi", None)
-    buf = io.BytesIO()
+    svg_buf = io.BytesIO()
     try:
-        fig.savefig(buf, format="svg", **save_kwargs)
+        fig.savefig(svg_buf, format="svg", **save_kwargs)
     except Exception as exc:
         QMessageBox.critical(app, "Copy failed", str(exc))
         return
-    svg_bytes = buf.getvalue()
+    png_buf = io.BytesIO()
+    png_kwargs = {k: v for k, v in save_kwargs.items() if k != "format"}
+    png_kwargs.setdefault("dpi", 200)
+    try:
+        fig.savefig(png_buf, format="png", **png_kwargs)
+    except Exception:
+        png_buf = None
     md = QMimeData()
-    svg_qba = QByteArray(svg_bytes)
+    svg_qba = QByteArray(svg_buf.getvalue())
     md.setData("image/svg+xml", svg_qba)
     md.setData("image/svg", svg_qba)
-    md.setText(svg_bytes.decode("utf-8", errors="replace"))
+    if png_buf is not None:
+        png_bytes = png_buf.getvalue()
+        md.setData("image/png", QByteArray(png_bytes))
+        img = QImage.fromData(png_bytes, "PNG")
+        if not img.isNull():
+            md.setImageData(img)
     QGuiApplication.clipboard().setMimeData(md)
-    app._set_status("Image table copied to clipboard (SVG).")
+    app._set_status("Image table copied to clipboard (PNG image; SVG where supported).")
