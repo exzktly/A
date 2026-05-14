@@ -136,9 +136,12 @@ class AllWellApp(QMainWindow):
         # Global "presentation mode" toggle: flips every PlotCard in the app
         # between Screen (dark live-preview) and Publication (canonical
         # white-bg export). Per-card toggles still work; this is the master.
-        self._present_mode = "publication"
+        # v2 default: Screen mode (dark live-preview). The Presentation
+        # toggle still flips into Publication (canonical white-bg export).
+        self._present_mode = "screen"
         self._present_btn = IconButton("image")
         self._present_btn.setCheckable(True)
+        self._present_btn.setChecked(True)
         self._present_btn.setToolTip("Presentation mode: toggle all plots screen ↔ publication")
         self._present_btn.toggled.connect(self._on_present_toggled)
         hl.addWidget(self._present_btn)
@@ -268,12 +271,26 @@ class AllWellApp(QMainWindow):
           opens the rail if it's collapsed).
         - ⌘E / Ctrl+E — export figure (drives the active plot card's
           ``save_figure`` toolbar action).
+        - ⌘← / Ctrl+← — back through the section tab history.
+        - ⌘→ / Ctrl+→ — forward through the section tab history.
         """
         from PySide6.QtGui import QKeySequence, QShortcut
 
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self._open_dataset)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._focus_props_search)
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self._export_active_figure)
+        QShortcut(QKeySequence("Ctrl+Left"), self, activated=self._tab_history_back)
+        QShortcut(QKeySequence("Ctrl+Right"), self, activated=self._tab_history_forward)
+
+    def _tab_history_back(self) -> None:
+        review = getattr(self, "_review", None)
+        if review is not None and hasattr(review, "_tab_history_back"):
+            review._tab_history_back()
+
+    def _tab_history_forward(self) -> None:
+        review = getattr(self, "_review", None)
+        if review is not None and hasattr(review, "_tab_history_forward"):
+            review._tab_history_forward()
 
     def _focus_props_search(self) -> None:
         review = getattr(self, "_review", None)
@@ -509,6 +526,10 @@ class AllWellApp(QMainWindow):
                 "search input (opens the rail if collapsed)<br>"
                 "<tt>⌘E</tt> / <tt>Ctrl+E</tt> — Export the active figure "
                 "(drives the visible plot card's save-figure action)<br>"
+                "<tt>⌘←</tt> / <tt>Ctrl+←</tt> — Back to the previously "
+                "viewed section tab<br>"
+                "<tt>⌘→</tt> / <tt>Ctrl+→</tt> — Forward to the next section "
+                "tab in history<br>"
                 "<tt>⌘W</tt> / <tt>Ctrl+W</tt> — Close window<br><br>"
                 "Inside the Properties rail's search box, typing filters "
                 "the visible sections live; <tt>Esc</tt> clears the filter.<br><br>"

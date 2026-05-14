@@ -352,17 +352,22 @@ def _set_combo_values(combo: object, values: List[str]) -> None:
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
                    lo: Optional[float], hi: Optional[float],
                    crop=None,
-                   tint: Optional[Tuple[float, float, float]] = None):
+                   tint: Optional[Tuple[float, float, float]] = None,
+                   cmap: Optional[str] = None):
     """Render a greyscale float32 array as a QPixmap with LUT [lo, hi].
 
-    When ``crop`` is a (y0, x0, y1, x1) tuple, the array is sliced to that
-    sub-region before LUT application and scaling so the resulting thumbnail
-    shows only the selected square area at the requested display size.
+    Rendering selection (in priority order):
+      * If ``cmap`` is a matplotlib colormap name (e.g. ``"viridis"``,
+        ``"Reds"``, ``"Greens"``…), the LUT-clipped intensity is mapped
+        through that colormap across its full gradient — low intensity →
+        cmap(0.0), high intensity → cmap(1.0). This is the canonical
+        multi-colour LUT path the Image Table uses.
+      * Else if ``tint`` is an ``(r, g, b)`` triple, the LUT-clipped
+        intensity is multiplied by the tint (legacy single-colour ramp).
+      * Else the result is grayscale.
 
-    When ``tint`` is an ``(r, g, b)`` triple (each in 0..1), the LUT-clipped
-    intensity is multiplied by the tint to colour the thumbnail (black at 0,
-    full tint at the LUT max). When ``None`` (default), the result is
-    grayscale.
+    When ``crop`` is a (y0, x0, y1, x1) tuple the array is sliced to that
+    sub-region before LUT application and scaling.
     """
     if arr is None or not _NP_AVAILABLE:
         return None
@@ -380,10 +385,21 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
     ahi = hi if hi is not None else float(arr.max())
     if ahi <= alo:
         ahi = alo + 1.0
-    disp = ((_np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
-    if tint is None:
-        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
-    else:
+    norm = (_np.clip(arr, alo, ahi) - alo) / (ahi - alo)
+    if cmap:
+        try:
+            from matplotlib import colormaps as _mpl_cmaps
+            mpl_cmap = _mpl_cmaps[cmap]
+        except (KeyError, Exception):
+            mpl_cmap = None
+        if mpl_cmap is not None:
+            mapped = mpl_cmap(norm)[..., :3]  # drop alpha
+            rgb = (mapped * 255).astype(_np.uint8).copy()
+        else:
+            disp = (norm * 255).astype(_np.uint8)
+            rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    elif tint is not None:
+        disp = (norm * 255).astype(_np.uint8)
         r, g, b = (max(0.0, min(1.0, float(c))) for c in tint)
         df = disp.astype(_np.float32)
         rgb = _np.stack([
@@ -391,6 +407,9 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
             (df * g).astype(_np.uint8),
             (df * b).astype(_np.uint8),
         ], axis=-1).copy()
+    else:
+        disp = (norm * 255).astype(_np.uint8)
+        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
     h, w, _ = rgb.shape
     qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
     pm = QPixmap.fromImage(qimg)
@@ -1223,6 +1242,54 @@ class WellViewerApp(QWidget):
                 nav.setCurrentKey(title)
             finally:
                 self._section_nav_building = False
+        # Record the visit in the tab-history stack so ⌘← / ⌘→ can walk
+        # through it. ``_tab_history_replaying`` is set by the back/forward
+        # shortcuts to suppress appending while they replay an entry.
+        if not title:
+            return
+        if not hasattr(self, "_tab_history"):
+            self._tab_history: list[str] = []
+            self._tab_history_idx: int = -1
+        if getattr(self, "_tab_history_replaying", False):
+            return
+        # Drop any forward entries when the user navigates away from the
+        # middle of the history (standard browser semantics).
+        idx = self._tab_history_idx
+        if idx < len(self._tab_history) - 1:
+            del self._tab_history[idx + 1:]
+        # Avoid logging consecutive duplicates.
+        if self._tab_history and self._tab_history[-1] == title:
+            return
+        self._tab_history.append(title)
+        self._tab_history_idx = len(self._tab_history) - 1
+
+    def _tab_history_back(self) -> None:
+        hist = getattr(self, "_tab_history", None)
+        if not hist:
+            return
+        idx = self._tab_history_idx - 1
+        if idx < 0:
+            return
+        self._tab_history_idx = idx
+        self._tab_history_replaying = True
+        try:
+            self._notebook.setCurrentByName(hist[idx])
+        finally:
+            self._tab_history_replaying = False
+
+    def _tab_history_forward(self) -> None:
+        hist = getattr(self, "_tab_history", None)
+        if not hist:
+            return
+        idx = self._tab_history_idx + 1
+        if idx >= len(hist):
+            return
+        self._tab_history_idx = idx
+        self._tab_history_replaying = True
+        try:
+            self._notebook.setCurrentByName(hist[idx])
+        finally:
+            self._tab_history_replaying = False
 
     # ── Statistics tab ────────────────────────────────────────────────────────
 

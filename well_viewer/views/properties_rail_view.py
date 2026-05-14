@@ -78,11 +78,18 @@ def _bind_to_prefs(app, key: str, getter, setter, change_signal):
 
     _initial()
 
+    # Prefs that only matter at save time — changing them shouldn't trigger
+    # a figure redraw / rescale on the live canvas. Adding ``format`` here
+    # fixes the bug where clicking PNG/SVG/PDF/TIFF re-rendered the plot.
+    _SAVE_ONLY_KEYS = {"format", "export_profile"}
+
     def _on_change(*_args):
         prefs = _ensure_export_style_prefs(app)
         try:
             prefs[key] = getter()
         except Exception:
+            return
+        if key in _SAVE_ONLY_KEYS:
             return
         # Apply to whichever PlotCard is currently visible. Each renderer
         # also has a per-card sidebar that mirrors the same prefs dict;

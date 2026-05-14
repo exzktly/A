@@ -6,6 +6,7 @@ import math
 
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
+NO_DATA_MSG = "Load a results directory to begin.\nUse the Open button at the top-right (⌘O) to pick a folder."
 
 
 def _apply_order(items, saved_order, key):
@@ -76,6 +77,17 @@ def redraw_line_plots(
     app._line_ax_cdf.set_ylim(-0.02, 1.05)
 
     active_rsets = app._rep_sets_active()
+    has_data = bool(getattr(app, "_well_paths", None))
+    if not has_data:
+        for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
+            ax.set_title("")
+            ax.cla()
+            ax.text(0.5, 0.5, NO_DATA_MSG, transform=ax.transAxes,
+                    ha="center", va="center", color=_muted_fg, fontsize=10)
+            ax.set_axis_off()
+        app._line_canvas.draw_idle()
+        app._set_status("No data loaded.")
+        return
     if not selected and not active_rsets:
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
             ax.set_title("")
