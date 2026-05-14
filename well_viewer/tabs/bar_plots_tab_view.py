@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    btn_primary, install_canvas_wheel_scroll, make_band_controls,
+    btn_primary, btn_secondary, install_canvas_wheel_scroll, make_band_controls,
     make_plot_with_right_dock, make_plot_view_switcher)
 
 # The Bar Plots figure: three stacked subplots (mean / fraction / n).
@@ -104,7 +104,11 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("bar"))
     cl.addWidget(style_btn)
 
-    cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data))
+    cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data,
+                             icon="download"))
+    cl.addWidget(btn_secondary(bar_ctrl, "Copy SVG",
+                               lambda: app._copy_active_card_as_svg(),
+                               icon="copy"))
     right_l.addWidget(bar_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────

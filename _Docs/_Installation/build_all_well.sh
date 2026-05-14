@@ -131,9 +131,13 @@ echo "Checking source files ..."
 
 # Determine script directory and repository root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-REPO_ROOT="$( dirname "$SCRIPT_DIR" )"
+# Script lives at _Docs/_Installation/build_all_well.sh — repo root is two
+# directory levels up, not one. Going only ``dirname`` deep made
+# REPO_ROOT == .../_Docs and PyInstaller looked for all_well.py inside
+# _Docs/ instead of the project root.
+REPO_ROOT="$( dirname "$( dirname "$SCRIPT_DIR" )" )"
 
-# Check if files are in repository root (one level up from script)
+# Operate from the actual repo root so all relative paths below resolve.
 cd "$REPO_ROOT" || exit 1
 
 REQUIRED=(
