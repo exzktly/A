@@ -59,6 +59,20 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     app._rep_map_plate = plate
 
     def _commit_plate_to_current(*_a) -> None:
+        # Well-membership edits should only land while the user is on the
+        # GROUPS sub-tab of Sample Definitions. When the user is on Cell
+        # Gating / Well Labels / Ratios / Notes, the Groups plate's
+        # selectionDragFinished can still fire (e.g. from programmatic
+        # refresh ticks) and silently rewrite the current group's
+        # composition — exactly the "wells get reassigned even though I'm
+        # not on the Groups tab" bug. Guard against it here.
+        sub_tabs = getattr(app, "_sample_definitions_subtabs", None)
+        if sub_tabs is not None:
+            try:
+                if sub_tabs.tabText(sub_tabs.currentIndex()) != "Groups":
+                    return
+            except Exception:
+                pass
         sid = getattr(app, "_current_selection_id", None)
         sel = app._sel_by_id(sid) if sid else None
         if sel is None:
