@@ -16,7 +16,7 @@ def wrap_with_empty_state(
     app: Any,
     host: QWidget,
     *,
-    text: str = "Load a results directory to begin.",
+    text: str = "Load a directory.",
     hint: str = "Use the Open button at the top-right (⌘O) to pick a folder.",
     icon: str = "line-chart",
 ) -> QStackedWidget:

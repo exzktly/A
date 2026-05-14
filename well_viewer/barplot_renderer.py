@@ -368,7 +368,7 @@ def redraw_bars(app) -> None:
     if not getattr(app, "_well_paths", None):
         app._draw_bar_empty_state(
             ax_mean, ax_frac,
-            "Load a results directory to begin.\n"
+            "Load a directory.\n"
             "Use the Open button at the top-right (⌘O) to pick a folder.",
             ax_n=ax_n,
         )
