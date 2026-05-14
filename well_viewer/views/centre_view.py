@@ -419,7 +419,7 @@ def build_centre(app, parent: QWidget) -> None:
             the canonical clipboard image, which made Keynote prefer
             it over the PDF slot."""
             import io
-            from PySide6.QtCore import QMimeData
+            from PySide6.QtCore import QByteArray, QMimeData
             from PySide6.QtGui import QGuiApplication
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
@@ -439,13 +439,18 @@ def build_centre(app, parent: QWidget) -> None:
                     md = QMimeData()
                     wrote_any = False
                     svg_bytes: bytes | None = None
-                    # SVG — vector editors.
+                    # SVG — vector editors. Payload MUST be wrapped in
+                    # QByteArray; PySide6's setData silently stores an
+                    # empty slot when handed raw Python bytes, which
+                    # makes destination apps see "image/svg+xml is
+                    # offered" but receive nothing on paste.
                     try:
                         svg_buf = io.BytesIO()
                         fig.savefig(svg_buf, format="svg", bbox_inches="tight")
                         svg_bytes = svg_buf.getvalue()
-                        md.setData("image/svg+xml", svg_bytes)
-                        md.setData("image/svg", svg_bytes)
+                        svg_qba = QByteArray(svg_bytes)
+                        md.setData("image/svg+xml", svg_qba)
+                        md.setData("image/svg", svg_qba)
                         wrote_any = True
                     except Exception:
                         pass
@@ -454,8 +459,9 @@ def build_centre(app, parent: QWidget) -> None:
                     try:
                         pdf_buf = io.BytesIO()
                         fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
-                        md.setData("application/pdf", pdf_buf.getvalue())
-                        md.setData("com.adobe.pdf", pdf_buf.getvalue())
+                        pdf_qba = QByteArray(pdf_buf.getvalue())
+                        md.setData("application/pdf", pdf_qba)
+                        md.setData("com.adobe.pdf", pdf_qba)
                         wrote_any = True
                     except Exception:
                         pass
@@ -468,7 +474,7 @@ def build_centre(app, parent: QWidget) -> None:
                         png_buf = io.BytesIO()
                         fig.savefig(png_buf, format="png",
                                     bbox_inches="tight", dpi=200)
-                        md.setData("image/png", png_buf.getvalue())
+                        md.setData("image/png", QByteArray(png_buf.getvalue()))
                         wrote_any = True
                     except Exception:
                         pass
