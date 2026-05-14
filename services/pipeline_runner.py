@@ -44,7 +44,6 @@ def classify_log_line(line: str) -> str:
 
 _RE_TF_WORKERS = re.compile(r"TF threads/worker\s*:\s*\d+\s+\(workers:\s*(\d+)\s+x")
 _RE_MODE_WELLS = re.compile(r"(?:Zip mode|Flat mode|Folder mode):\s+(\d+)\s+well")
-_RE_WELL_DONE = re.compile(r"Well\s+\S+\s+->\s+\S+\.csv\s+\(\d+\s+rows?\)")
 
 
 class ProgressTracker:
