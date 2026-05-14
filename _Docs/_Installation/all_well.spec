@@ -42,7 +42,21 @@ sibling_scripts = [
     (str(_parent / "analyze_tab.py"),           "."),
     (str(_parent / "process_microscopy_v2.py"), "."),
     (str(_parent / "WellPlateZipper.py"),       "."),
+    (str(_parent / "theme.py"),                 "."),
 ]
+
+# Bundle every first-party package so module imports resolve at runtime
+# inside the PyInstaller _MEIPASS root.
+for _pkg in ("well_viewer", "widgets", "ui", "services"):
+    _pkg_path = _parent / _pkg
+    if _pkg_path.is_dir():
+        sibling_scripts.append((str(_pkg_path), _pkg))
+
+# Bundle the OFL-licensed Inter font set so the Qt application can
+# register Inter at startup without a system-wide install.
+_fonts = _parent / "fonts"
+if _fonts.is_dir():
+    sibling_scripts.append((str(_fonts), "fonts"))
 
 # matplotlib ships fonts, styles, and mpl-data at runtime
 mpl_data = (str(pkg_dir("matplotlib") / "mpl-data"), "matplotlib/mpl-data")
@@ -113,10 +127,13 @@ hiddenimports = [
     "skimage.util",
     "skimage.util.dtype",
 
-    # matplotlib backends
-    "matplotlib.backends.backend_tkagg",
-    "matplotlib.backends._backend_tk",
+    # matplotlib backends — Qt is the runtime backend; keep agg as the
+    # in-memory rasteriser for SVG/PDF/PNG savefig paths.
+    "matplotlib.backends.backend_qtagg",
+    "matplotlib.backends.backend_qt",
     "matplotlib.backends.backend_agg",
+    "matplotlib.backends.backend_svg",
+    "matplotlib.backends.backend_pdf",
     "matplotlib.figure",
     "matplotlib.patches",
     "matplotlib.lines",
@@ -124,10 +141,26 @@ hiddenimports = [
     "matplotlib.axes._axes",
     "matplotlib.axis",
 
-    # PIL / Pillow
+    # PySide6 — the v2 UI runs on Qt6. PyInstaller picks up the visible
+    # widgets via static analysis but the deferred-import paths in
+    # widgets/* and well_viewer/* need explicit hints.
+    "PySide6",
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
+    "PySide6.QtSvg",
+    "shiboken6",
+
+    # pandas — the Review tab and gating pipeline run on DataFrames.
+    "pandas",
+    "pandas.io",
+    "pandas.io.formats",
+    "pandas.io.formats.style",
+
+    # PIL / Pillow — Qt6 path uses ImageQt instead of ImageTk.
     "PIL",
     "PIL.Image",
-    "PIL.ImageTk",
+    "PIL.ImageQt",
     "PIL.ImageOps",
     "PIL.TiffImagePlugin",
     "PIL.PngImagePlugin",
@@ -139,12 +172,6 @@ hiddenimports = [
 
     # imagecodecs — optional but prevents codec errors on compressed TIFFs
     "imagecodecs",
-
-    # tkinter
-    "tkinter",
-    "tkinter.ttk",
-    "tkinter.filedialog",
-    "tkinter.messagebox",
 
     # standard library PyInstaller sometimes misses
     "zipfile",
@@ -297,13 +324,18 @@ a = Analysis(
         "IPython",
         "jupyter",
         "notebook",
-        "pandas",
         "PyQt5",
         "PyQt6",
         "PySide2",
-        "PySide6",
         "wx",
         "gtk",
+        # v2 UI uses Qt; the tkinter integration is gone.
+        "tkinter",
+        "tkinter.ttk",
+        "tkinter.filedialog",
+        "tkinter.messagebox",
+        "matplotlib.backends.backend_tkagg",
+        "matplotlib.backends._backend_tk",
         # Dead/moved skimage submodule — raises ModuleNotFoundError on import
         "skimage.future.graph",
         # keras benchmark module has syntax errors and is never used at runtime
@@ -361,17 +393,18 @@ app = BUNDLE(   # noqa: F821
     name="AllWell.app",
     icon=None,           # replace with "all_well_icon.icns" if you have one
     bundle_identifier="com.allwell.app",
-    version="1.0.0",
+    version="2.4.2",
     info_plist={
         "NSHighResolutionCapable": True,
         "NSAppleEventsUsageDescription":
             "AllWell needs access to open microscopy data files.",
-        "CFBundleShortVersionString": "1.0",
-        "CFBundleVersion": "1.0.0",
+        "CFBundleShortVersionString": "2.4.2",
+        "CFBundleVersion": "2.4.2",
         "CFBundleName": "AllWell",
         "CFBundleDisplayName": "All Well",
         "CFBundleExecutable": "AllWell",
-        "LSMinimumSystemVersion": "10.13",
+        # PySide6 / Qt6 requires macOS 10.15+.
+        "LSMinimumSystemVersion": "10.15",
         "NSPrincipalClass": "NSApplication",
         "NSRequiresAquaSystemAppearance": False,  # support dark mode
     },

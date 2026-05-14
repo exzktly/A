@@ -410,16 +410,16 @@ def build_centre(app, parent: QWidget) -> None:
         app._plot_edit_axes = _edit_axes
 
         def _copy_svg() -> None:
-            """Serialise the active card's matplotlib figure to multiple
-            vector formats and put them on the clipboard so the user can
-            paste into Affinity / Illustrator / Figma (SVG), Keynote /
-            Pages / Preview (PDF), or anywhere a raster image is wanted
-            (PNG fallback). Previously this only set the SVG bytes as
-            plain text, which is why Keynote rendered the paste as a
-            text block."""
+            """Copy the active card's matplotlib figure as a vector
+            graphic in publication mode. SVG + PDF only — *no* PNG /
+            image-data is set, otherwise macOS / Keynote pick the
+            raster slot over the vector slot and the paste lands as a
+            PNG. The card is temporarily flipped to publication theme
+            (white bg / CPub ink) for the savefig and restored
+            afterwards so the on-screen render isn't affected."""
             import io
             from PySide6.QtCore import QMimeData
-            from PySide6.QtGui import QGuiApplication, QImage
+            from PySide6.QtGui import QGuiApplication
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
                 card = getattr(app, attr, None)
@@ -431,44 +431,42 @@ def build_centre(app, parent: QWidget) -> None:
                     fig = getattr(canvas, "figure", None)
                 if fig is None:
                     return
-                md = QMimeData()
-                wrote_any = False
-                # SVG — vector editors.
+                prev_theme = getattr(card, "_plot_theme", "screen")
                 try:
-                    svg_buf = io.BytesIO()
-                    fig.savefig(svg_buf, format="svg", bbox_inches="tight")
-                    md.setData("image/svg+xml", svg_buf.getvalue())
-                    wrote_any = True
-                except Exception:
-                    pass
-                # PDF — what Keynote / Pages / Preview paste as a vector
-                # graphic. Both the cross-platform MIME and Apple's UTI
-                # are set so macOS pasteboard owners pick it up.
-                try:
-                    pdf_buf = io.BytesIO()
-                    fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
-                    md.setData("application/pdf", pdf_buf.getvalue())
-                    md.setData("com.adobe.pdf", pdf_buf.getvalue())
-                    wrote_any = True
-                except Exception:
-                    pass
-                # PNG — universal raster fallback. Setting an image on
-                # the QMimeData also lets non-pasting consumers (Slack,
-                # email, browsers) accept the figure.
-                try:
-                    png_buf = io.BytesIO()
-                    fig.savefig(png_buf, format="png", bbox_inches="tight", dpi=200)
-                    img = QImage.fromData(png_buf.getvalue(), "PNG")
-                    if not img.isNull():
-                        md.setImageData(img)
+                    if hasattr(card, "setPlotTheme") and prev_theme != "publication":
+                        card.setPlotTheme("publication")
+                    md = QMimeData()
+                    wrote_any = False
+                    # SVG — vector editors.
+                    try:
+                        svg_buf = io.BytesIO()
+                        fig.savefig(svg_buf, format="svg", bbox_inches="tight")
+                        md.setData("image/svg+xml", svg_buf.getvalue())
                         wrote_any = True
-                except Exception:
-                    pass
-                if not wrote_any:
-                    return
-                QGuiApplication.clipboard().setMimeData(md)
+                    except Exception:
+                        pass
+                    # PDF — what Keynote / Pages / Preview paste as a
+                    # vector graphic. Cross-platform MIME + Apple UTI.
+                    try:
+                        pdf_buf = io.BytesIO()
+                        fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
+                        md.setData("application/pdf", pdf_buf.getvalue())
+                        md.setData("com.adobe.pdf", pdf_buf.getvalue())
+                        wrote_any = True
+                    except Exception:
+                        pass
+                    if not wrote_any:
+                        return
+                    QGuiApplication.clipboard().setMimeData(md)
+                finally:
+                    if (hasattr(card, "setPlotTheme")
+                            and getattr(card, "_plot_theme", "screen") != prev_theme):
+                        try:
+                            card.setPlotTheme(prev_theme)
+                        except Exception:
+                            pass
                 if hasattr(app, "_set_status"):
-                    app._set_status("Copied figure to clipboard (SVG + PDF + PNG).")
+                    app._set_status("Copied figure to clipboard (SVG + PDF, publication).")
                 return
         export_btn.clicked.connect(_copy_svg)
 
