@@ -104,10 +104,12 @@ class Typography:
     # the alias-scan cost on every startup. ``sans-serif`` / ``monospace``
     # are the only generic keywords Qt resolves without an alias walk,
     # so we lead with those; the platform default font ultimately wins.
-    # ``Inter`` is bundled in ./fonts and loaded by ``all_well._load_bundled_fonts``.
-    # Lead with it; the platform default falls back when the font registry
-    # hasn't been populated yet (test harnesses, gallery probes).
-    family      = "Inter, sans-serif"
+    # Default starts as ``sans-serif`` (the platform default font, which
+    # Qt resolves without an alias walk). ``all_well.main`` swaps this in
+    # place to ``"Inter"`` once the bundled OTFs register successfully
+    # — keeping the QSS font-family token a single name avoids Qt's
+    # ``Populating font family aliases`` warning.
+    family      = "sans-serif"
     family_mono = "monospace"
 
     # font sizes (px) — §2.2

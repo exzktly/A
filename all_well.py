@@ -863,22 +863,38 @@ class AllWellApp(QMainWindow):
         self.threshold_changed.emit(self._cell_threshold)
 
 
-def _load_bundled_fonts() -> None:
+def _load_bundled_fonts() -> bool:
     """Register every font file in ``fonts/`` with QFontDatabase so the
     bundled Inter family is available without a system-wide install. The
     OFL-licensed Inter sources live alongside this module under ``fonts/``
-    (see ``fonts/LICENSE.txt``)."""
+    (see ``fonts/LICENSE.txt``).
+
+    Returns True when at least one face registered as a family containing
+    the substring ``"Inter"`` — callers use that to decide whether the
+    Qt stylesheet can reference the family without triggering the
+    ``Populating font family aliases`` warning.
+    """
     from PySide6.QtGui import QFontDatabase
     fonts_dir = Path(__file__).resolve().parent / "fonts"
     if not fonts_dir.is_dir():
-        return
+        return False
+    registered = False
     for path in sorted(fonts_dir.iterdir()):
         if path.suffix.lower() not in (".ttf", ".otf"):
             continue
         try:
-            QFontDatabase.addApplicationFont(str(path))
+            fid = QFontDatabase.addApplicationFont(str(path))
+        except Exception:
+            continue
+        if fid < 0:
+            continue
+        try:
+            for fam in QFontDatabase.applicationFontFamilies(fid):
+                if "inter" in str(fam).lower():
+                    registered = True
         except Exception:
             pass
+    return registered
 
 
 def _install_combobox_popup_widener() -> None:
@@ -929,8 +945,22 @@ def main() -> None:
     args = ap.parse_args()
 
     app = QApplication.instance() or QApplication(sys.argv)
-    _load_bundled_fonts()
+    _have_inter = _load_bundled_fonts()
     _install_combobox_popup_widener()
+    if _have_inter:
+        # Set the application-wide default font BEFORE applying QSS so
+        # widgets that don't restate font-family inherit Inter. Qt's QSS
+        # parser walks comma-separated font-family lists and emits a
+        # "Populating font family aliases" warning even for resolvable
+        # names — make every theme.Typography.family value resolvable
+        # by patching the shared theme module to the single string
+        # "Inter" once the family is registered.
+        from PySide6.QtGui import QFont
+        app.setFont(QFont("Inter"))
+        try:
+            theme_v2.Typography.family = "Inter"
+        except Exception:
+            pass
     app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()
