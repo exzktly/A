@@ -660,7 +660,31 @@ class _PlateGrid(QWidget):
         p.setPen(QPen(with_alpha("#FFFFFF", 0.30), max(1.0, wr.width() * 0.06)))
         p.drawArc(hl, 20 * 16, 140 * 16)
 
-    def _paint_depressed(self, p: QPainter, wr: QRectF, hovered: bool) -> None:
+    @staticmethod
+    def _mix_with_rail(tint: QColor, t: float = 0.30) -> QColor:
+        """Blend *tint* with the ``rail`` token at ``t`` (0..1).
+
+        ``t = 0`` returns pure rail (= the plain depressed look),
+        ``t = 1`` returns the pure group colour. We use a low value so
+        the recessed look stays dominant and the colour reads as a
+        muted hint of the group rather than the full saturation.
+        """
+        c = theme.Colors
+        rail = QColor(c.rail)
+        try:
+            tr, tg, tb, _ = tint.getRgb()
+        except Exception:
+            return rail
+        rr, rg, rb, _ = rail.getRgb()
+        t = max(0.0, min(1.0, float(t)))
+        return QColor(
+            int(round(rr * (1 - t) + tr * t)),
+            int(round(rg * (1 - t) + tg * t)),
+            int(round(rb * (1 - t) + tb * t)),
+        )
+
+    def _paint_depressed(self, p: QPainter, wr: QRectF, hovered: bool,
+                         tint: QColor | None = None) -> None:
         """Paint an unselected well so it reads as a *recessed* circle.
 
         Uses the classic CSS ``inset`` box-shadow look:
@@ -670,12 +694,23 @@ class _PlateGrid(QWidget):
         and an inner shadow arc reinforces the dark band at the top.
         Selected / coloured wells still go through ``_paint_lit`` for the
         raised sphere look.
+
+        When ``tint`` is supplied (the well belongs to a group but isn't
+        the active selection), the recessed fill is rebased on a muted
+        blend of the group colour with ``rail`` so the well still hints
+        at its group membership.
         """
         c = theme.Colors
         # Wells sit on the ``panel_elevated`` plate surface; the recessed
         # fill needs to be visibly darker so the eye reads it as below
-        # that surface. Use the app's deepest token (``rail``).
-        base = QColor(c.rail)
+        # that surface. Default base is the app's deepest token
+        # (``rail``); when a group ``tint`` is provided we blend it with
+        # rail so the recess keeps its sunken feel but reads as
+        # group-coloured.
+        if tint is None:
+            base = QColor(c.rail)
+        else:
+            base = self._mix_with_rail(QColor(tint), 0.30)
         grad = QLinearGradient(wr.topLeft(), wr.bottomLeft())
         grad.setColorAt(0.0, base.darker(165))
         grad.setColorAt(0.55, base.darker(115))
@@ -753,11 +788,24 @@ class _PlateGrid(QWidget):
                     self._hover_cell == key
                     or (self._rc_selectable and (self._hover_row == ri or self._hover_col == ci))
                 )
-                base = self._colors.get(key)
-                if base is None and key in self._selected:
-                    base = QColor(traces[self._selected[key] % len(traces)])
-                if base is not None:
+                group_color = self._colors.get(key)
+                in_selection = key in self._selected
+                # Three visual states:
+                #   • selected (with or without a group colour) → raised
+                #     ``_paint_lit`` using the group colour when set,
+                #     otherwise the rank-cycled trace colour.
+                #   • group-coloured but not in the active selection →
+                #     recessed ``_paint_depressed`` with a muted blend of
+                #     the group colour so the well still hints at its
+                #     membership.
+                #   • neither → the default recessed look.
+                if in_selection:
+                    base = group_color if group_color is not None else QColor(
+                        traces[self._selected[key] % len(traces)]
+                    )
                     self._paint_lit(p, wr, base, hovered)
+                elif group_color is not None:
+                    self._paint_depressed(p, wr, hovered, tint=group_color)
                 else:
                     self._paint_depressed(p, wr, hovered)
 
