@@ -147,8 +147,11 @@ class AllWellApp(QMainWindow):
         hl.addWidget(self._present_btn)
 
         self._open_btn = IconButton("home")
-        self._open_btn.setToolTip("Open results directory…")
-        self._open_btn.clicked.connect(self._open_dataset)
+        self._open_btn.setToolTip(
+            "Reveal the current dataset's folder in your file manager "
+            "(use ⌘O to load a different dataset)."
+        )
+        self._open_btn.clicked.connect(self._reveal_dataset_in_file_manager)
         hl.addWidget(self._open_btn)
         self._help_btn = IconButton("info")
         self._help_btn.setToolTip("Open the help drawer")
@@ -156,18 +159,11 @@ class AllWellApp(QMainWindow):
         hl.addWidget(self._help_btn)
         self._help_drawer = None  # built lazily on first open
 
-        # Phase 10 (B23 / Q1): rail-collapse toggle for the Properties rail.
-        # Glyph flips between panel-right-close (expanded) and panel-right-open
-        # (collapsed) per the v2 mockup. Wired below to a CollapsibleRail
-        # overlay mounted on the central widget.
-        # Phase 13/14 polish — Properties rail is hidden by default; the
-        # glyph starts in the "open it" state and flips after the user
-        # toggles. We also initialise via _on_rail_collapsed_changed below
-        # once the rail itself is constructed.
-        self._rail_toggle_btn = IconButton("panel-right-open")
-        self._rail_toggle_btn.setToolTip("Show the Properties rail")
-        self._rail_toggle_btn.clicked.connect(self._on_rail_toggle_clicked)
-        hl.addWidget(self._rail_toggle_btn)
+        # The titlebar rail-toggle IconButton was retired — redundant with
+        # the CollapsibleRail's own edge-handle on the right of the canvas,
+        # which is always visible whether the rail is open or collapsed.
+        # ``_on_rail_collapsed_changed`` still gets called and is safe with
+        # the attribute absent (the helpers ``getattr``-guard it).
 
         rl.addWidget(header)
 
@@ -664,6 +660,42 @@ class AllWellApp(QMainWindow):
         self._nb.setCurrentIndex(0)
         if self._review is not None:
             QTimer.singleShot(50, lambda: self._review._load_path(Path(d)))
+
+    def _reveal_dataset_in_file_manager(self) -> None:
+        """Reveal the currently-loaded dataset's folder in the host file
+        manager (Finder on macOS, Explorer on Windows, the default file
+        manager via ``xdg-open`` on Linux). Falls back to the standard
+        Open-directory dialog when no dataset is loaded yet."""
+        review = getattr(self, "_review", None)
+        cur = getattr(review, "_loaded_path", None) if review is not None else None
+        if cur is None or not Path(cur).exists():
+            # Nothing loaded — fall through to the "load a dataset" path so
+            # the button still does something useful on a cold start.
+            self._open_dataset()
+            return
+        path = str(Path(cur))
+        try:
+            if sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", "-R", path])
+            elif sys.platform.startswith("win"):
+                import subprocess
+                subprocess.Popen(["explorer", "/select,", path])
+            else:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+                # ``xdg-open`` doesn't have a generic "reveal/select" mode;
+                # open the containing folder so the user can spot the item.
+                target = path if Path(path).is_dir() else str(Path(path).parent)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(target))
+        except Exception:
+            # Last-resort fallback — open the folder in Qt's default way.
+            try:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+                QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            except Exception:
+                pass
 
     def _on_tab_change(self, idx: int) -> None:
         if self._review is None:

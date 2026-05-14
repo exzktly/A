@@ -47,10 +47,15 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     # The plate is the only widget in this sidebar now — give it room to
     # expand vertically with the column. heightForWidth keeps the aspect.
     plate.setMinimumHeight(280)
-    sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.MinimumExpanding)
+    # Preferred (not MinimumExpanding) so the plate hugs its hint size and a
+    # trailing addStretch absorbs leftover vertical space. Matches the main
+    # sidebar plate's policy — without this the plate drifts down with the
+    # sidebar's available height instead of staying pinned to the top.
+    sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
     sp.setHeightForWidth(True)
     plate.setSizePolicy(sp)
-    layout.addWidget(plate, 1)
+    layout.addWidget(plate, 0)
+    layout.addStretch(1)
     app._rep_map_plate = plate
 
     def _commit_plate_to_current(*_a) -> None:
