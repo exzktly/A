@@ -78,10 +78,19 @@ def redraw_line_plots(
 
     active_rsets = app._rep_sets_active()
     has_data = bool(getattr(app, "_well_paths", None))
+    # Empty-state warning needs to honour Screen mode so the text isn't
+    # painted against a default white matplotlib figure when the rest of
+    # the app is dark. Force the figure + axes facecolor to the theme bg
+    # before drawing the message.
     if not has_data:
+        try:
+            app._line_fig.set_facecolor(_bg)
+        except Exception:
+            pass
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
             ax.set_title("")
             ax.cla()
+            ax.set_facecolor(_bg)
             ax.text(0.5, 0.5, NO_DATA_MSG, transform=ax.transAxes,
                     ha="center", va="center", color=_muted_fg, fontsize=10)
             ax.set_axis_off()
@@ -89,8 +98,13 @@ def redraw_line_plots(
         app._set_status("No data loaded.")
         return
     if not selected and not active_rsets:
+        try:
+            app._line_fig.set_facecolor(_bg)
+        except Exception:
+            pass
         for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
             ax.set_title("")
+            ax.set_facecolor(_bg)
             ax.text(0.5, 0.5, NO_SELECTION_MSG, transform=ax.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
             ax.set_axis_off()
         app._line_canvas.draw_idle()
