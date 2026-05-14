@@ -1072,8 +1072,14 @@ class WellViewerApp(QWidget):
         # the new Statistics section per Q4 / DESIGN_NOTES §6.2).
         from well_viewer.views.properties_rail_view import (
             build_properties_rail_view as _build_props_rail,
+            set_properties_rail_scope as _set_props_scope,
         )
         self._properties_rail.setContentWidget(_build_props_rail(self, self._properties_rail))
+        # Seed scope segments for the initial sub-tab (Line Graphs by default).
+        try:
+            _set_props_scope(self, "Line Graphs")
+        except Exception:
+            pass
         # Wire the head's collapse IconButton to the rail's own toggle so
         # the user can dismiss from inside the rail too (the titlebar
         # toggle is mirrored — both work).
@@ -1918,7 +1924,11 @@ class WellViewerApp(QWidget):
 
     def _sel_strip_wells(self, wells, *, keep_id=None) -> None:
         """A well belongs to ≤1 group: remove ``wells`` from every selection but
-        ``keep_id``, pruning their replicates to the survivors."""
+        ``keep_id``, pruning their replicates to the survivors. Also drop the
+        same wells from ``self._selected_wells`` so the plotting tabs don't
+        keep treating them as solo wells once they've joined a group (the
+        sidebar plate becomes passive in rep_mode and the user can't update
+        the set themselves)."""
         from well_viewer.selections_model import _deoverlap_replicates
         wset = set(wells or [])
         if not wset:
@@ -1930,6 +1940,8 @@ class WellViewerApp(QWidget):
             if nw != s.get("wells"):
                 s["wells"] = nw
                 s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(nw))
+        if wset & self._selected_wells:
+            self._selected_wells = self._selected_wells - wset
 
     def _sel_add(self, name=None, wells=None, replicates=None, source="user",
                  *, make_current=True):

@@ -134,43 +134,10 @@ def redraw_line_plots(
                 n = len(fluor_s)
                 app._line_ax_cdf.plot(fluor_s, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{lbl_str} (n={n:,})", zorder=3)
                 any_cdf = True
-
-        # Solo wells: in the user's selection but not assigned to any active
-        # rep set. Yield them alongside the group curves so the legend (and
-        # the saved-selections eye toggle) covers every visible well.
-        in_set: set = set()
-        for rset in ordered_rsets:
-            for w in rset.wells:
-                if w in app._well_paths:
-                    in_set.add(w)
-        solo_wells = sorted(w for w in selected if w in app._well_paths and w not in in_set)
-        if solo_wells:
-            cell_area_threshold_solo = app._get_cell_area_threshold()
-            fluor_gates_solo = app._get_all_fluor_gates()
-            per_fov_spread_solo = app._use_fov_spread_active()
-            for label in solo_wells:
-                color = app._rank_color_well(label)
-                rows = app._get_rows(label)
-                disp = app._well_display_label(label)
-                pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold_solo, fluor_gates=fluor_gates_solo, per_fov_spread=per_fov_spread_solo)
-                if pts:
-                    times, means, spreads, fracs, *_ = zip(*pts)
-                    vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
-                    if vm:
-                        vt, vmm, vs = zip(*vm)
-                        app._line_ax_mean.plot(vt, vmm, color=color, lw=2, marker="o", markersize=4, label=disp, zorder=3)
-                        app._line_ax_mean.fill_between(vt, [m - s for m, s in zip(vmm, vs)], [m + s for m, s in zip(vmm, vs)], color=color, alpha=0.15, zorder=2)
-                    vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
-                    if vf:
-                        vt2, vf2 = zip(*vf)
-                        app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=disp, zorder=3)
-                        app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
-                    any_ts = True
-                vals = sorted(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold_solo, fluor_gates=fluor_gates_solo, ratios=getattr(app, "_ratio_index", None)))
-                if vals:
-                    n = len(vals)
-                    app._line_ax_cdf.plot(vals, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{disp} (n={n:,})", zorder=3)
-                    any_cdf = True
+        # The earlier "solo wells alongside groups" path (PR 152) was
+        # reverted: stale ``_selected_wells`` from before group creation
+        # was surfacing as a phantom A01 trace whenever the plate was in
+        # passive rep_mode.
     else:
         cell_area_threshold = app._get_cell_area_threshold()
         fluor_gates = app._get_all_fluor_gates()
