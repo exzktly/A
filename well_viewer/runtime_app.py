@@ -3364,7 +3364,23 @@ class WellViewerApp(QWidget):
                           if n_vis else "No wells selected"))
         if hasattr(self, "_sel_count_chip"):
             total = len(self._well_paths) if hasattr(self, "_well_paths") else 96
-            self._sel_count_chip.setText(f"{n_vis} / {total or 96}")
+            if rep_mode:
+                # Count *wells* across every visible group + active solo
+                # well, not groups. Earlier we showed group count here,
+                # which read as "1 / 96" for a group with 4 members.
+                active_wells: set = set()
+                for s in self._selections:
+                    if s.get("hidden"):
+                        continue
+                    for w in (s.get("wells") or []):
+                        if w in self._well_paths:
+                            active_wells.add(w)
+                for w in (getattr(self, "_active_solo_wells", set()) or set()):
+                    if w in self._well_paths:
+                        active_wells.add(w)
+                self._sel_count_chip.setText(f"{len(active_wells)} / {total or 96}")
+            else:
+                self._sel_count_chip.setText(f"{n_vis} / {total or 96}")
         if hasattr(self, "_line_group_hint"):
             if rep_mode:
                 self._line_group_hint.setText("Click a well to toggle its set's visibility on the plot.")
