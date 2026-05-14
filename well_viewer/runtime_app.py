@@ -3447,6 +3447,14 @@ class WellViewerApp(QWidget):
                 panel.refresh_from_app()
             except Exception:
                 pass
+        # Cell Gating shows one row per fluor channel + one per ratio. Pull
+        # the ratio rows into the table whenever the ratio set changes.
+        if hasattr(self, "_cell_gating_area_edit"):
+            try:
+                from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+                cell_gating_load_cell_areas(self)
+            except Exception:
+                pass
 
     # ── Active channel ───────────────────────────────────────────────────────
 

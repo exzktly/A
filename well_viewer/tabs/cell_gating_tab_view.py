@@ -371,20 +371,34 @@ def _cell_gating_build_channel_controls(app) -> None:
         if w is not None:
             w.deleteLater()
 
-    channels = app._fluor_channels
-    if not channels:
+    channels = list(app._fluor_channels)
+    # Ratios show up as virtual channels in the plot dropdowns; surface
+    # them here too so the user can give each ratio a FluorGating /
+    # ThreshFracOn entry. They're keyed by ``ratio.key()`` (e.g.
+    # ``ratio:gfp_over_mcherry``) in the edits dicts, distinct from the
+    # plain fluor channel keys.
+    ratios = list(getattr(app, "_ratio_metrics", []) or [])
+    row_specs: list[tuple[str, str]] = [(ch, ch.upper() + " Channel:") for ch in channels]
+    for r in ratios:
+        try:
+            label = app._ratio_label_for(r)
+        except Exception:
+            label = r.name
+        row_specs.append((r.key(), f"{label} (ratio):"))
+
+    if not row_specs:
         lbl = QLabel("No channels loaded", app._cell_gating_inner)
         lbl.setObjectName("Muted")
         inner_layout.addWidget(lbl)
         return
 
-    for channel in channels:
+    for channel, row_label in row_specs:
         ch_row = QWidget(app._cell_gating_inner)
         rl = QHBoxLayout(ch_row)
         rl.setContentsMargins(0, 0, 0, 0)
 
-        ch_lbl = QLabel(f"{channel.upper()} Channel:", ch_row)
-        ch_lbl.setFixedWidth(140)
+        ch_lbl = QLabel(row_label, ch_row)
+        ch_lbl.setFixedWidth(160)
         rl.addWidget(ch_lbl)
 
         rl.addWidget(QLabel("FluorGating:", ch_row))

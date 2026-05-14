@@ -103,8 +103,13 @@ class AllWellApp(QMainWindow):
         hl.addWidget(self._version_pill)
 
         hl.addSpacing(theme_v2.Spacing.md)
+        # Titlebar StatusDot retired — the bottom statusbar's StatusDot
+        # (rendered bottom-left of the window) is now the single source of
+        # dataset-load truth. _update_dataset_chip writes to it directly.
+        # Kept as a hidden widget so any caller that still pokes at
+        # _dataset_status doesn't AttributeError.
         self._dataset_status = StatusDot("neutral")
-        hl.addWidget(self._dataset_status)
+        self._dataset_status.hide()
         # Mode segmented control (Review / Analyze) lives in the titlebar
         # strip where the redundant dataset chip used to sit. The dataset
         # name is set on the OS window title instead.
@@ -190,6 +195,17 @@ class AllWellApp(QMainWindow):
         self._nb.currentChanged.connect(self._on_tab_change)
         self._review.modeChanged.connect(self._on_review_mode_changed)
         self._wrap_review_load_path()
+
+        # The directory-name label that used to live in WellViewerApp's
+        # topbar is hidden; its slot now hosts the Review / Analyze
+        # SegmentedControl (re-parented out of the outer header).
+        try:
+            self._review._dir_label.hide()
+        except Exception:
+            pass
+        review_topbar = getattr(self._review, "_top_bar", None)
+        if review_topbar is not None and review_topbar.layout() is not None:
+            review_topbar.layout().insertWidget(0, self._mode_seg)
 
         self._analyze = AnalyzeTab(
             parent=None,
@@ -406,6 +422,8 @@ class AllWellApp(QMainWindow):
         """
         if path is None:
             self._dataset_status.setStatus("neutral")
+            if hasattr(self, "_status_dot"):
+                self._status_dot.setStatus("neutral")
             self.setWindowTitle("All-Well")
             if hasattr(self, "_status_lbl_app"):
                 self._status_lbl_app.setText("Ready.")
@@ -435,6 +453,8 @@ class AllWellApp(QMainWindow):
         # exactly where the in-titlebar chip used to be redundant with.
         self.setWindowTitle(f"All-Well — {name}{tail}")
         self._dataset_status.setStatus("success")
+        if hasattr(self, "_status_dot"):
+            self._status_dot.setStatus("success")
         if hasattr(self, "_status_lbl_app"):
             self._status_lbl_app.setText(f"Loaded: {name}{tail}")
 
@@ -516,12 +536,9 @@ class AllWellApp(QMainWindow):
                 seg.setCurrentIndex(idx)
             finally:
                 seg.blockSignals(blocked)
-        try:
-            dot = getattr(self, "_status_dot", None)
-            if dot is not None:
-                dot.setStatus("success" if mode == "review" else "warn")
-        except Exception:
-            pass
+        # Status dot now reflects dataset state (set by _update_dataset_chip),
+        # not the Review/Analyze mode toggle — that's already shown by the
+        # SegmentedControl itself.
 
     def _on_refresh_clicked(self) -> None:
         # Re-load the active dataset (Review's _load_path is the canonical

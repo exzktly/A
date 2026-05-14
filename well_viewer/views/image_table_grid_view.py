@@ -102,7 +102,7 @@ def build_image_table_grid(
         # name back to the per-row (r,g,b) tint via LUT_COLORS.
         from widgets.lut_selector import LutSelector as _LutSelector
         row_color_cb = _LutSelector(row_box)
-        _initial = lut_color_names[0] if lut_color_names else "gray"
+        _initial = lut_color_names[0] if lut_color_names else "Greys"
         if r < len(prev_lut_cbs):
             prev = prev_lut_cbs[r]
             prev_name = prev.lut() if hasattr(prev, "lut") else prev.currentText()
@@ -110,8 +110,9 @@ def build_image_table_grid(
                 _initial = prev_name
         row_color_cb.setLut(_initial, reversed=False)
         rbl.addWidget(row_color_cb)
-        # Intentionally no auto-redraw: image-table renders are expensive, so
-        # LUT-colour changes wait for the user to press Generate.
+        # ``lutChanged`` is wired by image_table_controller.image_table_rebuild_grid
+        # to ``image_table_generate`` so the rendered thumbnails re-tint as soon
+        # as the user picks a new colormap.
 
         layout.addWidget(row_box, r, 0)
         row_chan_cbs.append(row_chan_cb)

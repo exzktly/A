@@ -36,13 +36,37 @@ LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
     # gradient strip) can drive the picker. The value is the single (r,g,b)
     # tint applied to the grayscale fluorescence image for thumbnails; the
     # exported figure still uses a real cmap via _row_export_cmap.
-    "gray":    None,
+    "Greys":   None,
     "Reds":    (1.0, 0.0, 0.0),
     "Greens":  (0.0, 1.0, 0.0),
     "Blues":   (0.0, 0.0, 1.0),
     "Purples": (0.56, 0.0, 1.0),
+    "Oranges": (1.0, 0.55, 0.0),
 }
 LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
+
+
+def _tint_from_colormap(name: str) -> Optional[Tuple[float, float, float]]:
+    """Derive an (r, g, b) tint by sampling the colormap's high end.
+
+    Used as a fallback when the user picks an mpl colormap that isn't in our
+    explicit ``LUT_COLORS`` table (e.g. ``viridis`` / ``magma`` / ``coolwarm``).
+    Returns ``None`` if the colormap can't be loaded so the thumbnail falls
+    back to grayscale rather than crashing.
+    """
+    try:
+        from matplotlib import colormaps as _mpl_cmaps
+    except Exception:
+        return None
+    try:
+        cmap = _mpl_cmaps[name]
+    except (KeyError, ValueError):
+        return None
+    try:
+        r, g, b, _a = cmap(0.85)
+    except Exception:
+        return None
+    return (float(r), float(g), float(b))
 
 
 # ── Virtual "Nuc+Seg" channel ───────────────────────────────────────────────
@@ -340,11 +364,32 @@ def image_table_rebuild_grid(app) -> None:
                 lambda _i, a=app: image_table_rebuild_lut_row(a)
             )
 
+    # Re-render thumbnails whenever the user picks a different LUT colour.
+    # The LutSelector emits ``lutChanged(name, reversed)`` on change; legacy
+    # QComboBox fallbacks emit ``currentIndexChanged(int)``.
+    for cb in row_lut_color_cbs:
+        if cb is None:
+            continue
+        sig = getattr(cb, "lutChanged", None)
+        if sig is not None and hasattr(sig, "connect"):
+            sig.connect(lambda _n, _rv, a=app: image_table_generate(a))
+        else:
+            cb.currentIndexChanged.connect(
+                lambda _i, a=app: image_table_generate(a)
+            )
+
     image_table_rebuild_lut_row(app)
 
 
 def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
-    """Return the (r, g, b) tint for row *r*, or None for grayscale."""
+    """Return the (r, g, b) tint for row *r*, or None for grayscale.
+
+    The LutSelector knows the full mpl colormap catalogue (viridis / magma /
+    coolwarm / …), so when the user picks a name outside our explicit
+    ``LUT_COLORS`` table we sample the colormap's high-end colour to derive
+    a tint. ``"Greys"`` (and any LUT we explicitly mapped to ``None``) keeps
+    the untinted grayscale fast path.
+    """
     cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
     if not (0 <= r < len(cbs)):
         return None
@@ -355,7 +400,11 @@ def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
         name = (cb.lut() or "").strip()
     else:
         name = cb.currentText().strip()
-    return LUT_COLORS.get(name)
+    if not name:
+        return None
+    if name in LUT_COLORS:
+        return LUT_COLORS[name]
+    return _tint_from_colormap(name)
 
 
 def _row_export_cmap(app, r: int):
