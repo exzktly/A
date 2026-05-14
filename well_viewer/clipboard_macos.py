@@ -23,29 +23,27 @@ import sys
 # diagnostic without piping a tuple through every call site.
 last_failure_reason: str = ""
 
-# Hardcoded UTIs (the constants ``NSPasteboardTypePDF`` /
-# ``NSPasteboardTypePNG`` aren't exposed by every PyObjC release, so
-# we use the canonical UTI strings directly — they're stable Apple
-# identifiers, unchanged since macOS 10.6).
+# Hardcoded UTI. ``NSPasteboardTypePDF`` isn't exposed by every PyObjC
+# release, so we use the canonical UTI string directly — it's a stable
+# Apple identifier, unchanged since macOS 10.6.
 _UTI_PDF = "com.adobe.pdf"
-_UTI_PNG = "public.png"
 
 
-def write_vector_pdf_pasteboard(
-    *,
-    pdf_bytes: bytes,
-    png_bytes: bytes | None = None,
-) -> bool:
-    """Write a PDF (and optional PNG fallback) to the macOS pasteboard.
+def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
+    """Write a PDF to the macOS pasteboard under ``com.adobe.pdf``.
 
     Returns ``True`` when the pasteboard was written, ``False`` when
     the platform isn't macOS, PyObjC isn't importable, or the write
-    itself failed. The PDF slot uses ``com.adobe.pdf`` (the canonical
-    vector-paste UTI iWork / Preview honour); the optional PNG slot
-    uses ``public.png`` for raster-only consumers (Slack, Mail).
-    ``declareTypes_owner_`` puts PDF first so ``NSImage``-based paste
-    targets (Keynote, Pages) read the vector slot instead of the
-    raster fallback.
+    itself failed.
+
+    Deliberately writes *only* the PDF slot. Keynote (and probably
+    Pages) reads ``public.png`` ahead of ``com.adobe.pdf`` when both
+    are present on the pasteboard — even with ``declareTypes:owner:``
+    putting PDF first — so a raster fallback in the same write would
+    silently win in iWork and you'd get a PNG paste instead of vector.
+    Raster-only consumers (Slack, Mail, Linux Qt clipboard) are
+    handled by the QMimeData fallback in callers; the native path is
+    reserved for vector-aware targets.
     """
     global last_failure_reason
     last_failure_reason = ""
@@ -61,23 +59,16 @@ def write_vector_pdf_pasteboard(
         from Foundation import NSData
     except Exception as exc:
         last_failure_reason = (
-            "PyObjC not installed — `pip install pyobjc-framework-Cocoa` "
-            f"({exc.__class__.__name__})"
+            "PyObjC framework not installed — "
+            "`pip install pyobjc-framework-Cocoa` "
+            f"({exc.__class__.__name__}: {exc})"
         )
         return False
 
     pb = NSPasteboard.generalPasteboard()
     pb.clearContents()
-    types = [_UTI_PDF]
-    if png_bytes:
-        types.append(_UTI_PNG)
-    pb.declareTypes_owner_(types, None)
-
     pdf_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
     if not bool(pb.setData_forType_(pdf_data, _UTI_PDF)):
         last_failure_reason = "NSPasteboard rejected PDF data"
         return False
-    if png_bytes:
-        png_data = NSData.dataWithBytes_length_(png_bytes, len(png_bytes))
-        pb.setData_forType_(png_data, _UTI_PNG)
     return True
