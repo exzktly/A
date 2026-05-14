@@ -286,8 +286,27 @@ def cell_gating_load_threshold_frac_on(app) -> None:
                 app._cell_gating_thresh_frac_edits[channel].setText(str(value))
 
 
+def _cell_gating_resolve_key(app, channel: str) -> str:
+    """Map a channel arg onto the key used in the Cell Gating edits dicts.
+
+    Real fluor channels (``"gfp"``, ``"mcherry"``) are stored under their
+    bare name. Ratios are stored under their full key (``"ratio:<name>"``).
+    Callers can pass either the bare ratio name (``app._active_channel``
+    after a ratio switch) or the full ``ratio:`` key — resolve to whichever
+    form actually exists in the edits dict so the user's edit is honoured.
+    """
+    edits = (getattr(app, "_cell_gating_thresh_frac_edits", {}) or {})
+    if channel in edits:
+        return channel
+    candidate = f"ratio:{channel}"
+    if candidate in edits:
+        return candidate
+    return channel
+
+
 def cell_gating_get_fluor_gate(app, channel: str) -> float:
-    edit = (getattr(app, "_cell_gating_fluor_gate_edits", {}) or {}).get(channel)
+    key = _cell_gating_resolve_key(app, channel)
+    edit = (getattr(app, "_cell_gating_fluor_gate_edits", {}) or {}).get(key)
     if edit is None:
         return 0.0
     try:
@@ -297,7 +316,8 @@ def cell_gating_get_fluor_gate(app, channel: str) -> float:
 
 
 def cell_gating_get_thresh_frac_on(app, channel: str) -> float:
-    edit = (getattr(app, "_cell_gating_thresh_frac_edits", {}) or {}).get(channel)
+    key = _cell_gating_resolve_key(app, channel)
+    edit = (getattr(app, "_cell_gating_thresh_frac_edits", {}) or {}).get(key)
     if edit is None:
         return 50.0
     try:
