@@ -99,6 +99,11 @@ def _set_groups_hidden(app, sels, *, target=None) -> None:
 
 def select_row(app, row: str) -> None:
     if app._selections:  # rep-mode: toggle visibility of groups with a well in this row
+        # Clear any per-well focus so the plot redraws against the row's
+        # newly-toggled visibility rather than the previous focused group.
+        if app._selected_wells:
+            app._selected_wells = set()
+            app._prev_sel = set()
         _set_groups_hidden(app, [
             s for s in app._selections
             if any(_well_rc(app, w)[0] == row and w in app._well_paths for w in (s.get("wells") or []))
@@ -116,6 +121,9 @@ def select_row(app, row: str) -> None:
 
 def select_col(app, col: str) -> None:
     if app._selections:
+        if app._selected_wells:
+            app._selected_wells = set()
+            app._prev_sel = set()
         _set_groups_hidden(app, [
             s for s in app._selections
             if any(_well_rc(app, w)[1] == col and w in app._well_paths for w in (s.get("wells") or []))

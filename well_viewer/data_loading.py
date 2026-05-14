@@ -594,19 +594,43 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
         return fallback_palette[idx % len(fallback_palette)]
 
     if rep_sets:
-        # With groups defined, the sidebar plate becomes passive (the user
-        # can't toggle per-well selection alongside the groups), so we only
-        # yield the group curves. PR 152's "solo wells stay toggleable
-        # alongside groups" path was reverted because stale `_selected_wells`
-        # from before group creation surfaced as a phantom curve (typically
-        # A01) on every redraw.
+        # With groups defined the sidebar plate is passive, but on plotting
+        # tabs a click on a well still rewrites ``_selected_wells`` to the
+        # clicked group's wells (or to ``{well}`` for a solo well). When
+        # that focus is set, yield only the groups whose wells intersect it
+        # — plus any solo wells in the focus that don't belong to any group
+        # — so the plot redraws to the active selection. With an empty
+        # focus, fall back to yielding every visible group as before.
+        focus = selected
+        any_yielded = False
+        in_any_group: set = set()
         for idx, rset in enumerate(rep_sets):
             wells = [w for w in rset.wells if w in well_paths]
+            in_any_group.update(wells)
             if not wells:
+                continue
+            if focus and not (set(wells) & focus):
                 continue
             frames = [app._get_rows(w) for w in wells]
             pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
             yield rset.name, _color(rset.name, idx), pooled
+            any_yielded = True
+        if focus:
+            solo = sorted(w for w in focus if w in well_paths and w not in in_any_group)
+            for i, w in enumerate(solo):
+                yield w, _color(w, i), app._get_rows(w)
+                any_yielded = True
+            if any_yielded:
+                return
+            # focus matched nothing — fall through to the all-groups path
+            # below so the canvas isn't left empty.
+            for idx, rset in enumerate(rep_sets):
+                wells = [w for w in rset.wells if w in well_paths]
+                if not wells:
+                    continue
+                frames = [app._get_rows(w) for w in wells]
+                pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+                yield rset.name, _color(rset.name, idx), pooled
         return
 
     if not selected:
