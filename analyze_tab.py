@@ -897,7 +897,27 @@ class AnalyzeTab(QWidget):
         self._log.clear()
 
     def _update_eta(self, done: int, total: int) -> None:
+        # Remember the latest progress snapshot so the tick timer can
+        # re-render the ETA against live ``_time.monotonic()`` between
+        # well_done events.
+        self._eta_done = int(done)
+        self._eta_total = int(total)
+        self._render_eta()
+        # Start the 1-Hz tick timer the first time we get usable progress
+        # so the label counts down even when no new well_done arrives.
+        timer = getattr(self, "_eta_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setInterval(1000)
+            timer.timeout.connect(self._render_eta)
+            self._eta_timer = timer
+        if done > 0 and total > 0 and done < total and not timer.isActive():
+            timer.start()
+
+    def _render_eta(self) -> None:
         started = getattr(self, "_pipeline_started_at", None)
+        done = int(getattr(self, "_eta_done", 0))
+        total = int(getattr(self, "_eta_total", 0))
         if started is None or done <= 0 or total <= 0 or done >= total:
             self._eta_lbl.setText("")
             return
@@ -915,6 +935,13 @@ class AnalyzeTab(QWidget):
             return f"{secs}s"
 
         self._eta_lbl.setText(f"ETA {_fmt(remaining)}")
+
+    def _stop_eta_timer(self) -> None:
+        timer = getattr(self, "_eta_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+        self._eta_done = 0
+        self._eta_total = 0
 
     def _apply_progress_event(self, kind: str, payload: object) -> None:
         """Render a progress event from :class:`ProgressTracker` to the UI."""
@@ -967,6 +994,7 @@ class AnalyzeTab(QWidget):
                     self._well_done  = 0
                     self._prog_lbl.setText("Grouping complete — starting pipeline…")
                     self._eta_lbl.setText("")
+                    self._stop_eta_timer()
                     # Reset the per-phase clock so the pipeline-phase ETA
                     # isn't biased by the (typically short) grouping phase.
                     self._pipeline_started_at = _time.monotonic()
@@ -996,6 +1024,7 @@ class AnalyzeTab(QWidget):
                     self._stop_btn.setEnabled(False)
                     self._status_lbl.setText("Idle")
                     self._eta_lbl.setText("")
+                    self._stop_eta_timer()
                     if getattr(self, "_status_signal_pushed", False):
                         try:
                             from well_viewer import status_signal as _status_signal
