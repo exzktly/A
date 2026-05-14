@@ -56,11 +56,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     plate.setActionsVisible(False)        # the rail keeps its own All / None below
     plate.setEnabledWells([])             # nothing selectable until a dataset loads
     # Fixed size + placement so the plate looks identical no matter which
-    # section is active (Sample Definitions has its own plate via
-    # build_replicate_panel and uses the same constraints).
+    # section is active (every sidebar tab uses the same Preferred/Preferred
+    # size policy + 280-px min height + heightForWidth, with a trailing
+    # ``layout.addStretch(1)`` absorbing the remaining vertical space —
+    # the plate stays anchored to the top of the sidebar across tabs).
     plate.setMinimumHeight(280)
     from PySide6.QtWidgets import QSizePolicy as _SizePolicy
-    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.MinimumExpanding)
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
     _sp.setHeightForWidth(True)
     plate.setSizePolicy(_sp)
     layout.addWidget(plate)

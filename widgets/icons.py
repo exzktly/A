@@ -26,6 +26,9 @@ import theme  # noqa: E402
 
 # name -> inner SVG markup (everything between <svg> tags)
 _GLYPHS: dict[str, str] = {
+    # Standard Feather "copy" — two overlapping rounded rectangles.
+    "copy":          ('<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>'
+                      '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
     "chevron-down":  '<polyline points="6 9 12 15 18 9"/>',
     "chevron-right": '<polyline points="9 18 15 12 9 6"/>',
     "chevron-left":  '<polyline points="15 18 9 12 15 6"/>',

@@ -20,7 +20,7 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(2)
+    layout.setSpacing(0)
 
     plate = WellPlateSelector(parent)
     plate.setActionsVisible(False)
@@ -28,6 +28,13 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     plate.setSingleSelectionMode(True)
     plate.setRowColumnSelectable(False)
     plate.setEnabledWells([])
+    # Match the main sidebar plate's geometry so the picker stays in the
+    # same screen position when the user switches tabs.
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
     layout.addWidget(plate)
     app._sidebar_preview_plate = plate
 
