@@ -10,6 +10,13 @@ PIPELINE_SCRIPT = HERE / "process_microscopy_v2.py"
 
 
 def find_pipeline_script() -> Path | None:
+    # When running from a PyInstaller bundle ``sys.executable`` is the
+    # bundle launcher (not a Python interpreter), so there's no .py to
+    # locate — the GUI dispatches into ``process_microscopy_v2.main``
+    # via a ``--run-pipeline`` re-exec of the launcher (see
+    # ``build_pipeline_args`` + ``all_well_launcher._dispatch``).
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable)
     return PIPELINE_SCRIPT if PIPELINE_SCRIPT.exists() else None
 
 
@@ -20,9 +27,16 @@ def build_pipeline_args(
     opts: dict,
 ) -> list[str]:
     segmentation_method = opts.get("segmentation_method", "stardist_nuclei")
-    args = [
-        sys.executable,
-        str(pipeline),
+    if getattr(sys, "frozen", False):
+        # Frozen bundle: re-invoke the launcher with the sentinel; the
+        # launcher routes argv past the sentinel into
+        # ``process_microscopy_v2.main``. Passing the .py path here
+        # would make the launcher treat it as a CLI argument and
+        # argparse would bail with exit code 2.
+        args = [sys.executable, "--run-pipeline"]
+    else:
+        args = [sys.executable, str(pipeline)]
+    args += [
         "--input_dir",
         str(input_dir),
         "--output_dir",
