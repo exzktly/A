@@ -15,17 +15,21 @@ def save_to_pipeline_info(app) -> None:
     """
     if not app._data_dir:
         return
-    tab = getattr(app, "_cell_gating_tab", None)
-    if tab is None:
+    if not hasattr(app, "_cell_gating_thresh_frac_edits"):
         return
     from well_viewer.gating_state import (
         build_gating_block,
         save_gating_to_pipeline_info,
     )
+    from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_thresh_frac_on
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gates = app._get_all_fluor_gates()
+    # Persist every key that has a Cell Gating row, including ratio entries
+    # (keyed by ``ratio:<name>``). Iterating only ``app._fluor_channels``
+    # silently dropped ratio thresholds and forced the default on next load.
     thresh_frac_on = {
-        ch: tab.get_thresh_frac_on(ch) for ch in app._fluor_channels
+        key: cell_gating_get_thresh_frac_on(app, key)
+        for key in (app._cell_gating_thresh_frac_edits or {}).keys()
     }
     block = build_gating_block(
         cell_area_threshold, fluor_gates, thresh_frac_on,
@@ -47,22 +51,20 @@ def load_from_pipeline_info(app) -> bool:
     if not block:
         return False
 
-    tab = getattr(app, "_cell_gating_tab", None)
-    if tab is None:
+    if not hasattr(app, "_cell_gating_area_edit"):
         build = getattr(app, "_centre_build_pending", None)
         if callable(build):
             build("Sample Definitions")
         if hasattr(app, "_build_cell_gating_subtab"):
             app._build_cell_gating_subtab()
-        tab = getattr(app, "_cell_gating_tab", None)
-    if tab is None:
+    if not hasattr(app, "_cell_gating_area_edit"):
         return False
 
     applied = False
     cell_area = block.get("cell_area_threshold")
     if cell_area is not None:
         try:
-            tab._cell_area_edit.setText(str(float(cell_area)))
+            app._cell_gating_area_edit.setText(str(float(cell_area)))
             applied = True
         except (ValueError, TypeError, AttributeError):
             pass
@@ -70,7 +72,7 @@ def load_from_pipeline_info(app) -> bool:
     fluor_gates = block.get("fluor_gates") or {}
     if isinstance(fluor_gates, dict):
         for ch, val in fluor_gates.items():
-            edit = tab._fluor_gate_edits.get(str(ch))
+            edit = app._cell_gating_fluor_gate_edits.get(str(ch))
             if edit is None:
                 continue
             try:
@@ -89,7 +91,7 @@ def load_from_pipeline_info(app) -> bool:
             except (ValueError, TypeError):
                 continue
             app._thresh_frac_on_saved[str(ch)] = fval
-            edit = tab._thresh_frac_edits.get(str(ch))
+            edit = app._cell_gating_thresh_frac_edits.get(str(ch))
             if edit is not None:
                 edit.setText(str(fval))
                 applied = True

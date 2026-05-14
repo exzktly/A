@@ -6,7 +6,6 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from well_viewer.figure_export_editor import launch_export_editor
 
 
 def _qt_file_filter_from_filetypes(filetypes) -> str:
@@ -28,12 +27,7 @@ def redraw(
     apply_ax_style,
     all_fluor_values,
     all_fluor_values_filtered,
-    plot_bg,
-    plot_spn,
-    txt_pri,
-    txt_mut,
     warn,
-    well_colors,
 ) -> None:
     metric_label = "smFISH Count" if app._active_metric == "smfish_count" else "Intensity"
 
@@ -42,17 +36,12 @@ def redraw(
         apply_ax_style=apply_ax_style,
         all_fluor_values=all_fluor_values,
         all_fluor_values_filtered=all_fluor_values_filtered,
-        plot_bg=plot_bg,
-        plot_spn=plot_spn,
-        txt_pri=txt_pri,
-        txt_mut=txt_mut,
         warn=warn,
-        well_colors=well_colors,
         metric_label=metric_label,
     )
 
     if hasattr(app, "_notebook"):
-        tab = app._notebook.tabText(app._notebook.currentIndex())
+        tab = app._notebook.currentName()
         if tab == "Movie Montage" and app._preview_selected_well:
             app._update_preview(app._preview_selected_well)
 
@@ -94,10 +83,12 @@ def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
 
 
 def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> None:
-    session = launch_export_editor(app, fig, default_name, plot_bg=plot_bg, canvas=canvas)
-    if session is not None:
-        app._set_status("Export editor opened.")
-        return
+    # Phase 15.2: the in-tab ExportStyleSidebar was retired in favour of the
+    # v2 Properties rail (which live-binds the same _export_style_prefs).
+    # Save-figure now goes straight to the file dialog; the rail handles
+    # styling. ``canvas`` is unused but kept in the signature so callers
+    # don't need to change.
+    del canvas
     save_matplotlib_fig(app, fig, default_name, plot_bg=plot_bg)
 
 

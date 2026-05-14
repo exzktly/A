@@ -125,8 +125,6 @@ def _lazy(module_path: str, attr: str):
     return _proxy
 
 
-_bar_groups_from_data = _lazy("well_viewer.barplot_controller", "bar_groups_from_data")
-_bar_groups_to_dict = _lazy("well_viewer.barplot_controller", "bar_groups_to_dict")
 _bar_apply_ylims = _lazy("well_viewer.barplot_controller", "apply_bar_ylims")
 _bar_collect_items = _lazy("well_viewer.barplot_controller", "collect_bar_items")
 _bar_ordered_keys = _lazy("well_viewer.barplot_controller", "ordered_bar_keys")
@@ -142,9 +140,8 @@ _resolve_ref_by_fov_tp = _lazy("well_viewer.image_resolver", "resolve_ref_by_fov
 _well_token_matches_text = _lazy("well_viewer.image_resolver", "well_token_matches_text")
 
 # preview_view.build_preview_picker is invoked from build_centre at startup
-# so we keep it eager. The two interaction helpers can defer.
+# so we keep it eager. The refresh helper can defer.
 from well_viewer.views.preview_view import build_preview_picker as _build_preview_picker_view
-_preview_pick_well_view = _lazy("well_viewer.views.preview_view", "preview_pick_well")
 _refresh_preview_picker_view = _lazy("well_viewer.views.preview_view", "refresh_preview_picker")
 
 _it_apply_dimensions = _lazy("well_viewer.image_table_controller", "image_table_apply_dimensions")
@@ -159,7 +156,6 @@ _it_distribute_wells = _lazy("well_viewer.image_table_controller", "image_table_
 _it_load_heatmap_layout = _lazy("well_viewer.image_table_controller", "image_table_load_heatmap_layout")
 _it_export = _lazy("well_viewer.image_table_controller", "image_table_export")
 _it_generate = _lazy("well_viewer.image_table_controller", "image_table_generate")
-_it_pick_well = _lazy("well_viewer.image_table_controller", "image_table_pick_well")
 _it_rebuild_grid = _lazy("well_viewer.image_table_controller", "image_table_rebuild_grid")
 _it_refresh_picker = _lazy("well_viewer.image_table_controller", "image_table_refresh_picker")
 _it_repopulate_dropdowns = _lazy("well_viewer.image_table_controller", "image_table_repopulate_dropdowns")
@@ -168,23 +164,6 @@ _it_select_all = _lazy("well_viewer.image_table_controller", "image_table_select
 _lineplot_redraw = _lazy("well_viewer.lineplot_controller", "redraw_line_plots")
 _scatter_get_timepoints = _lazy("well_viewer.scatter_controller", "get_all_timepoints")
 _scatter_redraw = _lazy("well_viewer.scatter_controller", "redraw_scatter")
-
-_gc_bg_on_well_change = _lazy("well_viewer.grouping_controller", "bg_on_well_change")
-_gc_grp_add = _lazy("well_viewer.grouping_controller", "grp_add")
-_gc_grp_add_member = _lazy("well_viewer.grouping_controller", "grp_add_member")
-_gc_grp_add_solo_well = _lazy("well_viewer.grouping_controller", "grp_add_solo_well")
-_gc_grp_clear_all = _lazy("well_viewer.grouping_controller", "grp_clear_all")
-_gc_grp_delete = _lazy("well_viewer.grouping_controller", "grp_delete")
-_gc_grp_remove_member = _lazy("well_viewer.grouping_controller", "grp_remove_member")
-_gc_grp_remove_solo = _lazy("well_viewer.grouping_controller", "grp_remove_solo")
-_gc_grp_rename = _lazy("well_viewer.grouping_controller", "grp_rename")
-_gc_grp_select = _lazy("well_viewer.grouping_controller", "grp_select")
-_gc_grp_toggle_visibility = _lazy("well_viewer.grouping_controller", "grp_toggle_visibility")
-_gc_rep_map_apply = _lazy("well_viewer.grouping_controller", "rep_map_apply")
-_gc_rep_map_drag = _lazy("well_viewer.grouping_controller", "rep_map_drag")
-_gc_rep_map_press = _lazy("well_viewer.grouping_controller", "rep_map_press")
-_gc_rep_map_release = _lazy("well_viewer.grouping_controller", "rep_map_release")
-_gc_rep_map_tok_at = _lazy("well_viewer.grouping_controller", "rep_map_tok_at")
 
 _load_build_tok_to_label = _lazy("well_viewer.load_controller", "build_tok_to_label")
 _load_directory_controller = _lazy("well_viewer.load_controller", "load_directory")
@@ -326,6 +305,7 @@ _logger = logging.getLogger("well_viewer")
 CLR_ACCENT_DARK = ACCENT_DARK
 
 from well_viewer.plate_layout import WELL_COLORS
+from well_viewer.selections_model import well_rank as _sel_well_rank
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 
@@ -368,24 +348,26 @@ def _set_combo_values(combo: object, values: List[str]) -> None:
     combo["values"] = vals  # type: ignore[index]
 
 
-# Canonical definitions live in well_viewer/views/well_button.py
-from well_viewer.views.well_button import WellButton as WellLabel, build_plate_grid
-
 
 def make_fluor_thumb(arr, sz_w: int, sz_h: int,
                    lo: Optional[float], hi: Optional[float],
                    crop=None,
-                   tint: Optional[Tuple[float, float, float]] = None):
+                   tint: Optional[Tuple[float, float, float]] = None,
+                   cmap: Optional[str] = None):
     """Render a greyscale float32 array as a QPixmap with LUT [lo, hi].
 
-    When ``crop`` is a (y0, x0, y1, x1) tuple, the array is sliced to that
-    sub-region before LUT application and scaling so the resulting thumbnail
-    shows only the selected square area at the requested display size.
+    Rendering selection (in priority order):
+      * If ``cmap`` is a matplotlib colormap name (e.g. ``"viridis"``,
+        ``"Reds"``, ``"Greens"``…), the LUT-clipped intensity is mapped
+        through that colormap across its full gradient — low intensity →
+        cmap(0.0), high intensity → cmap(1.0). This is the canonical
+        multi-colour LUT path the Image Table uses.
+      * Else if ``tint`` is an ``(r, g, b)`` triple, the LUT-clipped
+        intensity is multiplied by the tint (legacy single-colour ramp).
+      * Else the result is grayscale.
 
-    When ``tint`` is an ``(r, g, b)`` triple (each in 0..1), the LUT-clipped
-    intensity is multiplied by the tint to colour the thumbnail (black at 0,
-    full tint at the LUT max). When ``None`` (default), the result is
-    grayscale.
+    When ``crop`` is a (y0, x0, y1, x1) tuple the array is sliced to that
+    sub-region before LUT application and scaling.
     """
     if arr is None or not _NP_AVAILABLE:
         return None
@@ -403,10 +385,21 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
     ahi = hi if hi is not None else float(arr.max())
     if ahi <= alo:
         ahi = alo + 1.0
-    disp = ((_np.clip(arr, alo, ahi) - alo) / (ahi - alo) * 255).astype(_np.uint8)
-    if tint is None:
-        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
-    else:
+    norm = (_np.clip(arr, alo, ahi) - alo) / (ahi - alo)
+    if cmap:
+        try:
+            from matplotlib import colormaps as _mpl_cmaps
+            mpl_cmap = _mpl_cmaps[cmap]
+        except (KeyError, Exception):
+            mpl_cmap = None
+        if mpl_cmap is not None:
+            mapped = mpl_cmap(norm)[..., :3]  # drop alpha
+            rgb = (mapped * 255).astype(_np.uint8).copy()
+        else:
+            disp = (norm * 255).astype(_np.uint8)
+            rgb = _np.stack([disp, disp, disp], axis=-1).copy()
+    elif tint is not None:
+        disp = (norm * 255).astype(_np.uint8)
         r, g, b = (max(0.0, min(1.0, float(c))) for c in tint)
         df = disp.astype(_np.float32)
         rgb = _np.stack([
@@ -414,6 +407,9 @@ def make_fluor_thumb(arr, sz_w: int, sz_h: int,
             (df * g).astype(_np.uint8),
             (df * b).astype(_np.uint8),
         ], axis=-1).copy()
+    else:
+        disp = (norm * 255).astype(_np.uint8)
+        rgb = _np.stack([disp, disp, disp], axis=-1).copy()
     h, w, _ = rgb.shape
     qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
     pm = QPixmap.fromImage(qimg)
@@ -682,9 +678,6 @@ class _SubsetEntry:
         self.replicate_group:  Dict[str, str] = {}   # well_label -> replicate id (future use)
 
 
-# CellGatingTab lives in well_viewer/cell_gating_tab.py
-from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
-
 class WellViewerApp(QWidget):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
@@ -739,6 +732,10 @@ class WellViewerApp(QWidget):
         self._use_sem = True
         self._sem_btns: List = []
         self._sem_btn = None
+        # Observers notified after _toggle_sem flips the state — for v2 widgets
+        # (e.g. the Statistics SegmentedControl in ExportStyleSidebar) that don't
+        # share the QPushButton API _sem_btns assumes.
+        self._sem_observers: List = []   # callables (use_sem: bool) -> None
         # Per-FOV replicate toggle. When True (and no replicate sets are
         # active), the bar/line plots compute the error band across per-FOV
         # means within each well rather than across individual cells. The
@@ -746,6 +743,7 @@ class WellViewerApp(QWidget):
         self._use_fov_replicates = False
         self._fov_btns: List = []
         self._fov_btn = None
+        self._fov_observers: List = []   # callables (use_fov: bool) -> None
         self._legend_visible: Dict[str, bool] = {
             "mean": True, "frac": True, "cdf": True,
         }
@@ -762,12 +760,12 @@ class WellViewerApp(QWidget):
         self._bar_ylim_frac_lo_edit = None
         self._bar_ylim_frac_hi_edit = None
         self._bar_order: Optional[List] = None
-        self._rep_sets:          List[ReplicateSet] = []
-        self._active_rep_idx:    int               = -1
-        self._rep_hidden:        set               = set()
+        # Unified saved-selections model (Phase 8.0) — THE in-memory source of
+        # truth. See well_viewer/selections_model.py for the schema.
+        self._selections:               list = []
+        self._current_selection_id:     Optional[str] = None
+        self._selections_v2_writes_disabled: bool = False
         self._well_labels:       Dict[str, str]    = {}
-        self._bar_groups:        List[BarGroup]    = []
-        self._bar_active_grp:    int               = -1
         self._rep_quick_pair_dir   = "row"
         self._rep_quick_iter_order = "row"
         self._bar_quick_pair_dir   = "row"
@@ -775,7 +773,6 @@ class WellViewerApp(QWidget):
         self._entry_edit = None
         self._cdf_xmin_edit = None
         self._cdf_xmax_edit = None
-        self._thr_dragging  = False
 
         # Plate-map well selection
         self._selected_wells: set  = set()
@@ -890,17 +887,19 @@ class WellViewerApp(QWidget):
 
     def _get_cell_area_threshold(self) -> float:
         """Get cell area threshold from the Cell Gating tab."""
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+        edit = getattr(self, "_cell_gating_area_edit", None)
+        if edit is not None:
             try:
-                return float(self._cell_gating_tab._cell_area_edit.text())
+                return float(edit.text())
             except ValueError:
                 return 0.0
         return 0.0
 
     def _get_fluor_gate(self, channel: str) -> float:
         """Get FluorGating threshold for a channel."""
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
-            return self._cell_gating_tab.get_fluor_gate(channel)
+        if hasattr(self, "_cell_gating_area_edit"):
+            from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_fluor_gate
+            return cell_gating_get_fluor_gate(self, channel)
         return 0.0
 
     def _get_all_fluor_gates(self) -> Dict[str, float]:
@@ -956,9 +955,10 @@ class WellViewerApp(QWidget):
             channel = self._active_channel
         # _redraw can fire before the cell-gating tab is built (e.g. from
         # sidebar releases during early load); fall back to the default.
-        if getattr(self, "_cell_gating_tab", None) is None:
+        if not hasattr(self, "_cell_gating_thresh_frac_edits"):
             return self._threshold
-        return self._cell_gating_tab.get_thresh_frac_on(channel)
+        from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_thresh_frac_on
+        return cell_gating_get_thresh_frac_on(self, channel)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -991,10 +991,45 @@ class WellViewerApp(QWidget):
         outer.addWidget(self._h_pane, 1)
 
         sidebar = QWidget()
-        sidebar.setMinimumWidth(260)
-        sidebar.setMaximumWidth(600)
+        # Review sidebar width reduced 25% (400→300 min, 600→450 max) per
+        # redesign-bug-batch-2: the plate map needs less breathing room than
+        # the original 400-px reservation; freed pixels go to the canvas.
+        sidebar.setMinimumWidth(300)
+        sidebar.setMaximumWidth(450)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        # Phase 10 (A1): vertical section nav above the per-section frames.
+        # Replaces the horizontal QTabWidget tab bar in centre_view.py; the
+        # QTabWidget itself stays as page host (tab bar hidden) so existing
+        # callers using tabText / setCurrentIndex / currentChanged still work.
+        import theme as _theme_v2
+        from widgets.rail_nav import RailNav as _RailNav
+
+        # Mode-seg moved to the titlebar (the dataset chip slot — redundant
+        # with the OS window title). The sidebar no longer hosts a mode
+        # toggle; section nav starts immediately below the rail's top edge.
+        self._section_nav = _RailNav(sidebar)
+        self._section_nav_keys: list[str] = []
+        self._section_nav_building = False
+        nav_head = QLabel("SECTION", sidebar)
+        nav_head.setObjectName("RailHead")
+        nav_head.setContentsMargins(13, 10, 13, 4)
+        nav_head.setStyleSheet(
+            f"color: {_theme_v2.Colors.text_muted}; "
+            f"font: 600 11px/1 {_theme_v2.Typography.family}; "
+            f"letter-spacing: 0.08em;"
+        )
+        sidebar_layout.addWidget(nav_head)
+        sidebar_layout.addWidget(self._section_nav)
+        sep_nav = QFrame()
+        sep_nav.setObjectName("Separator")
+        sep_nav.setFixedHeight(1)
+        sep_nav.setStyleSheet(
+            f"background-color: {_theme_v2.Colors.border_subtle};"
+        )
+        sidebar_layout.addWidget(sep_nav)
 
         self._sidebar_main_frame = QWidget()
         QVBoxLayout(self._sidebar_main_frame).setContentsMargins(0, 0, 0, 0)
@@ -1004,14 +1039,11 @@ class WellViewerApp(QWidget):
         # Companion frames stacked in the sidebar and toggled by
         # _on_tab_change.  All are hidden initially; the tab handler shows
         # the relevant one.
-        self._sidebar_groups_frame = QWidget()
-        self._sidebar_bar_frame = QWidget()
         self._sidebar_preview_frame = QWidget()
         self._sidebar_image_table_frame = QWidget()
         self._sidebar_sample_frame = QWidget()
         self._sidebar_stats_frame = QWidget()
-        for w in (self._sidebar_groups_frame, self._sidebar_bar_frame,
-                  self._sidebar_preview_frame, self._sidebar_image_table_frame,
+        for w in (self._sidebar_preview_frame, self._sidebar_image_table_frame,
                   self._sidebar_sample_frame,
                   self._sidebar_stats_frame):
             QVBoxLayout(w).setContentsMargins(0, 0, 0, 0)
@@ -1019,17 +1051,64 @@ class WellViewerApp(QWidget):
             w.hide()
 
         self._h_pane.addWidget(sidebar)
+        self._sidebar_root = sidebar  # so mode toggles can hide/show the whole rail
         self._build_sidebar(self._sidebar_main_frame)
 
-        # Centre plots
+        # Centre stack — wraps the existing plots widget so all_well can
+        # mount the Analyze pane as a peer page. The mode-seg in the sidebar
+        # (built below) drives the stack, keeping the sidebar visible in
+        # both modes (mockup parity: mode-seg sits at the top of the left
+        # rail and the user can always switch back from Analyze).
+        from PySide6.QtWidgets import QStackedWidget as _QStackedWidget
+        self._central_pane_stack = _QStackedWidget()
         centre = QWidget()
         QVBoxLayout(centre).setContentsMargins(0, 0, 0, 0)
-        self._h_pane.addWidget(centre)
+        self._central_pane_stack.addWidget(centre)
+        self._central_pane_stack.currentChanged.connect(self._on_central_pane_changed)
+        self._h_pane.addWidget(self._central_pane_stack)
         self._h_pane.setStretchFactor(0, 0)
         self._h_pane.setStretchFactor(1, 3)
         self._h_pane.setChildrenCollapsible(False)
         self._h_pane.setSizes([340, 1200])
         self._build_centre(centre)
+
+        # Phase 11 (A6 / B23): Properties rail as an OVERLAY on the centre
+        # column. The rail floats over the right edge of the centre pane;
+        # it does NOT push the canvas smaller (mockup parity) and it does
+        # NOT extend across the sidebar (user reported it was spanning the
+        # whole window). Mounted here — inside WellViewerApp — so toggling
+        # the rail when Analyze is active doesn't matter because the rail
+        # is scoped to the Review centre area.
+        from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
+        # Hidden on launch (user request) — the edge handle on the centre's
+        # right edge is always visible and pokes inward when the rail is
+        # closed so the user can always re-open it. The titlebar
+        # ``panel-right-close`` IconButton is the secondary toggle.
+        self._properties_rail = _CollapsibleRail(centre, width=332, collapsed=True)
+        self._properties_rail.installEdgeHandle()
+        # Phase 12: populate the rail with the v2 Properties view (scope
+        # segmented + ⌘K search + eight CollapsibleSections, including
+        # the new Statistics section per Q4 / DESIGN_NOTES §6.2).
+        from well_viewer.views.properties_rail_view import (
+            build_properties_rail_view as _build_props_rail,
+            set_properties_rail_scope as _set_props_scope,
+        )
+        self._properties_rail.setContentWidget(_build_props_rail(self, self._properties_rail))
+        # Seed scope segments for the initial sub-tab (Line Graphs by default).
+        try:
+            _set_props_scope(self, "Line Graphs")
+        except Exception:
+            pass
+        # Wire the head's collapse IconButton to the rail's own toggle so
+        # the user can dismiss from inside the rail too (the titlebar
+        # toggle is mirrored — both work).
+        try:
+            head = getattr(self, "_props_rail_head_actions", {})
+            collapse = head.get("collapse")
+            if collapse is not None:
+                collapse.clicked.connect(self._properties_rail.toggle)
+        except Exception:
+            pass
 
         # Status + log — packed last so it sits below the splitter.
         self._build_bottom()
@@ -1038,9 +1117,179 @@ class WellViewerApp(QWidget):
         from well_viewer.views.sidebar_view import build_sidebar as _build_sidebar_view
         _build_sidebar_view(self, parent)
 
+    # ── Mode (Review / Analyze) plumbing ─────────────────────────────────
+    modeChanged = Signal(str)   # emitted with "review" or "analyze"
+
+    def mountAnalyzePane(self, widget) -> None:
+        """Mount *widget* as the Analyze peer of the centre stack.
+
+        The mockup keeps the left rail (with the mode-seg, section nav,
+        and plate) visible in both modes; hosting Analyze inside this
+        widget's central stack is what makes that possible without
+        hoisting the sidebar out into all_well.
+        """
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None:
+            return
+        # Replace any previously-mounted analyze pane.
+        while stack.count() > 1:
+            old = stack.widget(1)
+            stack.removeWidget(old)
+            old.setParent(None)
+        stack.addWidget(widget)
+
+    def setMode(self, name: str) -> None:
+        """Programmatically switch mode (``"review"`` / ``"analyze"``)."""
+        target = 1 if str(name).lower() == "analyze" else 0
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None or stack.currentIndex() == target:
+            return
+        stack.setCurrentIndex(target)
+
+    def currentMode(self) -> str:
+        stack = getattr(self, "_central_pane_stack", None)
+        if stack is None:
+            return "review"
+        return "analyze" if stack.currentIndex() == 1 else "review"
+
+    def _on_central_pane_changed(self, idx: int) -> None:
+        # Mode-seg lives in all_well's titlebar; emit modeChanged so the
+        # shell can re-sync its own seg without poking widgets here.
+        mode = "analyze" if idx == 1 else "review"
+        # Hide the section / well-picker sidebar when Analyze is active —
+        # it carries Review-only affordances. Show it again on Review.
+        sidebar = getattr(self, "_sidebar_root", None)
+        if sidebar is not None:
+            sidebar.setVisible(mode == "review")
+        self.modeChanged.emit(mode)
+
+    def _refresh_sidebar_saved_list(self) -> None:
+        """Phase 13 (B8): push the canonical ``app._selections`` into the
+        compact Saved mirror in the sidebar + sync the count chip."""
+        lst = getattr(self, "_sidebar_saved_list", None)
+        chip = getattr(self, "_sidebar_saved_count_chip", None)
+        sels = list(getattr(self, "_selections", []) or [])
+        if lst is not None:
+            try:
+                lst.setSelections(sels)
+                cur = getattr(self, "_current_selection_id", None)
+                if cur:
+                    lst.setCurrentId(cur)
+            except Exception:
+                pass
+        if chip is not None:
+            try:
+                chip.setText(str(len(sels)))
+            except Exception:
+                pass
+
     def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
         _build_centre_view(self, parent)
+        # Phase 10 (A1): mirror the notebook's tab list into the rail nav.
+        # The nav drives the (hidden-tab-bar) QTabWidget; the QTabWidget's
+        # currentChanged signal keeps the nav in sync if anything else
+        # changes the index (deferred builders, programmatic select_by_text).
+        self._sync_section_nav_from_notebook()
+        self._section_nav.currentChanged.connect(self._on_section_nav_changed)
+        self._notebook.currentChanged.connect(self._on_notebook_current_changed)
+
+    # ── Phase 10 (A1) section-nav <-> notebook bridge ─────────────────────
+    _SECTION_ICONS = {
+        "Plotting":           "line-chart",
+        "smFISH":             "dna",
+        "Statistics":         "sigma",
+        "Image Table":        "layout-grid",
+        "Segmentation":       "scan-line",
+        "Review CSV":         "file-spreadsheet",
+        "Sample Definitions": "tag",
+        "Batch Export":       "boxes",
+    }
+
+    def _sync_section_nav_from_notebook(self) -> None:
+        nav = getattr(self, "_section_nav", None)
+        nb = getattr(self, "_notebook", None)
+        if nav is None or nb is None:
+            return
+        self._section_nav_building = True
+        try:
+            existing = set(nav.items())
+            for title in nb.pageNames():
+                if title in existing:
+                    continue
+                nav.addItem(title, icon=self._SECTION_ICONS.get(title), key=title)
+                self._section_nav_keys.append(title)
+            cur = nb.currentName() if nb.count() else None
+            if cur:
+                nav.setCurrentKey(cur)
+        finally:
+            self._section_nav_building = False
+
+    def _on_section_nav_changed(self, key: str) -> None:
+        if self._section_nav_building:
+            return
+        self._notebook.setCurrentByName(key)
+
+    def _on_notebook_current_changed(self, _idx: int) -> None:
+        nb = self._notebook
+        nav = getattr(self, "_section_nav", None)
+        if nav is None or nb is None:
+            return
+        title = nb.currentName()
+        if title and nav.currentKey() != title:
+            self._section_nav_building = True
+            try:
+                nav.setCurrentKey(title)
+            finally:
+                self._section_nav_building = False
+        # Record the visit in the tab-history stack so ⌘← / ⌘→ can walk
+        # through it. ``_tab_history_replaying`` is set by the back/forward
+        # shortcuts to suppress appending while they replay an entry.
+        if not title:
+            return
+        if not hasattr(self, "_tab_history"):
+            self._tab_history: list[str] = []
+            self._tab_history_idx: int = -1
+        if getattr(self, "_tab_history_replaying", False):
+            return
+        # Drop any forward entries when the user navigates away from the
+        # middle of the history (standard browser semantics).
+        idx = self._tab_history_idx
+        if idx < len(self._tab_history) - 1:
+            del self._tab_history[idx + 1:]
+        # Avoid logging consecutive duplicates.
+        if self._tab_history and self._tab_history[-1] == title:
+            return
+        self._tab_history.append(title)
+        self._tab_history_idx = len(self._tab_history) - 1
+
+    def _tab_history_back(self) -> None:
+        hist = getattr(self, "_tab_history", None)
+        if not hist:
+            return
+        idx = self._tab_history_idx - 1
+        if idx < 0:
+            return
+        self._tab_history_idx = idx
+        self._tab_history_replaying = True
+        try:
+            self._notebook.setCurrentByName(hist[idx])
+        finally:
+            self._tab_history_replaying = False
+
+    def _tab_history_forward(self) -> None:
+        hist = getattr(self, "_tab_history", None)
+        if not hist:
+            return
+        idx = self._tab_history_idx + 1
+        if idx >= len(hist):
+            return
+        self._tab_history_idx = idx
+        self._tab_history_replaying = True
+        try:
+            self._notebook.setCurrentByName(hist[idx])
+        finally:
+            self._tab_history_replaying = False
 
     # ── Statistics tab ────────────────────────────────────────────────────────
 
@@ -1069,7 +1318,6 @@ class WellViewerApp(QWidget):
             clr_avail_hover=CLR_AVAIL_HOVER,
             well_colors=WELL_COLORS,
             bind_drag_fn=_bind_drag,
-            build_plate_grid_fn=build_plate_grid,
             make_scrollable_canvas_fn=make_scrollable_canvas,
             extract_well_token_fn=_extract_well_token,
         )
@@ -1284,12 +1532,8 @@ class WellViewerApp(QWidget):
             accent=ACCENT,
             clr_white=CLR_WHITE,
             clr_accent_dark=CLR_ACCENT_DARK,
-            build_plate_grid_fn=build_plate_grid,
             extract_well_token_fn=_extract_well_token,
         )
-
-    def _preview_pick_well(self, tok: str) -> None:
-        _preview_pick_well_view(self, tok)
 
     def _refresh_preview_picker(self) -> None:
         from ui.theme import get_color
@@ -1305,9 +1549,6 @@ class WellViewerApp(QWidget):
         )
 
     # ── Image Table tab ───────────────────────────────────────────────────────
-
-    def _image_table_pick_well(self, tok: str) -> None:
-        _it_pick_well(self, tok)
 
     def _image_table_refresh_picker(self) -> None:
         _it_refresh_picker(self)
@@ -1375,12 +1616,6 @@ class WellViewerApp(QWidget):
         )
         _it_open_export_settings(self)
 
-    # ── Bar-plot grouping panel ───────────────────────────────────────────────
-
-    def _build_bar_group_panel(self, parent) -> None:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_panel as _v
-        _v(self, parent)
-
     def _build_groups_centre(self, parent) -> None:
         """Centre panel for the Sample Definitions tab.
 
@@ -1399,6 +1634,7 @@ class WellViewerApp(QWidget):
         )
         from well_viewer.ui_helpers import btn_primary, btn_secondary
         from well_viewer.views.ratio_panel_view import build_ratios_inline_panel
+        from widgets.icon_button import IconButton as _IconButton
 
         outer_layout = parent.layout()
         if outer_layout is None:
@@ -1416,24 +1652,33 @@ class WellViewerApp(QWidget):
         tl.setContentsMargins(8, 6, 8, 6)
         tl.setSpacing(6)
 
-        save_btn = btn_primary(toolbar, "Save", self._save_sample_definitions_all)
-        save_btn.setToolTip(
+        # v2 polish: icon-led toolbar (Save / Load / Clear All).
+        save_ib = _IconButton("save", toolbar)
+        save_ib.setToolTip(
             "Save every definition on this tab (well labels, replicate sets, "
             "bar groups, ratio metrics, and cell-gating thresholds) to the "
             "data folder."
         )
-        tl.addWidget(save_btn)
+        save_ib.clicked.connect(lambda _=False: self._save_sample_definitions_all())
+        tl.addWidget(save_ib)
 
-        load_btn = btn_secondary(toolbar, "Load", self._load_sample_definitions_all)
-        load_btn.setToolTip("Reload every definition from the data folder, discarding unsaved edits.")
-        tl.addWidget(load_btn)
+        load_ib = _IconButton("download", toolbar)
+        load_ib.setToolTip("Reload every definition from the data folder, discarding unsaved edits.")
+        load_ib.clicked.connect(lambda _=False: self._load_sample_definitions_all())
+        tl.addWidget(load_ib)
 
-        clear_btn = btn_secondary(toolbar, "Clear All", self._clear_sample_definitions_all)
-        clear_btn.setToolTip(
+        import_ib = _IconButton("plus", toolbar)
+        import_ib.setToolTip("Import selections from a JSON file (merges into the current set).")
+        import_ib.clicked.connect(lambda _=False: self._import_selections_from_json())
+        tl.addWidget(import_ib)
+
+        clear_ib = _IconButton("x", toolbar)
+        clear_ib.setToolTip(
             "Clear every definition on this tab — well labels, replicate "
             "sets, bar groups, ratio metrics, and cell-gating thresholds."
         )
-        tl.addWidget(clear_btn)
+        clear_ib.clicked.connect(lambda _=False: self._clear_sample_definitions_all())
+        tl.addWidget(clear_ib)
 
         tl.addStretch(1)
         outer_layout.addWidget(toolbar)
@@ -1447,9 +1692,22 @@ class WellViewerApp(QWidget):
         # ── Sub-tabs ────────────────────────────────────────────────────────
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
-        sub_tabs.tabBar().setExpanding(True)
+        sub_tabs.tabBar().setExpanding(False)
+        sub_tabs.tabBar().setElideMode(Qt.ElideNone)
+        sub_tabs.tabBar().setUsesScrollButtons(True)
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
+
+        # Sub-tab 0: Groups — hoisted out of the sidebar so the
+        # SavedSelectionsList has full vertical room and the sidebar plate
+        # can stay full-aspect.
+        groups_tab = _QWidget(sub_tabs)
+        _QVBoxLayout(groups_tab).setContentsMargins(0, 0, 0, 0)
+        from well_viewer.views.replicate_panel_view import (
+            build_replicate_groups_centre as _build_groups_centre,
+        )
+        _build_groups_centre(self, groups_tab)
+        sub_tabs.addTab(groups_tab, "Groups")
 
         # Sub-tab 1: Well Labels only
         labels_tab = _QWidget(sub_tabs)
@@ -1503,15 +1761,17 @@ class WellViewerApp(QWidget):
         if frame is None:
             return
         try:
-            from well_viewer.cell_gating_tab import CellGatingTab
-            widget = CellGatingTab(frame, self)
-            frame.layout().addWidget(widget)
-            self._cell_gating_tab = widget
+            from well_viewer.tabs.cell_gating_tab_view import (
+                build_cell_gating_tab,
+                cell_gating_load_cell_areas,
+                cell_gating_load_threshold_frac_on,
+            )
+            build_cell_gating_tab(self, frame)
             if self._well_paths:
                 try:
-                    widget._load_cell_areas()
+                    cell_gating_load_cell_areas(self)
                     self._load_gating_from_pipeline_info()
-                    widget._load_threshold_frac_on()
+                    cell_gating_load_threshold_frac_on(self)
                 except Exception:
                     _logger.exception("Cell Gating post-build sync failed")
         except Exception:
@@ -1530,75 +1790,25 @@ class WellViewerApp(QWidget):
     # ── Replicate-panel plate map ─────────────────────────────────────────────
 
     def _rep_refresh_map(self) -> None:
-        """Recolour the replicate-panel plate map.
-
-        Each defined ReplicateSet gets a distinct colour. The active set's
-        wells are sunken. If a group is the active target instead, its solo
-        wells are shown in the group palette colour so they can be edited
-        directly from the sidebar.
-        """
-        if not hasattr(self, "_rep_map_btns"):
+        """Push selection state onto the GROUPS-panel plate (a WellPlateSelector):
+        every selection's wells take that selection's rank colour; the *current*
+        selection's wells are shown as the plate's selection (sunken/accent), which
+        is also what a drag on the plate edits."""
+        plate = getattr(self, "_rep_map_plate", None)
+        if plate is None:
             return
-        bg, fg, fg_disabled = self._plate_theme_colors()
-
-        tok_color: Dict[str, str] = {}
-        tok_active: Dict[str, bool] = {}
-        for si, rset in enumerate(self._rep_sets):
-            c = WELL_COLORS[si % len(WELL_COLORS)]
-            for tok in rset.wells:
-                tok_color[tok] = c
-                tok_active[tok] = (si == self._active_rep_idx)
-
-        has_rep_active = 0 <= self._active_rep_idx < len(self._rep_sets)
-        has_grp_active = 0 <= getattr(self, "_bar_active_grp", -1) < len(self._bar_groups)
-        grp_solo_toks: set = set()
-        grp_color = ACCENT
-        if has_grp_active:
-            grp = self._bar_groups[self._bar_active_grp]
-            grp_solo_toks = set(grp.solo_wells)
-            grp_color = WELL_COLORS[self._bar_active_grp % len(WELL_COLORS)]
-        has_active = has_rep_active or has_grp_active
-
-        for tok, btn in self._rep_map_btns.items():
-            if tok not in self._well_paths:
-                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
-            elif tok in grp_solo_toks:
-                self._plate_apply_colored(
-                    btn, grp_color, active=True, fg_disabled=fg_disabled,
-                )
-            elif tok in tok_color:
-                self._plate_apply_colored(
-                    btn, tok_color[tok],
-                    active=tok_active.get(tok, False), fg_disabled=fg_disabled,
-                )
-            else:
-                self._plate_apply_neutral(
-                    btn, bg, fg, fg_disabled,
-                    cursor="hand2" if has_active else "arrow",
-                )
-
-    def _rep_map_tok_at(self, event) -> Optional[str]:
-        return _gc_rep_map_tok_at(self, event)
-
-    def _rep_map_press(self, event) -> None:
-        _gc_rep_map_press(self, event)
-
-    def _rep_map_drag(self, event) -> None:
-        _gc_rep_map_drag(self, event)
-
-    def _rep_map_release(self, _event) -> None:
-        _gc_rep_map_release(self, _event)
-
-    def _rep_map_apply(self, tok: str) -> None:
-        _gc_rep_map_apply(self, tok)
-
-    def _rep_refresh_map_single(self, tok: str) -> None:
-        """Update a single rep-map button (cheap mid-drag feedback).
-
-        Delegates to the full refresh to keep group-solo/rep-set colouring
-        consistent — the grid is at most 96 cells so the cost is negligible.
-        """
-        self._rep_refresh_map()
+        plate.setEnabledWells(list(self._well_paths.keys()))
+        colors: Dict[str, str] = {}
+        for s in self._selections:
+            c = self._sel_color(s)
+            for tok in (s.get("wells") or []):
+                if tok in self._well_paths:
+                    colors[tok] = c
+        plate.clearWellColors()
+        plate.setWellColors(colors)
+        cur = self._sel_by_id(getattr(self, "_current_selection_id", None))
+        cur_wells = [w for w in (cur.get("wells") or []) if w in self._well_paths] if cur else []
+        plate.setSelectedWellIds(cur_wells)
 
     def _rep_panel_refresh(self) -> None:
         from well_viewer.views.grouping_view import rep_panel_refresh as _rep_panel_refresh_view
@@ -1606,12 +1816,10 @@ class WellViewerApp(QWidget):
         _rep_panel_refresh_view(self)
 
     def _rep_select(self, idx: int) -> None:
-        self._active_rep_idx = idx
-        # Replicate-set and group selections are mutually exclusive so the
-        # sidebar plate grid has a single unambiguous edit target.
-        self._bar_active_grp = -1
-        self._groups_centre_refresh()   # card list
-        self._rep_refresh_map()         # plate map: highlight selected set
+        # Legacy bridge: select the idx-th rep_set-source selection.
+        sels = [s for s in self._selections if s.get("source") == "rep_set"]
+        if 0 <= idx < len(sels):
+            self._sel_select(sels[idx].get("id"))
 
     def _rep_add(self) -> None:
         """Open dialog to create a new named ReplicateSet."""
@@ -1620,7 +1828,7 @@ class WellViewerApp(QWidget):
         dlg.setModal(True)
         v = QVBoxLayout(dlg)
         v.addWidget(QLabel("Name:"))
-        name_edit = QLineEdit(f"Rep {len(self._rep_sets)+1}")
+        name_edit = QLineEdit(f"Rep {len(self._selections)+1}")
         v.addWidget(name_edit)
         v.addWidget(QLabel("Select wells:"))
         available = sorted(self._well_paths.keys(),
@@ -1641,110 +1849,61 @@ class WellViewerApp(QWidget):
             if not sel:
                 QMessageBox.warning(dlg, "No wells", "Select at least one well.")
                 return
-            name = name_edit.text().strip() or f"Rep {len(self._rep_sets)+1}"
-            self._rep_sets.append(ReplicateSet(name, sel))
-            self._active_rep_idx = len(self._rep_sets) - 1
+            name = name_edit.text().strip() or f"Rep {len(self._selections) + 1}"
             dlg.accept()
-            self._rebuild_all()
+            # _sel_add enforces well-exclusivity (the new group takes the wells).
+            self._sel_add(name, list(sel), replicates=[list(sel)], source="rep_set")
 
         ok_btn.clicked.connect(_ok)
         cancel_btn.clicked.connect(dlg.reject)
         dlg.exec()
 
+    def _rep_set_id_at(self, idx: int):
+        """Selection id of the idx-th rep_set-source selection (legacy bridge)."""
+        sels = [s for s in self._selections if s.get("source") == "rep_set"]
+        return sels[idx].get("id") if 0 <= idx < len(sels) else None
+
     def _rep_rename(self, idx: int) -> None:
-        if not (0 <= idx < len(self._rep_sets)):
+        sid = self._rep_set_id_at(idx)
+        if sid is None:
             return
-        name = ask_name_dialog(self, default=self._rep_sets[idx].name)
+        s = self._sel_by_id(sid)
+        name = ask_name_dialog(self, default=s.get("name", "") if s else "")
         if name:
-            self._rep_sets[idx].name = name
-            self._rebuild_all()
+            self._sel_rename(sid, name)
 
     def _rep_delete(self, idx: int) -> None:
-        if not (0 <= idx < len(self._rep_sets)):
-            return
-        rset = self._rep_sets[idx]
-        # Remove from any groups that reference it
-        for grp in self._bar_groups:
-            if rset in grp.members:
-                grp.members.remove(rset)
-        self._rep_sets.pop(idx)
-        self._active_rep_idx = min(self._active_rep_idx,
-                                   len(self._rep_sets) - 1)
-        self._rebuild_all()
+        sid = self._rep_set_id_at(idx)
+        if sid is not None:
+            self._sel_delete(sid)
 
     def _rep_clear_all(self) -> None:
-        if not self._rep_sets:
+        if not self._selections:
             return
         resp = QMessageBox.question(
-            self, "Clear all replicate sets?",
-            f"Remove all {len(self._rep_sets)} set(s)?\n"
-            "Groups referencing them will also lose those members.",
+            self, "Clear all groups?",
+            f"Remove all {len(self._selections)} group(s)?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if resp == QMessageBox.Yes:
-            for grp in self._bar_groups:
-                grp.members.clear()
-            self._rep_sets.clear()
-            self._active_rep_idx = -1
-            self._rep_hidden.clear()
-            self._rebuild_all()
+            self._sel_clear_all()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Group definition panel
     # ─────────────────────────────────────────────────────────────────────────
-
-    def _build_group_def_panel(self, parent) -> None:
-        from well_viewer.views.grouping_view import build_group_def_panel as _v
-        _v(self, parent)
-
-    def _grp_panel_refresh(self) -> None:
-        from well_viewer.views.grouping_view import grp_panel_refresh as _v
-        _v(self)
 
     def _ask_name_dialog(self, default: str) -> Optional[str]:
         return ask_name_dialog(self, default=default)
-
-    def _grp_select(self, idx: int) -> None:
-        _gc_grp_select(self, idx)
-
-    def _grp_add(self) -> None:
-        _gc_grp_add(self)
-
-    def _grp_rename(self, idx: int) -> None:
-        _gc_grp_rename(self, idx)
-
-    def _grp_delete(self, idx: int) -> None:
-        _gc_grp_delete(self, idx)
-
-    def _grp_toggle_visibility(self, idx: int) -> None:
-        _gc_grp_toggle_visibility(self, idx)
-
-    def _grp_add_member(self, grp_idx: int, rset: "ReplicateSet") -> None:
-        _gc_grp_add_member(self, grp_idx, rset)
-
-    def _grp_remove_member(self, grp_idx: int, rset: "ReplicateSet") -> None:
-        _gc_grp_remove_member(self, grp_idx, rset)
-
-    def _grp_add_solo_well(self, grp_idx: int, well: str) -> None:
-        """Add a single well to a group as a solo (singleton replicate)."""
-        _gc_grp_add_solo_well(self, grp_idx, well)
-
-    def _grp_remove_solo(self, grp_idx: int, well: str) -> None:
-        _gc_grp_remove_solo(self, grp_idx, well)
-
-    def _grp_clear_all(self) -> None:
-        _gc_grp_clear_all(self)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Well-label editor
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_label_editor(self, parent) -> None:
-        from well_viewer.views.label_editor_view import build_label_editor as _v
+        from well_viewer.views.label_grid_view import build_label_grid as _v
         _v(self, parent)
 
     def _label_panel_refresh(self) -> None:
-        from well_viewer.views.label_editor_view import label_panel_refresh as _v
+        from well_viewer.views.label_grid_view import label_grid_refresh as _v
         _v(self)
 
     def _labels_clear_all(self) -> None:
@@ -1755,13 +1914,29 @@ class WellViewerApp(QWidget):
 
     def _labels_apply_affix(self, *, where: str) -> None:
         """Prompt for text and prepend/append it to the labels of every
-        well currently selected in the sidebar well picker."""
+        well currently selected.
+
+        Selection precedence: the Well-Labels grid's selection wins when
+        non-empty (rows / columns / Shift-clicked cells); otherwise the
+        sidebar's plate selection is used as a fallback.
+        """
         from well_viewer.ui_helpers import ask_name_dialog
 
-        selected = sorted(self._selected_wells, key=self._parse_rc)
+        grid = getattr(self, "_lbl_grid", None)
+        grid_sel: list[str] = []
+        if grid is not None:
+            try:
+                grid_sel = list(grid.selectedTokens())
+            except Exception:
+                grid_sel = []
+        if grid_sel:
+            selected = sorted(grid_sel, key=self._parse_rc)
+        else:
+            selected = sorted(self._selected_wells, key=self._parse_rc)
         if not selected:
             self._set_status(
-                f"Add {where.title()}: no wells selected in the picker."
+                f"Add {where.title()}: no wells selected — click a row/column "
+                "header on the Well Labels grid or select wells on the sidebar plate."
             )
             return
 
@@ -1794,365 +1969,247 @@ class WellViewerApp(QWidget):
     def _labels_add_suffix(self) -> None:
         self._labels_apply_affix(where="suffix")
 
+    # ── unified-model (app._selections) — the in-memory source of truth ──────
+
+    def _sel_by_id(self, sid):
+        for s in self._selections:
+            if s.get("id") == sid:
+                return s
+        return None
+
+    def _sel_index_of(self, sid) -> int:
+        for i, s in enumerate(self._selections):
+            if s.get("id") == sid:
+                return i
+        return -1
+
+    def _sel_id_for_well(self, tok):
+        for s in self._selections:
+            if tok in (s.get("wells") or []):
+                return s.get("id")
+        return None
+
+    def _sel_strip_wells(self, wells, *, keep_id=None) -> None:
+        """A well belongs to ≤1 group: remove ``wells`` from every selection but
+        ``keep_id``, pruning their replicates to the survivors. Also drop the
+        same wells from ``self._selected_wells`` so the plotting tabs don't
+        keep treating them as solo wells once they've joined a group (the
+        sidebar plate becomes passive in rep_mode and the user can't update
+        the set themselves)."""
+        from well_viewer.selections_model import _deoverlap_replicates
+        wset = set(wells or [])
+        if not wset:
+            return
+        for s in self._selections:
+            if s.get("id") == keep_id:
+                continue
+            nw = [w for w in (s.get("wells") or []) if w not in wset]
+            if nw != s.get("wells"):
+                s["wells"] = nw
+                s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(nw))
+        if wset & self._selected_wells:
+            self._selected_wells = self._selected_wells - wset
+
+    def _sel_add(self, name=None, wells=None, replicates=None, source="user",
+                 *, make_current=True):
+        from well_viewer.selections_model import make_selection
+        used_names = {s.get("name") for s in self._selections}
+        used_ids = {s.get("id") for s in self._selections}
+        sel = make_selection(name=name, wells=wells, replicates=replicates,
+                             source=source, used_names=used_names, used_ids=used_ids,
+                             fallback_color_idx=len(self._selections))
+        self._sel_strip_wells(sel["wells"], keep_id=sel["id"])
+        self._selections.append(sel)
+        if make_current:
+            self._current_selection_id = sel["id"]
+        self._rebuild_all()
+        return sel["id"]
+
+    def _sel_rename(self, sid, name) -> None:
+        from well_viewer.selections_model import _unique_name as _uq
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        new = _uq(name, {x.get("name") for x in self._selections if x.get("id") != sid})
+        if new == s.get("name"):
+            return
+        s["name"] = new
+        self._rebuild_all()
+
+    def _sel_delete(self, sid) -> None:
+        i = self._sel_index_of(sid)
+        if i < 0:
+            return
+        self._selections.pop(i)
+        if self._current_selection_id == sid:
+            self._current_selection_id = (
+                self._selections[min(i, len(self._selections) - 1)].get("id")
+                if self._selections else None)
+        self._rebuild_all()
+
+    def _sel_set_hidden(self, sid, hidden, *, light=False) -> None:
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        if bool(s.get("hidden")) == bool(hidden):
+            return
+        s["hidden"] = bool(hidden)
+        if light:
+            self._refresh_sidebar_map()
+        else:
+            self._rebuild_all()
+
+    def _sel_set_color(self, sid, color) -> None:
+        """Recolour a saved selection. ``color`` is a ``#RRGGBB`` hex string
+        (or anything accepted by QColor); empty / falsy clears the override
+        and lets the rank-based colour fall back through."""
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        try:
+            from PySide6.QtGui import QColor
+            qc = QColor(color) if color else QColor()
+            new = qc.name(QColor.HexRgb).upper() if qc.isValid() else ""
+        except Exception:
+            new = str(color or "").strip()
+        if (s.get("color") or "") == new:
+            return
+        if new:
+            s["color"] = new
+        else:
+            s.pop("color", None)
+        self._rebuild_all()
+
+    def _sel_export_one(self, sid) -> None:
+        """Export a single saved selection (by id) to a standalone JSON file."""
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        import json as _json
+        default_name = f"{s.get('name') or 'selection'}.json"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export selection", default_name, "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            from well_viewer.selections_model import to_block
+            block = to_block([s], current_id=s.get("id"))
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(block, f, indent=2)
+            self._toast(f"Exported '{s.get('name')}' to {path}.", kind="success")
+        except Exception as exc:
+            self._toast(f"Export failed: {exc}", kind="danger", msec=6000)
+
+    def _sel_toggle_hidden(self, sid) -> None:
+        s = self._sel_by_id(sid)
+        if s is not None:
+            self._sel_set_hidden(sid, not bool(s.get("hidden")))
+
+    def _sel_set_composition(self, sid, wells=None, replicates=None) -> None:
+        from well_viewer.selections_model import _clean_wells, _deoverlap_replicates
+        s = self._sel_by_id(sid)
+        if s is None:
+            return
+        if wells is not None:
+            s["wells"] = _clean_wells(wells)
+            self._sel_strip_wells(s["wells"], keep_id=sid)
+        src = replicates if replicates is not None else s.get("replicates")
+        s["replicates"] = _deoverlap_replicates(src, allowed=set(s.get("wells") or []))
+        self._rebuild_all()
+
+    def _sel_select(self, sid) -> None:
+        if sid not in {s.get("id") for s in self._selections}:
+            return
+        if sid == getattr(self, "_current_selection_id", None):
+            return
+        self._current_selection_id = sid
+        self._groups_centre_refresh()
+        self._refresh_sidebar_map()
+
+    def _sel_reorder(self, ids) -> None:
+        by_id = {s.get("id"): s for s in self._selections}
+        new = [by_id[i] for i in ids if i in by_id]
+        for s in self._selections:
+            if s not in new:
+                new.append(s)
+        if new != self._selections:
+            self._selections = new
+            self._rebuild_all()
+
+    def _sel_clear_all(self) -> None:
+        self._selections = []
+        self._current_selection_id = None
+        self._rebuild_all()
+
+    def _sel_duplicate(self, sid):
+        s = self._sel_by_id(sid)
+        if s is None:
+            return None
+        return self._sel_add(name=f"{s.get('name', 'Selection')} copy",
+                             wells=[], replicates=None, source="user")
+
+    def _enforce_well_exclusivity(self) -> None:
+        """Invariant: a well belongs to **at most one group**. Keep each well in
+        the first selection that has it; strip it from the rest. The edit
+        helpers already enforce this (edited group wins); this is a safety net
+        and cleans up pre-existing overlaps from old saved data."""
+        seen: set = set()
+        for s in getattr(self, "_selections", []):
+            if not isinstance(s, dict):
+                continue
+            kept = []
+            for w in (s.get("wells") or []):
+                if w in seen:
+                    continue
+                seen.add(w)
+                kept.append(w)
+            if kept != s.get("wells"):
+                from well_viewer.selections_model import _deoverlap_replicates
+                s["wells"] = kept
+                s["replicates"] = _deoverlap_replicates(s.get("replicates"), allowed=set(kept))
+
     def _groups_centre_refresh(self) -> None:
         """Refresh all Sample Definitions panels.
 
         Card lists are only rebuilt when the tab is active (expensive).
         Plate maps are always updated (cheap).
         """
+        self._enforce_well_exclusivity()
         tab_visible = False
-        if hasattr(self, "_notebook"):
+        nb = getattr(self, "_notebook", None)
+        if nb is not None:
             try:
-                tab_visible = (
-                    self._notebook.tabText(self._notebook.currentIndex())
-                    == "Sample Definitions")
+                tab_visible = nb.currentName() == "Sample Definitions"
             except Exception:
                 pass
 
         if tab_visible:
             self._rep_panel_refresh()
-            self._grp_panel_refresh()
             self._label_panel_refresh()
         self._rep_refresh_map()
-
-    def _build_bar_perwell_strip(self, parent) -> None:
-        from well_viewer.views.bar_group_panel_view import build_bar_perwell_strip as _v
-        _v(self, parent)
-
-    # ── Group card list rebuild ───────────────────────────────────────────────
-
-    def _bar_rebuild_groups_ui(self) -> None:
-        """
-        Debounced card-list rebuild — schedules the actual work via after(0).
-
-        Called frequently during drag interactions; the debounce ensures only
-        one widget rebuild runs per event-loop cycle even if multiple wells
-        are toggled in rapid succession.
-        """
-        if getattr(self, "_grp_ui_pending", False):
-            return
-        self._grp_ui_pending = True
-        QTimer.singleShot(0, self._bar_rebuild_groups_ui_now)
-
-    def _bar_rebuild_groups_ui_now(self) -> None:
-        from well_viewer.views.bar_group_panel_view import rebuild_groups_ui_now as _v
-        _v(self)
-
-    def _update_bar_group_count_label(self) -> None:
-        from well_viewer.views.bar_group_panel_view import update_bar_group_count_label as _v
-        _v(self)
-
-    def _build_bar_group_row(self, idx: int, grp: "BarGroup") -> None:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_row as _v
-        _v(self, idx, grp)
-
-    def _build_bar_group_header(self, row, idx: int, grp: "BarGroup", bg: str) -> tuple:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_header as _v
-        return _v(self, row, idx, grp, bg)
-
-    def _build_bar_group_chip_rows(self, row, idx: int, grp: "BarGroup", bg: str, is_active: bool) -> list:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_chip_rows as _v
-        return _v(self, row, idx, grp, bg, is_active)
-
-    def _build_bar_group_action_row(self, row, idx: int, bg: str, is_active: bool) -> list:
-        from well_viewer.views.bar_group_panel_view import build_bar_group_action_row as _v
-        return _v(self, row, idx, bg, is_active)
 
     def _rebuild_all(self) -> None:
         """
         Single authoritative refresh called after ANY data change.
-        Updates both Groups tab panels + bar group sidebar + all plots.
         Always synchronous — no debounce — because it is only called on
         explicit user actions (button clicks / dialog OK), never during drag.
         """
         self._invalidate_stats_cache()
-        self._groups_centre_refresh()          # Groups tab: rep panel + map
-        self._bar_rebuild_groups_ui_now()      # sidebar card list + bar map
+        self._groups_centre_refresh()          # Sample Definitions: GROUPS panel + map
         self._refresh_sidebar_map()            # line-graph picker: rep colours
+        self._refresh_sidebar_saved_list()     # Phase 13 B8: compact Saved mirror
         self._redraw_bars()
         self._redraw()
+        try:
+            from well_viewer.tabs.scatter_tab_view import scatter_redraw_active
+            scatter_redraw_active(self)
+        except Exception:
+            _logger.exception("Scatter redraw failed")
         if hasattr(self, "_notebook"):
             if self._current_centre_tab() == "Line Graphs":
                 self._show_line_sidebar()
-
-    def _bar_rebuild_groups(self) -> None:
-        """Rebuild card list + map then refresh all plots.
-
-        Call this when the data itself changes (wells added/removed, group
-        renamed, group deleted).  For selection-only changes use
-        _bar_rebuild_groups_ui() which skips the expensive plot redraws.
-        """
-        self._invalidate_stats_cache()   # group definitions changed — stale results
-        self._bar_rebuild_groups_ui_now()  # always do the UI rebuild synchronously here
-        self._redraw_bars()
-        self._groups_centre_refresh()
-        self._redraw()
-        if hasattr(self, "_notebook"):
-            if self._current_centre_tab() == "Line Graphs":
-                self._show_line_sidebar()
-
-    # ── Group management ──────────────────────────────────────────────────────
-
-    def _bar_add_group(self) -> None:
-        name = ask_name_dialog(self, default=f"Group {len(self._bar_groups) + 1}")
-        if name is None:
-            return
-        self._bar_groups.append(BarGroup(name, members=[]))
-        self._bar_active_grp = len(self._bar_groups) - 1
-        self._bar_active_rep  = -1
-        self._bar_rebuild_groups()
-
-    def _bar_clear_all_groups(self) -> None:
-        """Remove all bar groups after confirmation."""
-        if not self._bar_groups:
-            return
-        resp = QMessageBox.question(
-            self, "Clear all groups?",
-            f"Remove all {len(self._bar_groups)} group(s)?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if resp == QMessageBox.Yes:
-            self._bar_groups.clear()
-            self._bar_active_grp = -1
-            self._bar_active_rep  = -1
-            self._bar_rebuild_groups()
-
-    def _bar_select_group(self, idx: int) -> None:
-        if idx != self._bar_active_grp:
-            self._bar_active_rep = -1
-        self._bar_active_grp = idx
-        self._bar_rebuild_groups_ui()   # sidebar: fast, no plot redraws
-        self._groups_centre_refresh()   # Groups tab centre panels
-
-    def _bar_rename_group(self, idx: int) -> None:
-        if not (0 <= idx < len(self._bar_groups)):
-            return
-        # Group names are edited inline in the Sample Definitions panel.
-        self._bar_active_grp = idx
-        self._grp_inline_edit_idx = idx
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            try:
-                self._notebook.select_by_text("Sample Definitions")
-            except Exception:
-                pass
-        self._groups_centre_refresh()
-
-    def _bar_clear_group(self, idx: int) -> None:
-        self._bar_groups[idx].replicates.clear()
-        self._bar_rebuild_groups()
-
-    def _bar_add_replicate_set(self, group_idx: int) -> None:
-        """Open a dialog to define a new named ReplicateSet within the group."""
-        if group_idx < 0 or group_idx >= len(self._bar_groups):
-            return
-        grp = self._bar_groups[group_idx]
-        # Wells already assigned to any replicate set in this group
-        assigned = {w for rset in grp.replicates for w in rset.wells}
-        available = [lbl for lbl in self._well_paths if lbl not in assigned]
-        if not available:
-            QMessageBox.information(self, "All assigned",
-                                    "All loaded wells are already in a replicate set.")
-            return
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("New Replicate Set")
-        dlg.setModal(True)
-        v = QVBoxLayout(dlg)
-        v.addWidget(QLabel("Replicate set name:"))
-        name_edit = QLineEdit(f"R{len(grp.replicates)+1}")
-        v.addWidget(name_edit)
-        v.addWidget(QLabel("Select wells in this replicate set:"))
-        sorted_available = sorted(available, key=lambda l: self._parse_rc(l))
-        lb = _wells_multiselect_listbox(dlg, sorted_available)
-        v.addWidget(lb, 1)
-        btn_row = QHBoxLayout()
-        v.addLayout(btn_row)
-        add_btn = QPushButton("Add Replicate Set")
-        add_btn.setProperty("variant", "primary")
-        cancel_btn = QPushButton("Cancel")
-        btn_row.addWidget(add_btn)
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch(1)
-
-        def _ok():
-            sel = _selected_list_values(lb)
-            if not sel:
-                QMessageBox.warning(dlg, "No wells selected",
-                                    "Select at least one well.")
-                return
-            name = name_edit.text().strip() or f"R{len(grp.replicates)+1}"
-            grp.replicates.append(ReplicateSet(name, sel))
-            dlg.accept()
-            self._bar_active_rep = len(grp.replicates) - 1
-            self._bar_rebuild_groups()
-
-        add_btn.clicked.connect(_ok)
-        cancel_btn.clicked.connect(dlg.reject)
-        dlg.exec()
-
-    def _bar_remove_replicate_set(self, group_idx: int, set_idx: int) -> None:
-        """Remove one ReplicateSet from the group."""
-        if 0 <= group_idx < len(self._bar_groups):
-            grp = self._bar_groups[group_idx]
-            if 0 <= set_idx < len(grp.replicates):
-                grp.replicates.pop(set_idx)
-                if self._bar_active_rep >= len(grp.replicates):
-                    self._bar_active_rep = len(grp.replicates) - 1
-                self._bar_rebuild_groups()
-
-    def _bar_clear_replicates(self, idx: int) -> None:
-        """Remove all ReplicateSets from the group."""
-        if 0 <= idx < len(self._bar_groups):
-            self._bar_groups[idx].replicates.clear()
-            self._bar_active_rep = -1
-            self._bar_rebuild_groups()
-
-    def _bar_toggle_group_visibility(self, idx: int) -> None:
-        """Toggle whether group *idx* appears in the bar plot."""
-        if 0 <= idx < len(self._bar_groups):
-            self._bar_groups[idx].hidden = not self._bar_groups[idx].hidden
-            self._bar_rebuild_groups()
-
-    def _bar_remove_group(self, idx: int) -> None:
-        self._bar_groups.pop(idx)
-        self._bar_active_grp = min(self._bar_active_grp,
-                                    len(self._bar_groups) - 1)
-        self._bar_rebuild_groups()
-
-    def _bar_select_all(self) -> None:
-        if self._rep_sets:
-            self._rep_hidden.clear()
-        else:
-            self._selected_wells = set(self._well_paths.keys())
-        self._bar_refresh_map()
-        self._redraw_bars()
-
-    def _bar_select_none(self) -> None:
-        if self._rep_sets:
-            self._rep_hidden = set(range(len(self._rep_sets_loaded())))
-        else:
-            self._selected_wells.clear()
-        self._bar_refresh_map()
-        self._redraw_bars()
-
-    # ── Right-click rubber-band: toggle visibility for all groups in rectangle ─
-
-    def _bg_vis_press(self, event) -> None:
-        """Record the screen-space anchor and open the rubber-band overlay."""
-        gp = event.globalPosition().toPoint()
-        sx, sy = gp.x(), gp.y()
-        self._vis_anchor_screen: tuple = (sx, sy)
-
-        self._vis_btn_centres: Dict[str, tuple] = {}
-        for tok, btn in self._bar_map_btns.items():
-            if btn.isVisible() and btn.isEnabled():
-                rect = btn.rect()
-                centre_local = rect.center()
-                centre_global = btn.mapToGlobal(centre_local)
-                self._vis_btn_centres[tok] = (centre_global.x(), centre_global.y())
-
-        if self._vis_rubber_win is not None:
-            try:
-                self._vis_rubber_win.deleteLater()
-            except Exception:
-                pass
-        win = QWidget(self, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
-        win.setAttribute(Qt.WA_TranslucentBackground, False)
-        win.setWindowOpacity(0.30)
-        win.setStyleSheet(f"background-color: {WELL_COLOR_2};")
-        win.setGeometry(0, 0, 1, 1)
-        win.show()
-        win.raise_()
-        self._vis_rubber_win = win
-
-    def _bg_vis_drag(self, event) -> None:
-        """Resize the overlay to span anchor → cursor (screen coords)."""
-        if not hasattr(self, "_vis_anchor_screen") or self._vis_rubber_win is None:
-            return
-        gp = event.globalPosition().toPoint()
-        cx, cy = gp.x(), gp.y()
-        ax, ay = self._vis_anchor_screen
-        x0, y0 = min(ax, cx), min(ay, cy)
-        w  = max(2, abs(cx - ax))
-        h  = max(2, abs(cy - ay))
-        self._vis_rubber_win.setGeometry(x0, y0, w, h)
-
-    def _bg_vis_release(self, event) -> None:
-        """Toggle visibility of replicate sets whose wells fall inside the rectangle."""
-        if self._vis_rubber_win is not None:
-            try:
-                self._vis_rubber_win.deleteLater()
-            except Exception:
-                pass
-            self._vis_rubber_win = None
-
-        anchor     = getattr(self, "_vis_anchor_screen", None)
-        btn_centres = getattr(self, "_vis_btn_centres", {})
-        for attr in ("_vis_anchor_screen", "_vis_btn_centres"):
-            try:
-                delattr(self, attr)
-            except AttributeError:
-                pass
-
-        if anchor is None:
-            return
-
-        gp = event.globalPosition().toPoint()
-        cx, cy = gp.x(), gp.y()
-        ax, ay = anchor
-        x0, x1 = min(ax, cx), max(ax, cx)
-        y0, y1 = min(ay, cy), max(ay, cy)
-
-        # Find tokens of buttons whose screen-space centres fall inside.
-        inside_toks: set = set()
-        for tok, (bx, by) in btn_centres.items():
-            if x0 <= bx <= x1 and y0 <= by <= y1:
-                if tok in self._well_paths:
-                    inside_toks.add(tok)
-
-        if not inside_toks:
-            return
-
-        loaded = self._rep_sets_loaded()
-        if loaded:
-            affected: set = set()
-            for si, rset in enumerate(loaded):
-                if any(w in inside_toks for w in rset.wells):
-                    affected.add(si)
-
-            if not affected:
-                return
-
-            # If the first affected set is visible → hide all; else show all.
-            first_hidden = next(iter(affected)) in self._rep_hidden
-            for si in affected:
-                if first_hidden:
-                    self._rep_hidden.discard(si)
-                else:
-                    self._rep_hidden.add(si)
-
-            self._invalidate_stats_cache()
-            self._rep_refresh_map()
-            self._refresh_sidebar_map()
-            self._bar_refresh_map()
-            self._redraw_bars()
-            self._redraw()
-
-        else:
-            # Fallback: toggle _bar_groups.hidden (no rep-sets defined)
-            affected_groups: set = set()
-            for tok in inside_toks:
-                for i, g in enumerate(self._bar_groups):
-                    if tok in g.wells:
-                        affected_groups.add(i)
-
-            if affected_groups:
-                first_hidden = self._bar_groups[next(iter(affected_groups))].hidden
-                new_hidden   = not first_hidden
-                for i in affected_groups:
-                    self._bar_groups[i].hidden = new_hidden
-                self._bar_rebuild_groups()
-
 
     # ── Quick-group helpers (delegates to grouping_controller) ────────────────
 
@@ -2181,34 +2238,7 @@ class WellViewerApp(QWidget):
 
         self._rep_quick_pairs()
 
-    def _bar_quick_groups_from_dropdowns(self) -> None:
-        """Read dropdown values and update state, then call _bar_quick_groups()."""
-        # Map dropdown display values to internal values
-        pair_dir_display = self._bar_quick_pair_dir_var.currentText()
-        self._bar_quick_pair_dir = "row" if "Rows" in pair_dir_display else "col"
-
-        iter_order_display = self._bar_quick_iter_order_var.currentText()
-        self._bar_quick_iter_order = "row" if "Across" in iter_order_display else "col"
-
-        self._bar_quick_groups()
-
-    def _make_replicate_pairs(self, toks: List[str], prefix: str) -> List[ReplicateSet]:
-        from well_viewer.grouping_controller import make_replicate_pairs
-        return make_replicate_pairs(toks, prefix)
-
-    def _rep_quick_refresh_ui(self) -> None:
-        from well_viewer.grouping_controller import rep_quick_refresh_ui
-        rep_quick_refresh_ui(self)
-
-    def _bar_quick_groups(self) -> None:
-        from well_viewer.grouping_controller import bar_quick_groups
-        bar_quick_groups(self)
-
     # ── Bar group persistence (delegates to well_viewer.persistence.bar_groups)
-
-    def _bar_groups_to_dict(self) -> List[dict]:
-        from well_viewer.persistence import bar_groups as _bg_persist
-        return _bg_persist.to_dict(self._rep_sets, self._bar_groups)
 
     def _bar_groups_from_dict(self, data) -> None:
         from well_viewer.persistence import bar_groups as _bg_persist
@@ -2227,10 +2257,7 @@ class WellViewerApp(QWidget):
         nb = getattr(self, "_notebook", None)
         if nb is None:
             return
-        for i in range(nb.count()):
-            if nb.tabText(i) == "Sample Definitions":
-                nb.setCurrentIndex(i)
-                return
+        nb.setCurrentByName("Sample Definitions")
 
     # ── Ratio / heatmap / cell-override / line-order persistence ─────────────
     # Each block delegates to ``well_viewer.persistence.<domain>``.
@@ -2335,6 +2362,59 @@ class WellViewerApp(QWidget):
         from well_viewer.persistence import sample_definitions as _sd
         _sd.clear_all(self)
 
+    def _import_selections_from_json(self) -> None:
+        """Import a selections JSON file (the same schema used by Save) and
+        merge it into ``self._selections``. Existing names get a ``_v2``
+        suffix on collision so nothing already loaded is overwritten."""
+        import json
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import selections from JSON", "", "JSON (*.json);;All files (*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path) as fh:
+                payload = json.load(fh)
+        except Exception as exc:
+            QMessageBox.critical(self, "Import failed", f"Could not parse JSON:\n{exc}")
+            return
+
+        # Accept either a v2 sample-definitions block (with a 'selections' key)
+        # or a bare list of selection dicts.
+        items = None
+        if isinstance(payload, dict):
+            items = payload.get("selections") or payload.get("sample_definitions", {}).get("selections")
+        elif isinstance(payload, list):
+            items = payload
+        if not items:
+            QMessageBox.warning(self, "Import", "No selections found in that file.")
+            return
+
+        added = 0
+        for sel in items:
+            if not isinstance(sel, dict):
+                continue
+            name = sel.get("name") or "Imported"
+            wells = sel.get("wells") or []
+            replicates = sel.get("replicates")
+            source = sel.get("source") or "imported"
+            try:
+                self._sel_add(name=name, wells=list(wells),
+                              replicates=replicates, source=source)
+                added += 1
+            except Exception:
+                _logger = __import__("logging").getLogger("well_viewer.runtime_app")
+                _logger.exception("Import selection failed for %r", name)
+
+        if hasattr(self, "_groups_centre_refresh"):
+            try:
+                self._groups_centre_refresh()
+            except Exception:
+                pass
+        self._toast(f"Imported {added} selection(s) from {path}.", kind="success")
+
     def _save_gating_to_pipeline_info(self) -> None:
         from well_viewer.persistence import cell_gating as _cg
         _cg.save_to_pipeline_info(self)
@@ -2344,68 +2424,55 @@ class WellViewerApp(QWidget):
         return _cg.load_from_pipeline_info(self)
 
     def _bar_groups_prune(self) -> None:
-        """Remove stale well references after a new dataset is loaded."""
-        # Prune global replicate sets
-        for rset in self._rep_sets:
-            rset.wells = [w for w in rset.wells if w in self._well_paths]
-        # Remove now-empty rep sets from pool and from any group members
-        empty = {r for r in self._rep_sets if not r.wells}
-        self._rep_sets = [r for r in self._rep_sets if r.wells]
-        for grp in self._bar_groups:
-            grp.members    = [r for r in grp.members if r not in empty and r.wells]
-            grp.solo_wells = [w for w in grp.solo_wells if w in self._well_paths]
-        self._bar_active_grp = min(self._bar_active_grp, len(self._bar_groups) - 1)
+        """No-op: ``app._selections`` keeps wells that aren't in the current
+        dataset (per the contract — they render greyed); the renderers filter
+        to ``_well_paths`` themselves."""
+        return
 
-    # ── Bar-map drag helpers ──────────────────────────────────────────────────
+    # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
+    # group is coloured by *well-position rank*, so the same well always gets the
+    # same colour everywhere (plate maps, line/bar/stats plots). See
+    # design/OPEN_DECISIONS.md #1 and design/SELECTIONS_MODEL_CONTRACT.md.
+    def _rank_color_well(self, tok) -> str:
+        return WELL_COLORS[_sel_well_rank(tok) % len(WELL_COLORS)]
 
-    def _bar_map_tok_at(self, event) -> Optional[str]:
-        try:
-            gp = event.globalPosition().toPoint()
-        except Exception:
-            return None
-        w = QApplication.widgetAt(gp)
-        for tok, btn in self._bar_map_btns.items():
-            if btn is w:
-                return tok
-        return None
+    def _rank_color_wells(self, wells) -> str:
+        """Colour for a set of wells — the rank colour of its lowest well, so all
+        of its wells (and its line/bar trace) share one colour."""
+        ranks = [_sel_well_rank(w) for w in (wells or [])]
+        ranks = [r for r in ranks if r < (1 << 30)]
+        return WELL_COLORS[(min(ranks) if ranks else 0) % len(WELL_COLORS)]
 
-    # ── Bar-plot drag handlers — unified picker, delegate to _sb_ ─────────────
-    # The bar plate map is the same unified picker as the line sidebar.
-    # _bg_press/drag/release simply forward to _sb_ equivalents so there is
-    # only one set of drag logic.
+    def _sel_color(self, s) -> str:
+        """Effective colour for a selection dict: explicit ``color`` override
+        first, otherwise the rank-based fallback so groups without a user-set
+        colour stay consistent with their wells."""
+        if not isinstance(s, dict):
+            return self._rank_color_wells(getattr(s, "wells", None))
+        c = s.get("color")
+        if isinstance(c, str) and c.strip():
+            return c.strip()
+        return self._rank_color_wells(s.get("wells"))
 
-    def _bg_press(self, event) -> None:
-        self._sb_press(event)
-
-    def _bg_drag(self, event) -> None:
-        self._sb_drag(event)
-
-    def _bg_release(self, _event) -> None:
-        self._sb_release(None)
-
-    def _bg_on_rep_change(self) -> None:
-        self._sb_on_rep_change()
-
-    def _bg_on_well_change(self) -> None:
-        _gc_bg_on_well_change(self)
+    def _rank_color_rset(self, rset) -> str:
+        """Colour for a ReplicateSet / BarGroup (or anything with a ``wells``
+        attribute) — honours the per-selection ``color`` override when an entry
+        in ``_selections`` shares its ``name``, otherwise falls back to the
+        rank colour of its lowest well."""
+        name = getattr(rset, "name", None)
+        if name:
+            for s in self._selections:
+                if s.get("name") == name:
+                    return self._sel_color(s)
+        return self._rank_color_wells(getattr(rset, "wells", None))
 
     def _rep_color_for(self, lbl: str) -> Optional[str]:
-        """Return the WELL_COLORS colour for the ReplicateSet that owns *lbl*,
-        or None if the well is not assigned to any set."""
-        for si, rset in enumerate(getattr(self, "_rep_sets", [])):
-            if lbl in rset.wells:
-                return WELL_COLORS[si % len(WELL_COLORS)]
+        """Return the colour for the selection that owns *lbl*, or None if the
+        well is not in any selection."""
+        for s in self._selections:
+            if lbl in (s.get("wells") or []):
+                return self._sel_color(s)
         return None
-
-    def _bar_refresh_map(self) -> None:
-        """Alias: bar plots share the unified well picker; delegate to sidebar map."""
-        self._refresh_sidebar_map()
-
-
-    def _bar_refresh_single_btn(self, tok: str) -> None:
-        """Recolour one bar-map button. Delegates to the full map refresh so
-        hidden-group colour logic only lives in one place."""
-        self._bar_refresh_map()
 
     def _build_right_panel(self, parent) -> None:
         from well_viewer.views.preview_panel_view import build_right_panel as _build_right_panel_view
@@ -2932,12 +2999,18 @@ class WellViewerApp(QWidget):
         _build_bottom_view(self)
 
     def _apply_theme(self) -> None:
-        """Apply QSS stylesheet for the active theme."""
+        """Apply the application-wide stylesheet.
+
+        Single source of truth is the repo-root ``theme`` module (see
+        ``design/PHASE_4_DIAGNOSIS.md``). Previously this re-applied the legacy
+        ``ui/theme`` per-theme QSS, which clobbered ``theme.qss()`` whenever a
+        ``WellViewerApp`` was constructed (including embedded under AllWell).
+        """
         try:
-            from ui.theme import build_stylesheet  # type: ignore
+            import theme  # type: ignore
             app = QApplication.instance()
             if app is not None:
-                app.setStyleSheet(build_stylesheet(self._theme_name))
+                app.setStyleSheet(theme.qss())
         except Exception:
             pass
 
@@ -2949,8 +3022,6 @@ class WellViewerApp(QWidget):
 
         if hasattr(self, '_rep_cards_frame') and self._rep_cards_frame:
             self._rep_panel_refresh()
-        if hasattr(self, '_grp_cards_frame') and self._grp_cards_frame:
-            self._grp_panel_refresh()
         if hasattr(self, '_stats_fig') and self._stats_fig:
             self._stats_refresh_colors()
         if hasattr(self, "_sidebar_btns"):
@@ -3124,48 +3195,61 @@ class WellViewerApp(QWidget):
         QTimer.singleShot(0, self._refresh_sidebar_map_now)
 
     def _refresh_sidebar_map_now(self) -> None:
-        """Recolour every sidebar button to reflect rep-set visibility.
+        """Push current selection / rep-set state onto the sidebar plate widget.
 
-        Rep-set mode: visible set = full colour sunken, hidden = muted flat,
-        unassigned = neutral. Per-well mode: selected = ACCENT sunken, else
-        neutral. Missing wells are disabled.
+        Rep-set mode: each set's wells take that set's colour (muted when the
+        set is hidden); the plate runs in "passive" mode so clicks toggle a
+        set's visibility. Per-well mode: selected wells take the accent colour
+        and the plate runs in "select" mode (drag-to-select). Wells with no
+        loaded data are disabled. The count / group-hint labels are updated
+        exactly as before.
         """
-        bg, fg, fg_disabled = self._plate_theme_colors()
-        rep_sets = getattr(self, "_rep_sets", [])
-        rep_mode = bool(rep_sets)
+        plate = getattr(self, "_sidebar_plate", None)
+        if plate is None:
+            self._sidebar_map_refresh_pending = False
+            return
 
-        tok_rep: Dict[str, tuple] = {}
-        for si, rset in enumerate(rep_sets):
-            full_c = WELL_COLORS[si % len(WELL_COLORS)]
-            hidden = si in self._rep_hidden
-            for tok in rset.wells:
-                tok_rep[tok] = (full_c, hidden)
+        # Some tabs need per-well selection even when groups exist:
+        # Sample Definitions (Cell Gating / Add Prefix / Add Suffix all
+        # need user-chosen wells), and Review CSV (the user has to pick
+        # which wells' rows to load). For those tabs the plate stays in
+        # ``select`` mode and ``_selected_wells`` is honoured.
+        try:
+            tab_name = self._current_centre_tab()
+        except Exception:
+            tab_name = ""
+        per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
+        rep_mode = bool(self._selections) and not per_well_tab
 
-        for tok, btn in self._sidebar_btns.items():
-            if tok not in self._well_paths:
-                self._plate_apply_disabled(btn, bg, fg, fg_disabled)
-            elif rep_mode and tok in tok_rep:
-                full_c, hidden = tok_rep[tok]
-                if hidden:
-                    # Hidden sets: muted bg, full colour on hover, flat relief.
-                    self._style_plate_button(
-                        btn, bg=self._mute_color(full_c), fg="white",
-                        state="normal", cursor="hand2", relief="flat",
-                        activebackground=full_c, activeforeground="white",
-                        disabledforeground=fg_disabled,
-                    )
-                else:
-                    self._plate_apply_colored(
-                        btn, full_c, active=True, fg_disabled=fg_disabled,
-                    )
-            elif rep_mode:
-                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
-            elif tok in self._selected_wells:
-                self._plate_apply_colored(
-                    btn, ACCENT, active=True, fg_disabled=fg_disabled,
-                )
-            else:
-                self._plate_apply_neutral(btn, bg, fg, fg_disabled)
+        colors: Dict[str, object] = {}
+        if rep_mode:
+            for s in self._selections:
+                full_c = self._sel_color(s)
+                shade = self._mute_color(full_c) if s.get("hidden") else full_c
+                for tok in (s.get("wells") or []):
+                    if tok in self._well_paths:
+                        colors[tok] = shade
+        else:
+            for tok in self._selected_wells:
+                if tok in self._well_paths:
+                    colors[tok] = self._rank_color_well(tok)
+
+        # smFISH suppresses row/col header selection and forces single-well.
+        smfish = False
+        nb = getattr(self, "_notebook", None)
+        if nb is not None:
+            try:
+                smfish = nb.currentName() == "smFISH"
+            except Exception:
+                smfish = False
+
+        plate.setEnabledWells(list(self._well_paths.keys()))
+        plate.setSelectionMode("passive" if rep_mode else "select")
+        plate.setRowColumnSelectable(not smfish)
+        plate.setSingleSelectionMode(smfish and not rep_mode)
+        plate.clearWellColors()
+        plate.setWellColors(colors)
+        plate.setSelectedWellIds([] if rep_mode else list(self._selected_wells))
 
         # Count label / hint
         loaded  = self._rep_sets_loaded() if rep_mode else []
@@ -3173,12 +3257,15 @@ class WellViewerApp(QWidget):
         n_loaded = len(loaded)
         if hasattr(self, "_sel_count_lbl"):
             if rep_mode:
-                n_hid = sum(1 for i in range(n_loaded) if i in self._rep_hidden)
+                n_hid = n_loaded - n_vis
                 self._sel_count_lbl.setText((f"{n_vis}/{n_loaded} set(s) visible"
                           if n_hid else f"{n_loaded} set(s) — all visible"))
             else:
                 self._sel_count_lbl.setText((f"{n_vis} well{'s' if n_vis != 1 else ''} selected"
                           if n_vis else "No wells selected"))
+        if hasattr(self, "_sel_count_chip"):
+            total = len(self._well_paths) if hasattr(self, "_well_paths") else 96
+            self._sel_count_chip.setText(f"{n_vis} / {total or 96}")
         if hasattr(self, "_line_group_hint"):
             if rep_mode:
                 self._line_group_hint.setText("Click a well to toggle its set's visibility on the plot.")
@@ -3187,210 +3274,81 @@ class WellViewerApp(QWidget):
 
         self._sidebar_map_refresh_pending = False
 
-    def _style_plate_button(
-        self,
-        btn: Any,
-        *,
-        bg: str,
-        fg: str,
-        state: str = "normal",
-        cursor: str = "hand2",
-        relief: str = "flat",
-        activebackground: Optional[str] = None,
-        activeforeground: Optional[str] = None,
-        disabledforeground: Optional[str] = None,
-    ) -> None:
-        """Apply plate-map button styling to a ``QPushButton``."""
-        state_str = str(state).lower()
-        relief_str = str(relief).lower()
-        is_enabled = not state_str.endswith("disabled")
-        is_sunken = relief_str.endswith("sunken")
+    # ── v2 plate-widget bridge (WellPlateSelector ↔ WellViewerApp state) ──────
+    # The left-rail plate is now a single ``widgets.WellPlateSelector`` instead
+    # of an ``app._sidebar_btns`` grid of ``WellButton``s. ``app._selected_wells``
+    # stays the source of truth; ``_refresh_sidebar_map_now`` pushes appearance /
+    # selection onto the widget, and the handlers below take user actions back.
 
-        btn.setEnabled(is_enabled)
-        if hasattr(btn, "setCursor"):
-            btn.setCursor(Qt.PointingHandCursor if cursor == "hand2" else Qt.ArrowCursor)
-
-        hover_bg = activebackground or bg
-        hover_fg = activeforeground or fg
-        disabled_fg = disabledforeground or fg
-        # 1px border matching the design-system tokens. Wells with no data
-        # get a transparent border; wells with data get a themed border.
-        # The embossed/depressed 3D cue is painted by WellButton.paintEvent —
-        # QSS outset/inset collapses to solid once border-radius is set.
-        from ui.theme import get_color
-        if not is_enabled:
-            border = "1px solid transparent"
-        else:
-            border = f"1px solid {get_color('BORDER')}"
-        # Drive the paint-event-based 3D cue.
-        if hasattr(btn, "set_emboss"):
-            if not is_enabled:
-                btn.set_emboss("none")
-            elif is_sunken:
-                btn.set_emboss("depressed")
-            else:
-                btn.set_emboss("raised")
-
-        # Setting a per-widget stylesheet overrides the application QSS for
-        # this widget's selector. Restate the plate-well layout properties
-        # (fixed size, padding, border-radius) here so wells render identically
-        # to QSS-driven wells. Must match QPushButton#WellButton in dark.qss /
-        # light.qss. No font-size is set (Qt rejects <=0pt); button text is
-        # always empty anyway.
-        base_layout = (
-            "min-width: 18px;"
-            "min-height: 18px;"
-            "max-width: 18px;"
-            "max-height: 18px;"
-            "padding: 0;"
-            "border-radius: 9px;"
-        )
-
-        btn.setStyleSheet(
-            "\n".join(
-                [
-                    (
-                        "QPushButton{"
-                        f"{base_layout}"
-                        f"background-color: {bg};"
-                        f"color: {fg};"
-                        f"border: {border};"
-                        "}"
-                    ),
-                    (
-                        "QPushButton:hover{"
-                        f"{base_layout}"
-                        f"background-color: {hover_bg};"
-                        f"color: {hover_fg};"
-                        f"border: {border};"
-                        "}"
-                    ),
-                    (
-                        "QPushButton:disabled{"
-                        f"{base_layout}"
-                        f"background-color: {bg};"
-                        f"color: {disabled_fg};"
-                        f"border: {border};"
-                        "}"
-                    ),
-                ]
-            )
-        )
-
-    def _plate_theme_colors(self) -> tuple:
-        from ui.theme import get_color
-        # Use the canonical "available well" colour so unselected wells in
-        # every plate-map (line/bar/stats sidebar) match the QSS-driven
-        # WellButton[state="available"] swatch used by the preview and
-        # image-table pickers — they were diverging on the dark theme,
-        # where button_bg differs from CLR_AVAIL_WELL.
-        return (
-            get_color("CLR_AVAIL_WELL"),
-            get_color("button_text"),
-            get_color("button_text_disabled"),
-        )
-
-    def _plate_apply_disabled(self, btn, bg: str, fg: str, fg_disabled: str) -> None:
-        self._style_plate_button(
-            btn, bg=bg, fg=fg_disabled, state="disabled", cursor="arrow",
-            activebackground=bg, activeforeground=fg,
-            disabledforeground=fg_disabled, relief="flat",
-        )
-
-    def _plate_apply_colored(
-        self, btn, color: str, *, active: bool, fg_disabled: str,
-    ) -> None:
-        self._style_plate_button(
-            btn, bg=color, fg="white", state="normal", cursor="hand2",
-            relief="sunken" if active else "flat",
-            activebackground=self._mute_color(color, 0.3) if active else color,
-            activeforeground="white", disabledforeground=fg_disabled,
-        )
-
-    def _plate_apply_neutral(
-        self, btn, bg: str, fg: str, fg_disabled: str,
-        *, cursor: str = "hand2", relief: str = "flat",
-    ) -> None:
-        self._style_plate_button(
-            btn, bg=bg, fg=fg, state="normal", cursor=cursor, relief=relief,
-            activebackground=bg, activeforeground=fg,
-            disabledforeground=fg_disabled,
-        )
-
-    def _sidebar_tok_at(self, event) -> Optional[str]:
-        from well_viewer.selection_controller import sidebar_tok_at as _sidebar_tok_at
-
-        return _sidebar_tok_at(self, event)
-
-    # =========================================================================
-    # Shared plate-map drag engine
-    # Both the line sidebar (_sidebar_btns / _selected_wells) and the
-    # bar sidebar uses identical
-    # rep-set toggle logic.  The three helpers below centralise it.
-    #
-    # Callers supply:
-    #   btn_dict  – {tok: QPushButton} for the active map
-    #   well_set  – mutable set used in per-well mode
-    #   ds        – drag-state dict  {"adding": bool,
-    #                                 "visited": set,
-    #                                 "rep_toggled": set}
-    # =========================================================================
-
-    def _plate_drag_press(self, label: str, well_set: set, ds: dict) -> None:
-        from well_viewer.selection_controller import plate_drag_press as _plate_drag_press
-
-        _plate_drag_press(self, label, well_set, ds)
-
-    def _plate_drag_apply(
-        self,
-        tok: str,
-        btn_dict: "Dict[str, QPushButton]",
-        well_set: set,
-        ds: dict,
-    ) -> None:
-        from well_viewer.selection_controller import plate_drag_apply as _plate_drag_apply
-
-        _plate_drag_apply(self, tok, btn_dict, well_set, ds)
-
-    def _plate_drag_release(
-        self,
-        ds: dict,
-        on_rep_change,
-        on_well_change,
-    ) -> None:
-        from well_viewer.selection_controller import plate_drag_release as _plate_drag_release
-
-        _plate_drag_release(self, ds, on_rep_change, on_well_change)
-
-    def _rep_idx_for_label(self, label: str) -> Optional[int]:
-        """Return _rep_sets_loaded() index of the set owning *label*, or None."""
-        for si, rset in enumerate(self._rep_sets_loaded()):
-            if label in rset.wells:
-                return si
-        return None
-
-    # ── Line-graph sidebar wrappers ───────────────────────────────────────────
-
-    def _sb_press(self, event) -> None:
-        from well_viewer.selection_controller import sb_press as _sb_press
-
-        _sb_press(self, event)
-
-    def _sb_drag(self, event) -> None:
-        from well_viewer.selection_controller import sb_drag as _sb_drag
-
-        _sb_drag(self, event)
-
-    def _sb_release(self, _event=None) -> None:
-        from well_viewer.selection_controller import sb_release as _sb_release
-
-        _sb_release(self)
-
-    def _sb_on_rep_change(self) -> None:
-        """Rep-set visibility changed — refresh unified picker + both plots."""
+    def _on_sidebar_plate_selection_changed(self, ids) -> None:
+        # Fires per-cell during a drag and once for a click; also fires when
+        # ``_refresh_sidebar_map_now`` calls ``setSelectedWellIds`` /
+        # ``setEnabledWells`` (those corrections converge harmlessly).
+        #
+        # Sample Definitions exception: even when groups exist (rep-set mode),
+        # this tab needs per-well selection so Add Prefix / Add Suffix can act
+        # on user-chosen wells. We let the click through and update
+        # ``_selected_wells`` normally; ``_refresh_sidebar_map_now`` mirrors the
+        # same exception so the painted selection doesn't get wiped on the next
+        # refresh tick. Review CSV gets the same exception so the user can pick
+        # which wells' rows to load even when groups are defined.
+        try:
+            tab_name = self._current_centre_tab()
+        except Exception:
+            tab_name = ""
+        per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
+        if self._selections and not per_well_tab:
+            return  # rep-set mode: the plate is passive; its selection is unused
+        # Keep the invariant ``_selected_wells ⊆ _well_paths`` — downstream
+        # code (e.g. redraw_line_plots → _get_rows) assumes it.
+        new_set = {w for w in ids if w in self._well_paths}
+        if new_set == self._selected_wells:
+            return
+        self._selected_wells = new_set
         self._refresh_sidebar_map()
-        self._redraw()
-        self._redraw_bars()
+
+    def _on_sidebar_plate_drag_finished(self) -> None:
+        try:
+            tab_name = self._current_centre_tab()
+        except Exception:
+            tab_name = ""
+        per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
+        if self._selections and not per_well_tab:
+            return
+        self._on_plate_sel_change()
+
+    def _on_sidebar_plate_well_activated(self, well_id: str) -> None:
+        # Only meaningful in rep-set mode (the plate is passive there); in
+        # per-well mode the widget owns its selection and toggles internally.
+        if not self._selections:
+            return
+        sid = self._sel_id_for_well(well_id)
+        if sid is None:
+            return
+        self._sel_toggle_hidden(sid)
+
+    def _on_sidebar_plate_row_activated(self, row: str) -> None:
+        if self._selections:
+            self._select_row(row)            # rep-set-aware toggle + refresh
+        else:
+            # The widget already toggled the row and synced ``_selected_wells``
+            # via the preceding ``selectionChanged``; do the heavy refresh once.
+            self._on_plate_sel_change()
+
+    def _on_sidebar_plate_col_activated(self, col: str) -> None:
+        if self._selections:
+            self._select_col(col)
+        else:
+            self._on_plate_sel_change()
+
+    def _on_sidebar_plate_well_dropped(self, well_id: str, token: str) -> None:
+        if not token:
+            return
+        try:
+            from well_viewer.views.heatmap_layout_sidebar_view import _on_drop_event
+            _on_drop_event(self, "palette", None, token)
+        except Exception:
+            _logger.exception("Heat map well drop handling failed")
 
     def _on_plate_sel_change(self) -> None:
         from well_viewer.selection_controller import on_plate_sel_change as _on_plate_sel_change
@@ -3498,11 +3456,15 @@ class WellViewerApp(QWidget):
         # When no thresholds were saved, the call is a cheap no-op and Cell
         # Gating stays unbuilt.
         self._load_gating_from_pipeline_info()
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+        if hasattr(self, "_cell_gating_area_edit"):
             # Refresh the per-channel CDF + saved ThreshFracOn values now
             # that the tab exists and channels are known.
-            self._cell_gating_tab._load_cell_areas()
-            self._cell_gating_tab._load_threshold_frac_on()
+            from well_viewer.tabs.cell_gating_tab_view import (
+                cell_gating_load_cell_areas,
+                cell_gating_load_threshold_frac_on,
+            )
+            cell_gating_load_cell_areas(self)
+            cell_gating_load_threshold_frac_on(self)
 
     # ── Ratio metric helpers ─────────────────────────────────────────────────
 
@@ -3571,6 +3533,23 @@ class WellViewerApp(QWidget):
                 panel.refresh_from_app()
             except Exception:
                 pass
+        # Cell Gating shows one row per fluor channel + one per ratio. Pull
+        # the ratio rows into the table whenever the ratio set changes.
+        if hasattr(self, "_cell_gating_area_edit"):
+            try:
+                from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+                cell_gating_load_cell_areas(self)
+            except Exception:
+                pass
+        # Ratio additions become virtual channel entries in every plot-tab
+        # combo (including the global ctxbar chip), so refresh those now —
+        # otherwise the new ratio doesn't appear in the dropdown until the
+        # next dataset reload.
+        if hasattr(self, "_update_channel_selector"):
+            try:
+                self._update_channel_selector()
+            except Exception:
+                pass
 
     # ── Active channel ───────────────────────────────────────────────────────
 
@@ -3626,7 +3605,11 @@ class WellViewerApp(QWidget):
         # Keep all plot-tab channel selectors in sync so switching channel
         # on one tab is reflected on the others.
         target_label = self._active_channel_label()
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution", "_chan_cb_heatmap"):
+        # Phase 11b: include the global ctxbar combo in the sync set so a
+        # change from any source (per-renderer combo OR the global one)
+        # propagates everywhere.
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
+                     "_chan_cb_heatmap", "_plotting_channel_cb"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
@@ -3811,14 +3794,13 @@ class WellViewerApp(QWidget):
             montage_chans.append(seg_tok)
         montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
         review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
-        # Update channel selector instances
-        for attr in ("_chan_cb_line", "_chan_cb_bar"):
+        # Update channel selector instances — including the global ctxbar
+        # chip (``_plotting_channel_cb``) so it picks up newly-defined ratio
+        # channels and live-updates without waiting for a tab switch.
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
+                     "_chan_cb_heatmap", "_plotting_channel_cb"):
             if hasattr(self, attr):
                 _set_combo_values(getattr(self, attr), labels)
-        if hasattr(self, "_chan_cb_distribution"):
-            _set_combo_values(self._chan_cb_distribution, labels)
-        if hasattr(self, "_chan_cb_heatmap"):
-            _set_combo_values(self._chan_cb_heatmap, labels)
         if hasattr(self, "_chan_cb_preview"):
             _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
@@ -3886,6 +3868,11 @@ class WellViewerApp(QWidget):
             btn.setProperty("variant", variant)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        for obs in list(getattr(self, "_sem_observers", []) or []):
+            try:
+                obs(is_sem)
+            except Exception:
+                pass
         self._redraw()
         if self._current_centre_tab() == "Bar Plots":
             self._redraw_bars()
@@ -3927,6 +3914,11 @@ class WellViewerApp(QWidget):
             btn.setProperty("variant", variant)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        for obs in list(getattr(self, "_fov_observers", []) or []):
+            try:
+                obs(is_on)
+            except Exception:
+                pass
 
     # ── Well selection (plate-map backed) ─────────────────────────────────────
 
@@ -3939,6 +3931,20 @@ class WellViewerApp(QWidget):
         from well_viewer.selection_controller import select_none as _select_none
 
         _select_none(self)
+
+    def _select_invert(self) -> None:
+        """Phase 13 (B7): flip the current selection — every loaded well that
+        was selected becomes unselected, and vice versa. Only wells with data
+        (``_well_paths``) participate."""
+        if not hasattr(self, "_well_paths"):
+            return
+        cur = set(self._selected_wells)
+        new = {w for w in self._well_paths.keys() if w not in cur}
+        self._selected_wells = new
+        # Re-use the standard refresh path the click handlers go through.
+        self._refresh_sidebar_map()
+        if hasattr(self, "_on_plate_sel_change"):
+            self._on_plate_sel_change()
 
     def _selected_labels(self) -> List[str]:
         """Return labels in a stable order (sorted) for consistent plot colours."""
@@ -4232,21 +4238,44 @@ class WellViewerApp(QWidget):
         if btn is None:
             return
         r, g, b = self._review_image_get_color(which)
+        # Explicit border-radius on every side so the bottom corners stay
+        # rounded — the global QSS rule was being clipped by the swatch's
+        # tight fixed size, leaving square lower corners.
         btn.setStyleSheet(
             f"QPushButton {{ background-color: rgb({r},{g},{b}); "
-            f"border: 1px solid #444; min-width: 28px; min-height: 18px; }}"
+            f"border: 1px solid #444; border-radius: 4px; "
+            f"min-width: 28px; min-height: 18px; padding: 0; }}"
         )
 
     def _pick_review_image_color(self, which: str) -> None:
-        """Open a color dialog and apply the selection to ``which`` slot."""
+        """Open a v2 ColorSwatchRow popover anchored at the swatch button."""
         from PySide6.QtGui import QColor
-        from PySide6.QtWidgets import QColorDialog
-        r, g, b = self._review_image_get_color(which)
-        initial = QColor(int(r), int(g), int(b))
-        chosen = QColorDialog.getColor(initial, None, f"Pick {which} color")
-        if not chosen.isValid():
+
+        from widgets.color_swatch_row import ColorSwatchRow
+        from widgets.popover import Popover
+
+        anchor = (getattr(self, "_review_image_color_swatches", {}) or {}).get(which)
+        if anchor is None:
             return
-        self._review_image_set_color(which, (chosen.red(), chosen.green(), chosen.blue()))
+
+        r, g, b = self._review_image_get_color(which)
+        recents = list(getattr(self, "_review_image_color_recents", []) or [])
+
+        pop = Popover(anchor)
+        row = ColorSwatchRow(allow_custom=True, recents=recents)
+        row.setCurrentColor(QColor(int(r), int(g), int(b)))
+
+        def _apply(c: QColor, _which=which, _pop=pop, _row=row) -> None:
+            if not c.isValid():
+                return
+            self._review_image_set_color(_which, (c.red(), c.green(), c.blue()))
+            rec = [c] + [QColor(x) for x in (getattr(self, "_review_image_color_recents", []) or [])
+                         if QColor(x).rgb() != c.rgb()]
+            self._review_image_color_recents = rec[:8]
+
+        row.colorPicked.connect(_apply)
+        pop.setContentWidget(row)
+        pop.popup(anchor, side="bottom", align="start")
 
     def _reset_review_image_colors(self) -> None:
         """Restore the default colors for boundary / selection / tint."""
@@ -4790,10 +4819,16 @@ class WellViewerApp(QWidget):
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-        base_x = max(8, (cw - nw) // 2)
-        base_y = max(8, (ch - nh) // 2)
-        self._review_image_pan_x = (cw / 2.0) - base_x - (cx * scale)
-        self._review_image_pan_y = (ch / 2.0) - base_y - (cy * scale)
+        # The renderer derives the scrollbar value as
+        #     scroll = max(0, (max(nw, cw) - cw) // 2) - int(pan)
+        # and the QLabel host's pixmap sits at x=0 inside it when the
+        # scaled image exceeds the viewport (nw > cw), so the centring
+        # formula has to be pan = nw/2 - cx*scale (and likewise for y).
+        # The old `cw/2 - base_x - cx*scale` form mis-offset the pan by
+        # roughly (nw - cw)/2 px once you zoomed in, which is why the
+        # yellow nucleus ended up off-screen.
+        self._review_image_pan_x = (nw / 2.0) - (cx * scale)
+        self._review_image_pan_y = (nh / 2.0) - (cy * scale)
         self._render_review_image_display()
 
     def _on_review_csv_row_double_click(self, event) -> None:
@@ -4817,8 +4852,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("line")
 
@@ -4833,12 +4868,7 @@ class WellViewerApp(QWidget):
             apply_ax_style=apply_ax_style,
             all_fluor_values=_all_fluor_values,
             all_fluor_values_filtered=_all_fluor_values_filtered,
-            plot_bg=PLOT_BG,
-            plot_spn=PLOT_SPN,
-            txt_pri=TXT_PRI,
-            txt_mut=TXT_MUT,
             warn=WARN,
-            well_colors=WELL_COLORS,
         )
         from well_viewer.figure_export_editor import apply_export_style_to_current
 
@@ -4883,14 +4913,14 @@ class WellViewerApp(QWidget):
         if nb is None:
             return ""
         try:
-            tab = nb.tabText(nb.currentIndex())
+            tab = nb.currentName()
         except Exception:
             return ""
         if tab == "Plotting":
             plotting_nb = getattr(self, "_plotting_notebook", None)
             if plotting_nb is not None and plotting_nb.count() > 0:
                 try:
-                    return plotting_nb.tabText(plotting_nb.currentIndex())
+                    return plotting_nb.currentName()
                 except Exception:
                     pass
         return tab
@@ -4908,7 +4938,6 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_sidebar_image_table_frame"):
             self._sidebar_image_table_frame.setVisible(False)
         self._sidebar_sample_frame.setVisible(False)
-        self._sidebar_groups_frame.setVisible(False)
         self._sidebar_stats_frame.setVisible(False)
         # Heat-map layout configurator lives inside the standard sidebar
         # but is only relevant on the Heat Map tab. Hide by default so the
@@ -4978,16 +5007,17 @@ class WellViewerApp(QWidget):
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
             self._refresh_sidebar_map()
-            if hasattr(self, "_smfish_tab"):
-                self._smfish_tab.sync_from_app()
+            from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
+            smfish_sync_from_app(self)
 
         elif tab == "Cell Gating":
             self._sidebar_main_frame.setVisible(True)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
-            if hasattr(self, "_cell_gating_tab") and self._cell_gating_tab is not None:
-                self._cell_gating_tab._load_cell_areas()
+            if hasattr(self, "_cell_gating_area_edit"):
+                from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+                cell_gating_load_cell_areas(self)
 
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
@@ -5017,69 +5047,50 @@ class WellViewerApp(QWidget):
         self._last_tab_name = tab
 
     def _sync_heatmap_well_drag_mode(self, enable: bool) -> None:
-        """Toggle WELL_MIME drag/drop on the sidebar plate-map well buttons.
+        """Toggle WELL_MIME drag/drop on the sidebar plate widget.
 
-        When *enable* is True, each ``WellButton`` exports its token via the
-        WELL_MIME format on left-button drag and accepts dropped tokens as
-        a "return to palette" action that unassigns the well from the
-        active heat-map layout. When False, drag/drop is disabled and the
-        buttons revert to plain selection behavior.
+        When *enable* is True, the plate exports the well under the pointer via
+        the WELL_MIME format on left-button drag (clicks stop toggling
+        selection) and accepts dropped tokens as a "return to palette" action
+        that unassigns the well from the active heat-map layout (handled by
+        ``_on_sidebar_plate_well_dropped``). When False, drag/drop is disabled
+        and the plate reverts to plain selection behaviour.
         """
-        btns = getattr(self, "_sidebar_btns", None) or {}
-        if not btns:
+        plate = getattr(self, "_sidebar_plate", None)
+        if plate is None:
             return
         from well_viewer.views.heatmap_layout_sidebar_view import WELL_MIME
-
         if enable:
-            def _make_drop(token_unused: str):
-                def _on_drop(token: str) -> None:
-                    try:
-                        from well_viewer.views.heatmap_layout_sidebar_view import (
-                            _on_drop_event,
-                        )
-                        _on_drop_event(self, "palette", None, token)
-                    except Exception:
-                        _logger.exception("Heat map well drop handling failed")
-                return _on_drop
-
-            for tok, btn in btns.items():
-                if hasattr(btn, "set_drag_mime"):
-                    btn.set_drag_mime(WELL_MIME)
-                    btn.setEnabled(True)
-                if hasattr(btn, "set_drop_handler"):
-                    btn.set_drop_handler(WELL_MIME, _make_drop(tok))
+            plate.setDragMime(WELL_MIME)
+            plate.setAcceptDropMime(WELL_MIME)
         else:
-            for btn in btns.values():
-                if hasattr(btn, "set_drag_mime"):
-                    btn.set_drag_mime(None)
-                if hasattr(btn, "set_drop_handler"):
-                    btn.set_drop_handler(None, None)
-            # Don't force-disable here — the per-tab branch in
+            plate.setDragMime(None)
+            plate.setAcceptDropMime(None)
+            # Don't force-disable wells here — the per-tab branch in
             # ``_on_tab_change`` either hides the sidebar (preview / image
-            # table tabs) or calls ``_refresh_sidebar_map`` which restores
-            # the correct enabled state per well.
+            # table tabs) or calls ``_refresh_sidebar_map`` which restores the
+            # correct enabled state per well.
 
     def _sync_preview_well_for_image_tabs(self) -> None:
-        """Keep current preview well unless an active group supplies one."""
+        """Keep current preview well unless the active selection supplies one."""
+        cur_sel = self._sel_by_id(getattr(self, "_current_selection_id", None))
+        sel_wells = (cur_sel.get("wells") or []) if cur_sel else []
+
         # Preserve explicit user choice when still valid.
         current = getattr(self, "_preview_selected_well", None)
         if current in self._well_paths:
-            # If active group has wells, prefer first group well for image tabs.
-            if 0 <= self._bar_active_grp < len(self._bar_groups):
-                grp = self._bar_groups[self._bar_active_grp]
-                for tok in grp.wells:
-                    if tok in self._well_paths:
-                        self._preview_selected_well = tok
-                        return
-            return
-
-        # If no valid current well, use first well from active group.
-        if 0 <= self._bar_active_grp < len(self._bar_groups):
-            grp = self._bar_groups[self._bar_active_grp]
-            for tok in grp.wells:
+            # If the active selection has wells, prefer its first loaded well.
+            for tok in sel_wells:
                 if tok in self._well_paths:
                     self._preview_selected_well = tok
                     return
+            return
+
+        # If no valid current well, use the active selection's first loaded well.
+        for tok in sel_wells:
+            if tok in self._well_paths:
+                self._preview_selected_well = tok
+                return
 
         # Final fallback: keep previous behavior of choosing first available well.
         if self._well_paths:
@@ -5096,19 +5107,18 @@ class WellViewerApp(QWidget):
         if tab not in watched:
             return
 
-        # Batch Export should share the same in-memory selection/group objects
-        # used by line/bar/scatter render paths.
+        # Batch Export should share the same in-memory selection objects used by
+        # the line/bar/scatter render paths.
         expected_ids = (
             id(self._selected_wells),
-            id(self._rep_sets),
-            id(self._bar_groups),
+            id(self._selections),
         )
         if not hasattr(self, "_selection_model_identity"):
             self._selection_model_identity = expected_ids
         elif self._selection_model_identity != expected_ids:
             _logger.warning(
                 "Selection model identity changed across tab switch: "
-                "_selected_wells/_rep_sets/_bar_groups should be shared."
+                "_selected_wells/_selections should be shared."
             )
 
         # UI smoke check: switching among Line/Bar/Batch must not mutate the
@@ -5131,6 +5141,17 @@ class WellViewerApp(QWidget):
         if not hasattr(self, "_review_csv_table"):
             return
         sels = sorted(self._selected_wells, key=self._parse_rc)
+        # When the user has no explicit picks but rep-sets exist, fall back
+        # to every well in the active groups so the table populates on first
+        # visit. Previously this path took the "Select one or more wells"
+        # branch and left Review CSV empty whenever groups were defined.
+        if not sels and self._selections:
+            seen: set = set()
+            for rset in self._rep_sets_active():
+                for w in rset.wells:
+                    if w in self._well_paths and w not in seen:
+                        seen.add(w)
+            sels = sorted(seen, key=self._parse_rc)
         if not sels:
             self._review_well_lbl.setText("(select well(s))")
             _set_combo_values(self._review_fov_cb, [])
@@ -5499,10 +5520,19 @@ class WellViewerApp(QWidget):
         )
 
     def _draw_bar_empty_state(self, ax_mean, ax_frac, message: str, *, ax_n=None) -> None:
+        # Honour Screen vs Publication mode so the placeholder doesn't
+        # render as a glaring white block when the rest of the app is dark.
+        from well_viewer.plot_style import tokens_for as _tokens_for_ax
+        _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(ax_mean)
+        try:
+            ax_mean.figure.set_facecolor(_bg)
+        except Exception:
+            pass
         axes = [ax_mean, ax_frac]
         if ax_n is not None:
             axes.append(ax_n)
         for ax in axes:
+            ax.set_facecolor(_bg)
             ax.text(
                 0.5,
                 0.5,
@@ -5510,7 +5540,7 @@ class WellViewerApp(QWidget):
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
-                color=TXT_MUT,
+                color=_muted_fg,
                 fontsize=10,
             )
             ax.set_axis_off()
@@ -5542,7 +5572,6 @@ class WellViewerApp(QWidget):
         ordered_keys = self._bar_current_keys()
         if active_rsets:
             rset_by_name = {r.name: r for r in active_rsets}
-            all_set_idx = {r.name: i for i, r in enumerate(getattr(self, "_rep_sets", []))}
             plot_wells: List[str] = []
             plot_colors: List[str] = []
             plot_labels: List[str] = []
@@ -5550,8 +5579,7 @@ class WellViewerApp(QWidget):
                 rset = rset_by_name.get(key)
                 if rset is None:
                     continue
-                color_idx = all_set_idx.get(key, si)
-                color = WELL_COLORS[color_idx % len(WELL_COLORS)]
+                color = self._rank_color_rset(rset)
                 valid = [w for w in rset.wells if w in self._well_paths]
                 for w in valid:
                     plot_wells.append(w)
@@ -5559,7 +5587,7 @@ class WellViewerApp(QWidget):
                     plot_labels.append(f"{self._well_display_label(w)}\n[{rset.name}]")
         else:
             plot_wells = [k for k in ordered_keys if k in self._well_paths]
-            plot_colors = [WELL_COLORS[i % len(WELL_COLORS)] for i in range(len(plot_wells))]
+            plot_colors = [self._rank_color_well(w) for w in plot_wells]
             plot_labels = [self._well_display_label(w) for w in plot_wells]
         if _debug_flags.review_bar_debug_enabled():
             mode = "violin" if self._bar_violin else "beeswarm"
@@ -5623,7 +5651,7 @@ class WellViewerApp(QWidget):
                 per_fov_spread=per_fov_spread,
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            color = colors[i % len(colors)] if colors else WELL_COLORS[i % len(WELL_COLORS)]
+            color = colors[i % len(colors)] if colors else self._rank_color_well(lbl)
             if matched:
                 pt = matched[0]
                 if per_fov_spread:
@@ -5698,30 +5726,30 @@ class WellViewerApp(QWidget):
         return f"{','.join(wells[:3])} +{len(wells)-3}"
 
     def _rep_sets_loaded(self) -> "List[ReplicateSet]":
-        """All ReplicateSets that have at least one loaded well (ignores hidden)."""
-        return [r for r in getattr(self, "_rep_sets", [])
-                if any(w in self._well_paths for w in r.wells)]
+        """One ReplicateSet per selection that has ≥1 loaded well (ignores hidden),
+        in ``_selections`` order — derived straight from the unified model."""
+        out: "List[ReplicateSet]" = []
+        for s in self._selections:
+            wells = s.get("wells") or []
+            if any(w in self._well_paths for w in wells):
+                out.append(ReplicateSet(s.get("name") or "", list(wells)))
+        return out
 
     def _groups_from_rep_sets(self) -> "List[BarGroup]":
-        """Mirror of BatchExportPanel._groups_from_rep_sets for app-level callers.
-
-        Returns one BarGroup per loaded ReplicateSet when any are defined,
-        otherwise a deep copy of the existing _bar_groups.
-        """
-        loaded = self._rep_sets_loaded()
-        if loaded:
-            groups: "List[BarGroup]" = []
-            for rset in loaded:
-                grp = BarGroup(rset.name)
-                grp.members.append(rset)
-                groups.append(grp)
-            return groups
-        return copy.deepcopy(self._bar_groups)
+        """One BarGroup per loaded selection (each wrapping its ReplicateSet)."""
+        return [BarGroup(r.name, members=[r]) for r in self._rep_sets_loaded()]
 
     def _rep_sets_active(self) -> "List[ReplicateSet]":
-        """Loaded ReplicateSets that are not hidden — these appear on plots."""
-        return [r for i, r in enumerate(self._rep_sets_loaded())
-                if i not in self._rep_hidden]
+        """One ReplicateSet per visible (non-hidden) selection with ≥1 loaded
+        well — these are exactly the traces drawn on the plots."""
+        out: "List[ReplicateSet]" = []
+        for s in self._selections:
+            if s.get("hidden"):
+                continue
+            wells = s.get("wells") or []
+            if any(w in self._well_paths for w in wells):
+                out.append(ReplicateSet(s.get("name") or "", list(wells)))
+        return out
 
     def _compute_rep_stats(
         self,
@@ -6092,8 +6120,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Bar Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("bar")
 
@@ -6102,8 +6130,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Cells Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_cells")
 
@@ -6112,8 +6140,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Aggregate Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_agg")
 
@@ -6145,24 +6173,26 @@ class WellViewerApp(QWidget):
         _plot_save_bar_figure_orchestrator(self, plot_bg=PLOT_BG)
 
     def _open_export_style_panel(self, plot_key: str) -> None:
-        """Open the reusable export-style sidebar for a specific plot."""
-        from well_viewer.figure_export_editor import launch_export_editor
+        """Toggle the v2 Properties rail.
 
-        mapping = {
-            "line": (getattr(self, "_line_fig", None), getattr(self, "_line_canvas", None), "line_graphs.png"),
-            "bar": (getattr(self, "_bar_fig", None), getattr(self, "_bar_canvas", None), "bar_plots.png"),
-            "scatter_cells": (getattr(self, "_scatter_fig", None), getattr(self, "_scatter_canvas", None), "scatter_cells.png"),
-            "scatter_agg": (getattr(self, "_scatter_agg_fig", None), getattr(self, "_scatter_agg_canvas", None), "scatter_agg.png"),
-            "heatmap": (getattr(self, "_heatmap_fig", None), getattr(self, "_heatmap_canvas", None), "heatmap.png"),
-            "distribution": (getattr(self, "_distribution_fig", None), getattr(self, "_distribution_canvas", None), "distribution.png"),
-        }
-        fig, canvas, default_name = mapping.get(plot_key, (None, None, "figure.png"))
-        if fig is None:
-            self._set_status("Export style panel unavailable for this figure.")
+        Phase 15.2: the per-tab ExportStyleSidebar was a strict subset of
+        the Properties rail (same prefs, same binding layer, no ⌘K search /
+        scope picker / global Save+Reset). Every per-tab "style" button now
+        routes through this single rail; ``plot_key`` is unused but kept in
+        the signature so the existing tab-builders don't need to change.
+        """
+        del plot_key  # unused — the rail is the single styling surface
+        rail = getattr(self, "_properties_rail", None)
+        if rail is None:
+            self._set_status("Properties rail not available.")
             return
-        session = launch_export_editor(self, fig, default_name, plot_bg=PLOT_BG, canvas=canvas)
-        if session is not None:
-            self._set_status("Export style panel opened.")
+        try:
+            rail.toggle()
+        except Exception:
+            try:
+                rail.setCollapsed(not rail.isCollapsed())
+            except Exception:
+                pass
 
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
@@ -6501,28 +6531,8 @@ class WellViewerApp(QWidget):
     # ── Legend interaction ────────────────────────────────────────────────────
 
     def _on_fig_click(self, event) -> None:
-        """
-        Left-click on the CDF axes near the threshold line → start drag.
-        Right-click on any axes → toggle that axes' legend.
-        """
-        if event.inaxes is None:
-            return
-
-        # ── Left-click: start threshold drag if near the vline ───────────────
-        if event.button == 1 and event.inaxes is self._line_ax_cdf:
-            # Accept if click is within 5% of the CDF x-range of the threshold
-            try:
-                lo, hi = self._line_ax_cdf.get_xlim()
-                tol = (hi - lo) * 0.05
-            except Exception:
-                tol = 5.0
-            if abs(event.xdata - self._threshold) <= tol:
-                self._thr_dragging = True
-                self._set_status("Dragging threshold — release to set")
-                return   # don't fall through to legend toggle
-
-        # ── Right-click: toggle legend ────────────────────────────────────────
-        if event.button != 3:
+        """Right-click on a Line-Graphs axes → toggle that axes' legend."""
+        if event.inaxes is None or event.button != 3:
             return
         ax_map = {
             id(self._line_ax_mean): "mean",
@@ -6541,34 +6551,24 @@ class WellViewerApp(QWidget):
         state = "shown" if self._legend_visible[key] else "hidden"
         self._set_status(f"Legend for '{key}' plot {state}  (right-click to toggle)")
 
-    def _on_cdf_motion(self, event) -> None:
-        """Move the threshold line live while dragging."""
-        if not self._thr_dragging:
-            return
-        if event.inaxes is not self._line_ax_cdf or event.xdata is None:
-            return
-        # Clamp to visible CDF range
-        try:
-            lo, hi = self._line_ax_cdf.get_xlim()
-        except Exception:
-            lo, hi = 0.0, 300.0
-        new_thr = max(lo, min(hi, event.xdata))
-        self._threshold = new_thr
-        self._invalidate_stats_cache()
-        # Lightweight redraw: just update the vline and axvspan positions
-        self._redraw()
-
-    def _on_cdf_release(self, event) -> None:
-        """Finalise the threshold drag on mouse release."""
-        if not self._thr_dragging:
-            return
-        self._thr_dragging = False
-        # Threshold is now managed by the Cell Gating tab, not by CDF dragging
-
     # ── Log / status helpers ──────────────────────────────────────────────────
 
     def _set_status(self, msg: str) -> None:
         self._status_lbl.setText(msg)
+
+    def _toast(self, msg: str, *, kind: str = "info", msec: int = 3500) -> None:
+        """Show a transient v2 Toast over the main window.
+
+        ``kind`` matches widgets.toast.Toast: 'info' / 'success' / 'warn' /
+        'danger'. Falls back to _set_status if anything goes wrong so the
+        message is never silently lost.
+        """
+        try:
+            from widgets.toast import Toast
+            Toast.show_message(self, msg, kind=kind, msec=msec)
+        except Exception:
+            pass
+        self._set_status(msg)
 
     def _show_progress(self, maximum: int, msg: str = "") -> None:
         """Display the progress bar and set its maximum value."""

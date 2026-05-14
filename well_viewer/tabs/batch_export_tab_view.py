@@ -12,14 +12,18 @@ from well_viewer.batch_export import (
 
 
 def _refresh_mode_buttons(app, mode: str) -> None:
-    """Repaint the batch-mode toggle row so the active builder is visually obvious."""
+    """Sync the SegmentedControl's selected segment with the active builder."""
     state = getattr(app, "_batch_export_inline_state", None)
-    if not state or "mode_btns" not in state:
+    if not state:
         return
-    for key, btn in state["mode_btns"].items():
-        btn.setProperty("variant", "toggle_active" if key == mode else "toggle")
-        btn.style().unpolish(btn)
-        btn.style().polish(btn)
+    sc = state.get("mode_segmented")
+    if sc is None or sc.currentData() == mode:
+        return
+    blocked = sc.blockSignals(True)
+    try:
+        sc.setCurrentByData(mode)
+    finally:
+        sc.blockSignals(blocked)
 
 
 def _build_spread_row(app, parent: QWidget) -> QWidget:
@@ -105,6 +109,19 @@ def _show_batch_mode(app, mode: str) -> None:
     for key, panel in panels.items():
         panel.setVisible(key == mode)
 
+    # Resync the visible panel's groups from the live Sample Definitions
+    # selections. The panel's __init__ snapshots app._rep_sets_loaded(),
+    # which is empty when the user opens the line-plot sub-mode before
+    # they've defined any selections; without this refresh the line panel
+    # never picks up groups added later, while bar/scatter happened to work
+    # because they were always opened after some selections existed.
+    active_panel = panels.get(mode)
+    if active_panel is not None and hasattr(active_panel, "_sync_from_app"):
+        try:
+            active_panel._sync_from_app()
+        except Exception:
+            pass
+
     state["mode"] = mode
     _refresh_mode_buttons(app, mode)
 
@@ -137,22 +154,29 @@ def build_batch_export_tab(app, parent: QWidget) -> None:
 
     layout.addWidget(_build_spread_row(app, parent))
 
-    switch_row = QWidget(parent)
-    sr = QHBoxLayout(switch_row)
-    sr.setContentsMargins(0, 0, 0, 8)
+    # v2: pick-one mode via SegmentedControl instead of a row of toggle
+    # QPushButtons. Each segment carries the mode key in data; currentChanged
+    # routes to the appropriate _open_*_batch_export entrypoint.
+    from widgets.segmented_control import SegmentedControl as _SegmentedControl
+    switch_row = _SegmentedControl(parent)
+    switch_row.addSegment("Line", data="line")
+    switch_row.addSegment("Bar", data="bar")
+    switch_row.addSegment("Scatter (cells)", data="scatter_cells")
+    switch_row.addSegment("Scatter (aggregate)", data="scatter_agg")
 
-    mode_btns: dict = {}
-    mode_btns["line"] = _mode_button(switch_row, "Line Batch Builder",
-                                     lambda: app._open_batch_export())
-    mode_btns["bar"] = _mode_button(switch_row, "Bar Batch Builder",
-                                    lambda: app._open_bar_batch_export())
-    mode_btns["scatter_cells"] = _mode_button(switch_row, "Scatter Cells Batch",
-                                              lambda: app._open_scatter_cells_batch_export())
-    mode_btns["scatter_agg"] = _mode_button(switch_row, "Scatter Aggregate Batch",
-                                            lambda: app._open_scatter_agg_batch_export())
-    for b in mode_btns.values():
-        sr.addWidget(b)
-    sr.addStretch(1)
+    _mode_dispatch = {
+        "line": app._open_batch_export,
+        "bar": app._open_bar_batch_export,
+        "scatter_cells": app._open_scatter_cells_batch_export,
+        "scatter_agg": app._open_scatter_agg_batch_export,
+    }
+
+    def _on_mode_changed(_idx: int) -> None:
+        mode = switch_row.currentData() or "line"
+        fn = _mode_dispatch.get(mode)
+        if fn is not None:
+            fn()
+    switch_row.currentChanged.connect(_on_mode_changed)
     layout.addWidget(switch_row)
 
     host = QWidget(parent)
@@ -163,7 +187,7 @@ def build_batch_export_tab(app, parent: QWidget) -> None:
         "host": host,
         "panels": {},
         "mode": "line",
-        "mode_btns": mode_btns,
+        "mode_segmented": switch_row,
     }
     app._batch_export_set_mode = lambda mode="line": _show_batch_mode(app, mode)
     app._batch_export_set_mode("line")

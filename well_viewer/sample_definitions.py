@@ -27,17 +27,21 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .barplot_controller import bar_groups_from_data, bar_groups_to_dict
 from .batch_models import BarGroup, ReplicateSet
+from . import selections_model as _sel_model
 
 
 _logger = logging.getLogger("well_viewer.sample_definitions")
 
 PIPELINE_INFO_FILENAME = "pipeline_info.json"
 SAMPLE_DEFINITIONS_KEY = "sample_definitions"
+PRE_V2_BACKUP_SUFFIX = ".pre-v2-backup"
 
 
 def _resolve_pipeline_info_path(out_dir: Path) -> Path:
@@ -79,6 +83,38 @@ def build_sample_definitions(
     }
 
 
+def build_sample_definitions_v2(
+    well_labels: Dict[str, str],
+    selections: Iterable[Dict[str, Any]],
+    current_id: Optional[str] = None,
+    *,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """Snapshot the unified ``selections`` state as a JSON-friendly v2 block.
+
+    (Schema v2 — ``schema_version: 2`` + ``selections`` + ``current_id``; the
+    legacy ``rep_sets`` / ``groups`` keys are intentionally absent.)
+    """
+    return _sel_model.to_block(list(selections or []), well_labels, notes, current_id)
+
+
+def _backup_pre_v2(info_path: Path) -> None:
+    """Copy ``info_path`` verbatim to ``…pre-v2-backup`` before a v1→v2 write.
+
+    No-clobber: the *first* backup is the precious one; a second migration goes
+    to a timestamped sibling. Raises OSError if the backup can't be written
+    (the caller must then abort the save rather than destroy the only old copy).
+    """
+    backup = info_path.with_name(info_path.name + PRE_V2_BACKUP_SUFFIX)
+    if backup.exists():
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup = info_path.with_name(f"{info_path.name}{PRE_V2_BACKUP_SUFFIX}.{ts}")
+        if backup.exists():
+            return  # already have a backup from this same second; good enough
+    shutil.copy2(info_path, backup)
+    _logger.info("sample_definitions: migrated v1→v2; backup written to %s", backup)
+
+
 def save_to_pipeline_info(
     out_dir: Path,
     sample_definitions: Dict[str, Any],
@@ -86,7 +122,10 @@ def save_to_pipeline_info(
     """Merge ``sample_definitions`` into the pipeline_info.json sidecar.
 
     Existing keys (schema, fov_index, fluor_tokens, …) are preserved
-    verbatim. The ``sample_definitions`` key is replaced.
+    verbatim. The ``sample_definitions`` key is replaced. When the *new* block
+    is schema-v2 and the *old* one on disk was v1, a one-time
+    ``pipeline_info.json.pre-v2-backup`` is written first; if that backup can't
+    be written the save is aborted (OSError).
 
     Raises FileNotFoundError when the pipeline file does not yet exist —
     the caller should run the pipeline first so the file gets created.
@@ -103,6 +142,18 @@ def save_to_pipeline_info(
             raise ValueError(f"{info_path} is not a JSON object.")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise OSError(f"Could not read {info_path}: {exc}") from exc
+
+    old_block = existing.get(SAMPLE_DEFINITIONS_KEY)
+    writing_v2 = _sel_model.block_is_v2(sample_definitions)
+    old_was_v1 = isinstance(old_block, dict) and not _sel_model.block_is_v2(old_block)
+    if writing_v2 and old_was_v1:
+        try:
+            _backup_pre_v2(info_path)
+        except OSError as exc:
+            raise OSError(
+                f"Refusing to save: couldn't write a pre-upgrade backup of "
+                f"{info_path.name} ({exc})."
+            ) from exc
 
     existing[SAMPLE_DEFINITIONS_KEY] = sample_definitions
     tmp = info_path.with_suffix(info_path.suffix + ".tmp")

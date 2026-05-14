@@ -32,13 +32,41 @@ from PySide6.QtWidgets import (
 # [0, 1]; ``Gray`` uses ``None`` so make_fluor_thumb takes its untinted
 # fast path.
 LUT_COLORS: Dict[str, Optional[Tuple[float, float, float]]] = {
-    "Gray":   None,
-    "Red":    (1.0, 0.0, 0.0),
-    "Green":  (0.0, 1.0, 0.0),
-    "Blue":   (0.0, 0.0, 1.0),
-    "Violet": (0.56, 0.0, 1.0),
+    # Keys are mpl colormap names so the v2 LutSelector (which renders a real
+    # gradient strip) can drive the picker. The value is the single (r,g,b)
+    # tint applied to the grayscale fluorescence image for thumbnails; the
+    # exported figure still uses a real cmap via _row_export_cmap.
+    "Greys":   None,
+    "Reds":    (1.0, 0.0, 0.0),
+    "Greens":  (0.0, 1.0, 0.0),
+    "Blues":   (0.0, 0.0, 1.0),
+    "Purples": (0.56, 0.0, 1.0),
+    "Oranges": (1.0, 0.55, 0.0),
 }
 LUT_COLOR_NAMES: List[str] = list(LUT_COLORS.keys())
+
+
+def _tint_from_colormap(name: str) -> Optional[Tuple[float, float, float]]:
+    """Derive an (r, g, b) tint by sampling the colormap's high end.
+
+    Used as a fallback when the user picks an mpl colormap that isn't in our
+    explicit ``LUT_COLORS`` table (e.g. ``viridis`` / ``magma`` / ``coolwarm``).
+    Returns ``None`` if the colormap can't be loaded so the thumbnail falls
+    back to grayscale rather than crashing.
+    """
+    try:
+        from matplotlib import colormaps as _mpl_cmaps
+    except Exception:
+        return None
+    try:
+        cmap = _mpl_cmaps[name]
+    except (KeyError, ValueError):
+        return None
+    try:
+        r, g, b, _a = cmap(0.85)
+    except Exception:
+        return None
+    return (float(r), float(g), float(b))
 
 
 # ── Virtual "Nuc+Seg" channel ───────────────────────────────────────────────
@@ -54,30 +82,16 @@ NUC_SEG_TOKEN = "NUC+SEG"
 # ── Sidebar picker ───────────────────────────────────────────────────────────
 
 
-def image_table_pick_well(app, tok: str) -> None:
-    """Toggle a well in the active set (sidebar click handler)."""
-    if tok not in app._well_paths:
-        return
-    if tok in app._image_table_active_wells:
-        app._image_table_active_wells.discard(tok)
-    else:
-        app._image_table_active_wells.add(tok)
-    image_table_refresh_picker(app)
-
-
 def image_table_refresh_picker(app) -> None:
-    """Repaint the sidebar plate map and update the count label."""
-    btns = getattr(app, "_sidebar_image_table_btns", None) or {}
-    for tok, btn in btns.items():
-        if tok not in app._well_paths:
-            btn.setEnabled(False)
-            btn.set_state("empty")
-        elif tok in app._image_table_active_wells:
-            btn.setEnabled(True)
-            btn.set_state("selected")
-        else:
-            btn.setEnabled(True)
-            btn.set_state("available")
+    """Push the active-well set onto the sidebar plate and update the count label."""
+    plate = getattr(app, "_sidebar_image_table_plate", None)
+    if plate is not None:
+        plate.setEnabledWells(list(app._well_paths.keys()))
+        active = sorted(
+            (w for w in app._image_table_active_wells if w in app._well_paths),
+            key=app._parse_rc,
+        )
+        plate.setSelectedWellIds(active)
     lbl = getattr(app, "_image_table_count_lbl", None)
     if lbl is not None:
         n = len(app._image_table_active_wells)
@@ -350,16 +364,65 @@ def image_table_rebuild_grid(app) -> None:
                 lambda _i, a=app: image_table_rebuild_lut_row(a)
             )
 
+    # Re-render thumbnails whenever the user picks a different LUT colour.
+    # The LutSelector emits ``lutChanged(name, reversed)`` on change; legacy
+    # QComboBox fallbacks emit ``currentIndexChanged(int)``.
+    for cb in row_lut_color_cbs:
+        if cb is None:
+            continue
+        sig = getattr(cb, "lutChanged", None)
+        if sig is not None and hasattr(sig, "connect"):
+            sig.connect(lambda _n, _rv, a=app: image_table_generate(a))
+        else:
+            cb.currentIndexChanged.connect(
+                lambda _i, a=app: image_table_generate(a)
+            )
+
     image_table_rebuild_lut_row(app)
 
 
-def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
-    """Return the (r, g, b) tint for row *r*, or None for grayscale."""
+def _row_cmap_name(app, r: int) -> Optional[str]:
+    """Return the mpl colormap name for row *r*, or None when the row is
+    set to ``Greys`` (untinted grayscale fast path).
+
+    ``make_fluor_thumb`` consumes this directly and applies the colormap
+    across the full LUT [lo, hi] range, so the rendered thumbnails match
+    the gradient shown by the LutSelector's strip — high intensity gets
+    the cmap's high-end colour, low intensity gets the low end.
+    """
     cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
     if not (0 <= r < len(cbs)):
         return None
-    name = cbs[r].currentText().strip()
-    return LUT_COLORS.get(name)
+    cb = cbs[r]
+    if hasattr(cb, "lut"):
+        name = (cb.lut() or "").strip()
+    else:
+        name = cb.currentText().strip()
+    if not name or name == "Greys":
+        return None
+    return name
+
+
+def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
+    """Legacy single-colour tint for row *r* (kept for export-cmap derivation).
+
+    The Image Table thumbnails now go through ``_row_cmap_name`` so the full
+    colormap maps across the LUT range; this helper still backs the export
+    figure path, which constructs a black→tint LinearSegmentedColormap.
+    """
+    cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
+    if not (0 <= r < len(cbs)):
+        return None
+    cb = cbs[r]
+    if hasattr(cb, "lut"):
+        name = (cb.lut() or "").strip()
+    else:
+        name = cb.currentText().strip()
+    if not name:
+        return None
+    if name in LUT_COLORS:
+        return LUT_COLORS[name]
+    return _tint_from_colormap(name)
 
 
 def _row_export_cmap(app, r: int):
@@ -1017,6 +1080,11 @@ def image_table_generate(app) -> None:
         app._set_status("Image Table: build a grid first (set rows/cols and click Apply).")
         return
 
+    # Once the user has triggered a Generate, hide the EmptyState placeholder.
+    empty = getattr(app, "_image_table_empty_state", None)
+    if empty is not None:
+        empty.setVisible(False)
+
     cache: Dict[Tuple[str, str, str], Dict] = {}
     rendered: Dict[Tuple[int, int], Any] = {}
     crop_tool = getattr(app, "_image_table_crop_tool", None)
@@ -1065,7 +1133,8 @@ def image_table_generate(app) -> None:
                     pix = make_overlay_thumb(cropped, 240, 240, lo, hi)
                 else:
                     pix = make_fluor_thumb(
-                        cropped, 240, 240, lo, hi, tint=_row_tint(app, r),
+                        cropped, 240, 240, lo, hi,
+                        cmap=_row_cmap_name(app, r),
                     )
                 # CropTool needs the FULL source array + the active crop on
                 # the label so label-pixel → image-pixel coord conversion

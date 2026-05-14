@@ -1,26 +1,34 @@
-"""Replicate panel builder (Qt port)."""
+"""Replicate panel builder (Qt port).
+
+Sample Definitions tab is split between three places:
+
+  - **Left sidebar** (this module, ``build_replicate_panel``): the plate
+    map only. Clicking a well edits the *current* selection's well
+    membership.
+  - **Centre — Groups sub-tab** (``build_replicate_groups_centre``): the
+    GROUPS header, Quick Replicates row, and the editable
+    SavedSelectionsList over ``app._selections``. Hoisted out of the
+    sidebar so the user has full vertical room for the list and the
+    plate keeps its proper aspect ratio.
+  - **Centre — Well Labels sub-tab**: see ``label_grid_view``.
+"""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
 
-from well_viewer.ui_helpers import (
-    btn_primary, btn_secondary, make_scrollable_canvas,
-)
-from well_viewer.views.well_button import build_plate_grid
-
-
-def _drag_info(tok, pos):
-    return SimpleNamespace(tok=tok, pos=pos, x=pos.x(), y=pos.y())
+from well_viewer.ui_helpers import btn_primary, btn_secondary
 
 
 def build_replicate_panel(app, parent: QWidget) -> None:
-    """Left panel: define named ReplicateSets from the global well pool."""
+    """Sample-Definitions LEFT sidebar: the plate map only.
+
+    The GROUPS panel (header + Quick Replicates + SavedSelectionsList +
+    hint line) lives in the centre area now; see
+    ``build_replicate_groups_centre``.
+    """
 
     layout = parent.layout()
     if layout is None:
@@ -28,22 +36,68 @@ def build_replicate_panel(app, parent: QWidget) -> None:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-    # Plate map first — nothing should appear above it.
-    rep_map_outer = QWidget(parent)
-    layout.addWidget(rep_map_outer)
-    app._rep_map_btns: dict = {}
-    build_plate_grid(rep_map_outer, app._rep_map_btns)
+    from widgets.well_plate_selector import WellPlateSelector
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)
+    plate.setSelectionMode("select")
+    plate.setDragSelectEnabled(True)
+    plate.setRowColumnSelectable(True)
+    plate.setEnabledWells([])
+    # The plate is the only widget in this sidebar now — give it room to
+    # expand vertically with the column. heightForWidth keeps the aspect.
+    plate.setMinimumHeight(280)
+    # Preferred (not MinimumExpanding) so the plate hugs its hint size and a
+    # trailing addStretch absorbs leftover vertical space. Matches the main
+    # sidebar plate's policy — without this the plate drifts down with the
+    # sidebar's available height instead of staying pinned to the top.
+    sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
+    sp.setHeightForWidth(True)
+    plate.setSizePolicy(sp)
+    layout.addWidget(plate, 0)
+    layout.addStretch(1)
+    app._rep_map_plate = plate
 
-    top_sep = QFrame(parent)
-    top_sep.setFrameShape(QFrame.HLine)
-    top_sep.setFixedHeight(1)
-    layout.addWidget(top_sep)
+    def _commit_plate_to_current(*_a) -> None:
+        sid = getattr(app, "_current_selection_id", None)
+        sel = app._sel_by_id(sid) if sid else None
+        if sel is None:
+            app._rep_refresh_map()      # no current selection — revert the click
+            return
+        new = sorted((w for w in plate.selectedWellIds() if w in app._well_paths),
+                     key=app._parse_rc)
+        old = sorted((w for w in (sel.get("wells") or []) if w in app._well_paths),
+                     key=app._parse_rc)
+        if new == old:
+            return
+        # _sel_set_composition enforces well-exclusivity (the current group wins)
+        # and runs _rebuild_all(), which re-pushes the plate via _rep_refresh_map.
+        app._sel_set_composition(sid, new)
+    # selectionDragFinished fires once per click *and* once at the end of a drag.
+    plate.selectionDragFinished.connect(_commit_plate_to_current)
+
+
+def build_replicate_groups_centre(app, parent: QWidget) -> None:
+    """Sample-Definitions CENTRE — Groups sub-tab.
+
+    Hoists the legacy "below the plate" GROUPS chrome out of the sidebar.
+    Contents (top → bottom):
+      - GROUPS header with Clear-all / + Add buttons
+      - Quick Replicates row (Pair + Order dropdowns + Apply button)
+      - SavedSelectionsList (composable) over ``app._selections``
+      - 1-line usage hint
+    """
+    layout = parent.layout()
+    if layout is None:
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
     hdr = QWidget(parent)
     hdr_l = QHBoxLayout(hdr)
-    hdr_l.setContentsMargins(8, 4, 8, 4)
+    hdr_l.setContentsMargins(10, 8, 10, 4)
     layout.addWidget(hdr)
-    hdr_lbl = QLabel("REPLICATE SETS", hdr)
+    hdr_lbl = QLabel("GROUPS", hdr)
     hdr_lbl.setProperty("role", "section")
     hdr_l.addWidget(hdr_lbl)
     hdr_l.addStretch(1)
@@ -53,7 +107,7 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     # Quick Replicates dropdowns
     hdr2r = QWidget(parent)
     hdr2r_l = QHBoxLayout(hdr2r)
-    hdr2r_l.setContentsMargins(8, 4, 8, 4)
+    hdr2r_l.setContentsMargins(10, 4, 10, 4)
     layout.addWidget(hdr2r)
 
     pair_lbl = QLabel("Pair:", hdr2r)
@@ -72,72 +126,30 @@ def build_replicate_panel(app, parent: QWidget) -> None:
     hdr2r_l.addWidget(app._rep_quick_iter_order_cb)
     app._rep_quick_iter_order_var = app._rep_quick_iter_order_cb
     hdr2r_l.addStretch(1)
-
-    btn_row = QWidget(parent)
-    btn_row_l = QHBoxLayout(btn_row)
-    btn_row_l.setContentsMargins(8, 2, 8, 2)
-    layout.addWidget(btn_row)
-    btn_row_l.addWidget(btn_primary(btn_row, "Apply Quick Replicates",
-                                    app._rep_quick_pairs_from_dropdowns))
-    btn_row_l.addStretch(1)
-
-    # Per-button mouse handlers: enabled buttons consume events instead of
-    # bubbling to a parent-level handler, so we install press/move/release
-    # on each well button directly.
-    def _tok_under_cursor(global_pos):
-        for t, b in app._rep_map_btns.items():
-            try:
-                local = b.mapFromGlobal(global_pos)
-                if b.rect().contains(local):
-                    return t
-            except Exception:
-                continue
-        return None
-
-    def _make_btn_handlers(tok, btn):
-        def _press(event):
-            if event.button() != Qt.LeftButton:
-                return
-            pos = event.position().toPoint()
-            app._rep_map_press(_drag_info(tok, pos))
-
-        def _move(event):
-            if not (event.buttons() & Qt.LeftButton):
-                return
-            gp = event.globalPosition().toPoint()
-            other = _tok_under_cursor(gp)
-            if other is None:
-                return
-            app._rep_map_drag(_drag_info(other, event.position().toPoint()))
-
-        def _release(event):
-            app._rep_map_release(None)
-
-        btn.setMouseTracking(True)
-        btn.mousePressEvent = _press
-        btn.mouseMoveEvent = _move
-        btn.mouseReleaseEvent = _release
-
-    for _tok, _btn in app._rep_map_btns.items():
-        _make_btn_handlers(_tok, _btn)
+    hdr2r_l.addWidget(btn_primary(hdr2r, "Apply Quick Replicates",
+                                  app._rep_quick_pairs_from_dropdowns))
 
     sep = QFrame(parent)
+    sep.setObjectName("Separator")
     sep.setFrameShape(QFrame.HLine)
     sep.setFixedHeight(1)
     layout.addWidget(sep)
 
-    sf = QWidget(parent)
-    sf_l = QVBoxLayout(sf)
-    sf_l.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(sf, 1)
-    app._rep_canvas, app._rep_inner = make_scrollable_canvas(sf)
-    sf_l.addWidget(app._rep_canvas)
+    # The groups card-list — a widgets.SavedSelectionsList (composable)
+    # over app._selections.
+    from widgets.saved_selections_list import SavedSelectionsList
+    from well_viewer.views.grouping_view import wire_selections_list as _wire
+    app._rep_list = SavedSelectionsList(parent)
+    app._rep_list.setComposable(True)
+    layout.addWidget(app._rep_list, 1)
+    _wire(app, app._rep_list)
 
     hint = QLabel(
-        "Select a replicate set or a group, then drag wells on the map to "
-        "add/remove. Groups add wells as solo members.",
+        "Select a group, then click wells on the plate map (left sidebar) "
+        "to add/remove them. Expand a group to edit its replicate structure.",
         parent,
     )
     hint.setObjectName("Muted")
     hint.setWordWrap(True)
+    hint.setContentsMargins(10, 6, 10, 8)
     layout.addWidget(hint)

@@ -250,11 +250,19 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         app._stats_write_result("scipy is required.\nInstall with: pip install scipy")
         return
 
-    sample_units = (
-        "per-cell values"
-        if is_ks
-        else ("per-FOV samples" if any(len([w for w in g.wells if w in app._well_paths]) == 1 for g in groups) else "per-well samples")
-    )
+    # Detect solo-well groups (variance computed across FOVs because there's
+    # only one well per "group") so the output can note the change in unit
+    # of replication.
+    solo_groups = [
+        g.name for g in groups
+        if len([w for w in g.wells if w in app._well_paths]) == 1
+    ]
+    if is_ks:
+        sample_units = "per-cell values"
+    elif solo_groups:
+        sample_units = "per-FOV samples (solo-well groups — see note below)"
+    else:
+        sample_units = "per-well samples"
     header_lines: List[str] = [
         f"Test:       {test}",
         f"Channel:    {channel_lbl}",
@@ -264,6 +272,12 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         f"Samples:    {sample_units}",
         "",
     ]
+    if solo_groups and not is_ks:
+        header_lines.insert(-1,
+            "Note:       solo-well group(s) " + ", ".join(solo_groups)
+            + " — variance computed across FOVs (one sample per FOV) since "
+            "no replicate wells were defined for them.")
+        header_lines.insert(-1, "")
     lines: List[str] = list(header_lines)
     for name_a, vals_a in group_vals:
         if not vals_a:
@@ -341,7 +355,7 @@ def stats_apply_drag(app, tok: str) -> None:
     grp = stats_active_group(app)
     if grp is None or tok not in app._well_paths:
         return
-    rset = next((r for r in app._rep_sets if tok in r.wells), None)
+    rset = next((r for r in app._rep_sets_loaded() if tok in r.wells), None)
     if rset is not None:
         if app._stats_drag_adding:
             if rset not in grp.members:
@@ -360,25 +374,25 @@ def stats_apply_drag(app, tok: str) -> None:
 
 
 def stats_refresh_map(app) -> None:
-    bg, fg, fg_disabled = app._plate_theme_colors()
-    avail = set(app._well_paths.keys())
+    """Push group state onto the Statistics plate (a WellPlateSelector): each
+    group's wells take its rank colour; the active group's wells are the plate's
+    selection (sunken), which is also what a drag on the plate edits."""
+    plate = getattr(app, "_stats_map_plate", None)
+    if plate is None:
+        return
+    avail = list(app._well_paths.keys())
+    plate.setEnabledWells(avail)
     tok_color: dict = {}
-    for gi, grp in enumerate(app._stats_groups):
-        c = WELL_COLORS[gi % len(WELL_COLORS)]
+    for grp in app._stats_groups:
+        c = app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         for w in grp.wells:
-            tok_color.setdefault(w, c)
+            if w in app._well_paths:
+                tok_color[w] = c   # last group wins — matches the other plates
+    plate.clearWellColors()
+    plate.setWellColors(tok_color)
     grp = stats_active_group(app)
-    active_wells: set = set(grp.wells) if grp else set()
-    for tok, btn in app._stats_map_btns.items():
-        if tok not in avail:
-            app._plate_apply_disabled(btn, bg, fg, fg_disabled)
-        elif tok in tok_color:
-            app._plate_apply_colored(
-                btn, tok_color[tok],
-                active=tok in active_wells, fg_disabled=fg_disabled,
-            )
-        else:
-            app._plate_apply_neutral(btn, bg, fg, fg_disabled)
+    active = [w for w in grp.wells if w in app._well_paths] if grp else []
+    plate.setSelectedWellIds(active)
 
 
 def stats_refresh_group_list(app) -> None:
@@ -397,7 +411,7 @@ def stats_refresh_group_list(app) -> None:
         return
     for gi, grp in enumerate(app._stats_groups):
         is_sel = (gi == app._stats_active_grp)
-        color = WELL_COLORS[gi % len(WELL_COLORS)]
+        color = app._rank_color_rset(grp)  # decision #1: colour by well-position rank
         card = QFrame()
         card.setObjectName("StatsGroupCard")
         if is_sel:

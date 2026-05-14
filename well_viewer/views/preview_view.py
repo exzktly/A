@@ -1,40 +1,57 @@
-"""Preview-tab UI helpers (Qt port)."""
+"""Preview-tab UI helpers (Qt port).
+
+A single-well plate-map picker (a ``widgets.WellPlateSelector`` in single-select
+mode) — clicking a well loads its images; clicking the selected well clears it.
+State is ``app._preview_selected_well`` (a token or ``None``).
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 def build_preview_picker(app, parent: QWidget, **_kw) -> None:
-    """Compact plate-map preview picker in the sidebar."""
-    from well_viewer.views.well_button import build_plate_grid
+    """Compact single-well plate-map preview picker in the sidebar."""
+    from widgets.well_plate_selector import WellPlateSelector
 
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
-    # Outer margins kept at 0 so the plate-map's own uniform padding (from
-    # build_plate_grid) matches every other tab's well picker.
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(2)
+    layout.setSpacing(0)
 
-    map_f = QWidget(parent)
-    layout.addWidget(map_f)
-    app._sidebar_preview_btns = {}
-    build_plate_grid(
-        map_f,
-        app._sidebar_preview_btns,
-        on_click=lambda t: app._preview_pick_well(t),
-    )
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)
+    plate.setSelectionMode("select")
+    plate.setSingleSelectionMode(True)
+    plate.setRowColumnSelectable(False)
+    plate.setEnabledWells([])
+    # Match the main sidebar plate's geometry so the picker stays in the
+    # same screen position when the user switches tabs.
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
+    layout.addWidget(plate)
+    app._sidebar_preview_plate = plate
+
+    def _on_plate_changed(ids) -> None:
+        tok = next((w for w in ids if w in app._well_paths), None)
+        if tok == app._preview_selected_well:
+            return
+        app._preview_selected_well = tok
+        app._refresh_preview_picker()
+        app._update_preview(tok)
+    plate.selectionChanged.connect(_on_plate_changed)
 
     app._preview_sel_lbl = QLabel("No well selected", parent)
     app._preview_sel_lbl.setObjectName("Muted")
     app._preview_sel_lbl.setAlignment(Qt.AlignLeft)
     layout.addWidget(app._preview_sel_lbl)
 
-    # Absorb leftover vertical space so the well picker stays pinned to the
-    # top of the sidebar even when the sidebar is taller than its contents.
     layout.addStretch(1)
 
     help_lbl = QLabel("Click one well to load its images", parent)
@@ -42,30 +59,14 @@ def build_preview_picker(app, parent: QWidget, **_kw) -> None:
     help_lbl.setWordWrap(True)
     layout.addWidget(help_lbl)
 
-
-def preview_pick_well(app, tok: str) -> None:
-    if tok not in app._well_paths:
-        return
-    app._preview_selected_well = (
-        None if app._preview_selected_well == tok else tok
-    )
     app._refresh_preview_picker()
-    app._update_preview(app._preview_selected_well)
 
 
 def refresh_preview_picker(app, **_kw) -> None:
-    for tok, btn in app._sidebar_preview_btns.items():
-        if tok not in app._well_paths:
-            btn.setEnabled(False)
-            btn.set_state("empty")
-        elif tok == app._preview_selected_well:
-            btn.setEnabled(True)
-            btn.set_state("selected")
-        else:
-            btn.setEnabled(True)
-            btn.set_state("available")
+    plate = getattr(app, "_sidebar_preview_plate", None)
+    sel = app._preview_selected_well
+    if plate is not None:
+        plate.setEnabledWells(list(app._well_paths.keys()))
+        plate.setSelectedWellIds([sel] if sel and sel in app._well_paths else [])
     if hasattr(app, "_preview_sel_lbl"):
-        sel = app._preview_selected_well
-        app._preview_sel_lbl.setText(
-            f"Selected: {sel}" if sel else "No well selected"
-        )
+        app._preview_sel_lbl.setText(f"Selected: {sel}" if sel else "No well selected")

@@ -1,0 +1,20 @@
+"""Custom widgets for the All-Well v2 UI.
+
+See ``design/PORT_PLAN.md`` Table 2 for the catalog and rationale. Every widget
+in this package is styled exclusively from the tokens in the repo-root ``theme``
+module, is DPI-aware (sizes derive from font metrics / logical units, never
+hardcoded device pixels), and ships a ``__main__`` block that opens it in a
+small standalone window for visual QA.
+
+Import widgets directly from their modules, e.g.::
+
+    from widgets.toggle_switch import ToggleSwitch
+
+or run a module directly to preview it::
+
+    python widgets/toggle_switch.py
+
+``widgets/gallery.py`` shows the whole library in one scrollable window.
+"""
+
+from __future__ import annotations

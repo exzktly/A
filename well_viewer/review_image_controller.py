@@ -4,13 +4,12 @@ from __future__ import annotations
 
 
 def _select_tab_by_text(notebook, text: str) -> None:
-    """Select a QTabWidget tab by its text label."""
+    """Select a centre-stack page by its name (NamedPageStack v2 API)."""
     if notebook is None:
         return
-    for i in range(notebook.count()):
-        if notebook.tabText(i) == text:
-            notebook.setCurrentIndex(i)
-            return
+    setter = getattr(notebook, "setCurrentByName", None)
+    if setter is not None:
+        setter(text)
 
 
 def _table_column_names(table) -> list[str]:

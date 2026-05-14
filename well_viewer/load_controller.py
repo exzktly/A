@@ -100,11 +100,9 @@ def load_directory(app, d: Path, label=None) -> None:
             pass
     app._refresh_sidebar_map()
     app._bar_groups_prune()
-    if hasattr(app, "_bar_map_btns"):
-        app._bar_refresh_map()
     if app._preview_selected_well not in app._well_paths:
         app._preview_selected_well = None
-    if hasattr(app, "_sidebar_preview_btns"):
+    if hasattr(app, "_sidebar_preview_plate"):
         app._refresh_preview_picker()
     if hasattr(app, "_image_table_refresh_picker"):
         try:
@@ -148,15 +146,14 @@ def load_directory(app, d: Path, label=None) -> None:
 
 
 def _kick_off_gating_after_load(app) -> None:
-    tab = getattr(app, "_cell_gating_tab", None)
-    if tab is None:
+    if not hasattr(app, "_cell_gating_area_edit"):
         return
     try:
-        cell_area = float(tab._cell_area_edit.text())
+        cell_area = float(app._cell_gating_area_edit.text())
     except (ValueError, AttributeError):
         cell_area = 0.0
     has_non_default_gate = False
-    for edit in getattr(tab, "_fluor_gate_edits", {}).values():
+    for edit in getattr(app, "_cell_gating_fluor_gate_edits", {}).values():
         try:
             if float(edit.text()) > 0.0:
                 has_non_default_gate = True
@@ -164,7 +161,8 @@ def _kick_off_gating_after_load(app) -> None:
         except ValueError:
             pass
     if cell_area > 0.0 or has_non_default_gate:
-        tab._start_gating_worker()
+        from well_viewer.tabs.cell_gating_tab_view import cell_gating_start_gating_worker
+        cell_gating_start_gating_worker(app)
 
 
 def _looks_like_well_measurement_csv(path: Path) -> bool:

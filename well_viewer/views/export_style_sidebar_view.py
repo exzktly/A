@@ -30,11 +30,34 @@ from well_viewer.figure_export_editor import (
     apply_export_style_to_current,
 )
 
+# v2 chrome: this panel is composed from the custom widgets in ``widgets/``
+# (CollapsibleSection, ToggleSwitch) plus theme-styled stock widgets. The
+# binding layer (_bind_getter_setter / _getters / _setters / _persist /
+# apply_export_style_to_current) is unchanged — only the layout was re-skinned.
+import theme
+from widgets.collapsible_section import CollapsibleSection
+from widgets.toggle_switch import ToggleSwitch
+
+
+#: Single source of truth for the style-panel width — read by both the
+#: sidebar itself and ``figure_export_editor.launch_export_editor`` when
+#: it sizes the dock container. Bumping this value here resizes both
+#: ends in lock-step (sizeHint() can lag the actual fixed width on the
+#: first show, which is why launch path must NOT rely on sizeHint).
+#: Width of the floating Export Style sidebar (the legacy per-card dock
+#: opened by the sliders IconButton). Set so the panel fits inside the
+#: centre column even on smaller screens — every internal row uses a
+#: narrow fixed label column (88 px) plus an expanding control column so
+#: the contents reflow within the panel rather than overflowing.
+EXPORT_STYLE_PANEL_WIDTH = 440
+
 
 class ExportStyleSidebar(QWidget):
     def __init__(self, app, parent, fig, canvas, default_name: str):
         super().__init__(parent)
-        self.setObjectName("Card")
+        self.setObjectName("PropertyPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(f"#PropertyPanel {{ background-color: {theme.Colors.rail}; }}")
         self._app = app
         self._fig = fig
         self._canvas = canvas
@@ -45,11 +68,24 @@ class ExportStyleSidebar(QWidget):
         self._getters: dict[str, Callable[[], object]] = {}
         self._setters: dict[str, Callable[[object], None]] = {}
 
-        self.setFixedWidth(260)
+        self.setFixedWidth(EXPORT_STYLE_PANEL_WIDTH)
+        self.setMinimumWidth(EXPORT_STYLE_PANEL_WIDTH)
         self._build_ui()
 
     def _bind_getter_setter(self, key: str, widget) -> None:
-        """Register read/write hooks and wire a change signal to auto-apply."""
+        """Register read/write hooks and wire a change signal to auto-apply.
+
+        Custom v2 widgets opt in via a ``bindingAdapter() -> (getter, setter,
+        change_signal)`` method (see ``OPEN_DECISIONS.md`` #2 / Phase 6.5.1);
+        stock widgets fall through to the ``isinstance`` branches below.
+        """
+        adapter = getattr(widget, "bindingAdapter", None)
+        if callable(adapter):
+            getter, setter, change_signal = adapter()
+            self._getters[key] = getter
+            self._setters[key] = lambda v, _s=setter: _s(v)
+            change_signal.connect(lambda *_a: self._on_fields_changed())
+            return
         if isinstance(widget, QSpinBox):
             self._getters[key] = widget.value
             self._setters[key] = lambda v, w=widget: w.setValue(int(v))
@@ -72,319 +108,466 @@ class ExportStyleSidebar(QWidget):
             widget.textChanged.connect(lambda _t: self._on_fields_changed())
 
     def _build_ui(self) -> None:
+        sp = theme.Spacing
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(4)
+        root.setContentsMargins(sp.sm, sp.sm, sp.sm, sp.sm)
+        root.setSpacing(sp.sm)
 
+        # ── header ──────────────────────────────────────────────────────────
         hdr = QWidget(self)
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Export Style", hdr)
-        title.setProperty("role", "section")
+        hl.setContentsMargins(sp.xs, 0, 0, 0)
+        title = QLabel("Properties", hdr)
+        title.setObjectName("Heading")
         hl.addWidget(title)
         hl.addStretch(1)
-        close_btn = QPushButton("◂", hdr)
-        close_btn.setProperty("variant", "secondary")
-        close_btn.setFixedWidth(28)
+        from widgets.icon_button import IconButton as _IconButton
+        close_btn = _IconButton("x", hdr)
+        close_btn.setToolTip("Hide this panel")
         close_btn.clicked.connect(lambda _=False: self._close_dock())
         hl.addWidget(close_btn)
         root.addWidget(hdr)
 
+        # ── scrollable stack of CollapsibleSections ─────────────────────────
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         body = QWidget()
-        body.setObjectName("Card")
-        grid = QGridLayout(body)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(3)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(sp.sm)
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
 
-        row = 0
+        # Per-section grid bookkeeping: {section: [grid, next_row]}.
+        grids: dict[CollapsibleSection, list] = {}
 
-        def add_row(label: str, widget: QWidget, key: str | None = None) -> None:
-            nonlocal row
-            grid.addWidget(QLabel(label), row, 0)
-            grid.addWidget(widget, row, 1)
+        def section(name: str, *, expanded: bool = True) -> CollapsibleSection:
+            sec = CollapsibleSection(name, expanded=expanded)
+            grid = QGridLayout()
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setHorizontalSpacing(sp.sm)
+            grid.setVerticalSpacing(sp.xs)
+            # Fixed narrow label column + expanding control column. Without
+            # this, the longest label dictates the column width and pushes
+            # controls past the panel's fixed width.
+            grid.setColumnMinimumWidth(0, 96)
+            grid.setColumnStretch(0, 0)
+            grid.setColumnStretch(1, 1)
+            sec.addLayout(grid)
+            grids[sec] = [grid, 0]
+            body_layout.addWidget(sec)
+            return sec
+
+        def add_row(sec: CollapsibleSection, label: str, widget: QWidget,
+                    key: str | None = None) -> None:
+            grid, r = grids[sec]
+            if label:
+                grid.addWidget(QLabel(label), r, 0)
+                grid.addWidget(widget, r, 1)
+            else:
+                grid.addWidget(widget, r, 0, 1, 2)
             if key is not None:
                 self._bind_getter_setter(key, widget)
-            row += 1
+            grids[sec][1] = r + 1
 
-        self._profile_combo = QComboBox(body)
+        def add_full(sec: CollapsibleSection, widget: QWidget) -> None:
+            grid, r = grids[sec]
+            grid.addWidget(widget, r, 0, 1, 2)
+            grids[sec][1] = r + 1
+
+        def add_stacked(sec: CollapsibleSection, label: str, widget: QWidget,
+                        key: str | None = None) -> None:
+            """Label on its own row above the widget — for wide controls (e.g.
+            three-segment SegmentedControls) that overflow the 2-column grid."""
+            grid, r = grids[sec]
+            lbl = QLabel(label)
+            lbl.setProperty("variant", "muted")
+            grid.addWidget(lbl, r, 0, 1, 2)
+            grid.addWidget(widget, r + 1, 0, 1, 2)
+            if key is not None:
+                self._bind_getter_setter(key, widget)
+            grids[sec][1] = r + 2
+
+        def hrow(*items, spacing: int | None = None) -> QWidget:
+            host = QWidget()
+            hb = QHBoxLayout(host)
+            hb.setContentsMargins(0, 0, 0, 0)
+            hb.setSpacing(spacing if spacing is not None else sp.md)
+            for w in items:
+                hb.addWidget(w)
+            hb.addStretch(1)
+            return host
+
+        # ── Profile & Format ────────────────────────────────────────────────
+        s_profile = section("Profile & Format", expanded=True)
+        self._profile_combo = QComboBox()
         self._profile_combo.addItems(_get_all_profile_names(self._app))
         self._profile_combo.setCurrentText(str(self._prefs.get("export_profile", "Custom")))
         self._profile_combo.currentTextChanged.connect(lambda _t: self._on_profile_selected())
-        add_row("Profile", self._profile_combo, "export_profile")
-
-        fmt_cb = QComboBox(body)
+        add_row(s_profile, "Profile", self._profile_combo, "export_profile")
+        fmt_cb = QComboBox()
         fmt_cb.addItems(["png", "svg", "pdf", "eps"])
         fmt_cb.setCurrentText(str(self._prefs["format"]))
-        add_row("Format", fmt_cb, "format")
+        add_row(s_profile, "Format", fmt_cb, "format")
 
-        # Per-axis overrides for xlim/ylim/log scale so each axis keeps its
-        # own values when the user flips the Axis # dropdown. The flat
-        # ``_prefs`` keys reflect whatever axis is currently selected.
+        # Per-axis xlim/ylim/log buckets so each axis keeps its own values when
+        # the Axis # dropdown is flipped. Unchanged from the legacy panel — the
+        # flat ``_prefs`` keys reflect whatever axis is currently selected.
         self._axis_keys = (
             "x_lim_min", "x_lim_max", "y_lim_min", "y_lim_max",
             "x_log", "y_log",
         )
-        self._axis_buckets: dict[str, dict] = dict(
-            self._prefs.get("axis_buckets") or {}
-        )
+        self._axis_buckets: dict[str, dict] = dict(self._prefs.get("axis_buckets") or {})
         self._current_axis = str(self._prefs.get("axis_target", "All"))
         self._axis_buckets.setdefault(
-            self._current_axis,
-            {k: self._prefs.get(k) for k in self._axis_keys},
+            self._current_axis, {k: self._prefs.get(k) for k in self._axis_keys},
         )
 
-        axis_cb = QComboBox(body)
+        # ── Axes (incl. ticks) ──────────────────────────────────────────────
+        s_axes = section("Axes", expanded=True)
+        axis_cb = QComboBox()
         axis_cb.addItems(["All", *[str(i + 1) for i in range(len(self._fig.axes))]])
         axis_cb.setCurrentText(self._current_axis)
-        # NOTE: bind for getter/setter only — the apply chain is handled by
-        # the dedicated handler below so a dropdown switch doesn't push the
-        # currently displayed limits onto the newly selected axis.
-        grid.addWidget(QLabel("Axis #"), row, 0)
-        grid.addWidget(axis_cb, row, 1)
+        # Getter/setter only (no auto-apply): switching the target axis must
+        # not push the currently displayed limits onto the new one.
+        add_row(s_axes, "Axis #", axis_cb)
         self._getters["axis_target"] = axis_cb.currentText
         self._setters["axis_target"] = lambda v, w=axis_cb: w.setCurrentText(str(v))
         axis_cb.currentTextChanged.connect(lambda t: self._on_axis_target_changed(t))
-        row += 1
-
+        from widgets.stepper import Stepper as _Stepper
         for key, label, lo, hi in [
-            ("axis_label_size", "Axis", 1, 96),
-            ("tick_label_size", "Ticks", 1, 96),
-            ("title_size", "Title", 1, 128),
-            ("x_tick_angle", "X°", 0, 90),
+            ("axis_label_size", "Axis label size", 1, 96),
+            ("tick_label_size", "Tick label size", 1, 96),
+            ("title_size", "Title size", 1, 128),
+            ("x_tick_angle", "X tick angle°", 0, 90),
         ]:
-            sp = QSpinBox(body)
-            sp.setRange(lo, hi)
-            sp.setValue(int(self._prefs[key]))
-            add_row(label, sp, key)
-
-        cb = QCheckBox(body)
-        cb.setChecked(bool(self._prefs["legend_show"]))
-        add_row("Legend", cb, "legend_show")
-
-        sp = QSpinBox(body)
-        sp.setRange(6, 24)
-        sp.setValue(int(self._prefs["legend_font_size"]))
-        add_row("Leg size", sp, "legend_font_size")
-
-        loc_cb = QComboBox(body)
-        loc_cb.addItems(["best", "upper right", "upper left", "lower right", "lower left"])
-        loc_cb.setCurrentText(str(self._prefs["legend_loc"]))
-        add_row("Leg loc", loc_cb, "legend_loc")
-
-        for key, label, lo, hi, step in [
-            ("line_width", "Line w", 0.1, 8.0, 0.1),
-            ("marker_size", "Mkr sz", 0.0, 20.0, 0.5),
-            ("marker_edge_width", "Mkr edge", 0.0, 5.0, 0.1),
-        ]:
-            dsp = QDoubleSpinBox(body)
-            dsp.setRange(lo, hi)
-            dsp.setSingleStep(step)
-            dsp.setValue(float(self._prefs[key]))
-            add_row(label, dsp, key)
-
-        gshow = QCheckBox(body)
-        gshow.setChecked(bool(self._prefs["grid_show"]))
-        add_row("Grid", gshow, "grid_show")
-
-        galpha = QDoubleSpinBox(body)
-        galpha.setRange(0.0, 1.0)
-        galpha.setSingleStep(0.05)
-        galpha.setValue(float(self._prefs["grid_alpha"]))
-        add_row("Grid α", galpha, "grid_alpha")
-
-        gstyle = QComboBox(body)
-        gstyle.addItems(["-", "--", ":", "-."])
-        gstyle.setCurrentText(str(self._prefs["grid_style"]))
-        add_row("Grid ls", gstyle, "grid_style")
-
-        for lim_key, label in [("x_lim", "X lim"), ("y_lim", "Y lim")]:
-            row_widget = QWidget(body)
-            rl = QHBoxLayout(row_widget)
-            rl.setContentsMargins(0, 0, 0, 0)
-            lo_edit = QLineEdit(str(self._prefs[f"{lim_key}_min"]), row_widget)
-            lo_edit.setFixedWidth(60)
-            rl.addWidget(lo_edit)
-            rl.addWidget(QLabel("…", row_widget))
-            hi_edit = QLineEdit(str(self._prefs[f"{lim_key}_max"]), row_widget)
-            hi_edit.setFixedWidth(60)
-            rl.addWidget(hi_edit)
-            self._bind_getter_setter(f"{lim_key}_min", lo_edit)
-            self._bind_getter_setter(f"{lim_key}_max", hi_edit)
-            grid.addWidget(QLabel(label), row, 0)
-            grid.addWidget(row_widget, row, 1)
-            row += 1
-
-        scale_row = QWidget(body)
-        srl = QHBoxLayout(scale_row)
-        srl.setContentsMargins(0, 0, 0, 0)
-        xlog_cb = QCheckBox("X log", scale_row)
-        xlog_cb.setChecked(bool(self._prefs["x_log"]))
-        srl.addWidget(xlog_cb)
-        ylog_cb = QCheckBox("Y log", scale_row)
-        ylog_cb.setChecked(bool(self._prefs["y_log"]))
-        srl.addWidget(ylog_cb)
-        self._bind_getter_setter("x_log", xlog_cb)
-        self._bind_getter_setter("y_log", ylog_cb)
-        grid.addWidget(QLabel("Scale"), row, 0)
-        grid.addWidget(scale_row, row, 1)
-        row += 1
-
-        tick_row = QWidget(body)
-        trl = QHBoxLayout(tick_row)
-        trl.setContentsMargins(0, 0, 0, 0)
-        maj_cb = QCheckBox("Major", tick_row)
+            spin = _Stepper(minimum=lo, maximum=hi, single_step=1,
+                            value=float(self._prefs[key]), decimals=0)
+            add_row(s_axes, label, spin, key)
+        maj_cb = ToggleSwitch("Major")
         maj_cb.setChecked(bool(self._prefs["tick_major"]))
-        trl.addWidget(maj_cb)
-        min_cb = QCheckBox("Minor", tick_row)
+        min_cb = ToggleSwitch("Minor")
         min_cb.setChecked(bool(self._prefs["tick_minor"]))
-        trl.addWidget(min_cb)
         self._bind_getter_setter("tick_major", maj_cb)
         self._bind_getter_setter("tick_minor", min_cb)
-        grid.addWidget(QLabel("Tick vis"), row, 0)
-        grid.addWidget(tick_row, row, 1)
-        row += 1
-
-        tlen = QDoubleSpinBox(body)
-        tlen.setRange(0.0, 20.0)
-        tlen.setSingleStep(0.5)
-        tlen.setValue(float(self._prefs["tick_length"]))
-        add_row("Tick len", tlen, "tick_length")
-
-        tdir = QComboBox(body)
+        add_row(s_axes, "Tick visibility", hrow(maj_cb, min_cb))
+        tlen = _Stepper(minimum=0.0, maximum=20.0, single_step=0.5,
+                        value=float(self._prefs["tick_length"]), decimals=1)
+        add_row(s_axes, "Tick length", tlen, "tick_length")
+        tdir = QComboBox()
         tdir.addItems(["out", "in", "inout"])
         tdir.setCurrentText(str(self._prefs["tick_direction"]))
-        add_row("Tick dir", tdir, "tick_direction")
+        add_row(s_axes, "Tick direction", tdir, "tick_direction")
 
-        lay_row = QWidget(body)
-        lrl = QHBoxLayout(lay_row)
-        lrl.setContentsMargins(0, 0, 0, 0)
-        tight_cb = QCheckBox("Tight", lay_row)
+        # ── Statistics (v2 §6.2) ────────────────────────────────────────────
+        # Writes through to app state (_use_sem / _toggle_fov_replicates) so the
+        # error band / spread on the *plots* updates immediately. NOTE: the
+        # plot cards' band-controls row writes to the same state, so changes
+        # there don't auto-refresh this section's segments until the sidebar
+        # is reopened — sync is one-way (sidebar → app).
+        from widgets.plot_card import _make_segmented as _seg
+        s_stats = section("Statistics", expanded=False)
+        self._stats_preview = QLabel("")
+        self._stats_preview.setObjectName("Muted")
+        s_stats.setValueWidget(self._stats_preview)
+
+        _stats_state = {"err": None, "across": None, "show": None}
+
+        def _update_stats_preview() -> None:
+            err = _stats_state["err"] or "—"
+            acr = _stats_state["across"] or "—"
+            self._stats_preview.setText(f"{err.upper()} · {acr}")
+
+        # Error bars: SEM / SD wire through; None / 95% CI are placeholders.
+        _err_init = "sem" if bool(getattr(self._app, "_use_sem", True)) else "sd"
+        err_sc = _seg(
+            [("None", "none"), ("SEM", "sem"), ("SD", "sd"), ("95% CI", "ci95")],
+            current=_err_init,
+        )
+        if err_sc is not None:
+            _stats_state["err"] = err_sc.currentData()
+
+            def _on_err_change(*_a) -> None:
+                v = err_sc.currentData()
+                _stats_state["err"] = v
+                _update_stats_preview()
+                want_sem = (v == "sem")
+                if v in ("sem", "sd") and bool(getattr(self._app, "_use_sem", True)) != want_sem:
+                    try:
+                        self._app._toggle_sem()
+                    except Exception:
+                        pass
+
+            err_sc.currentChanged.connect(_on_err_change)
+            add_stacked(s_stats, "Error bars", err_sc)
+
+            # Auto-sync: when _use_sem flips elsewhere (the band-controls row on
+            # any plot card), update this segment too.
+            def _sync_err_from_app(use_sem: bool, _sc=err_sc) -> None:
+                try:
+                    target = "sem" if use_sem else "sd"
+                    if _sc.currentData() != target:
+                        _sc.blockSignals(True)
+                        try:
+                            _sc.setCurrentByData(target)
+                        finally:
+                            _sc.blockSignals(False)
+                        _stats_state["err"] = target
+                        _update_stats_preview()
+                except Exception:
+                    pass
+
+            if not hasattr(self._app, "_sem_observers"):
+                self._app._sem_observers = []
+            self._app._sem_observers.append(_sync_err_from_app)
+
+        # Across: Replicates vs FOV (single-well-mode FOV-spread toggle).
+        _across_init = "fov" if bool(getattr(self._app, "_use_fov_spread_active", lambda: False)()) else "rep"
+        across_sc = _seg(
+            [("Replicates", "rep"), ("FOV", "fov")],
+            current=_across_init,
+        )
+        if across_sc is not None:
+            _stats_state["across"] = "FOV" if _across_init == "fov" else "Replicates"
+
+            def _on_across_change(*_a) -> None:
+                v = across_sc.currentData()
+                _stats_state["across"] = "FOV" if v == "fov" else "Replicates"
+                _update_stats_preview()
+                want_fov = (v == "fov")
+                if bool(getattr(self._app, "_use_fov_spread_active", lambda: False)()) != want_fov:
+                    try:
+                        self._app._toggle_fov_replicates()
+                    except Exception:
+                        pass
+
+            across_sc.currentChanged.connect(_on_across_change)
+            add_stacked(s_stats, "Across", across_sc)
+
+            def _sync_across_from_app(use_fov: bool, _sc=across_sc) -> None:
+                try:
+                    target = "fov" if use_fov else "rep"
+                    if _sc.currentData() != target:
+                        _sc.blockSignals(True)
+                        try:
+                            _sc.setCurrentByData(target)
+                        finally:
+                            _sc.blockSignals(False)
+                        _stats_state["across"] = "FOV" if use_fov else "Replicates"
+                        _update_stats_preview()
+                except Exception:
+                    pass
+
+            if not hasattr(self._app, "_fov_observers"):
+                self._app._fov_observers = []
+            self._app._fov_observers.append(_sync_across_from_app)
+
+        # Show: placeholder (Mean only; Mean+spread/All points are future).
+        show_sc = _seg(
+            [("Mean", "mean"), ("Mean+spread", "mean_spread"), ("All points", "all_pts")],
+            current="mean",
+        )
+        if show_sc is not None:
+            _stats_state["show"] = "Mean"
+
+            def _on_show_change(*_a) -> None:
+                _stats_state["show"] = show_sc.currentData() or "mean"
+            show_sc.currentChanged.connect(_on_show_change)
+            add_stacked(s_stats, "Show", show_sc)
+
+        _update_stats_preview()
+
+        # Axes preview: shows the current axis target on the section header.
+        _axes_preview = QLabel(self._current_axis)
+        _axes_preview.setObjectName("Muted")
+        s_axes.setValueWidget(_axes_preview)
+        axis_cb.currentTextChanged.connect(lambda t, _l=_axes_preview: _l.setText(t))
+
+        # ── Legend ──────────────────────────────────────────────────────────
+        s_leg = section("Legend", expanded=False)
+        leg_show = ToggleSwitch("Show legend")
+        leg_show.setChecked(bool(self._prefs["legend_show"]))
+        add_row(s_leg, "", leg_show, "legend_show")
+        _leg_preview = QLabel("On" if leg_show.isChecked() else "Off")
+        _leg_preview.setObjectName("Muted")
+        s_leg.setValueWidget(_leg_preview)
+        leg_show.toggled.connect(lambda on, _l=_leg_preview: _l.setText("On" if on else "Off"))
+        leg_sz = _Stepper(minimum=6, maximum=24, single_step=1,
+                          value=float(self._prefs["legend_font_size"]), decimals=0)
+        add_row(s_leg, "Font size", leg_sz, "legend_font_size")
+        leg_loc = QComboBox()
+        leg_loc.addItems(["best", "upper right", "upper left", "lower right", "lower left"])
+        leg_loc.setCurrentText(str(self._prefs["legend_loc"]))
+        add_row(s_leg, "Location", leg_loc, "legend_loc")
+
+        # ── Lines & Markers ─────────────────────────────────────────────────
+        s_lm = section("Lines & Markers", expanded=False)
+        for key, label, lo, hi, step in [
+            ("line_width", "Line width", 0.1, 8.0, 0.1),
+            ("marker_size", "Marker size", 0.0, 20.0, 0.5),
+            ("marker_edge_width", "Marker edge width", 0.0, 5.0, 0.1),
+        ]:
+            dsp = _Stepper(minimum=lo, maximum=hi, single_step=step,
+                           value=float(self._prefs[key]), decimals=1)
+            add_row(s_lm, label, dsp, key)
+
+        # ── Grid ────────────────────────────────────────────────────────────
+        s_grid = section("Grid", expanded=False)
+        g_show = ToggleSwitch("Show grid")
+        g_show.setChecked(bool(self._prefs["grid_show"]))
+        add_row(s_grid, "", g_show, "grid_show")
+        g_alpha = _Stepper(minimum=0.0, maximum=1.0, single_step=0.05,
+                           value=float(self._prefs["grid_alpha"]), decimals=2)
+        add_row(s_grid, "Opacity", g_alpha, "grid_alpha")
+        g_style = QComboBox()
+        g_style.addItems(["-", "--", ":", "-."])
+        g_style.setCurrentText(str(self._prefs["grid_style"]))
+        add_row(s_grid, "Line style", g_style, "grid_style")
+        _grid_preview = QLabel("On" if g_show.isChecked() else "Off")
+        _grid_preview.setObjectName("Muted")
+        s_grid.setValueWidget(_grid_preview)
+        g_show.toggled.connect(lambda on, _l=_grid_preview: _l.setText("On" if on else "Off"))
+
+        # ── Limits & Scale ──────────────────────────────────────────────────
+        s_lim = section("Limits & Scale", expanded=False)
+        for lim_key, label in [("x_lim", "X limits"), ("y_lim", "Y limits")]:
+            lo_edit = QLineEdit(str(self._prefs[f"{lim_key}_min"]))
+            lo_edit.setMaximumWidth(76)
+            hi_edit = QLineEdit(str(self._prefs[f"{lim_key}_max"]))
+            hi_edit.setMaximumWidth(76)
+            self._bind_getter_setter(f"{lim_key}_min", lo_edit)
+            self._bind_getter_setter(f"{lim_key}_max", hi_edit)
+            add_row(s_lim, label, hrow(lo_edit, QLabel("…"), hi_edit, spacing=sp.xs))
+        xlog_cb = ToggleSwitch("X log")
+        xlog_cb.setChecked(bool(self._prefs["x_log"]))
+        ylog_cb = ToggleSwitch("Y log")
+        ylog_cb.setChecked(bool(self._prefs["y_log"]))
+        self._bind_getter_setter("x_log", xlog_cb)
+        self._bind_getter_setter("y_log", ylog_cb)
+        add_stacked(s_lim, "Log scale", hrow(xlog_cb, ylog_cb))
+
+        def _lim_preview_text() -> str:
+            tags = []
+            if xlog_cb.isChecked():
+                tags.append("X log")
+            if ylog_cb.isChecked():
+                tags.append("Y log")
+            return ", ".join(tags) if tags else "linear"
+
+        _lim_preview = QLabel(_lim_preview_text())
+        _lim_preview.setObjectName("Muted")
+        s_lim.setValueWidget(_lim_preview)
+        xlog_cb.toggled.connect(lambda *_a, _l=_lim_preview: _l.setText(_lim_preview_text()))
+        ylog_cb.toggled.connect(lambda *_a, _l=_lim_preview: _l.setText(_lim_preview_text()))
+
+        # ── Layout (+ draw order) ───────────────────────────────────────────
+        s_layout = section("Layout", expanded=False)
+        tight_cb = ToggleSwitch("Tight")
         tight_cb.setChecked(bool(self._prefs["layout_tight"]))
-        lrl.addWidget(tight_cb)
-        cons_cb = QCheckBox("Constrained", lay_row)
+        cons_cb = ToggleSwitch("Constrained")
         cons_cb.setChecked(bool(self._prefs["layout_constrained"]))
-        lrl.addWidget(cons_cb)
         self._bind_getter_setter("layout_tight", tight_cb)
         self._bind_getter_setter("layout_constrained", cons_cb)
-        grid.addWidget(QLabel("Layout"), row, 0)
-        grid.addWidget(lay_row, row, 1)
-        row += 1
+        # Stacked: "Figure layout" + "Tight + Constrained" toggle pair exceeded
+        # the panel width as a single row, so the trailing "ed" of Constrained
+        # was getting clipped. Label-above-widgets layout matches Stats rows.
+        add_stacked(s_layout, "Figure layout", hrow(tight_cb, cons_cb))
 
-        # ── Reorder panel — replicate-set OR well draw order with Apply.
-        # Only one of the two lists is shown at a time, mirroring the
-        # branching in the line/bar/scatter renderers: when rep-sets are
-        # active the rep-set list drives color order; otherwise the well
-        # list does. The heatmap fig is bound to the editor too but its
-        # colors are positional, so the section stays hidden there.
-        # Items show sample-definition labels (well_labels / replicate
-        # display labels) but carry the underlying token / rep-set name
-        # in Qt.UserRole for the apply step.
+        # Replicate-set OR well draw-order lists (only one shows at a time,
+        # exactly as before). Behaviour lives in _move_list_item /
+        # _apply_line_order / _refresh_line_order_lists — unchanged. Items
+        # display sample-definition labels and carry the underlying token /
+        # rep-set name in Qt.UserRole for the apply step.
         self._line_order_rsets_list: QListWidget | None = None
         self._line_order_wells_list: QListWidget | None = None
         self._line_order_rsets_section: QWidget | None = None
         self._line_order_wells_section: QWidget | None = None
         if self._supports_well_order():
-            rs_section = QWidget(body)
-            rs_layout = QVBoxLayout(rs_section)
-            rs_layout.setContentsMargins(0, 0, 0, 0)
-            rs_layout.addWidget(QLabel("Replicate Set Order"))
-            rs_list = QListWidget(rs_section)
-            rs_list.setSelectionMode(QAbstractItemView.SingleSelection)
-            rs_list.setMaximumHeight(120)
-            rs_layout.addWidget(rs_list)
-            rs_btns = QWidget(rs_section)
-            rs_btn_l = QHBoxLayout(rs_btns)
-            rs_btn_l.setContentsMargins(0, 0, 0, 0)
-            up_rs = QPushButton("▲ Up", rs_btns)
-            up_rs.setProperty("variant", "secondary")
-            up_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, -1))
-            rs_btn_l.addWidget(up_rs)
-            down_rs = QPushButton("▼ Down", rs_btns)
-            down_rs.setProperty("variant", "secondary")
-            down_rs.clicked.connect(lambda _=False: self._move_list_item(rs_list, +1))
-            rs_btn_l.addWidget(down_rs)
-            apply_rs = QPushButton("Apply", rs_btns)
-            apply_rs.setProperty("variant", "primary")
-            apply_rs.clicked.connect(lambda _=False: self._apply_line_order())
-            rs_btn_l.addWidget(apply_rs)
-            rs_btn_l.addStretch(1)
-            rs_layout.addWidget(rs_btns)
-            grid.addWidget(rs_section, row, 0, 1, 2)
-            self._line_order_rsets_list = rs_list
-            self._line_order_rsets_section = rs_section
-            row += 1
+            def _order_block(heading: str, list_widget: QListWidget) -> QWidget:
+                block = QWidget()
+                bl = QVBoxLayout(block)
+                bl.setContentsMargins(0, sp.xs, 0, 0)
+                bl.setSpacing(sp.xs)
+                bl.addWidget(QLabel(heading))
+                list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+                list_widget.setMaximumHeight(140)
+                bl.addWidget(list_widget)
+                btns = QWidget(block)
+                bbl = QHBoxLayout(btns)
+                bbl.setContentsMargins(0, 0, 0, 0)
+                bbl.setSpacing(sp.xs)
+                up = QPushButton("▲")
+                up.setObjectName("Ghost")
+                up.setToolTip("Move up")
+                up.clicked.connect(lambda _=False, lw=list_widget: self._move_list_item(lw, -1))
+                down = QPushButton("▼")
+                down.setObjectName("Ghost")
+                down.setToolTip("Move down")
+                down.clicked.connect(lambda _=False, lw=list_widget: self._move_list_item(lw, +1))
+                apply_b = QPushButton("Apply")
+                apply_b.setObjectName("Primary")
+                apply_b.clicked.connect(lambda _=False: self._apply_line_order())
+                bbl.addWidget(up)
+                bbl.addWidget(down)
+                bbl.addWidget(apply_b)
+                bbl.addStretch(1)
+                bl.addWidget(btns)
+                return block
 
-            w_section = QWidget(body)
-            w_layout = QVBoxLayout(w_section)
-            w_layout.setContentsMargins(0, 0, 0, 0)
-            w_layout.addWidget(QLabel("Well Order"))
-            w_list = QListWidget(w_section)
-            w_list.setSelectionMode(QAbstractItemView.SingleSelection)
-            w_list.setMaximumHeight(120)
-            w_layout.addWidget(w_list)
-            w_btns = QWidget(w_section)
-            w_btn_l = QHBoxLayout(w_btns)
-            w_btn_l.setContentsMargins(0, 0, 0, 0)
-            up_w = QPushButton("▲ Up", w_btns)
-            up_w.setProperty("variant", "secondary")
-            up_w.clicked.connect(lambda _=False: self._move_list_item(w_list, -1))
-            w_btn_l.addWidget(up_w)
-            down_w = QPushButton("▼ Down", w_btns)
-            down_w.setProperty("variant", "secondary")
-            down_w.clicked.connect(lambda _=False: self._move_list_item(w_list, +1))
-            w_btn_l.addWidget(down_w)
-            apply_w = QPushButton("Apply", w_btns)
-            apply_w.setProperty("variant", "primary")
-            apply_w.clicked.connect(lambda _=False: self._apply_line_order())
-            w_btn_l.addWidget(apply_w)
-            w_btn_l.addStretch(1)
-            w_layout.addWidget(w_btns)
-            grid.addWidget(w_section, row, 0, 1, 2)
+            rs_list = QListWidget()
+            rs_block = _order_block("Replicate set order", rs_list)
+            add_full(s_layout, rs_block)
+            self._line_order_rsets_list = rs_list
+            self._line_order_rsets_section = rs_block
+
+            w_list = QListWidget()
+            w_block = _order_block("Well order", w_list)
+            add_full(s_layout, w_block)
             self._line_order_wells_list = w_list
-            self._line_order_wells_section = w_section
-            row += 1
+            self._line_order_wells_section = w_block
             self._refresh_line_order_lists()
 
-        # ── Clipboard copy row
-        clip = QWidget(body)
-        cl = QHBoxLayout(clip)
-        cl.setContentsMargins(0, 8, 0, 0)
-        copy_png_btn = QPushButton("Copy PNG", clip)
-        copy_png_btn.setProperty("variant", "secondary")
+        body_layout.addStretch(1)
+
+        # ── footer: copy / reset / save / export ────────────────────────────
+        footer = QWidget(self)
+        fl = QVBoxLayout(footer)
+        fl.setContentsMargins(0, sp.sm, 0, 0)
+        fl.setSpacing(sp.xs)
+        copy_row = QHBoxLayout()
+        copy_row.setContentsMargins(0, 0, 0, 0)
+        copy_row.setSpacing(sp.xs)
+        copy_png_btn = QPushButton("Copy PNG")
+        copy_png_btn.setObjectName("Ghost")
         copy_png_btn.clicked.connect(lambda _=False: self._copy_png())
-        cl.addWidget(copy_png_btn)
-        copy_svg_btn = QPushButton("Copy SVG", clip)
-        copy_svg_btn.setProperty("variant", "secondary")
+        copy_svg_btn = QPushButton("Copy SVG")
+        copy_svg_btn.setObjectName("Ghost")
         copy_svg_btn.clicked.connect(lambda _=False: self._copy_svg())
-        cl.addWidget(copy_svg_btn)
-        grid.addWidget(clip, row, 0, 1, 2)
-        row += 1
-
-        btns = QWidget(body)
-        bl = QHBoxLayout(btns)
-        bl.setContentsMargins(0, 8, 0, 0)
-        reset_btn = QPushButton("Reset", btns)
-        reset_btn.setProperty("variant", "secondary")
+        copy_row.addWidget(copy_png_btn)
+        copy_row.addWidget(copy_svg_btn)
+        copy_row.addStretch(1)
+        fl.addLayout(copy_row)
+        act_row = QHBoxLayout()
+        act_row.setContentsMargins(0, 0, 0, 0)
+        act_row.setSpacing(sp.xs)
+        reset_btn = QPushButton("Reset")
         reset_btn.clicked.connect(lambda _=False: self._reset_defaults())
-        bl.addWidget(reset_btn)
-        save_btn = QPushButton("Save Preset", btns)
-        save_btn.setProperty("variant", "secondary")
+        save_btn = QPushButton("Save Preset")
         save_btn.clicked.connect(lambda _=False: self._save_preset())
-        bl.addWidget(save_btn)
-        exp_btn = QPushButton("Export…", btns)
-        exp_btn.setProperty("variant", "primary")
+        exp_btn = QPushButton("Export…")
+        exp_btn.setObjectName("Primary")
         exp_btn.clicked.connect(lambda _=False: self._export())
-        bl.addWidget(exp_btn)
-        grid.addWidget(btns, row, 0, 1, 2)
-        row += 1
-
-        grid.setColumnStretch(1, 1)
+        # Equal flex on the three action buttons so they share the row
+        # cleanly inside the 440-px panel; without this the QPushButton
+        # default minimum-width can push Export… off the right edge.
+        for btn in (reset_btn, save_btn, exp_btn):
+            btn.setSizePolicy(btn.sizePolicy().horizontalPolicy(),
+                              btn.sizePolicy().verticalPolicy())
+            act_row.addWidget(btn, 1)
+        fl.addLayout(act_row)
+        root.addWidget(footer)
 
     def _on_profile_selected(self) -> None:
         if self._updating:

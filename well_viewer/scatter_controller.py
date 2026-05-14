@@ -115,7 +115,7 @@ def collect_scatter_data(
         )
         for group_idx, rset in enumerate(active_rsets):
             group_name = rset.name
-            color = well_colors[group_idx % len(well_colors)]
+            color = app._rank_color_rset(rset)  # decision #1: colour by well-position rank
             xs: List[np.ndarray] = []
             ys: List[np.ndarray] = []
             metadata: List[Tuple[str, str, str, int]] = []
@@ -146,7 +146,7 @@ def collect_scatter_data(
             key=lambda x: x,
         )
         for well_idx, well_label in enumerate(selected_wells):
-            color = well_colors[well_idx % len(well_colors)]
+            color = app._rank_color_well(well_label)  # decision #1: colour by well-position rank
             got = _collect_well(well_label)
             if got is None:
                 continue
@@ -189,6 +189,23 @@ def redraw_scatter(
 
     # Clear existing plot
     app._ax_scatter.clear()
+    # Honour Screen / Publication mode — the scatter axes used to default
+    # to matplotlib's white background, so dark-mode users saw a glaring
+    # white block. Pull the theme bg + ink tokens via plot_style.tokens_for.
+    from well_viewer.plot_style import tokens_for as _tokens_for_ax
+    _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(app._ax_scatter)
+    try:
+        app._scatter_fig.set_facecolor(_bg)
+    except Exception:
+        pass
+    app._ax_scatter.set_facecolor(_bg)
+    for sp in app._ax_scatter.spines.values():
+        sp.set_color(_spine)
+        sp.set_linewidth(0.8)
+    app._ax_scatter.tick_params(colors=_muted_fg, labelsize=8)
+    app._ax_scatter.xaxis.label.set_color(_muted_fg)
+    app._ax_scatter.yaxis.label.set_color(_muted_fg)
+    app._ax_scatter.title.set_color(_title_fg)
 
     if not selected_wells and not active_rsets:
         app._scatter_interaction_cache = {"points": []}
@@ -200,7 +217,7 @@ def redraw_scatter(
             va='center',
             transform=app._ax_scatter.transAxes,
             fontsize=10,
-            color='gray',
+            color=_muted_fg,
         )
         app._ax_scatter.set_axis_off()
         app._scatter_canvas.draw()
@@ -251,8 +268,9 @@ def redraw_scatter(
 
     app._ax_scatter.set_xlabel(_col_label(col_x))
     app._ax_scatter.set_ylabel(_col_label(col_y))
-    app._ax_scatter.set_title(f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)} (t={timepoint_h}h)")
-    app._ax_scatter.grid(True, alpha=0.3)
+    app._ax_scatter.set_title(f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)} (t={timepoint_h}h)",
+                              color=_title_fg)
+    app._ax_scatter.grid(True, alpha=0.3, color=_grid)
     if scatter_data:
         app._ax_scatter.legend(loc='best', fontsize=8)
 
@@ -456,6 +474,19 @@ def redraw_scatter_agg(
 
     # Clear existing plot
     app._ax_scatter_agg.clear()
+    from well_viewer.plot_style import tokens_for as _tokens_for_ax
+    _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(app._ax_scatter_agg)
+    try:
+        app._scatter_agg_fig.set_facecolor(_bg)
+    except Exception:
+        pass
+    app._ax_scatter_agg.set_facecolor(_bg)
+    for sp in app._ax_scatter_agg.spines.values():
+        sp.set_color(_spine)
+        sp.set_linewidth(0.8)
+    app._ax_scatter_agg.tick_params(colors=_muted_fg, labelsize=8)
+    app._ax_scatter_agg.xaxis.label.set_color(_muted_fg)
+    app._ax_scatter_agg.yaxis.label.set_color(_muted_fg)
 
     if not selected_wells and not active_rsets:
         app._ax_scatter_agg.text(
@@ -466,7 +497,7 @@ def redraw_scatter_agg(
             va='center',
             transform=app._ax_scatter_agg.transAxes,
             fontsize=10,
-            color='gray',
+            color=_muted_fg,
         )
         app._ax_scatter_agg.set_axis_off()
         app._scatter_agg_canvas.draw()
@@ -488,7 +519,7 @@ def redraw_scatter_agg(
             ha='center', va='center',
             transform=app._ax_scatter_agg.transAxes,
             fontsize=10,
-            color='gray'
+            color=_muted_fg,
         )
     else:
         # Plot each replicate/well-timepoint as separate error bar series
@@ -512,8 +543,11 @@ def redraw_scatter_agg(
         app._ax_scatter_agg.set_xlabel(stat_x)
         app._ax_scatter_agg.set_ylabel(stat_y)
         tp_range = f"t={min(timepoints_h)}h to {max(timepoints_h)}h" if timepoints_h else ""
-        app._ax_scatter_agg.set_title(f"Aggregate Scatter: {stat_x} vs {stat_y} ({tp_range})")
-        app._ax_scatter_agg.grid(True, alpha=0.3)
+        app._ax_scatter_agg.set_title(
+            f"Aggregate Scatter: {stat_x} vs {stat_y} ({tp_range})",
+            color=_title_fg,
+        )
+        app._ax_scatter_agg.grid(True, alpha=0.3, color=_grid)
         app._ax_scatter_agg.legend(loc='best', fontsize=8)
 
     # Redraw canvas

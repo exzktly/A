@@ -24,7 +24,7 @@ def build_stats_tab(app, parent: QWidget, **_kw) -> None:
 def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     """Build the left-hand statistics group editor."""
     from well_viewer.ui_helpers import make_scrollable_canvas
-    from well_viewer.views.well_button import build_plate_grid
+    from widgets.well_plate_selector import WellPlateSelector
 
     layout = parent.layout()
     if layout is None:
@@ -34,10 +34,21 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     layout.setSpacing(0)
 
     # Plate map first — nothing should appear above the well picker.
-    map_frame = QWidget(parent)
-    layout.addWidget(map_frame)
-    app._stats_map_btns = {}
-    build_plate_grid(map_frame, app._stats_map_btns)
+    plate = WellPlateSelector(parent)
+    plate.setActionsVisible(False)
+    plate.setSelectionMode("select")
+    plate.setDragSelectEnabled(True)
+    plate.setRowColumnSelectable(True)
+    plate.setEnabledWells([])
+    # Match the main sidebar plate's geometry so the picker stays in the
+    # same screen position when the user switches tabs.
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
+    layout.addWidget(plate)
+    app._stats_map_plate = plate
 
     layout.addWidget(build_hline_separator(parent))
     hdr = build_section_header(
@@ -53,54 +64,30 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     app._stats_drag_adding = True
     app._stats_drag_visited = set()
 
-    # Per-button drag handlers: enabled QPushButtons consume mouse events,
-    # so parent-level handlers never fire. Install on each well button.
-    def _tok_under_cursor(global_pos):
-        for tok, btn in app._stats_map_btns.items():
-            try:
-                local = btn.mapFromGlobal(global_pos)
-                if btn.rect().contains(local):
-                    return tok
-            except Exception:
-                continue
-        return None
-
-    def _press_for(tok):
-        def _press(event):
-            if event.button() != Qt.LeftButton:
-                return
-            if tok not in app._well_paths:
-                return
-            grp = app._stats_active_group()
-            if grp is None:
-                return
-            app._stats_drag_adding = tok not in grp.wells
+    def _commit_plate_to_group(*_a) -> None:
+        grp = app._stats_active_group()
+        if grp is None:
+            app._stats_refresh_map()        # no active group — revert the click
+            return
+        new = {w for w in plate.selectedWellIds() if w in app._well_paths}
+        old = {w for w in grp.wells if w in app._well_paths}
+        added, removed = new - old, old - new
+        if not added and not removed:
+            return
+        # Reuse stats_apply_drag's "well in a loaded rep-set → add/remove the whole
+        # set; else solo-well add/remove" logic, one token at a time.
+        for tok in added:
+            app._stats_drag_adding = True
             app._stats_drag_visited = set()
             app._stats_apply_drag(tok)
-        return _press
-
-    def _move_for(_tok):
-        def _move(event):
-            if not (event.buttons() & Qt.LeftButton):
-                return
-            other = _tok_under_cursor(event.globalPosition().toPoint())
-            if other and other not in app._stats_drag_visited:
-                app._stats_apply_drag(other)
-        return _move
-
-    def _release_for(_tok):
-        def _release(_event):
-            if app._stats_drag_visited:
-                app._stats_refresh_map()
-                app._stats_refresh_group_list()
+        for tok in removed:
+            app._stats_drag_adding = False
             app._stats_drag_visited = set()
-        return _release
-
-    for _tok, _btn in app._stats_map_btns.items():
-        _btn.setMouseTracking(True)
-        _btn.mousePressEvent = _press_for(_tok)
-        _btn.mouseMoveEvent = _move_for(_tok)
-        _btn.mouseReleaseEvent = _release_for(_tok)
+            app._stats_apply_drag(tok)
+        app._stats_refresh_map()
+        app._stats_refresh_group_list()
+    # selectionDragFinished fires once per click *and* once at the end of a drag.
+    plate.selectionDragFinished.connect(_commit_plate_to_group)
 
     sep2 = QFrame(parent)
     sep2.setObjectName("Separator")
@@ -218,6 +205,10 @@ def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
     app._stats_canvas_widget = _StatsFCA(app._stats_fig)
     ff_l.addWidget(app._stats_canvas_widget)
     layout.addWidget(app._stats_fig_frame)
+    # Hide the figure frame until a test that actually plots (KS) is run.
+    # run_stats toggles visibility per-test; before the first run the user
+    # sees the controls + result text only, no empty canvas.
+    app._stats_fig_frame.setVisible(False)
 
     app._stats_res_frame = QWidget(parent)
     rl = QVBoxLayout(app._stats_res_frame)

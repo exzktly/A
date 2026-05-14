@@ -118,60 +118,22 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     gl.addStretch(1)
     il.addWidget(glob)
 
-    # ── Action buttons ──────────────────────────────────────────────────────
-    actions = QWidget(inner)
-    al = QHBoxLayout(actions)
-    al.setContentsMargins(0, 0, 0, 0)
-    al.setSpacing(6)
-    al.addWidget(btn_secondary(
-        actions, "Load Heatmap Layout", app._image_table_load_heatmap_layout,
+    # ── Layout actions (operate on the selector grid above) ────────────────
+    layout_actions = QWidget(inner)
+    la = QHBoxLayout(layout_actions)
+    la.setContentsMargins(0, 0, 0, 0)
+    la.setSpacing(6)
+    la.addWidget(btn_secondary(
+        layout_actions, "Load Heatmap Layout", app._image_table_load_heatmap_layout,
     ))
-    al.addWidget(btn_secondary(
-        actions, "Distribute Wells", app._image_table_distribute_wells,
+    la.addWidget(btn_secondary(
+        layout_actions, "Distribute Wells", app._image_table_distribute_wells,
     ))
-    al.addWidget(btn_secondary(
-        actions, "Distribute Timepoints", app._image_table_distribute_timepoints,
+    la.addWidget(btn_secondary(
+        layout_actions, "Distribute Timepoints", app._image_table_distribute_timepoints,
     ))
-    al.addWidget(btn_primary(actions, "Generate", app._image_table_generate))
-    al.addWidget(btn_secondary(actions, "Export", app._image_table_export))
-    al.addWidget(btn_secondary(actions, "Copy PNG", app._image_table_copy_png))
-    al.addWidget(btn_secondary(actions, "Copy SVG", app._image_table_copy_svg))
-
-    export_settings_btn = QPushButton("⚙", actions)
-    export_settings_btn.setProperty("variant", "secondary")
-    export_settings_btn.setToolTip(
-        "Export settings — outer margin, cell gap, titles, DPI, transparent BG"
-    )
-    export_settings_btn.setFixedWidth(32)
-    export_settings_btn.clicked.connect(
-        lambda _=False: app._image_table_open_export_settings()
-    )
-    al.addWidget(export_settings_btn)
-
-    # Raw ↔ Tophat toggle. Checkable so the button doubles as an indicator
-    # of the current source (pressed = tophat, released = raw).
-    tophat_btn = QPushButton("Tophat", actions)
-    tophat_btn.setProperty("variant", "toggle")
-    tophat_btn.setCheckable(True)
-    tophat_btn.setChecked(bool(app._image_table_use_tophat))
-    tophat_btn.setToolTip(
-        "Toggle between raw fluorescence and pre-filtered tophat images."
-    )
-    tophat_btn.clicked.connect(lambda _=False: app._image_table_toggle_tophat())
-    app._image_table_tophat_btn = tophat_btn
-    al.addWidget(tophat_btn)
-
-    # Reuse the shared CropTool helper (also used by Movie Montage).
-    crop_sep = QFrame(actions)
-    crop_sep.setFrameShape(QFrame.VLine)
-    crop_sep.setFixedWidth(1)
-    al.addWidget(crop_sep)
-    al.addWidget(app._image_table_crop_tool.make_button(actions))
-    al.addWidget(app._image_table_crop_tool.make_reset_button(actions))
-    al.addWidget(app._image_table_crop_tool.make_status_label(actions))
-
-    al.addStretch(1)
-    il.addWidget(actions)
+    la.addStretch(1)
+    il.addWidget(layout_actions)
 
     sep1 = QFrame(inner)
     sep1.setObjectName("Separator")
@@ -237,10 +199,70 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     sep2.setFixedHeight(1)
     il.addWidget(sep2)
 
-    # ── Rendered image table (drawn BELOW the selector, not inside it) ──────
+    # ── Render-related actions (Generate / Export / Copy / Settings /
+    #    Tophat / Crop) — placed directly above the rendered table per
+    #    user feedback so they sit next to the artifact they affect.
+    render_actions = QWidget(inner)
+    al = QHBoxLayout(render_actions)
+    al.setContentsMargins(0, 0, 0, 0)
+    al.setSpacing(6)
+    al.addWidget(btn_primary(render_actions, "Generate", app._image_table_generate))
+    al.addWidget(btn_secondary(render_actions, "Export", app._image_table_export))
+    al.addWidget(btn_secondary(render_actions, "Copy PNG", app._image_table_copy_png))
+    al.addWidget(btn_secondary(render_actions, "Copy SVG", app._image_table_copy_svg))
+
+    export_settings_btn = QPushButton("⚙", render_actions)
+    export_settings_btn.setProperty("variant", "secondary")
+    export_settings_btn.setToolTip(
+        "Export settings — outer margin, cell gap, titles, DPI, transparent BG"
+    )
+    export_settings_btn.setFixedWidth(32)
+    export_settings_btn.clicked.connect(
+        lambda _=False: app._image_table_open_export_settings()
+    )
+    al.addWidget(export_settings_btn)
+
+    tophat_btn = QPushButton("Tophat", render_actions)
+    tophat_btn.setProperty("variant", "toggle")
+    tophat_btn.setCheckable(True)
+    tophat_btn.setChecked(bool(app._image_table_use_tophat))
+    tophat_btn.setToolTip(
+        "Toggle between raw fluorescence and pre-filtered tophat images."
+    )
+    tophat_btn.clicked.connect(lambda _=False: app._image_table_toggle_tophat())
+    app._image_table_tophat_btn = tophat_btn
+    al.addWidget(tophat_btn)
+
+    crop_sep = QFrame(render_actions)
+    crop_sep.setFrameShape(QFrame.VLine)
+    crop_sep.setFixedWidth(1)
+    al.addWidget(crop_sep)
+    al.addWidget(app._image_table_crop_tool.make_button(render_actions))
+    al.addWidget(app._image_table_crop_tool.make_reset_button(render_actions))
+    al.addWidget(app._image_table_crop_tool.make_status_label(render_actions))
+
+    al.addStretch(1)
+    il.addWidget(render_actions)
+
+    # ── Rendered image table (drawn BELOW the action strip) ────────────────
     render_lbl = QLabel("Image Table:", inner)
     render_lbl.setProperty("role", "section")
     il.addWidget(render_lbl)
+
+    # EmptyState placeholder shown until the controller populates the grid.
+    # ``image_table_generate`` hides this and reveals the render host once the
+    # first table is produced.
+    from widgets.empty_state import EmptyState as _EmptyState
+    app._image_table_empty_state = _EmptyState(
+        "No image table generated",
+        icon="image",
+        parent=inner,
+        hint="Choose wells/channels above, then press Generate.",
+    )
+    # Give the placeholder enough vertical room so the wrapped hint never
+    # gets clipped by tight sibling rows.
+    app._image_table_empty_state.setMinimumHeight(180)
+    il.addWidget(app._image_table_empty_state)
 
     render_host = QWidget(inner)
     render_grid = QGridLayout(render_host)

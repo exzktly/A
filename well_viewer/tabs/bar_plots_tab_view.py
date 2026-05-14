@@ -1,4 +1,4 @@
-"""Bar Plots tab builder (Qt port)."""
+"""Bar Plots tab builder (Qt port) — the 3-stacked-subplot figure in a v2 PlotCard."""
 
 from __future__ import annotations
 
@@ -9,14 +9,16 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    attach_plot_toolbar, btn_primary, btn_secondary, install_canvas_wheel_scroll, make_plot_with_right_dock,
-)
+    btn_primary, install_canvas_wheel_scroll, make_band_controls,
+    make_plot_with_right_dock, make_plot_view_switcher)
+
+# The Bar Plots figure: three stacked subplots (mean / fraction / n).
+_FIG_W, _FIG_H, _DPI = 6.2, 11.0, 100
 
 
 def build_bar_plots_tab(app, parent: QWidget) -> None:
-    # Defer matplotlib + QtAgg backend imports until the tab actually builds.
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.figure import Figure
+    from widgets.plot_card import PlotCard
+
     layout = parent.layout()
     if layout is None:
         layout = QVBoxLayout(parent)
@@ -31,19 +33,20 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     right_l.setContentsMargins(0, 0, 0, 0)
     outer_layout.addWidget(bar_right, 1)
 
-    # Controls bar
+    # ── controls bar ─────────────────────────────────────────────────────────
     bar_ctrl = QWidget(bar_right)
     bar_ctrl.setObjectName("TabCtrl")
     cl = QHBoxLayout(bar_ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
-    cl.addWidget(QLabel("Channel:", bar_ctrl))
-    app._chan_cb_bar = QComboBox(bar_ctrl)
+    # Channel combo hidden — global ctxbar combo (Phase 11b) is the only
+    # visible channel control. See line_graphs_tab_view.py for rationale.
+    app._chan_cb_bar = QComboBox()
     app._chan_cb_bar.addItems(["GFP"])
     app._chan_cb_bar.currentIndexChanged.connect(
         lambda _i, _src=app._chan_cb_bar: app._on_plot_channel_selected(_src)
     )
-    cl.addWidget(app._chan_cb_bar)
+    app._chan_cb_bar.hide()
 
     app._metric_selector_frame_bar = QWidget(bar_ctrl)
     mf_l = QHBoxLayout(app._metric_selector_frame_bar)
@@ -51,24 +54,19 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     mf_l.addWidget(QLabel("Metric:", app._metric_selector_frame_bar))
     app._metric_cb_bar = QComboBox(app._metric_selector_frame_bar)
     app._metric_cb_bar.addItems(["Mean Intensity", "smFISH Count"])
-    app._metric_cb_bar.currentIndexChanged.connect(
-        lambda _i: app._on_metric_selected()
-    )
+    app._metric_cb_bar.currentIndexChanged.connect(lambda _i: app._on_metric_selected())
     mf_l.addWidget(app._metric_cb_bar)
     cl.addWidget(app._metric_selector_frame_bar)
 
     cl.addWidget(QLabel("Timepoint:", bar_ctrl))
     app._bar_tp_cb = QComboBox(bar_ctrl)
     app._bar_tp_cb.addItems(["—"])
-    app._bar_tp_cb.currentIndexChanged.connect(
-        lambda _i: app._redraw_bars()
-    )
+    app._bar_tp_cb.currentIndexChanged.connect(lambda _i: app._redraw_bars())
     cl.addWidget(app._bar_tp_cb)
     app._bar_tp_var = app._bar_tp_cb
 
     cl.addStretch(1)
 
-    # Toggle buttons
     app._swarm_btn = QPushButton("Beeswarm", bar_ctrl)
     app._swarm_btn.setProperty("variant", "toggle")
     app._swarm_btn.setCheckable(True)
@@ -84,7 +82,8 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_violin = False
 
     cl.addWidget(QLabel("Smooth:", bar_ctrl))
-    app._violin_slider = QSlider(Qt.Horizontal, bar_ctrl)
+    from widgets.styled_slider import StyledSlider as _StyledSlider
+    app._violin_slider = _StyledSlider(Qt.Horizontal, bar_ctrl)
     app._violin_slider.setRange(5, 200)
     app._violin_slider.setValue(100)
     app._violin_slider.setFixedWidth(80)
@@ -99,38 +98,47 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())
     cl.addWidget(app._bar_reset_order_btn)
 
-    style_btn = QPushButton("▸", bar_ctrl)
-    style_btn.setProperty("variant", "secondary")
+    from widgets.icon_button import IconButton as _IconButton
+    style_btn = _IconButton("sliders", bar_ctrl)
+    style_btn.setToolTip("Open export style panel for bar plots")
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("bar"))
     cl.addWidget(style_btn)
 
     cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data))
     right_l.addWidget(bar_ctrl)
 
-    # Matplotlib figure inside a scroll area
-    app._bar_fig = Figure(figsize=(6.2, 11.0), dpi=100)
+    # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
+    card = PlotCard(bar_right, figsize=(_FIG_W, _FIG_H), constrained=False)
+    _sw = make_plot_view_switcher(app, 'Bar Plots')
+    if _sw is not None:
+        card.setLeftHeaderWidget(_sw)
+    # Phase 11b: ctxbar above replaces the per-card header.
+    card.setHeaderVisible(False)
+    card.setFigureTitle("")
+    app._bar_card = card
+    app._bar_fig = card.figure
     app._ax_bar_mean = app._bar_fig.add_subplot(3, 1, 1)
     app._ax_bar_frac = app._bar_fig.add_subplot(3, 1, 2)
     app._ax_bar_n = app._bar_fig.add_subplot(3, 1, 3)
     app._bar_fig.subplots_adjust(
         hspace=0.65, top=0.96, bottom=0.10, left=0.15, right=0.97,
     )
+    app._bar_canvas = card.canvas
+    app._bar_canvas.setMinimumHeight(int(_FIG_H * _DPI))
+    card.setMinimumHeight(int(_FIG_H * _DPI) + 110)
 
-    app._bar_canvas = FigureCanvas(app._bar_fig)
-    app._bar_canvas.setMinimumHeight(
-        int(app._bar_fig.get_figheight() * app._bar_fig.get_dpi())
-    )
+    card.setControlsWidget(make_band_controls(app, card, with_fov=True))
+    card.plotThemeChanged.connect(lambda _m: app._redraw_bars())
+    card.setStatsChipVisible(False)
 
     app._bar_scroll_canvas = QScrollArea(bar_right)
     app._bar_scroll_canvas.setWidgetResizable(True)
     app._bar_scroll_canvas.setFrameShape(QFrame.NoFrame)
-    app._bar_scroll_canvas.setWidget(app._bar_canvas)
+    app._bar_scroll_canvas.setWidget(card)
     install_canvas_wheel_scroll(app._bar_canvas, app._bar_scroll_canvas)
     right_l.addWidget(app._bar_scroll_canvas, 1)
 
-    attach_plot_toolbar(right_l, app._bar_canvas, bar_right, app, with_fov=True)
-
-    # Drag-to-reorder bar state
+    # Drag-to-reorder bars
     app._bar_drag_state = {"active": False, "src_idx": -1, "cur_idx": -1}
     app._bar_canvas.mpl_connect("button_press_event", app._on_bar_drag_press)
     app._bar_canvas.mpl_connect("motion_notify_event", app._on_bar_drag_motion)

@@ -564,8 +564,8 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
     selected well. When ``fallback_to_all`` is True (default) and no wells are
     selected, all loaded wells are yielded.
     """
-    rep_sets = list(getattr(app, "_rep_sets", []) or [])
-    rep_hidden = set(getattr(app, "_rep_hidden", set()) or set())
+    get_active = getattr(app, "_rep_sets_active", None)
+    rep_sets = list(get_active() if callable(get_active) else [])
     well_paths = getattr(app, "_well_paths", {}) or {}
     selected = set(getattr(app, "_selected_wells", set()) or set())
     color_for_label = getattr(app, "_color_for_label", None)
@@ -594,9 +594,13 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
         return fallback_palette[idx % len(fallback_palette)]
 
     if rep_sets:
+        # With groups defined, the sidebar plate becomes passive (the user
+        # can't toggle per-well selection alongside the groups), so we only
+        # yield the group curves. PR 152's "solo wells stay toggleable
+        # alongside groups" path was reverted because stale `_selected_wells`
+        # from before group creation surfaced as a phantom curve (typically
+        # A01) on every redraw.
         for idx, rset in enumerate(rep_sets):
-            if idx in rep_hidden:
-                continue
             wells = [w for w in rset.wells if w in well_paths]
             if not wells:
                 continue

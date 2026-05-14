@@ -24,11 +24,14 @@ from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -54,8 +57,12 @@ class _LayoutTable(QTableWidget):
         self._on_clear_cell = on_clear_cell
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
+        # Drops also have to reach the table's viewport, not just the
+        # frame, or the table swallows the WELL_MIME mid-flight.
+        self.viewport().setAcceptDrops(True)
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -63,6 +70,12 @@ class _LayoutTable(QTableWidget):
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.verticalHeader().setDefaultSectionSize(22)
         self.horizontalHeader().setDefaultSectionSize(28)
+        # The sidebar slot the table lives in is short — when the user grows
+        # the grid past ~7 rows the cells stop being visible. Force the
+        # vertical scrollbar on so the user can always reach every cell.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
     def mimeTypes(self) -> List[str]:
         return [WELL_MIME]
@@ -128,23 +141,40 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
 
     Returns the outer frame widget so the caller can toggle its visibility.
     """
+    # ``outer`` is the public frame the caller toggles visible per-tab; its
+    # content lives inside a QScrollArea so the matrix stays reachable even
+    # when the sidebar above eats most of the vertical room.
     outer = QWidget(parent)
     outer_layout = QVBoxLayout(outer)
     outer_layout.setContentsMargins(0, 4, 0, 4)
-    outer_layout.setSpacing(2)
+    outer_layout.setSpacing(0)
+    outer.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
 
     sep = QFrame(outer)
     sep.setFrameShape(QFrame.HLine)
     sep.setFixedHeight(1)
     outer_layout.addWidget(sep)
 
-    hdr = QLabel("HEATMAP LAYOUT", outer)
+    scroll = QScrollArea(outer)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    outer_layout.addWidget(scroll, 1)
+
+    body = QWidget(scroll)
+    body_layout = QVBoxLayout(body)
+    body_layout.setContentsMargins(0, 0, 0, 0)
+    body_layout.setSpacing(2)
+    scroll.setWidget(body)
+
+    hdr = QLabel("HEATMAP LAYOUT", body)
     hdr.setObjectName("SidebarHeader")
     hdr.setProperty("role", "header")
-    outer_layout.addWidget(hdr)
+    body_layout.addWidget(hdr)
 
     # Size controls
-    size_row = QWidget(outer)
+    size_row = QWidget(body)
     size_layout = QHBoxLayout(size_row)
     size_layout.setContentsMargins(6, 0, 6, 0)
     size_layout.setSpacing(4)
@@ -159,37 +189,40 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
     cols_spin.setValue(12)
     size_layout.addWidget(cols_spin)
     size_layout.addStretch(1)
-    outer_layout.addWidget(size_row)
+    body_layout.addWidget(size_row)
 
     # Auto-populate button
-    autopop_btn = QPushButton("Auto-populate from selection", outer)
+    autopop_btn = QPushButton("Auto-populate from selection", body)
     autopop_btn.setProperty("variant", "secondary")
     autopop_btn.setToolTip(
         "Place the currently selected wells into this grid in plate order. "
         "Grid will grow if needed to fit all selected wells."
     )
     autopop_btn.clicked.connect(lambda _=False: _on_autopopulate(app))
-    outer_layout.addWidget(autopop_btn)
+    body_layout.addWidget(autopop_btn)
 
     # Hint label
     hint = QLabel(
         "Drag wells from the sidebar plate map above into cells. Drag "
         "between cells to move. Double-click a cell — or drop it back on "
         "the plate map — to remove its well.",
-        outer,
+        body,
     )
     hint.setObjectName("Muted")
     hint.setWordWrap(True)
-    outer_layout.addWidget(hint)
+    body_layout.addWidget(hint)
 
     # Layout table
     table = _LayoutTable(
         on_drop=lambda kind, rc, tok: _on_drop_event(app, kind, rc, tok),
         on_clear_cell=lambda r, c: _clear_cell(app, r, c),
-        parent=outer,
+        parent=body,
     )
-    table.setMinimumHeight(160)
-    outer_layout.addWidget(table, 1)
+    # Tall enough that 8 rows (the default) are fully visible without
+    # scroll, with the table's own scrollbar taking over past that.
+    table.setMinimumHeight(240)
+    table.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+    body_layout.addWidget(table, 1)
 
     # Stash widget refs on the app so callbacks/refresh can find them.
     app._heatmap_sidebar_frame = outer
@@ -203,7 +236,10 @@ def build_heatmap_layout_sidebar(app, parent: QWidget) -> QWidget:
     parent_layout = parent.layout()
     if parent_layout is None:
         parent_layout = QVBoxLayout(parent)
-    parent_layout.addWidget(outer)
+    # ``stretch=1`` so this block claims leftover sidebar height when the
+    # Heat Map tab is active — otherwise the sidebar's trailing
+    # ``addStretch(1)`` would grab everything and the matrix gets squashed.
+    parent_layout.addWidget(outer, 1)
 
     refresh_heatmap_layout_sidebar(app)
     return outer
@@ -256,6 +292,21 @@ def refresh_heatmap_layout_sidebar(app) -> None:
         finally:
             cols_spin.blockSignals(False)
 
+    # Shrink the cell font when the grid grows past the sidebar's natural
+    # column width — keeps wells like ``H12`` legible at 12+ cols.
+    cell_font = table.font()
+    if layout.cols <= 8:
+        cell_font.setPointSize(10)
+    elif layout.cols <= 12:
+        cell_font.setPointSize(9)
+    elif layout.cols <= 16:
+        cell_font.setPointSize(8)
+    elif layout.cols <= 24:
+        cell_font.setPointSize(7)
+    else:
+        cell_font.setPointSize(6)
+    table.setFont(cell_font)
+
     table.blockSignals(True)
     try:
         table.clear()
@@ -271,8 +322,13 @@ def refresh_heatmap_layout_sidebar(app) -> None:
                 token = wells[0] if wells else ""
                 item = QTableWidgetItem(token)
                 item.setTextAlignment(Qt.AlignCenter)
-                # Selectable + draggable when populated; only selectable when empty.
-                flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
+                # Every cell accepts drops (so the user can drop wells from
+                # the sidebar plate into empty cells too — previously empty
+                # cells lacked ``ItemIsDropEnabled`` and silently rejected
+                # the QDrag). Populated cells additionally support drag-out
+                # for cell ↔ cell rearrangement.
+                flags = (Qt.ItemIsSelectable | Qt.ItemIsEnabled
+                         | Qt.ItemIsDropEnabled)
                 if token:
                     flags |= Qt.ItemIsDragEnabled
                 item.setFlags(flags)

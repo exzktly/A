@@ -94,19 +94,25 @@ def build_image_table_grid(
             lambda _i, ridx=r: on_apply_row_channel(app, ridx)
         )
 
-        col_lbl = QLabel("LUT colour:", row_box)
+        col_lbl = QLabel("LUT:", row_box)
         col_lbl.setStyleSheet("font-size: 10px;")
         rbl.addWidget(col_lbl)
-        row_color_cb = QComboBox(row_box)
-        row_color_cb.addItems(lut_color_names)
+        # v2: LutSelector (gradient strip + searchable popover). The
+        # controller's _row_tint translates the selector's mpl colormap
+        # name back to the per-row (r,g,b) tint via LUT_COLORS.
+        from widgets.lut_selector import LutSelector as _LutSelector
+        row_color_cb = _LutSelector(row_box)
+        _initial = lut_color_names[0] if lut_color_names else "Greys"
         if r < len(prev_lut_cbs):
-            prev_text = prev_lut_cbs[r].currentText()
-            if prev_text in lut_color_names:
-                row_color_cb.setCurrentText(prev_text)
+            prev = prev_lut_cbs[r]
+            prev_name = prev.lut() if hasattr(prev, "lut") else prev.currentText()
+            if prev_name:
+                _initial = prev_name
+        row_color_cb.setLut(_initial, reversed=False)
         rbl.addWidget(row_color_cb)
-        row_color_cb.currentIndexChanged.connect(
-            lambda _i: on_generate(app)
-        )
+        # ``lutChanged`` is wired by image_table_controller.image_table_rebuild_grid
+        # to ``image_table_generate`` so the rendered thumbnails re-tint as soon
+        # as the user picks a new colormap.
 
         layout.addWidget(row_box, r, 0)
         row_chan_cbs.append(row_chan_cb)
@@ -199,13 +205,13 @@ def build_lut_row(
         cb_l.addWidget(QLabel("min:", chan_box))
         min_edit = QLineEdit(prev_min, chan_box)
         min_edit.setFixedWidth(70)
-        min_edit.editingFinished.connect(lambda: on_generate(app))
+        # No auto-generate on edit — wait for the user to press Generate.
         cb_l.addWidget(min_edit)
 
         cb_l.addWidget(QLabel("max:", chan_box))
         max_edit = QLineEdit(prev_max, chan_box)
         max_edit.setFixedWidth(70)
-        max_edit.editingFinished.connect(lambda: on_generate(app))
+        # No auto-generate on edit — wait for the user to press Generate.
         cb_l.addWidget(max_edit)
 
         auto_btn = btn_secondary(
