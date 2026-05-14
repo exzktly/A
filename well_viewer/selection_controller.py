@@ -97,17 +97,47 @@ def _set_groups_hidden(app, sels, *, target=None) -> None:
         app._rebuild_all()
 
 
+PLOTTING_TABS = frozenset({
+    "Line Graphs", "Bar Plots", "Scatter Plot", "Distribution", "Heat Map",
+})
+
+
+def _is_plotting_tab(app) -> bool:
+    return _active_tab(app) in PLOTTING_TABS
+
+
+def _toggle_unit_in_focus(app, unit: set) -> None:
+    """Multi-select toggle: union ``unit`` into ``_selected_wells`` if it
+    isn't already entirely there, otherwise remove it. Used by plotting-tab
+    row / column header clicks so groups behave consistently with well
+    clicks."""
+    if not unit:
+        return
+    new_sel = set(app._selected_wells)
+    if unit <= new_sel:
+        new_sel -= unit
+    else:
+        new_sel |= unit
+    if new_sel == app._selected_wells:
+        return
+    app._selected_wells = new_sel
+    app._prev_sel = new_sel.copy()
+    _refresh_after_selection_change(app)
+
+
 def select_row(app, row: str) -> None:
-    if app._selections:  # rep-mode: toggle visibility of groups with a well in this row
-        # Clear any per-well focus so the plot redraws against the row's
-        # newly-toggled visibility rather than the previous focused group.
-        if app._selected_wells:
-            app._selected_wells = set()
-            app._prev_sel = set()
-        _set_groups_hidden(app, [
+    if app._selections:  # rep-mode
+        crossing = [
             s for s in app._selections
-            if any(_well_rc(app, w)[0] == row and w in app._well_paths for w in (s.get("wells") or []))
-        ])
+            if any(_well_rc(app, w)[0] == row and w in app._well_paths
+                   for w in (s.get("wells") or []))
+        ]
+        if _is_plotting_tab(app):
+            unit = {w for s in crossing for w in (s.get("wells") or [])
+                    if w in app._well_paths}
+            _toggle_unit_in_focus(app, unit)
+            return
+        _set_groups_hidden(app, crossing)
     else:
         row_labels = [lbl for lbl in app._well_paths if _well_rc(app, lbl)[0] == row]
         if not row_labels:
@@ -121,13 +151,17 @@ def select_row(app, row: str) -> None:
 
 def select_col(app, col: str) -> None:
     if app._selections:
-        if app._selected_wells:
-            app._selected_wells = set()
-            app._prev_sel = set()
-        _set_groups_hidden(app, [
+        crossing = [
             s for s in app._selections
-            if any(_well_rc(app, w)[1] == col and w in app._well_paths for w in (s.get("wells") or []))
-        ])
+            if any(_well_rc(app, w)[1] == col and w in app._well_paths
+                   for w in (s.get("wells") or []))
+        ]
+        if _is_plotting_tab(app):
+            unit = {w for s in crossing for w in (s.get("wells") or [])
+                    if w in app._well_paths}
+            _toggle_unit_in_focus(app, unit)
+            return
+        _set_groups_hidden(app, crossing)
     else:
         col_labels = [lbl for lbl in app._well_paths if _well_rc(app, lbl)[1] == col]
         if not col_labels:

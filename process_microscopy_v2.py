@@ -2817,9 +2817,9 @@ def main() -> None:
 
     # Auto-threshold pass: now that every well has been processed and the
     # output zips + pipeline_info sidecar are on disk, compute a default
-    # FluorGating threshold per channel via Otsu on a balanced per-cell /
+    # ThreshFracOn cut per channel via Otsu on a balanced per-cell /
     # background-pixel distribution. The result lands in
-    # ``pipeline_info.json``'s ``cell_gating.fluor_gates`` block and the
+    # ``pipeline_info.json``'s ``cell_gating.thresh_frac_on`` block and the
     # Cell Gating tab picks it up the next time the dataset is loaded.
     try:
         from well_viewer.auto_threshold import (

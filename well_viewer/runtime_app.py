@@ -3427,22 +3427,25 @@ class WellViewerApp(QWidget):
             sid = self._sel_id_for_well(well_id)
             if sid is not None:
                 sel = self._sel_by_id(sid)
-                wells = {w for w in (sel.get("wells") or [])
-                         if w in self._well_paths}
-                new_sel = wells or {well_id}
+                unit = {w for w in (sel.get("wells") or [])
+                        if w in self._well_paths}
+                if not unit:
+                    unit = {well_id}
             else:
-                new_sel = {well_id}
-            # Click on the currently-focused group/well clears focus so the
-            # plot drops back to showing every visible group.
-            if new_sel == self._selected_wells:
-                if self._selected_wells:
-                    self._selected_wells = set()
-                    self._refresh_sidebar_map()
-                    self._on_plate_sel_change()
-                return
-            self._selected_wells = new_sel
-            self._refresh_sidebar_map()
-            self._on_plate_sel_change()
+                unit = {well_id}
+            # Multi-select: clicking a group / solo toggles its wells in
+            # and out of ``_selected_wells``. When the focus empties,
+            # ``_refresh_sidebar_map_now`` falls back to painting every
+            # visible group raised.
+            new_sel = set(self._selected_wells)
+            if unit <= new_sel:
+                new_sel -= unit
+            else:
+                new_sel |= unit
+            if new_sel != self._selected_wells:
+                self._selected_wells = new_sel
+                self._refresh_sidebar_map()
+                self._on_plate_sel_change()
             return
         # Legacy fallback for non-plotting tabs that still receive
         # wellActivated in rep-set mode (Image Table / smFISH / etc):

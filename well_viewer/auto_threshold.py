@@ -1,10 +1,10 @@
 """Auto-threshold default cell-gating values via Otsu on a balanced
 per-cell / background-pixel distribution.
 
-The Cell Gating tab lets the user set a per-channel FluorGating
-threshold — every cell whose mean intensity sits below it is excluded
-from the analysis. Picking a good default for that threshold by hand
-is tedious, so this module derives one automatically:
+The Cell Gating tab lets the user set a per-channel ThreshFracOn
+default — the fraction-on cut used to highlight a channel's "on"
+population in downstream plots. Picking a good default by hand is
+tedious, so this module derives one automatically:
 
 1. For every loaded well, list the available timepoints (sorted
    chronologically) and pick the **first**, **middle**, and **last**.
@@ -430,7 +430,7 @@ def apply_auto_thresholds_to_pipeline_info(
     ``pipeline_info.json`` cell-gating block.
 
     When ``overwrite_existing`` is False (default), channels that already
-    have a non-default FluorGating value persisted are left alone so a
+    have a non-default ThreshFracOn value persisted are left alone so a
     user-curated threshold isn't silently overwritten.
 
     Returns the dict of values that were actually written.
@@ -457,9 +457,9 @@ def apply_auto_thresholds_to_pipeline_info(
 
     written: Dict[str, float] = {}
     for ch, thr in computed.items():
-        if not overwrite_existing and ch in existing_fluor:
+        if not overwrite_existing and ch in existing_tfo:
             continue
-        existing_fluor[ch] = float(thr)
+        existing_tfo[ch] = float(thr)
         written[ch] = float(thr)
 
     if not written:
