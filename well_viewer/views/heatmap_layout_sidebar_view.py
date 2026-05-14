@@ -54,8 +54,12 @@ class _LayoutTable(QTableWidget):
         self._on_clear_cell = on_clear_cell
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
+        # Drops also have to reach the table's viewport, not just the
+        # frame, or the table swallows the WELL_MIME mid-flight.
+        self.viewport().setAcceptDrops(True)
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -256,6 +260,21 @@ def refresh_heatmap_layout_sidebar(app) -> None:
         finally:
             cols_spin.blockSignals(False)
 
+    # Shrink the cell font when the grid grows past the sidebar's natural
+    # column width — keeps wells like ``H12`` legible at 12+ cols.
+    cell_font = table.font()
+    if layout.cols <= 8:
+        cell_font.setPointSize(10)
+    elif layout.cols <= 12:
+        cell_font.setPointSize(9)
+    elif layout.cols <= 16:
+        cell_font.setPointSize(8)
+    elif layout.cols <= 24:
+        cell_font.setPointSize(7)
+    else:
+        cell_font.setPointSize(6)
+    table.setFont(cell_font)
+
     table.blockSignals(True)
     try:
         table.clear()
@@ -271,8 +290,13 @@ def refresh_heatmap_layout_sidebar(app) -> None:
                 token = wells[0] if wells else ""
                 item = QTableWidgetItem(token)
                 item.setTextAlignment(Qt.AlignCenter)
-                # Selectable + draggable when populated; only selectable when empty.
-                flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
+                # Every cell accepts drops (so the user can drop wells from
+                # the sidebar plate into empty cells too — previously empty
+                # cells lacked ``ItemIsDropEnabled`` and silently rejected
+                # the QDrag). Populated cells additionally support drag-out
+                # for cell ↔ cell rearrangement.
+                flags = (Qt.ItemIsSelectable | Qt.ItemIsEnabled
+                         | Qt.ItemIsDropEnabled)
                 if token:
                     flags |= Qt.ItemIsDragEnabled
                 item.setFlags(flags)
