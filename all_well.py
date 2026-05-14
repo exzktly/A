@@ -863,22 +863,33 @@ class AllWellApp(QMainWindow):
         self.threshold_changed.emit(self._cell_threshold)
 
 
-def _load_bundled_fonts() -> None:
+def _load_bundled_fonts() -> bool:
     """Register every font file in ``fonts/`` with QFontDatabase so the
     bundled Inter family is available without a system-wide install. The
     OFL-licensed Inter sources live alongside this module under ``fonts/``
-    (see ``fonts/LICENSE.txt``)."""
+    (see ``fonts/LICENSE.txt``). Returns True when at least one ``Inter``
+    face registered — callers gate the QSS family swap on that."""
     from PySide6.QtGui import QFontDatabase
     fonts_dir = Path(__file__).resolve().parent / "fonts"
     if not fonts_dir.is_dir():
-        return
+        return False
+    have_inter = False
     for path in sorted(fonts_dir.iterdir()):
         if path.suffix.lower() not in (".ttf", ".otf"):
             continue
         try:
-            QFontDatabase.addApplicationFont(str(path))
+            fid = QFontDatabase.addApplicationFont(str(path))
+        except Exception:
+            continue
+        if fid < 0:
+            continue
+        try:
+            for fam in QFontDatabase.applicationFontFamilies(fid):
+                if "inter" in str(fam).lower():
+                    have_inter = True
         except Exception:
             pass
+    return have_inter
 
 
 def _install_combobox_popup_widener() -> None:
@@ -929,8 +940,22 @@ def main() -> None:
     args = ap.parse_args()
 
     app = QApplication.instance() or QApplication(sys.argv)
-    _load_bundled_fonts()
+    _have_inter = _load_bundled_fonts()
     _install_combobox_popup_widener()
+    # Collapse the QSS font-family token to a single resolvable name.
+    # Qt's QSS parser walks every comma-separated entry and warns
+    # ('Populating font family aliases…') if any entry isn't already
+    # in the registry. Setting the family before setStyleSheet() —
+    # and dropping the 'sans-serif' fallback when Inter is loaded —
+    # silences that warning without losing the fallback behaviour:
+    # when Inter isn't registered the platform default takes over via
+    # 'sans-serif' anyway.
+    if _have_inter:
+        theme_v2.Typography.family = "Inter"
+        from PySide6.QtGui import QFont
+        app.setFont(QFont("Inter"))
+    else:
+        theme_v2.Typography.family = "sans-serif"
     app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()

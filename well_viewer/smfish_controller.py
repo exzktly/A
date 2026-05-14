@@ -29,7 +29,11 @@ def make_classifier(
 ) -> Callable[[str, str, Optional[Callable[[str], tuple[str, str]]]], tuple[str, str, str]]:
     """Build a ``classify_member`` adapter that knows the schema separator."""
 
-    def _classify(name: str, fluor_lower: str, fov_tp_extractor=None):
+    def _classify(name: str, fluor_lower: str, fov_tp_extractor=None,
+                  pipeline_info=None):
+        # ``pipeline_info`` is accepted (and currently ignored — the smFISH
+        # path stays on the legacy filename schema) so preview_controller
+        # can keep passing four positional args without TypeError.
         mask_re = re.compile(
             r"(?:%s)$" % "|".join(re.escape(sfx) for sfx in output_suffixes_for_kind("mask")),
             re.I,
