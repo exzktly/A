@@ -34,8 +34,8 @@ def pkg_dir(name: str) -> Path:
 # are bundled explicitly and extracted to sys._MEIPASS at runtime.
 # ---------------------------------------------------------------------------
 
-_here = Path(SPECPATH)   # directory containing this .spec file (_Installation/)  # noqa: F821
-_parent = _here.parent   # repository root (one level up)
+_here = Path(SPECPATH)               # _Docs/_Installation/ — directory of this .spec  # noqa: F821
+_parent = _here.parent.parent        # repository root (two levels up)
 
 sibling_scripts = [
     (str(_parent / "all_well.py"),              "."),
@@ -301,10 +301,16 @@ hiddenimports += [m for m in _numba_mods
 hiddenimports += collect_submodules("llvmlite")
 hiddenimports += collect_submodules("h5py")
 
-# Filter out dead/moved skimage submodules before adding to hiddenimports
-_skimage_mods = collect_submodules("skimage")
-_skimage_excluded = {"skimage.future.graph"}
-hiddenimports += [m for m in _skimage_mods if m not in _skimage_excluded]
+# Filter out dead/moved skimage submodules before collect_submodules even
+# tries to import them. ``skimage.future.graph`` was moved to
+# ``skimage.graph`` in scikit-image 0.20 and importing it raises
+# ModuleNotFoundError, which PyInstaller's hook surfaces as a noisy
+# "Failed to collect submodules for 'skimage.future.graph'" warning.
+# Using the ``filter`` kwarg keeps PyInstaller from probing it at all.
+def _skimage_filter(name: str) -> bool:
+    return not name.startswith("skimage.future")
+
+hiddenimports += collect_submodules("skimage", filter=_skimage_filter)
 
 # Collect data files
 datas += collect_data_files("numba")
@@ -336,7 +342,10 @@ a = Analysis(
         "tkinter.messagebox",
         "matplotlib.backends.backend_tkagg",
         "matplotlib.backends._backend_tk",
-        # Dead/moved skimage submodule — raises ModuleNotFoundError on import
+        # Dead/moved skimage submodules — raise ModuleNotFoundError on import
+        # in scikit-image >= 0.20 (the whole skimage.future namespace was
+        # decommissioned).
+        "skimage.future",
         "skimage.future.graph",
         # keras benchmark module has syntax errors and is never used at runtime
         "keras.src.benchmarks",
