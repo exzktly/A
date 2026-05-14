@@ -1577,10 +1577,15 @@ def image_table_copy_svg(app) -> None:
 
     pdf_bytes: bytes | None = None
     try:
+        import matplotlib as _mpl
         pdf_buf = io.BytesIO()
-        fig.savefig(pdf_buf, format="pdf", **{
-            k: v for k, v in save_kwargs.items() if k != "format"
-        })
+        # Type 42 (TrueType) instead of matplotlib's default Type 3
+        # (bitmap glyphs) — iWork apps have been observed to
+        # rasterise PDFs containing Type 3 fonts.
+        with _mpl.rc_context({"pdf.fonttype": 42, "ps.fonttype": 42}):
+            fig.savefig(pdf_buf, format="pdf", **{
+                k: v for k, v in save_kwargs.items() if k != "format"
+            })
         pdf_bytes = pdf_buf.getvalue()
     except Exception:
         pass

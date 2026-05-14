@@ -1,17 +1,40 @@
-"""Native macOS pasteboard helpers for vector-PDF copy.
+"""Native macOS pasteboard helper for vector-PDF copy.
 
 Qt6's QMacMimeRegistry doesn't surface ``application/pdf`` /
 ``com.adobe.pdf`` from a :class:`QMimeData` to the macOS pasteboard,
 so Copy-as-PDF via :meth:`QClipboard.setMimeData` lands as nothing in
 Keynote / Pages / Preview. Going through ``NSPasteboard`` directly
-via PyObjC reaches the OS pasteboard with the correct UTI, so those
-apps paste the figure as editable vector PDF.
+via PyObjC reaches the OS pasteboard, but raw PDF *data* still
+rasterises in Keynote — confirmed empirically over multiple iterations
+(PRs #195, #197, #198, #199, #200). The same bytes paste as vector
+into Illustrator / Affinity / Preview, so Keynote's paste handler is
+choosing to rasterise on a path we can't influence from the data
+side.
+
+The recipe that actually works for Keynote is the AppleScript one:
+
+    tell application "Finder"
+        set the clipboard to (POSIX file "/path/to/figure.pdf")
+    end tell
+
+i.e. the clipboard holds a *file URL*, not raw PDF bytes. Apps that
+read ``com.adobe.pdf`` still get it (NSPasteboard advertises the
+file's UTI based on its extension and lazily reads the bytes on
+demand), so Illustrator / Affinity / Preview keep working. Keynote
+sees a "file paste" rather than a "PDF data paste" and embeds the
+.pdf as a vector object exactly the way ``Insert > Choose…`` does.
+
+**Scope trade-off.** Because the pasteboard now carries a file URL
+instead of raw image data, apps that previously pasted an inline PNG
+raster (Slack, Mail, Notes, browser composers) now paste a **PDF
+file attachment** instead. This was an explicit user choice — Copy
+SVG is being optimised for vector-aware targets.
 
 The module is import-safe on every OS: ``write_vector_pdf_pasteboard``
 returns ``False`` when not running on macOS or when PyObjC isn't
 available, and the caller falls back to its in-Qt clipboard path.
 ``last_failure_reason`` exposes the human-readable reason a write was
-skipped so the UI can surface it (e.g. "PyObjC not installed").
+skipped so the UI can surface it.
 """
 
 from __future__ import annotations
@@ -27,12 +50,6 @@ from pathlib import Path
 # diagnostic without piping a tuple through every call site.
 last_failure_reason: str = ""
 
-# Hardcoded UTI. ``NSPasteboardTypePDF`` isn't exposed by every PyObjC
-# release, so we use the canonical UTI string directly — it's a stable
-# Apple identifier, unchanged since macOS 10.6.
-_UTI_PDF = "com.adobe.pdf"
-_UTI_FILE_URL = "public.file-url"
-
 # Subdir under the OS temp dir for "live" clipboard PDFs. macOS prunes
 # NSTemporaryDirectory periodically, so files here disappear on reboot;
 # we also best-effort prune our own entries older than an hour on each
@@ -42,31 +59,24 @@ _TMP_MAX_AGE_SEC = 3600
 
 
 def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
-    """Write a PDF to the macOS pasteboard so iWork pastes it as vector.
+    """Write a PDF file URL to the macOS pasteboard.
 
     Returns ``True`` when the pasteboard was written, ``False`` when
     the platform isn't macOS, PyObjC isn't importable, or the write
     itself failed.
 
-    Strategy: advertise *both* ``com.adobe.pdf`` and ``public.file-url``
-    on a single :class:`NSPasteboardItem`. Different consumers walk
-    pasteboard types differently:
+    Writes the PDF bytes to a temp file under
+    ``NSTemporaryDirectory()/allwell-clipboard`` and puts the resulting
+    file URL on the general pasteboard via
+    ``pb.writeObjects_([NSURL])``. This is the AppleScript-equivalent
+    recipe Keynote respects for vector paste; see the module docstring
+    for the full rationale.
 
-    - Illustrator / Affinity / Preview read ``com.adobe.pdf`` directly
-      and embed the raw PDF bytes as vector (this already worked).
-    - Keynote (and likely Pages) rasterise ``com.adobe.pdf`` data on
-      their paste path via NSImage — empirically confirmed: same PDF
-      bytes paste vector into Illustrator, raster into Keynote.
-      Their *file-URL* paste path runs separate code that treats the
-      paste like an Insert > PDF and preserves vector. By writing
-      the PDF to a temp file and offering its URL alongside the PDF
-      data, Keynote's paste-handler reads the URL and embeds vector.
-
-    The temp file lives under ``NSTemporaryDirectory()/allwell-clipboard``
-    until macOS prunes it (or the helper prunes its own entries
-    older than ``_TMP_MAX_AGE_SEC``). The pasted figure in Keynote
-    keeps its own embedded copy, so the temp file only needs to
-    outlive the paste itself.
+    Deliberately does **not** put raw ``com.adobe.pdf`` bytes on the
+    pasteboard. NSPasteboard still advertises ``com.adobe.pdf`` (and
+    other UTIs derived from the file's ``.pdf`` extension) as
+    promised types, so data-paste consumers (Illustrator, Affinity,
+    Preview) read the file content on demand and still receive vector.
     """
     global last_failure_reason
     last_failure_reason = ""
@@ -78,8 +88,8 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
         last_failure_reason = "no PDF bytes"
         return False
     try:
-        from AppKit import NSPasteboard, NSPasteboardItem
-        from Foundation import NSData, NSURL
+        from AppKit import NSPasteboard
+        from Foundation import NSURL
     except Exception as exc:
         last_failure_reason = (
             "PyObjC framework not installed — "
@@ -106,23 +116,11 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
         last_failure_reason = f"temp PDF write failed: {exc}"
         return False
 
-    pdf_data = NSData.dataWithBytes_length_(pdf_bytes, len(pdf_bytes))
     file_url = NSURL.fileURLWithPath_(pdf_path_str)
-
-    item = NSPasteboardItem.alloc().init()
-    if not bool(item.setData_forType_(pdf_data, _UTI_PDF)):
-        last_failure_reason = "NSPasteboardItem rejected PDF data"
-        return False
-    if not bool(item.setString_forType_(
-        file_url.absoluteString(), _UTI_FILE_URL,
-    )):
-        last_failure_reason = "NSPasteboardItem rejected file URL"
-        return False
-
     pb = NSPasteboard.generalPasteboard()
     pb.clearContents()
-    if not bool(pb.writeObjects_([item])):
-        last_failure_reason = "NSPasteboard.writeObjects: returned NO"
+    if not bool(pb.writeObjects_([file_url])):
+        last_failure_reason = "NSPasteboard.writeObjects_([NSURL]) returned NO"
         return False
     return True
 

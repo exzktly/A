@@ -772,10 +772,16 @@ class ExportStyleSidebar(QWidget):
             pdf_bytes: bytes | None = None
             try:
                 pdf_buf = BytesIO()
-                self._fig.savefig(
-                    pdf_buf, format="pdf",
-                    bbox_inches="tight", transparent=True,
-                )
+                # Type 42 (TrueType) instead of matplotlib's default
+                # Type 3 (bitmap glyphs) — iWork apps have been
+                # observed to rasterise PDFs containing Type 3 fonts.
+                with _mpl.rc_context({
+                    "pdf.fonttype": 42, "ps.fonttype": 42,
+                }):
+                    self._fig.savefig(
+                        pdf_buf, format="pdf",
+                        bbox_inches="tight", transparent=True,
+                    )
                 pdf_bytes = pdf_buf.getvalue()
             except Exception:
                 pass
