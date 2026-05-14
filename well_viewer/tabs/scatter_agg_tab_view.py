@@ -78,7 +78,10 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     card.setControlsWidget(make_band_controls(app, card, with_fov=False))
     card.plotThemeChanged.connect(lambda _m: app._redraw_scatter_agg())
     card.setStatsChipVisible(False)
-    layout.addWidget(card, 1)
+    from well_viewer.ui_helpers import wrap_with_empty_state
+    layout.addWidget(wrap_with_empty_state(
+        app, card, icon="scatter-chart",
+    ), 1)
 
 
 def _open_timepoint_selector(app) -> None:

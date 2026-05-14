@@ -8,8 +8,57 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QLineEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
+
+
+def wrap_with_empty_state(
+    app: Any,
+    host: QWidget,
+    *,
+    text: str = "Load a results directory to begin.",
+    hint: str = "Use the Open button at the top-right (⌘O) to pick a folder.",
+    icon: str = "line-chart",
+) -> QStackedWidget:
+    """Wrap *host* (a plot canvas / scroll area / card) in a ``QStackedWidget``
+    so an :class:`EmptyState` placeholder can render in its place until a
+    dataset is loaded.
+
+    Page 0 is the EmptyState; page 1 is *host*. The stack starts on page 0
+    so the user sees the placeholder immediately on app launch (matplotlib's
+    default empty axes are otherwise visible as glaring white blocks).
+
+    The stack registers itself on ``app._plot_empty_stacks`` and
+    ``app._refresh_plot_empty_states()`` flips every registered stack based
+    on whether ``app._well_paths`` is non-empty. Tab redraws should call
+    that helper before they paint.
+    """
+    from widgets.empty_state import EmptyState  # local — widget module is heavy
+    stack = QStackedWidget()
+    stack.setObjectName("PlotEmptyStateStack")
+    placeholder = EmptyState(text=text, icon=icon, hint=hint)
+    stack.addWidget(placeholder)  # index 0
+    stack.addWidget(host)         # index 1
+    stack.setCurrentIndex(0)
+    if not hasattr(app, "_plot_empty_stacks") or app._plot_empty_stacks is None:
+        app._plot_empty_stacks = []
+    app._plot_empty_stacks.append(stack)
+    return stack
+
+
+def refresh_plot_empty_states(app: Any) -> None:
+    """Flip every registered plot-empty-state stack based on whether a
+    dataset is currently loaded. Safe to call before any stacks have been
+    registered (no-ops)."""
+    stacks = getattr(app, "_plot_empty_stacks", None) or []
+    has_data = bool(getattr(app, "_well_paths", None))
+    target = 1 if has_data else 0
+    for stack in stacks:
+        try:
+            if stack.currentIndex() != target:
+                stack.setCurrentIndex(target)
+        except Exception:
+            pass
 
 
 def build_section_header(

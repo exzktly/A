@@ -3048,11 +3048,21 @@ class WellViewerApp(QWidget):
         # fully-constructed tabs instead of unbuilt placeholders.
         self._drain_pending_centre_builders()
         _load_path_controller(self, path)
-
+        self._refresh_plot_empty_states()
 
     def _load_directory(self, d: Path, label: Optional[str] = None) -> None:
         self._drain_pending_centre_builders()
         _load_directory_controller(self, d, label=label)
+        self._refresh_plot_empty_states()
+
+    def _refresh_plot_empty_states(self) -> None:
+        """Flip every plot tab's EmptyState/figure QStackedWidget to the
+        right page based on whether a dataset is loaded. Called after
+        ``_load_path`` / ``_load_directory`` so the placeholders disappear
+        as soon as data lands, and from the per-plot redraw paths so the
+        placeholder comes back if the dataset is cleared."""
+        from well_viewer.ui_helpers import refresh_plot_empty_states
+        refresh_plot_empty_states(self)
 
     def _drain_pending_centre_builders(self) -> None:
         """Force-build any centre tab whose body was deferred at startup.
@@ -4862,6 +4872,12 @@ class WellViewerApp(QWidget):
     # ── Plotting ──────────────────────────────────────────────────────────────
 
     def _redraw(self) -> None:
+        # Keep the EmptyState/figure stacks in sync with the current data
+        # state before any matplotlib work. When no data is loaded the
+        # plot is hidden behind the EmptyState page, so we can skip the
+        # actual redraw — but `_plot_redraw_orchestrator` still tolerates
+        # the empty state via its own no-data branch.
+        self._refresh_plot_empty_states()
         _plot_redraw_orchestrator(
             self,
             lineplot_redraw=_lineplot_redraw,

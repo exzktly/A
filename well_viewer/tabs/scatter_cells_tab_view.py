@@ -72,7 +72,10 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     card.setControlsWidget(make_band_controls(app, card, with_fov=False))
     card.plotThemeChanged.connect(lambda _m: app._redraw_scatter())
     card.setStatsChipVisible(False)
-    layout.addWidget(card, 1)
+    from well_viewer.ui_helpers import wrap_with_empty_state
+    layout.addWidget(wrap_with_empty_state(
+        app, card, icon="scatter-chart",
+    ), 1)
 
     app._scatter_canvas.mpl_connect("button_press_event", app._on_scatter_click)
     app._scatter_canvas.mpl_connect("motion_notify_event", app._on_scatter_motion)
