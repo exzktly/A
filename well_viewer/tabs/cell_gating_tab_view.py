@@ -253,9 +253,9 @@ def build_cell_gating_tab(app, parent: QWidget) -> None:
     install_canvas_wheel_scroll(app._cell_gating_canvas, app._cell_gating_plot_scroll)
     root.addWidget(app._cell_gating_plot_scroll, 1)
 
-    app._cell_gating_toolbar = attach_plot_toolbar(
-        root, app._cell_gating_canvas, parent, with_sem=False,
-    )
+    from widgets.mpl_toolbar import MplToolbar
+    app._cell_gating_toolbar = MplToolbar(app._cell_gating_canvas, parent)
+    root.addWidget(app._cell_gating_toolbar)
 
     app._cell_gating_status_label = QLabel("No data loaded", parent)
     app._cell_gating_status_label.setObjectName("Muted")

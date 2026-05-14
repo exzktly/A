@@ -106,11 +106,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     chip_row_layout.addWidget(app._sel_count_chip, 0)
     layout.addWidget(chip_row)
 
-    # Group-mode hint
-    app._line_group_hint = QLabel("", parent)
-    app._line_group_hint.setObjectName("Accent")
-    app._line_group_hint.setWordWrap(True)
-    layout.addWidget(app._line_group_hint)
+    # Group-mode hint retired — moved to the Help drawer ("Plotting tabs"
+    # section). Tab views still try to set text on this attribute via
+    # ``setText`` calls, so keep a hidden sink to avoid AttributeError
+    # without re-introducing the bottom-of-sidebar paragraph.
+    from PySide6.QtWidgets import QLabel as _QLabel  # noqa: PLC0415
+    app._line_group_hint = _QLabel("", parent)
+    app._line_group_hint.setVisible(False)
 
     # Heat-map layout configurator (sidebar variant). Hidden by default;
     # ``_on_tab_change`` reveals it when the Heat Map tab is active.
