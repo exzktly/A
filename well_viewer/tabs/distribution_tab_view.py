@@ -109,7 +109,10 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     # PlotCard.setPlotTheme's own apply_axes_style walk handle spines / grid /
     # ticks / title / labels for the existing axes.
     card.setStatsChipVisible(False)
-    layout.addWidget(card, 1)
+    from well_viewer.ui_helpers import wrap_with_empty_state
+    layout.addWidget(wrap_with_empty_state(
+        app, card, icon="line-chart",
+    ), 1)
 
     refresh_distribution_timepoints(app)
 

@@ -193,7 +193,10 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     # redraw would wipe the widget-side theme styling that setPlotTheme already
     # applied. Let PlotCard.setPlotTheme's apply_axes_style walk stand.
     card.setStatsChipVisible(False)
-    layout.addWidget(card, 1)
+    from well_viewer.ui_helpers import wrap_with_empty_state
+    layout.addWidget(wrap_with_empty_state(
+        app, card, icon="layout-grid",
+    ), 1)
 
     # ── Mouse hooks ─────────────────────────────────────────────────────────
     # Unified press handler: label-drag first, then double-click rename, then
