@@ -92,7 +92,7 @@ class AllWellApp(QMainWindow):
         hl.addWidget(title)
 
         # Phase 10 (B2): version pill next to wordmark.
-        self._version_pill = QLabel("v2.4.1")
+        self._version_pill = QLabel("v2.4.2")
         self._version_pill.setObjectName("VersionPill")
         self._version_pill.setStyleSheet(
             f"color: {theme_v2.Colors.text_faint}; "
@@ -520,6 +520,23 @@ class AllWellApp(QMainWindow):
             body = QLabel(content)
             body.setWordWrap(True)
             body.setText(
+                "<b>Typical workflow</b><br>"
+                "1. Put every raw image in a folder called <tt>in/</tt> at "
+                "the root of the dataset directory.<br>"
+                "2. Open the <b>Analyze</b> tab, point it at that "
+                "directory, set the filename schema + channel tokens, and "
+                "click <i>Run Pipeline</i>. The pipeline writes results to "
+                "a sibling <tt>out/</tt> folder and computes ThreshFracOn "
+                "defaults as its last step.<br>"
+                "3. When the run finishes the app jumps to <b>Review</b>. "
+                "Open the <b>Cell Gating</b> sub-tab (under Sample "
+                "Definitions) to inspect the per-channel CDFs and tune "
+                "the Cell Area / FluorGating / ThreshFracOn thresholds. "
+                "Hit <i>Auto-threshold all channels</i> any time to "
+                "re-derive ThreshFracOn defaults.<br>"
+                "4. Define replicate groups (Sample Definitions → Groups) "
+                "and explore the data on the plotting tabs (Line / Bar / "
+                "Scatter / Distribution / Heat Map).<br><br>"
                 "<b>Review tab</b> — explore an already-analyzed dataset: "
                 "Line / Bar / Scatter / Distribution / Heat Map plots, "
                 "per-cell Segmentation review, and the rendered Image Table.<br><br>"

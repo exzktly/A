@@ -177,6 +177,7 @@ def build_cell_gating_tab(app, parent: QWidget) -> None:
     app._cell_gating_fluor_gate_edits = {}
     app._cell_gating_thresh_frac_edits = {}
     app._cell_gating_fluor_data = {}
+    app._cell_gating_ratio_data = {}
     app._cell_gating_ax = None
     app._cell_gating_axes_stack = []
     app._cell_gating_worker = None
@@ -270,7 +271,9 @@ def cell_gating_load_cell_areas(app) -> None:
         return  # tab not built yet
     app._cell_gating_cell_areas = []
     app._cell_gating_fluor_data = {}
+    app._cell_gating_ratio_data = {}
     labels = _cell_gating_source_wells(app)
+    ratios = list(getattr(app, "_ratio_metrics", []) or [])
 
     for label in labels:
         df = app._get_rows(label)
@@ -293,6 +296,21 @@ def cell_gating_load_cell_areas(app) -> None:
             if positive.size:
                 app._cell_gating_fluor_data.setdefault(channel, []).extend(
                     float(x) for x in positive
+                )
+        for rm in ratios:
+            num_col = rm.numerator_col()
+            den_col = rm.denominator_col()
+            if num_col not in frame_df.columns or den_col not in frame_df.columns:
+                continue
+            num = pd.to_numeric(frame_df[num_col], errors="coerce").to_numpy()
+            den = pd.to_numeric(frame_df[den_col], errors="coerce").to_numpy()
+            eps = float(rm.epsilon or 0.0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ratio = num / (den + eps) if eps else np.where(den != 0, num / den, np.nan)
+            keep = np.isfinite(ratio) & (ratio > 0)
+            if keep.any():
+                app._cell_gating_ratio_data.setdefault(rm.display_label(), []).extend(
+                    float(x) for x in ratio[keep]
                 )
 
     _cell_gating_build_channel_controls(app)
@@ -730,7 +748,10 @@ def _cell_gating_source_wells(app) -> list[str]:
 
 
 def _cell_gating_plot_cdf(app) -> None:
-    if not app._cell_gating_cell_areas and not app._cell_gating_fluor_data:
+    ratio_data = getattr(app, "_cell_gating_ratio_data", {}) or {}
+    if (not app._cell_gating_cell_areas
+            and not app._cell_gating_fluor_data
+            and not ratio_data):
         return
 
     bg_app = get_color("BG_APP")
@@ -744,7 +765,7 @@ def _cell_gating_plot_cdf(app) -> None:
     fig.clf()
     fig.set_facecolor(bg_app)
 
-    n_plots = 1 + len(app._cell_gating_fluor_data)
+    n_plots = 1 + len(app._cell_gating_fluor_data) + len(ratio_data)
     n_cols = 1 if n_plots == 1 else 2
     n_rows = (n_plots + n_cols - 1) // n_cols
     plot_height_per_row = 3.8
@@ -775,31 +796,49 @@ def _cell_gating_plot_cdf(app) -> None:
             pass
 
     colors = [accent, "#FF9500", "#FF3B30", "#34C759"]
-    for idx, (channel, values) in enumerate(
-        sorted(app._cell_gating_fluor_data.items()), 1
-    ):
-        if idx < len(axes):
-            ax = axes[idx]
-            color = colors[idx % len(colors)]
-            vals = np.array(sorted(values))
-            cdf = np.arange(1, len(vals) + 1) / len(vals)
-            ax.plot(vals, cdf, linewidth=2, color=color, alpha=0.8)
-            ax.fill_between(vals, cdf, alpha=0.2, color=color)
-            ax.set_xlabel(f"{channel.upper()} Intensity", color=txt_pri, fontsize=9)
-            ax.set_ylabel("Cumulative Probability", color=txt_pri, fontsize=9)
-            ax.set_title(f"{channel.upper()} Distribution", color=txt_pri,
-                         fontsize=10, fontweight="bold")
-            ax.grid(True, alpha=0.2, color=txt_mut)
-            ax.tick_params(colors=txt_mut, labelsize=8)
+    next_idx = 1
+    for channel, values in sorted(app._cell_gating_fluor_data.items()):
+        if next_idx >= len(axes):
+            break
+        ax = axes[next_idx]
+        color = colors[next_idx % len(colors)]
+        vals = np.array(sorted(values))
+        cdf = np.arange(1, len(vals) + 1) / len(vals)
+        ax.plot(vals, cdf, linewidth=2, color=color, alpha=0.8)
+        ax.fill_between(vals, cdf, alpha=0.2, color=color)
+        ax.set_xlabel(f"{channel.upper()} Intensity", color=txt_pri, fontsize=9)
+        ax.set_ylabel("Cumulative Probability", color=txt_pri, fontsize=9)
+        ax.set_title(f"{channel.upper()} Distribution", color=txt_pri,
+                     fontsize=10, fontweight="bold")
+        ax.grid(True, alpha=0.2, color=txt_mut)
+        ax.tick_params(colors=txt_mut, labelsize=8)
 
-            try:
-                fluor_gate = float(
-                    app._cell_gating_fluor_gate_edits[channel].text()
-                )
-                ax.axvline(x=fluor_gate, color=warn,
-                           linestyle="--", linewidth=2, alpha=0.7)
-            except (ValueError, KeyError):
-                pass
+        try:
+            fluor_gate = float(
+                app._cell_gating_fluor_gate_edits[channel].text()
+            )
+            ax.axvline(x=fluor_gate, color=warn,
+                       linestyle="--", linewidth=2, alpha=0.7)
+        except (ValueError, KeyError):
+            pass
+        next_idx += 1
+
+    for ratio_label, values in sorted(ratio_data.items()):
+        if next_idx >= len(axes):
+            break
+        ax = axes[next_idx]
+        color = colors[next_idx % len(colors)]
+        vals = np.array(sorted(values))
+        cdf = np.arange(1, len(vals) + 1) / len(vals)
+        ax.plot(vals, cdf, linewidth=2, color=color, alpha=0.8)
+        ax.fill_between(vals, cdf, alpha=0.2, color=color)
+        ax.set_xlabel(f"{ratio_label} ratio", color=txt_pri, fontsize=9)
+        ax.set_ylabel("Cumulative Probability", color=txt_pri, fontsize=9)
+        ax.set_title(f"{ratio_label} Distribution", color=txt_pri,
+                     fontsize=10, fontweight="bold")
+        ax.grid(True, alpha=0.2, color=txt_mut)
+        ax.tick_params(colors=txt_mut, labelsize=8)
+        next_idx += 1
 
     app._cell_gating_ax = axes[0]
 
