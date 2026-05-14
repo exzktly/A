@@ -522,7 +522,7 @@ def cell_gating_auto_threshold(app) -> None:
             except Exception:
                 pass
             return
-        edits = app._cell_gating_fluor_gate_edits or {}
+        edits = app._cell_gating_thresh_frac_edits or {}
         written: list[str] = []
         for ch, thr in result.items():
             edit = edits.get(ch)
@@ -534,9 +534,9 @@ def cell_gating_auto_threshold(app) -> None:
             except Exception:
                 continue
         # Persist + re-render the CDF + kick the gating worker exactly as
-        # the user typing a new threshold would.
+        # the user typing a new ThreshFracOn would.
         try:
-            cell_gating_on_gating_change(app)
+            cell_gating_on_threshold_frac_on_change(app)
         except Exception:
             pass
         try:
