@@ -6,7 +6,6 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from well_viewer.figure_export_editor import launch_export_editor
 
 
 def _qt_file_filter_from_filetypes(filetypes) -> str:
@@ -84,10 +83,12 @@ def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:
 
 
 def _launch_editor_or_save(app, fig, default_name: str, *, plot_bg: str, canvas=None) -> None:
-    session = launch_export_editor(app, fig, default_name, plot_bg=plot_bg, canvas=canvas)
-    if session is not None:
-        app._set_status("Export editor opened.")
-        return
+    # Phase 15.2: the in-tab ExportStyleSidebar was retired in favour of the
+    # v2 Properties rail (which live-binds the same _export_style_prefs).
+    # Save-figure now goes straight to the file dialog; the rail handles
+    # styling. ``canvas`` is unused but kept in the signature so callers
+    # don't need to change.
+    del canvas
     save_matplotlib_fig(app, fig, default_name, plot_bg=plot_bg)
 
 

@@ -3458,6 +3458,15 @@ class WellViewerApp(QWidget):
                 cell_gating_load_cell_areas(self)
             except Exception:
                 pass
+        # Ratio additions become virtual channel entries in every plot-tab
+        # combo (including the global ctxbar chip), so refresh those now —
+        # otherwise the new ratio doesn't appear in the dropdown until the
+        # next dataset reload.
+        if hasattr(self, "_update_channel_selector"):
+            try:
+                self._update_channel_selector()
+            except Exception:
+                pass
 
     # ── Active channel ───────────────────────────────────────────────────────
 
@@ -3702,14 +3711,13 @@ class WellViewerApp(QWidget):
             montage_chans.append(seg_tok)
         montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
         review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
-        # Update channel selector instances
-        for attr in ("_chan_cb_line", "_chan_cb_bar"):
+        # Update channel selector instances — including the global ctxbar
+        # chip (``_plotting_channel_cb``) so it picks up newly-defined ratio
+        # channels and live-updates without waiting for a tab switch.
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
+                     "_chan_cb_heatmap", "_plotting_channel_cb"):
             if hasattr(self, attr):
                 _set_combo_values(getattr(self, attr), labels)
-        if hasattr(self, "_chan_cb_distribution"):
-            _set_combo_values(self._chan_cb_distribution, labels)
-        if hasattr(self, "_chan_cb_heatmap"):
-            _set_combo_values(self._chan_cb_heatmap, labels)
         if hasattr(self, "_chan_cb_preview"):
             _set_combo_values(self._chan_cb_preview, montage_labels)
         if hasattr(self, "_review_image_chan_cb"):
@@ -4728,10 +4736,16 @@ class WellViewerApp(QWidget):
         fit = min(cw / max(iw, 1), ch / max(ih, 1))
         scale = max(0.05, fit * max(0.1, float(self._review_image_zoom)))
         nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-        base_x = max(8, (cw - nw) // 2)
-        base_y = max(8, (ch - nh) // 2)
-        self._review_image_pan_x = (cw / 2.0) - base_x - (cx * scale)
-        self._review_image_pan_y = (ch / 2.0) - base_y - (cy * scale)
+        # The renderer derives the scrollbar value as
+        #     scroll = max(0, (max(nw, cw) - cw) // 2) - int(pan)
+        # and the QLabel host's pixmap sits at x=0 inside it when the
+        # scaled image exceeds the viewport (nw > cw), so the centring
+        # formula has to be pan = nw/2 - cx*scale (and likewise for y).
+        # The old `cw/2 - base_x - cx*scale` form mis-offset the pan by
+        # roughly (nw - cw)/2 px once you zoomed in, which is why the
+        # yellow nucleus ended up off-screen.
+        self._review_image_pan_x = (nw / 2.0) - (cx * scale)
+        self._review_image_pan_y = (nh / 2.0) - (cy * scale)
         self._render_review_image_display()
 
     def _on_review_csv_row_double_click(self, event) -> None:
@@ -6056,39 +6070,26 @@ class WellViewerApp(QWidget):
         _plot_save_bar_figure_orchestrator(self, plot_bg=PLOT_BG)
 
     def _open_export_style_panel(self, plot_key: str) -> None:
-        """Toggle the reusable export-style sidebar for a specific plot.
+        """Toggle the v2 Properties rail.
 
-        Clicking the trigger again while the panel is open hides it, so the
-        user can dismiss the sidebar from the same affordance that opened it
-        (the in-panel close-‹ button used to be the only escape hatch).
+        Phase 15.2: the per-tab ExportStyleSidebar was a strict subset of
+        the Properties rail (same prefs, same binding layer, no ⌘K search /
+        scope picker / global Save+Reset). Every per-tab "style" button now
+        routes through this single rail; ``plot_key`` is unused but kept in
+        the signature so the existing tab-builders don't need to change.
         """
-        from well_viewer.figure_export_editor import launch_export_editor, _resolve_export_dock
-
-        mapping = {
-            "line": (getattr(self, "_line_fig", None), getattr(self, "_line_canvas", None), "line_graphs.png"),
-            "bar": (getattr(self, "_bar_fig", None), getattr(self, "_bar_canvas", None), "bar_plots.png"),
-            "scatter_cells": (getattr(self, "_scatter_fig", None), getattr(self, "_scatter_canvas", None), "scatter_cells.png"),
-            "scatter_agg": (getattr(self, "_scatter_agg_fig", None), getattr(self, "_scatter_agg_canvas", None), "scatter_agg.png"),
-            "heatmap": (getattr(self, "_heatmap_fig", None), getattr(self, "_heatmap_canvas", None), "heatmap.png"),
-            "distribution": (getattr(self, "_distribution_fig", None), getattr(self, "_distribution_canvas", None), "distribution.png"),
-        }
-        fig, canvas, default_name = mapping.get(plot_key, (None, None, "figure.png"))
-        if fig is None:
-            self._set_status("Export style panel unavailable for this figure.")
+        del plot_key  # unused — the rail is the single styling surface
+        rail = getattr(self, "_properties_rail", None)
+        if rail is None:
+            self._set_status("Properties rail not available.")
             return
-
-        dock = _resolve_export_dock(self, fig)
-        if dock is not None and dock.isVisible():
-            sb = (getattr(self, "_export_style_sidebars", {}) or {}).get(id(fig))
-            if sb is not None:
-                sb.hide()
-            dock.setVisible(False)
-            self._set_status("Export style panel hidden.")
-            return
-
-        session = launch_export_editor(self, fig, default_name, plot_bg=PLOT_BG, canvas=canvas)
-        if session is not None:
-            self._set_status("Export style panel opened.")
+        try:
+            rail.toggle()
+        except Exception:
+            try:
+                rail.setCollapsed(not rail.isCollapsed())
+            except Exception:
+                pass
 
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 

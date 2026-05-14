@@ -35,13 +35,14 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     cl = QHBoxLayout(ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
-    cl.addWidget(QLabel("Channel:", ctrl))
-    app._chan_cb_distribution = QComboBox(ctrl)
+    # Channel combo hidden — global ctxbar combo is the only visible
+    # channel control. See line_graphs_tab_view.py for rationale.
+    app._chan_cb_distribution = QComboBox()
     app._chan_cb_distribution.addItems(["GFP"])
     app._chan_cb_distribution.currentIndexChanged.connect(
         lambda _i, _src=app._chan_cb_distribution: app._on_plot_channel_selected(_src)
     )
-    cl.addWidget(app._chan_cb_distribution)
+    app._chan_cb_distribution.hide()
 
     cl.addWidget(QLabel("t (h):", ctrl))
     app._distribution_tp_cb = QComboBox(ctrl)
