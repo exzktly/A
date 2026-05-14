@@ -356,11 +356,7 @@ def make_plot_view_switcher(app: Any, current_name: str):
         nb = getattr(app, "_plotting_notebook", None)
         if not target or nb is None:
             return
-        for i in range(nb.count()):
-            if nb.tabText(i) == target:
-                if i != nb.currentIndex():
-                    nb.setCurrentIndex(i)
-                return
+        nb.setCurrentByName(target)
 
     sc.currentChanged.connect(_on_change)
     return sc

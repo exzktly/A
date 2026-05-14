@@ -21,7 +21,7 @@ def _row_col_select_disabled(app) -> bool:
     if nb is None:
         return False
     try:
-        return nb.tabText(nb.currentIndex()) == "smFISH"
+        return nb.currentName() == "smFISH"
     except Exception:
         return False
 

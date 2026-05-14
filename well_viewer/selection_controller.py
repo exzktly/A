@@ -19,7 +19,7 @@ def _active_tab(app) -> str:
     if not hasattr(app, "_notebook"):
         return ""
     try:
-        return app._notebook.tabText(app._notebook.currentIndex())
+        return app._notebook.currentName()
     except Exception:
         return ""
 
@@ -38,14 +38,14 @@ def _refresh_after_selection_change(app) -> None:
     elif tab == "Review CSV":
         app._refresh_review_csv()
     elif tab == "smFISH":
-        if hasattr(app, "_smfish_tab"):
-            app._smfish_tab.sync_from_app()
+        from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
+        smfish_sync_from_app(app)
     elif tab == "Sample Definitions":
         # Cell Gating is a sub-tab here; refresh its CDF if the user has
         # opened it at least once.
-        gating = getattr(app, "_cell_gating_tab", None)
-        if gating is not None:
-            gating._load_cell_areas()
+        if hasattr(app, "_cell_gating_area_edit"):
+            from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+            cell_gating_load_cell_areas(app)
         # Don't fall through to _redraw — labels-and-groups edits don't
         # require a plot redraw.
     else:
@@ -63,7 +63,7 @@ def on_plate_sel_change(app) -> None:
         app._last_sel = deselected if cur_labels else None
     app._prev_sel = cur_labels
     if hasattr(app, "_notebook"):
-        tab = app._notebook.tabText(app._notebook.currentIndex())
+        tab = app._notebook.currentName()
         if tab == "smFISH" and len(app._selected_wells) > 1:
             keep = app._last_sel if app._last_sel in app._selected_wells else next(iter(app._selected_wells))
             app._selected_wells = {keep}

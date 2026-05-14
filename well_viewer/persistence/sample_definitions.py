@@ -241,18 +241,19 @@ def clear_all(app) -> None:
 
     app._set_ratio_metrics([])
 
-    gating = getattr(app, "_cell_gating_tab", None)
-    if gating is not None:
+    if hasattr(app, "_cell_gating_area_edit"):
         try:
-            gating._cell_area_edit.setText("0.0")
-            for edit in gating._fluor_gate_edits.values():
+            from well_viewer.tabs.cell_gating_tab_view import (
+                cell_gating_on_gating_change,
+                cell_gating_on_threshold_frac_on_change,
+            )
+            app._cell_gating_area_edit.setText("0.0")
+            for edit in app._cell_gating_fluor_gate_edits.values():
                 edit.setText("0.0")
-            for edit in gating._thresh_frac_edits.values():
+            for edit in app._cell_gating_thresh_frac_edits.values():
                 edit.setText("50.0")
-            if hasattr(gating, "_on_gating_change"):
-                gating._on_gating_change()
-            if hasattr(gating, "_on_threshold_frac_on_change"):
-                gating._on_threshold_frac_on_change()
+            cell_gating_on_gating_change(app)
+            cell_gating_on_threshold_frac_on_change(app)
         except Exception:
             _logger.exception("Cell Gating reset during Clear failed")
 

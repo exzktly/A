@@ -1,23 +1,25 @@
-"""Centre notebook/tab builder (Qt port).
+"""Centre page-stack builder (Qt port).
 
-``build_centre`` is the entry point. Replaces the tk-based ``CustomNotebook``
-hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
+``build_centre`` is the entry point. Pages are hosted by a
+:class:`NamedPageStack` (a ``QStackedWidget`` subclass with name-keyed
+lookup); the section RailNav in the left sidebar drives the current page
+externally. Phase 15 retired the v1 ``QTabWidget`` + ``_GroupedTabBar``
+chrome along with the per-instance ``select_by_text`` closure.
 
-Tabs are organised into three logical groups separated by a small visual
-gap drawn by ``_GroupedTabBar``:
+Sections:
 
-* **Analysis** — Plotting (sub-tabs: Line Graphs, Bar Plots, Scatter Plot,
+* **Analysis** — Plotting (sub-pages: Line Graphs, Bar Plots, Scatter Plot,
   Distribution, Heat Map), smFISH, Statistics.
 * **Images** — Image Table, Segmentation.
 * **Data** — Review CSV, Sample Definitions, Batch Export.
 
-Tabs are also built lazily: only the initially active "Plotting" tab
+Pages are also built lazily: only the initially active "Plotting" page
 and the sidebar panels that other code touches at startup are constructed
-eagerly. The remaining tab bodies build on a per-event-loop-tick timer so
+eagerly. The remaining bodies build on a per-event-loop-tick timer so
 the window paints quickly and stays responsive while heavy widget trees
 (matplotlib canvases, image grids, etc.) populate in the background. If
-the user clicks a tab whose body hasn't been built yet, the builder for
-that tab is run inline on the tab-switch event.
+the user navigates to a page whose body hasn't been built yet, the
+builder for that page is run inline on the page-change event.
 """
 
 from __future__ import annotations
@@ -25,137 +27,67 @@ from __future__ import annotations
 import logging
 from typing import Callable, Dict, Set
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QStyle, QStyleOptionTab, QStylePainter,
-    QTabBar, QTabWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 
 _logger = logging.getLogger("well_viewer.centre_view")
 
 
-class _GroupedTabBar(QTabBar):
-    """Tab bar that reserves a header strip above the tabs for group labels.
+class NamedPageStack(QStackedWidget):
+    """``QStackedWidget`` with name-keyed page lookup.
 
-    Tabs marked as group starts (via ``set_group_starts({index: label})``)
-    are preceded by a small horizontal gap (``GAP_PX``) holding a vertical
-    separator, and the group's uppercase label is painted in the
-    ``HEADER_PX`` strip above the tabs, horizontally aligned with the first
-    tab in that group.
+    Phase 15 replacement for the legacy ``_notebook`` / ``_plotting_notebook``
+    ``QTabWidget``s. Exposes the v2 name-based API
+    (``addPage`` / ``setCurrentByName`` / ``currentName`` / ``pageNames`` /
+    ``nameOf``).
     """
 
-    GAP_PX = 4
-    HEADER_PX = 0
+    currentNameChanged = Signal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._group_starts: Dict[int, str] = {}
-        # Also track the first tab (index 0) so its group label paints above
-        # it even though it is not preceded by a separator-gap.
-        self._first_group_label: str = ""
+        self._names: list[str] = []
+        self._by_name: dict[str, QWidget] = {}
+        super().currentChanged.connect(self._emit_name)
 
-    def set_group_starts(self, indices) -> None:
-        if isinstance(indices, dict):
-            new = {int(i): str(label or "") for i, label in indices.items() if int(i) > 0}
-        else:
-            new = {int(i): "" for i in indices if int(i) > 0}
-        if new != self._group_starts:
-            self._group_starts = new
-            self.updateGeometry()
-            self.update()
+    def addPage(self, name: str, widget: QWidget) -> int:  # noqa: N802
+        idx = self.addWidget(widget)
+        # Pad / overwrite the name list to keep indices aligned with the
+        # underlying QStackedWidget order.
+        while len(self._names) <= idx:
+            self._names.append("")
+        self._names[idx] = name
+        self._by_name[name] = widget
+        return idx
 
-    def set_first_group_label(self, label: str) -> None:
-        label = str(label or "")
-        if label != self._first_group_label:
-            self._first_group_label = label
-            self.update()
+    def setCurrentByName(self, name: str) -> bool:  # noqa: N802
+        w = self._by_name.get(name)
+        if w is None:
+            return False
+        self.setCurrentWidget(w)
+        return True
 
-    def tabSizeHint(self, index: int):  # noqa: N802 - Qt override
-        size = super().tabSizeHint(index)
-        if index in self._group_starts:
-            size.setWidth(size.width() + self.GAP_PX)
-        size.setHeight(size.height() + self.HEADER_PX)
-        return size
+    def currentName(self) -> str:  # noqa: N802
+        idx = self.currentIndex()
+        if 0 <= idx < len(self._names):
+            return self._names[idx]
+        return ""
 
-    def minimumTabSizeHint(self, index: int):  # noqa: N802 - Qt override
-        size = super().minimumTabSizeHint(index)
-        if index in self._group_starts:
-            size.setWidth(size.width() + self.GAP_PX)
-        size.setHeight(size.height() + self.HEADER_PX)
-        return size
+    def pageNames(self) -> list[str]:  # noqa: N802
+        return list(self._names)
 
-    def paintEvent(self, event):  # noqa: N802 - Qt override
-        half = self.GAP_PX // 2
-        style_painter = QStylePainter(self)
-        try:
-            for i in range(self.count()):
-                opt = QStyleOptionTab()
-                self.initStyleOption(opt, i)
-                opt.rect = opt.rect.adjusted(0, self.HEADER_PX, 0, 0)
-                if i in self._group_starts:
-                    # Centre the tab within its allocated area (which is GAP_PX
-                    # wider than a normal tab) so its text appears centred.
-                    opt.rect = opt.rect.adjusted(half, 0, -half, 0)
-                style_painter.drawControl(QStyle.CE_TabBarTab, opt)
-        finally:
-            style_painter.end()
+    def nameOf(self, w: QWidget) -> str | None:  # noqa: N802
+        idx = self.indexOf(w)
+        if 0 <= idx < len(self._names):
+            return self._names[idx]
+        return None
 
-    # ── Wheel-to-scroll the tab bar ────────────────────────────────────────
-    #
-    # When the user lands the cursor on the tab bar and swipes horizontally
-    # (touchpad) or wheels, scroll the tab strip rather than changing the
-    # active tab. QTabBar exposes the overflow-scroll arrows as internal
-    # QToolButton children when ``setUsesScrollButtons(True)`` is set; we
-    # animate horizontal wheel deltas into clicks on those buttons. Vertical
-    # scrolls fall through to the default Qt handling.
-
-    _SCROLL_PIXELS_PER_CLICK = 30  # px of horizontal delta per arrow click
-
-    def _scroll_buttons(self):  # noqa: D401 - helper
-        from PySide6.QtWidgets import QToolButton
-        buttons = self.findChildren(QToolButton)
-        if len(buttons) < 2:
-            return None, None
-        buttons.sort(key=lambda b: b.x())
-        return buttons[0], buttons[-1]
-
-    def wheelEvent(self, event):  # noqa: N802 - Qt override
-        from PySide6.QtCore import Qt as _Qt
-        pixel = event.pixelDelta()
-        angle = event.angleDelta()
-        if pixel.x() != 0 or pixel.y() != 0:
-            dx, dy = float(pixel.x()), float(pixel.y())
-        else:
-            dx = float(angle.x()) / 8.0
-            dy = float(angle.y()) / 8.0
-        # Horizontal-dominant gestures scroll the bar. Vertical-dominant
-        # falls through to QTabBar's default (which steps the selection —
-        # the long-standing Qt behaviour we don't want to change).
-        if abs(dx) <= max(2.0, abs(dy)):
-            super().wheelEvent(event)
-            return
-        left_btn, right_btn = self._scroll_buttons()
-        if left_btn is None or right_btn is None or not left_btn.isVisible():
-            # No overflow — nothing to scroll. Swallow the event so the
-            # default ``selection-step`` handler doesn't fire instead.
-            event.accept()
-            return
-        accum = getattr(self, "_wheel_scroll_accum", 0.0) + dx
-        clicks = 0
-        per = self._SCROLL_PIXELS_PER_CLICK
-        while accum >= per:
-            clicks -= 1  # swipe RIGHT -> reveal earlier tabs (click left)
-            accum -= per
-        while accum <= -per:
-            clicks += 1  # swipe LEFT  -> reveal later tabs (click right)
-            accum += per
-        self._wheel_scroll_accum = accum
-        if clicks != 0:
-            target = left_btn if clicks < 0 else right_btn
-            for _ in range(abs(clicks)):
-                target.click()
-        event.accept()
+    def _emit_name(self, idx: int) -> None:
+        if 0 <= idx < len(self._names):
+            self.currentNameChanged.emit(self._names[idx])
 
 
 def build_centre(app, parent: QWidget) -> None:
@@ -165,30 +97,12 @@ def build_centre(app, parent: QWidget) -> None:
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
 
-    app._notebook = QTabWidget(parent)
+    # Phase 15: the centre is a NamedPageStack (QStackedWidget subclass) —
+    # the rail nav on the left drives the current page externally, and
+    # callers reach pages via currentName() / setCurrentByName() / pageNames().
+    app._notebook = NamedPageStack(parent)
     app._notebook.setObjectName("CentreTabs")
-    app._notebook.setMovable(False)
-    app._notebook.setUsesScrollButtons(False)
-    app._notebook.setElideMode(Qt.ElideNone)
-    custom_tabbar = _GroupedTabBar(app._notebook)
-    custom_tabbar.setUsesScrollButtons(False)
-    custom_tabbar.setExpanding(False)
-    custom_tabbar.setElideMode(Qt.ElideNone)
-    app._notebook.setTabBar(custom_tabbar)
-    # Phase 10 (A1): the section tabs migrate into the left rail's RailNav.
-    # We keep the QTabWidget as the page host (so every call site that uses
-    # tabText / setCurrentIndex / currentChanged still works) but hide its
-    # tab bar; the rail drives currentIndex externally.
-    custom_tabbar.setVisible(False)
-    app._notebook.setDocumentMode(True)
     layout.addWidget(app._notebook, 1)
-
-    def _select_by_text(title: str, _nb=app._notebook) -> None:
-        for i in range(_nb.count()):
-            if _nb.tabText(i) == title:
-                _nb.setCurrentIndex(i)
-                return
-    app._notebook.select_by_text = _select_by_text
 
     # Map tab title -> deferred builder. Populated below; drained after the
     # window paints. The tab-change handler also calls into this map so a
@@ -335,24 +249,45 @@ def build_centre(app, parent: QWidget) -> None:
         arl.setContentsMargins(_S.md, 4, _S.md, 4)
         arl.setSpacing(_S.sm)
 
-        # Channel chip — placeholder for Phase 11b. A4 says channel selection
-        # becomes global in ctxbar.right; today it's per-renderer. Surface a
-        # display-only chip that mirrors the active renderer's channel combo.
+        # Phase 11b (A4): the channel selector is now a single global combo
+        # in the ctxbar. The per-renderer combos still exist for back-compat
+        # but ``app._on_plot_channel_selected`` mirrors every change back to
+        # all of them, so editing here re-renders every renderer's view
+        # against the new channel.
+        from PySide6.QtWidgets import QComboBox as _QComboBox
         chan_lbl = QLabel("Channel")
         chan_lbl.setStyleSheet(
             f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
             f"letter-spacing: 0.08em;"
         )
         arl.addWidget(chan_lbl)
-        app._plotting_channel_chip = QLabel("—")
-        app._plotting_channel_chip.setStyleSheet(
+        app._plotting_channel_cb = _QComboBox()
+        app._plotting_channel_cb.setMinimumContentsLength(8)
+        app._plotting_channel_cb.setStyleSheet(
+            f"QComboBox {{ background-color: {_C.panel_elevated}; "
             f"color: {_C.text_secondary}; "
-            f"background-color: {_C.panel_elevated}; "
             f"border: 1px solid {_C.border_subtle}; "
-            f"border-radius: {_R.pill}px; padding: 2px 8px; "
-            f"font-size: {_T.caption_size}px; font-weight: 500;"
+            f"border-radius: {_R.pill}px; padding: 2px 22px 2px 10px; "
+            f"font-size: {_T.caption_size}px; font-weight: 500; "
+            f"min-width: 88px; }}"
+            f"QComboBox:hover {{ color: {_C.text_primary}; }}"
         )
-        arl.addWidget(app._plotting_channel_chip)
+
+        def _on_global_channel(_idx: int) -> None:
+            on_select = getattr(app, "_on_plot_channel_selected", None)
+            if on_select is None:
+                return
+            try:
+                on_select(app._plotting_channel_cb)
+            except Exception:
+                pass
+
+        app._plotting_channel_cb.currentIndexChanged.connect(_on_global_channel)
+        arl.addWidget(app._plotting_channel_cb)
+        # Legacy display-only chip remains as an attribute for code that
+        # still pokes at ``_plotting_channel_chip`` — point it at the new
+        # combo so callers that read its text still work.
+        app._plotting_channel_chip = app._plotting_channel_cb
 
         hint = QLabel("· click a trace to filter properties")
         hint.setStyleSheet(
@@ -378,22 +313,22 @@ def build_centre(app, parent: QWidget) -> None:
 
         plotting_container.layout().addWidget(action_row, 0)
 
-        # ── renderer pages (existing per-tab views in a hidden-tab QTabWidget) ─
-        plotting_nb = QTabWidget(plotting_container)
+        # ── renderer pages (per-tab views in a NamedPageStack — Phase 15) ─
+        plotting_nb = NamedPageStack(plotting_container)
         plotting_nb.setObjectName("PlottingSubTabs")
-        plotting_nb.tabBar().setVisible(False)
-        plotting_nb.setDocumentMode(True)
         plotting_container.layout().addWidget(plotting_nb, 1)
         app._plotting_notebook = plotting_nb
 
+        # Register all pages BEFORE wiring currentChanged so the first emit
+        # always sees a valid currentName().
         for title in _PLOT_SUBTABS:
-            plotting_nb.addTab(tab_frames[title], title)
+            plotting_nb.addPage(title, tab_frames[title])
 
         # Build the first sub-tab immediately so the user sees content.
         _build_pending("Line Graphs")
 
         def _on_plotting_subtab(_i: int = 0) -> None:
-            sub_title = plotting_nb.tabText(plotting_nb.currentIndex())
+            sub_title = plotting_nb.currentName()
             if sub_title in pending:
                 _build_pending(sub_title)
             app._on_tab_change(None)
@@ -409,31 +344,40 @@ def build_centre(app, parent: QWidget) -> None:
 
         def _on_sub_seg(idx: int) -> None:
             target = sub_seg.currentData()
-            for i in range(plotting_nb.count()):
-                if plotting_nb.tabText(i) == target:
-                    if plotting_nb.currentIndex() != i:
-                        plotting_nb.setCurrentIndex(i)
-                    return
+            if target:
+                plotting_nb.setCurrentByName(target)
 
         sub_seg.currentChanged.connect(_on_sub_seg)
         sub_seg.setCurrentByData("Line Graphs")
 
         def _refresh_channel_chip(title: str) -> None:
-            chip = getattr(app, "_plotting_channel_chip", None)
-            if chip is None:
+            """Re-populate the global ctxbar channel combo from whichever
+            renderer just became active. The renderer's own combo is the
+            canonical item list (it gets populated from the loaded dataset)
+            — we mirror it into the global, blocking signals so the mirror
+            itself doesn't trigger ``_on_plot_channel_selected``."""
+            global_cb = getattr(app, "_plotting_channel_cb", None)
+            if global_cb is None:
                 return
             attr_map = {
-                "Line Graphs":   "_chan_cb",
+                "Line Graphs":   "_chan_cb_line",
                 "Bar Plots":     "_chan_cb_bar",
                 "Scatter Plot":  "_chan_cb_scatter",
                 "Distribution":  "_chan_cb_distribution",
                 "Heat Map":      "_chan_cb_heatmap",
             }
             cb = getattr(app, attr_map.get(title, ""), None)
-            if cb is not None and hasattr(cb, "currentText"):
-                chip.setText(cb.currentText() or "—")
-            else:
-                chip.setText("—")
+            blocked = global_cb.blockSignals(True)
+            try:
+                global_cb.clear()
+                if cb is not None and hasattr(cb, "count"):
+                    for i in range(cb.count()):
+                        global_cb.addItem(cb.itemText(i))
+                    idx = cb.currentIndex()
+                    if 0 <= idx < global_cb.count():
+                        global_cb.setCurrentIndex(idx)
+            finally:
+                global_cb.blockSignals(blocked)
 
         # Wire the buttons.
         def _add_panel() -> None:
@@ -502,10 +446,8 @@ def build_centre(app, parent: QWidget) -> None:
         app._build_review_image_panel(tab_frames["Segmentation"])
 
     def _build_smfish() -> None:
-        from well_viewer.smfish_tab import SmfishTab
-        frame = tab_frames["smFISH"]
-        app._smfish_tab = SmfishTab(frame, app=app)
-        frame.layout().addWidget(app._smfish_tab)
+        from well_viewer.tabs.smfish_tab_view import build_smfish_tab
+        build_smfish_tab(app, tab_frames["smFISH"])
 
     def _build_stats() -> None:
         app._build_stats_tab(tab_frames["Statistics"])
@@ -558,17 +500,14 @@ def build_centre(app, parent: QWidget) -> None:
         else:
             frame = QWidget(app._notebook)
             QVBoxLayout(frame).setContentsMargins(0, 0, 0, 0)
-        app._notebook.addTab(frame, title)
+        app._notebook.addPage(title, frame)
         tab_frames[title] = frame
         return frame
 
-    # Add tabs in group order. Track which indices start a new group, and
-    # the group's label, so the custom tab bar can paint a separator and a
-    # tiny header before them.
-    group_starts: Dict[int, str] = {}
-    for group_idx, (group_label, tabs) in enumerate(groups):
-        if group_idx > 0:
-            group_starts[app._notebook.count()] = group_label
+    # Add tabs in group order. The tab bar / group separator chrome retired
+    # in Phase 15 — RailNav (in the left sidebar) is now the only section
+    # selector, so group_starts is unused at the view layer.
+    for group_idx, (_group_label, tabs) in enumerate(groups):
         for tab_idx_in_group, (title, builder) in enumerate(tabs):
             _new_tab(title)
             if group_idx == 0 and tab_idx_in_group == 0:
@@ -582,17 +521,12 @@ def build_centre(app, parent: QWidget) -> None:
     # eager attribute set so external references keep resolving).
     app._batch_export_tab_frame = tab_frames["Batch Export"]
 
-    custom_tabbar.set_group_starts(group_starts)
-    if groups:
-        custom_tabbar.set_first_group_label(groups[0][0])
-
     app._notebook.setCurrentIndex(0)
 
     def _on_tab_change(_i: int = 0) -> None:
         # Force-build the tab the user just switched to if it hasn't been
         # built yet, so click-before-build never shows a blank tab body.
-        idx = app._notebook.currentIndex()
-        title = app._notebook.tabText(idx) if idx >= 0 else ""
+        title = app._notebook.currentName()
         if title in pending:
             _build_pending(title)
         app._on_tab_change(None)

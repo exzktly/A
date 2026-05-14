@@ -659,9 +659,6 @@ class _SubsetEntry:
         self.replicate_group:  Dict[str, str] = {}   # well_label -> replicate id (future use)
 
 
-# CellGatingTab lives in well_viewer/cell_gating_tab.py
-from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
-
 class WellViewerApp(QWidget):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
@@ -871,17 +868,19 @@ class WellViewerApp(QWidget):
 
     def _get_cell_area_threshold(self) -> float:
         """Get cell area threshold from the Cell Gating tab."""
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+        edit = getattr(self, "_cell_gating_area_edit", None)
+        if edit is not None:
             try:
-                return float(self._cell_gating_tab._cell_area_edit.text())
+                return float(edit.text())
             except ValueError:
                 return 0.0
         return 0.0
 
     def _get_fluor_gate(self, channel: str) -> float:
         """Get FluorGating threshold for a channel."""
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
-            return self._cell_gating_tab.get_fluor_gate(channel)
+        if hasattr(self, "_cell_gating_area_edit"):
+            from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_fluor_gate
+            return cell_gating_get_fluor_gate(self, channel)
         return 0.0
 
     def _get_all_fluor_gates(self) -> Dict[str, float]:
@@ -937,9 +936,10 @@ class WellViewerApp(QWidget):
             channel = self._active_channel
         # _redraw can fire before the cell-gating tab is built (e.g. from
         # sidebar releases during early load); fall back to the default.
-        if getattr(self, "_cell_gating_tab", None) is None:
+        if not hasattr(self, "_cell_gating_thresh_frac_edits"):
             return self._threshold
-        return self._cell_gating_tab.get_thresh_frac_on(channel)
+        from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_thresh_frac_on
+        return cell_gating_get_thresh_frac_on(self, channel)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -1186,13 +1186,12 @@ class WellViewerApp(QWidget):
         self._section_nav_building = True
         try:
             existing = set(nav.items())
-            for i in range(nb.count()):
-                title = nb.tabText(i)
+            for title in nb.pageNames():
                 if title in existing:
                     continue
                 nav.addItem(title, icon=self._SECTION_ICONS.get(title), key=title)
                 self._section_nav_keys.append(title)
-            cur = nb.tabText(nb.currentIndex()) if nb.count() else None
+            cur = nb.currentName() if nb.count() else None
             if cur:
                 nav.setCurrentKey(cur)
         finally:
@@ -1201,19 +1200,14 @@ class WellViewerApp(QWidget):
     def _on_section_nav_changed(self, key: str) -> None:
         if self._section_nav_building:
             return
-        nb = self._notebook
-        for i in range(nb.count()):
-            if nb.tabText(i) == key:
-                if nb.currentIndex() != i:
-                    nb.setCurrentIndex(i)
-                return
+        self._notebook.setCurrentByName(key)
 
     def _on_notebook_current_changed(self, _idx: int) -> None:
         nb = self._notebook
         nav = getattr(self, "_section_nav", None)
         if nav is None or nb is None:
             return
-        title = nb.tabText(nb.currentIndex())
+        title = nb.currentName()
         if title and nav.currentKey() != title:
             self._section_nav_building = True
             try:
@@ -1622,7 +1616,9 @@ class WellViewerApp(QWidget):
         # ── Sub-tabs ────────────────────────────────────────────────────────
         sub_tabs = _QTabWidget(parent)
         sub_tabs.setObjectName("SampleDefinitionsSubTabs")
-        sub_tabs.tabBar().setExpanding(True)
+        sub_tabs.tabBar().setExpanding(False)
+        sub_tabs.tabBar().setElideMode(Qt.ElideNone)
+        sub_tabs.tabBar().setUsesScrollButtons(True)
         outer_layout.addWidget(sub_tabs, 1)
         self._sample_definitions_subtabs = sub_tabs
 
@@ -1689,15 +1685,17 @@ class WellViewerApp(QWidget):
         if frame is None:
             return
         try:
-            from well_viewer.cell_gating_tab import CellGatingTab
-            widget = CellGatingTab(frame, self)
-            frame.layout().addWidget(widget)
-            self._cell_gating_tab = widget
+            from well_viewer.tabs.cell_gating_tab_view import (
+                build_cell_gating_tab,
+                cell_gating_load_cell_areas,
+                cell_gating_load_threshold_frac_on,
+            )
+            build_cell_gating_tab(self, frame)
             if self._well_paths:
                 try:
-                    widget._load_cell_areas()
+                    cell_gating_load_cell_areas(self)
                     self._load_gating_from_pipeline_info()
-                    widget._load_threshold_frac_on()
+                    cell_gating_load_threshold_frac_on(self)
                 except Exception:
                     _logger.exception("Cell Gating post-build sync failed")
         except Exception:
@@ -2098,11 +2096,10 @@ class WellViewerApp(QWidget):
         """
         self._enforce_well_exclusivity()
         tab_visible = False
-        if hasattr(self, "_notebook"):
+        nb = getattr(self, "_notebook", None)
+        if nb is not None:
             try:
-                tab_visible = (
-                    self._notebook.tabText(self._notebook.currentIndex())
-                    == "Sample Definitions")
+                tab_visible = nb.currentName() == "Sample Definitions"
             except Exception:
                 pass
 
@@ -2178,10 +2175,7 @@ class WellViewerApp(QWidget):
         nb = getattr(self, "_notebook", None)
         if nb is None:
             return
-        for i in range(nb.count()):
-            if nb.tabText(i) == "Sample Definitions":
-                nb.setCurrentIndex(i)
-                return
+        nb.setCurrentByName("Sample Definitions")
 
     # ── Ratio / heatmap / cell-override / line-order persistence ─────────────
     # Each block delegates to ``well_viewer.persistence.<domain>``.
@@ -3160,7 +3154,7 @@ class WellViewerApp(QWidget):
         nb = getattr(self, "_notebook", None)
         if nb is not None:
             try:
-                smfish = (nb.tabText(nb.currentIndex()) == "smFISH")
+                smfish = nb.currentName() == "smFISH"
             except Exception:
                 smfish = False
 
@@ -3376,11 +3370,15 @@ class WellViewerApp(QWidget):
         # When no thresholds were saved, the call is a cheap no-op and Cell
         # Gating stays unbuilt.
         self._load_gating_from_pipeline_info()
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+        if hasattr(self, "_cell_gating_area_edit"):
             # Refresh the per-channel CDF + saved ThreshFracOn values now
             # that the tab exists and channels are known.
-            self._cell_gating_tab._load_cell_areas()
-            self._cell_gating_tab._load_threshold_frac_on()
+            from well_viewer.tabs.cell_gating_tab_view import (
+                cell_gating_load_cell_areas,
+                cell_gating_load_threshold_frac_on,
+            )
+            cell_gating_load_cell_areas(self)
+            cell_gating_load_threshold_frac_on(self)
 
     # ── Ratio metric helpers ─────────────────────────────────────────────────
 
@@ -3504,7 +3502,11 @@ class WellViewerApp(QWidget):
         # Keep all plot-tab channel selectors in sync so switching channel
         # on one tab is reflected on the others.
         target_label = self._active_channel_label()
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution", "_chan_cb_heatmap"):
+        # Phase 11b: include the global ctxbar combo in the sync set so a
+        # change from any source (per-renderer combo OR the global one)
+        # propagates everywhere.
+        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
+                     "_chan_cb_heatmap", "_plotting_channel_cb"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
@@ -4742,8 +4744,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("line")
 
@@ -4803,14 +4805,14 @@ class WellViewerApp(QWidget):
         if nb is None:
             return ""
         try:
-            tab = nb.tabText(nb.currentIndex())
+            tab = nb.currentName()
         except Exception:
             return ""
         if tab == "Plotting":
             plotting_nb = getattr(self, "_plotting_notebook", None)
             if plotting_nb is not None and plotting_nb.count() > 0:
                 try:
-                    return plotting_nb.tabText(plotting_nb.currentIndex())
+                    return plotting_nb.currentName()
                 except Exception:
                     pass
         return tab
@@ -4897,16 +4899,17 @@ class WellViewerApp(QWidget):
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
             self._refresh_sidebar_map()
-            if hasattr(self, "_smfish_tab"):
-                self._smfish_tab.sync_from_app()
+            from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
+            smfish_sync_from_app(self)
 
         elif tab == "Cell Gating":
             self._sidebar_main_frame.setVisible(True)
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
-            if hasattr(self, "_cell_gating_tab") and self._cell_gating_tab is not None:
-                self._cell_gating_tab._load_cell_areas()
+            if hasattr(self, "_cell_gating_area_edit"):
+                from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+                cell_gating_load_cell_areas(self)
 
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
@@ -5989,8 +5992,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Bar Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("bar")
 
@@ -5999,8 +6002,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Cells Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_cells")
 
@@ -6009,8 +6012,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Aggregate Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_agg")
 
