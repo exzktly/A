@@ -32,7 +32,11 @@ class BrandTile(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._explicit = int(side) if side else None
-        self._colors = list(theme.Colors.trace)
+        # Wrap each token in QColor up front — recent PySide6 builds
+        # refuse to coerce ``str`` to ``QColor`` implicitly inside
+        # ``QPainter.setBrush(...)``, so the raw hex strings from
+        # ``theme.Colors.trace`` crash the paintEvent.
+        self._colors = [QColor(c) for c in theme.Colors.trace]
         self.setStyleSheet("#BrandTile { background: transparent; }")
 
     def setColors(self, colors) -> None:
