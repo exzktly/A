@@ -4,7 +4,7 @@
 # Build a PyInstaller bundle for All-Well from the repository root.
 #
 # Usage:
-#   pip install -r requirements.txt
+#   pip install --no-build-isolation -r _Docs/requirements.txt
 #   scripts/build_executable.sh
 #
 # The output lands in ./dist/. On macOS the result is ``dist/AllWell.app``;
@@ -33,7 +33,7 @@ fi
 
 if ! command -v pyinstaller >/dev/null 2>&1; then
     echo "ERROR: pyinstaller not on PATH." >&2
-    echo "Run: pip install -r requirements.txt" >&2
+    echo "Run: pip install --no-build-isolation -r _Docs/requirements.txt" >&2
     exit 1
 fi
 
