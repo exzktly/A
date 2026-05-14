@@ -1,6 +1,6 @@
 # Phase 15 — Retire the legacy `app._notebook` QTabWidget
 
-**Status:** 🚧 IN PROGRESS — commits 1–4 landed (notebooks swapped; read-side callers on `currentName()` / `pageNames()`; write-side callers on `setCurrentByName()`).
+**Status:** ✅ SHIPPED (pending runtime QA) — all 5 commits landed. NamedPageStack is the centre host; `_GroupedTabBar` deleted; every caller in `well_viewer/` is on the v2 name-based API; back-compat shims removed.
 **Target branch:** `claude/analyze-repo-structure-2uEVQ`
 **Owner doc:** referenced from `design/PROJECT_STATUS.md` phase table.
 

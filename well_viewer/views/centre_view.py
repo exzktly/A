@@ -1,23 +1,25 @@
-"""Centre notebook/tab builder (Qt port).
+"""Centre page-stack builder (Qt port).
 
-``build_centre`` is the entry point. Replaces the tk-based ``CustomNotebook``
-hand-drawn tab chrome with a standard ``QTabWidget`` styled via QSS.
+``build_centre`` is the entry point. Pages are hosted by a
+:class:`NamedPageStack` (a ``QStackedWidget`` subclass with name-keyed
+lookup); the section RailNav in the left sidebar drives the current page
+externally. Phase 15 retired the v1 ``QTabWidget`` + ``_GroupedTabBar``
+chrome along with the per-instance ``select_by_text`` closure.
 
-Tabs are organised into three logical groups separated by a small visual
-gap drawn by ``_GroupedTabBar``:
+Sections:
 
-* **Analysis** — Plotting (sub-tabs: Line Graphs, Bar Plots, Scatter Plot,
+* **Analysis** — Plotting (sub-pages: Line Graphs, Bar Plots, Scatter Plot,
   Distribution, Heat Map), smFISH, Statistics.
 * **Images** — Image Table, Segmentation.
 * **Data** — Review CSV, Sample Definitions, Batch Export.
 
-Tabs are also built lazily: only the initially active "Plotting" tab
+Pages are also built lazily: only the initially active "Plotting" page
 and the sidebar panels that other code touches at startup are constructed
-eagerly. The remaining tab bodies build on a per-event-loop-tick timer so
+eagerly. The remaining bodies build on a per-event-loop-tick timer so
 the window paints quickly and stays responsive while heavy widget trees
 (matplotlib canvases, image grids, etc.) populate in the background. If
-the user clicks a tab whose body hasn't been built yet, the builder for
-that tab is run inline on the tab-switch event.
+the user navigates to a page whose body hasn't been built yet, the
+builder for that page is run inline on the page-change event.
 """
 
 from __future__ import annotations
@@ -27,8 +29,7 @@ from typing import Callable, Dict, Set
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QStackedWidget, QStyle, QStyleOptionTab, QStylePainter,
-    QTabBar, QTabWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 
@@ -41,9 +42,7 @@ class NamedPageStack(QStackedWidget):
     Phase 15 replacement for the legacy ``_notebook`` / ``_plotting_notebook``
     ``QTabWidget``s. Exposes the v2 name-based API
     (``addPage`` / ``setCurrentByName`` / ``currentName`` / ``pageNames`` /
-    ``nameOf``) plus a couple of ``QTabWidget`` back-compat shims
-    (``tabText``, ``select_by_text``) so the migration can land across small
-    commits without breaking any downstream caller.
+    ``nameOf``).
     """
 
     currentNameChanged = Signal(str)
@@ -54,7 +53,6 @@ class NamedPageStack(QStackedWidget):
         self._by_name: dict[str, QWidget] = {}
         super().currentChanged.connect(self._emit_name)
 
-    # ── v2 API ────────────────────────────────────────────────────────────
     def addPage(self, name: str, widget: QWidget) -> int:  # noqa: N802
         idx = self.addWidget(widget)
         # Pad / overwrite the name list to keep indices aligned with the
@@ -87,141 +85,9 @@ class NamedPageStack(QStackedWidget):
             return self._names[idx]
         return None
 
-    # ── QTabWidget back-compat shims ──────────────────────────────────────
-    def tabText(self, i: int) -> str:  # noqa: N802
-        if 0 <= i < len(self._names):
-            return self._names[i]
-        return ""
-
-    def select_by_text(self, name: str) -> bool:
-        return self.setCurrentByName(name)
-
     def _emit_name(self, idx: int) -> None:
         if 0 <= idx < len(self._names):
             self.currentNameChanged.emit(self._names[idx])
-
-
-class _GroupedTabBar(QTabBar):
-    """Tab bar that reserves a header strip above the tabs for group labels.
-
-    Tabs marked as group starts (via ``set_group_starts({index: label})``)
-    are preceded by a small horizontal gap (``GAP_PX``) holding a vertical
-    separator, and the group's uppercase label is painted in the
-    ``HEADER_PX`` strip above the tabs, horizontally aligned with the first
-    tab in that group.
-    """
-
-    GAP_PX = 4
-    HEADER_PX = 0
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._group_starts: Dict[int, str] = {}
-        # Also track the first tab (index 0) so its group label paints above
-        # it even though it is not preceded by a separator-gap.
-        self._first_group_label: str = ""
-
-    def set_group_starts(self, indices) -> None:
-        if isinstance(indices, dict):
-            new = {int(i): str(label or "") for i, label in indices.items() if int(i) > 0}
-        else:
-            new = {int(i): "" for i in indices if int(i) > 0}
-        if new != self._group_starts:
-            self._group_starts = new
-            self.updateGeometry()
-            self.update()
-
-    def set_first_group_label(self, label: str) -> None:
-        label = str(label or "")
-        if label != self._first_group_label:
-            self._first_group_label = label
-            self.update()
-
-    def tabSizeHint(self, index: int):  # noqa: N802 - Qt override
-        size = super().tabSizeHint(index)
-        if index in self._group_starts:
-            size.setWidth(size.width() + self.GAP_PX)
-        size.setHeight(size.height() + self.HEADER_PX)
-        return size
-
-    def minimumTabSizeHint(self, index: int):  # noqa: N802 - Qt override
-        size = super().minimumTabSizeHint(index)
-        if index in self._group_starts:
-            size.setWidth(size.width() + self.GAP_PX)
-        size.setHeight(size.height() + self.HEADER_PX)
-        return size
-
-    def paintEvent(self, event):  # noqa: N802 - Qt override
-        half = self.GAP_PX // 2
-        style_painter = QStylePainter(self)
-        try:
-            for i in range(self.count()):
-                opt = QStyleOptionTab()
-                self.initStyleOption(opt, i)
-                opt.rect = opt.rect.adjusted(0, self.HEADER_PX, 0, 0)
-                if i in self._group_starts:
-                    # Centre the tab within its allocated area (which is GAP_PX
-                    # wider than a normal tab) so its text appears centred.
-                    opt.rect = opt.rect.adjusted(half, 0, -half, 0)
-                style_painter.drawControl(QStyle.CE_TabBarTab, opt)
-        finally:
-            style_painter.end()
-
-    # ── Wheel-to-scroll the tab bar ────────────────────────────────────────
-    #
-    # When the user lands the cursor on the tab bar and swipes horizontally
-    # (touchpad) or wheels, scroll the tab strip rather than changing the
-    # active tab. QTabBar exposes the overflow-scroll arrows as internal
-    # QToolButton children when ``setUsesScrollButtons(True)`` is set; we
-    # animate horizontal wheel deltas into clicks on those buttons. Vertical
-    # scrolls fall through to the default Qt handling.
-
-    _SCROLL_PIXELS_PER_CLICK = 30  # px of horizontal delta per arrow click
-
-    def _scroll_buttons(self):  # noqa: D401 - helper
-        from PySide6.QtWidgets import QToolButton
-        buttons = self.findChildren(QToolButton)
-        if len(buttons) < 2:
-            return None, None
-        buttons.sort(key=lambda b: b.x())
-        return buttons[0], buttons[-1]
-
-    def wheelEvent(self, event):  # noqa: N802 - Qt override
-        from PySide6.QtCore import Qt as _Qt
-        pixel = event.pixelDelta()
-        angle = event.angleDelta()
-        if pixel.x() != 0 or pixel.y() != 0:
-            dx, dy = float(pixel.x()), float(pixel.y())
-        else:
-            dx = float(angle.x()) / 8.0
-            dy = float(angle.y()) / 8.0
-        # Horizontal-dominant gestures scroll the bar. Vertical-dominant
-        # falls through to QTabBar's default (which steps the selection —
-        # the long-standing Qt behaviour we don't want to change).
-        if abs(dx) <= max(2.0, abs(dy)):
-            super().wheelEvent(event)
-            return
-        left_btn, right_btn = self._scroll_buttons()
-        if left_btn is None or right_btn is None or not left_btn.isVisible():
-            # No overflow — nothing to scroll. Swallow the event so the
-            # default ``selection-step`` handler doesn't fire instead.
-            event.accept()
-            return
-        accum = getattr(self, "_wheel_scroll_accum", 0.0) + dx
-        clicks = 0
-        per = self._SCROLL_PIXELS_PER_CLICK
-        while accum >= per:
-            clicks -= 1  # swipe RIGHT -> reveal earlier tabs (click left)
-            accum -= per
-        while accum <= -per:
-            clicks += 1  # swipe LEFT  -> reveal later tabs (click right)
-            accum += per
-        self._wheel_scroll_accum = accum
-        if clicks != 0:
-            target = left_btn if clicks < 0 else right_btn
-            for _ in range(abs(clicks)):
-                target.click()
-        event.accept()
 
 
 def build_centre(app, parent: QWidget) -> None:
@@ -232,10 +98,8 @@ def build_centre(app, parent: QWidget) -> None:
     layout.setContentsMargins(0, 0, 0, 0)
 
     # Phase 15: the centre is a NamedPageStack (QStackedWidget subclass) —
-    # the rail nav on the left drives currentIndex externally, and downstream
+    # the rail nav on the left drives the current page externally, and
     # callers reach pages via currentName() / setCurrentByName() / pageNames().
-    # The QTabWidget back-compat shims (tabText, select_by_text) remain
-    # during the staged caller migration; commit 5 removes the now-unused ones.
     app._notebook = NamedPageStack(parent)
     app._notebook.setObjectName("CentreTabs")
     layout.addWidget(app._notebook, 1)
