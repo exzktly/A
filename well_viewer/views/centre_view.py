@@ -298,9 +298,10 @@ def build_centre(app, parent: QWidget) -> None:
         # Configure-subplots and edit-axes buttons moved to the bottom of
         # the Properties rail (slide-out drawer); the centre action-row now
         # only carries the canvas-wide actions (channel selector + copy).
-        export_btn = _IconButton("copy", text=" Copy SVG")
-        export_btn.setToolTip("Copy the current figure to the clipboard as SVG")
-        arl.addWidget(export_btn)
+        # The Copy-SVG button has moved next to each tab's "Export CSV"
+        # primary action so the figure-output controls sit together.
+        # The handler is exposed on app below so per-tab buttons can
+        # invoke it without re-importing centre_view.
 
         plotting_container.layout().addWidget(action_row, 0)
 
@@ -468,7 +469,7 @@ def build_centre(app, parent: QWidget) -> None:
                 if hasattr(app, "_set_status"):
                     app._set_status("Copied figure to clipboard (SVG + PDF, publication).")
                 return
-        export_btn.clicked.connect(_copy_svg)
+        app._copy_active_card_as_svg = _copy_svg
 
         _refresh_channel_chip("Line Graphs")
 

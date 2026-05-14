@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
 )
 
 from well_viewer.ui_helpers import (
-    btn_primary, make_band_controls, make_plot_view_switcher, make_plot_with_right_dock,
+    btn_primary, btn_secondary, make_band_controls, make_plot_view_switcher,
+    make_plot_with_right_dock,
 )
 
 
@@ -71,7 +72,11 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("heatmap"))
     cl1.addWidget(style_btn)
 
-    cl1.addWidget(btn_primary(ctrl1, "Export CSV", app._export_heatmap_data))
+    cl1.addWidget(btn_primary(ctrl1, "Export CSV", app._export_heatmap_data,
+                              icon="download"))
+    cl1.addWidget(btn_secondary(ctrl1, "Copy SVG",
+                                lambda: app._copy_active_card_as_svg(),
+                                icon="copy"))
     layout.addWidget(ctrl1)
 
     # ── Control row 2: cmap / scale / log ───────────────────────────────────

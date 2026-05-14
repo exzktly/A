@@ -117,20 +117,30 @@ def clear_layout(layout) -> None:
             clear_layout(child)
 
 
-def _btn(parent: Optional[QWidget], text: str, command: Optional[Callable[[], Any]], variant: str) -> QPushButton:
+def _btn(parent: Optional[QWidget], text: str, command: Optional[Callable[[], Any]],
+         variant: str, *, icon: Optional[str] = None) -> QPushButton:
     b = QPushButton(text, parent)
     b.setProperty("variant", variant)
+    if icon:
+        try:
+            from widgets import icons as _icons
+            dpr = b.devicePixelRatioF() if hasattr(b, "devicePixelRatioF") else 1.0
+            b.setIcon(_icons.make_icon(icon, 14, dpr=dpr or 1.0))
+        except Exception:
+            pass
     if command is not None:
         b.clicked.connect(lambda _=False: command())
     return b
 
 
-def btn_primary(parent: QWidget, text: str, command, *, padx: int = 8, pady: int = 2, **_kw) -> QPushButton:
-    return _btn(parent, text, command, "primary")
+def btn_primary(parent: QWidget, text: str, command, *, padx: int = 8, pady: int = 2,
+                icon: Optional[str] = None, **_kw) -> QPushButton:
+    return _btn(parent, text, command, "primary", icon=icon)
 
 
-def btn_secondary(parent: QWidget, text: str, command, *, padx: int = 6, pady: int = 2, **_kw) -> QPushButton:
-    return _btn(parent, text, command, "secondary")
+def btn_secondary(parent: QWidget, text: str, command, *, padx: int = 6, pady: int = 2,
+                  icon: Optional[str] = None, **_kw) -> QPushButton:
+    return _btn(parent, text, command, "secondary", icon=icon)
 
 
 def btn_card(parent: QWidget, text: str, command, *, padx: int = 4, **_kw) -> QPushButton:
