@@ -1616,9 +1616,10 @@ def image_table_copy_svg(app) -> None:
                 md.setImageData(img)
         QGuiApplication.clipboard().setMimeData(md)
 
-    msg = (
-        "Image table copied to clipboard (vector PDF)."
-        if wrote_pdf_native
-        else "Image table copied to clipboard (PNG image; SVG where supported)."
-    )
+    if wrote_pdf_native:
+        msg = "Image table copied to clipboard (vector PDF)."
+    else:
+        from well_viewer import clipboard_macos as _cm
+        reason = _cm.last_failure_reason or "Qt clipboard fallback"
+        msg = f"Image table copied to clipboard (PNG image; {reason})."
     app._set_status(msg)

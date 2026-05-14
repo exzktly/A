@@ -503,11 +503,15 @@ def build_centre(app, parent: QWidget) -> None:
                         except Exception:
                             pass
                 if hasattr(app, "_set_status"):
-                    msg = (
-                        "Copied figure to clipboard (vector PDF, publication)."
-                        if wrote_pdf_native
-                        else "Copied figure to clipboard (PNG image; SVG + PDF where supported)."
-                    )
+                    if wrote_pdf_native:
+                        msg = "Copied figure to clipboard (vector PDF, publication)."
+                    else:
+                        from well_viewer import clipboard_macos as _cm
+                        reason = _cm.last_failure_reason or "Qt clipboard fallback"
+                        msg = (
+                            "Copied figure to clipboard (PNG image; "
+                            f"{reason})."
+                        )
                     app._set_status(msg)
                 return
         app._copy_active_card_as_svg = _copy_svg
