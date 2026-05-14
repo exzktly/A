@@ -380,13 +380,26 @@ def redraw_heatmap(app) -> None:
         im = ax.imshow(masked, aspect="equal", cmap=cmap, vmin=vmin, vmax=vmax,
                        origin="upper", interpolation="nearest")
 
-    row_labels = layout.row_labels or [str(i + 1) for i in range(layout.rows)]
-    col_labels = layout.col_labels or [str(i + 1) for i in range(layout.cols)]
+    # Always materialise label lists of the right length. Persisted layouts
+    # can carry shorter ``row_labels`` / ``col_labels`` (e.g. one entry left
+    # over from a resize) — ``layout.col_labels or [...]`` would short-
+    # circuit to the truthy short list and produce a labels/ticks-count
+    # mismatch ValueError when matplotlib's FixedLocator validates them.
+    raw_row_labels = list(layout.row_labels or [])
+    raw_col_labels = list(layout.col_labels or [])
+    row_labels = [
+        str(raw_row_labels[i]) if i < len(raw_row_labels) and raw_row_labels[i] else str(i + 1)
+        for i in range(layout.rows)
+    ]
+    col_labels = [
+        str(raw_col_labels[i]) if i < len(raw_col_labels) and raw_col_labels[i] else str(i + 1)
+        for i in range(layout.cols)
+    ]
     ax.set_xticks(range(layout.cols))
-    ax.set_xticklabels(col_labels[: layout.cols], fontsize=8)
+    ax.set_xticklabels(col_labels, fontsize=8)
     ax.xaxis.tick_top()
     ax.set_yticks(range(layout.rows))
-    ax.set_yticklabels(row_labels[: layout.rows], fontsize=8)
+    ax.set_yticklabels(row_labels, fontsize=8)
     setattr(ax, "_categorical_xaxis", True)
     setattr(ax, "_categorical_yaxis", True)
     for spine in ax.spines.values():
