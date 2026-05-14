@@ -8,8 +8,8 @@
 # Output:
 #   dist/AllWell.app   — double-clickable macOS application bundle
 #
-# Requires: pyinstaller >= 6.0, all packages in requirements.txt installed
-# in the active Python environment.
+# Requires: pyinstaller >= 6.0, all packages in _Docs/requirements.txt
+# installed in the active Python environment.
 
 import sys
 import os
@@ -24,7 +24,7 @@ import importlib.util
 def pkg_dir(name: str) -> Path:
     spec = importlib.util.find_spec(name)
     if spec is None:
-        raise RuntimeError(f"Package {name!r} not found — install requirements.txt first")
+        raise RuntimeError(f"Package {name!r} not found — install _Docs/requirements.txt first")
     return Path(spec.origin).parent
 
 
