@@ -659,9 +659,6 @@ class _SubsetEntry:
         self.replicate_group:  Dict[str, str] = {}   # well_label -> replicate id (future use)
 
 
-# CellGatingTab lives in well_viewer/cell_gating_tab.py
-from well_viewer.cell_gating_tab import CellGatingTab  # noqa: E402  (re-export)
-
 class WellViewerApp(QWidget):
 
     def __init__(self, parent=None, data_path: Optional[Path] = None) -> None:
@@ -871,17 +868,19 @@ class WellViewerApp(QWidget):
 
     def _get_cell_area_threshold(self) -> float:
         """Get cell area threshold from the Cell Gating tab."""
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+        edit = getattr(self, "_cell_gating_area_edit", None)
+        if edit is not None:
             try:
-                return float(self._cell_gating_tab._cell_area_edit.text())
+                return float(edit.text())
             except ValueError:
                 return 0.0
         return 0.0
 
     def _get_fluor_gate(self, channel: str) -> float:
         """Get FluorGating threshold for a channel."""
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
-            return self._cell_gating_tab.get_fluor_gate(channel)
+        if hasattr(self, "_cell_gating_area_edit"):
+            from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_fluor_gate
+            return cell_gating_get_fluor_gate(self, channel)
         return 0.0
 
     def _get_all_fluor_gates(self) -> Dict[str, float]:
@@ -937,9 +936,10 @@ class WellViewerApp(QWidget):
             channel = self._active_channel
         # _redraw can fire before the cell-gating tab is built (e.g. from
         # sidebar releases during early load); fall back to the default.
-        if getattr(self, "_cell_gating_tab", None) is None:
+        if not hasattr(self, "_cell_gating_thresh_frac_edits"):
             return self._threshold
-        return self._cell_gating_tab.get_thresh_frac_on(channel)
+        from well_viewer.tabs.cell_gating_tab_view import cell_gating_get_thresh_frac_on
+        return cell_gating_get_thresh_frac_on(self, channel)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -1685,15 +1685,17 @@ class WellViewerApp(QWidget):
         if frame is None:
             return
         try:
-            from well_viewer.cell_gating_tab import CellGatingTab
-            widget = CellGatingTab(frame, self)
-            frame.layout().addWidget(widget)
-            self._cell_gating_tab = widget
+            from well_viewer.tabs.cell_gating_tab_view import (
+                build_cell_gating_tab,
+                cell_gating_load_cell_areas,
+                cell_gating_load_threshold_frac_on,
+            )
+            build_cell_gating_tab(self, frame)
             if self._well_paths:
                 try:
-                    widget._load_cell_areas()
+                    cell_gating_load_cell_areas(self)
                     self._load_gating_from_pipeline_info()
-                    widget._load_threshold_frac_on()
+                    cell_gating_load_threshold_frac_on(self)
                 except Exception:
                     _logger.exception("Cell Gating post-build sync failed")
         except Exception:
@@ -3368,11 +3370,15 @@ class WellViewerApp(QWidget):
         # When no thresholds were saved, the call is a cheap no-op and Cell
         # Gating stays unbuilt.
         self._load_gating_from_pipeline_info()
-        if hasattr(self, '_cell_gating_tab') and self._cell_gating_tab is not None:
+        if hasattr(self, "_cell_gating_area_edit"):
             # Refresh the per-channel CDF + saved ThreshFracOn values now
             # that the tab exists and channels are known.
-            self._cell_gating_tab._load_cell_areas()
-            self._cell_gating_tab._load_threshold_frac_on()
+            from well_viewer.tabs.cell_gating_tab_view import (
+                cell_gating_load_cell_areas,
+                cell_gating_load_threshold_frac_on,
+            )
+            cell_gating_load_cell_areas(self)
+            cell_gating_load_threshold_frac_on(self)
 
     # ── Ratio metric helpers ─────────────────────────────────────────────────
 
@@ -4901,8 +4907,9 @@ class WellViewerApp(QWidget):
             if hasattr(self, "_sidebar_allnone_frame"):
                 self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
-            if hasattr(self, "_cell_gating_tab") and self._cell_gating_tab is not None:
-                self._cell_gating_tab._load_cell_areas()
+            if hasattr(self, "_cell_gating_area_edit"):
+                from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+                cell_gating_load_cell_areas(self)
 
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown

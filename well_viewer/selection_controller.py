@@ -43,9 +43,9 @@ def _refresh_after_selection_change(app) -> None:
     elif tab == "Sample Definitions":
         # Cell Gating is a sub-tab here; refresh its CDF if the user has
         # opened it at least once.
-        gating = getattr(app, "_cell_gating_tab", None)
-        if gating is not None:
-            gating._load_cell_areas()
+        if hasattr(app, "_cell_gating_area_edit"):
+            from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
+            cell_gating_load_cell_areas(app)
         # Don't fall through to _redraw — labels-and-groups edits don't
         # require a plot redraw.
     else:

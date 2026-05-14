@@ -176,6 +176,7 @@ the user has not yet runtime-QA'd. Mark `✅` and move down once verified.
 | `dce3a62` | Export Style sidebar width | The floating Export Style sidebar (sliders IconButton) shrinks to 440 px and tightens its internal column widths so all controls fit without cutoff. |
 | `4365c9f` | Phase 11b slice — global channel chip | In Plotting, edit the channel via the ctxbar combo; the active renderer redraws against the new channel; switching plot type updates the chip from the new renderer's combo. |
 | `4b083ac` … `60aabc0` | **Phase 15** — centre stack `NamedPageStack` | RailNav click sweep across all 8 sections; ctxbar SegmentedControl sweep across all 5 plot types; the four Batch Export entry points (line / bar / scatter cells / scatter agg) still land on Batch Export; smFISH single-well clamp still fires; Movie Montage preview refresh still triggers; no regressions in Sample Definitions / Image Table / Stats sidebar visibility. |
+| `f8adb1c` + `<HEAD>` | Phase 15.1 — flatten outlier tabs (`smfish_tab.py`, `cell_gating_tab.py`) into the `tabs/*_tab_view.py` shape | Full smFISH workflow on a dataset with smFISH channels (combo boxes, image render, overlay toggle, threshold edit, CDF popup, Apply Global Threshold). Cell Gating sub-tab inside Sample Definitions: CDF + per-channel rows render, threshold edits kick off the background gating worker (progress bar advances), ThreshFracOn persists to `pipeline_info.json`, Clear restores defaults. |
 
 ### Known bugs reported in this session, not yet fixed
 
@@ -208,6 +209,8 @@ has been pushed yet. Carry forward into the next session.
 | **Sample Definitions GROUPS centre** | same file → `build_replicate_groups_centre` |
 | **Well Labels grid** | `well_viewer/views/label_grid_view.py` |
 | **Phase 9 widgets** | `widgets/{rail_nav,selection_chip,range_pair,kbd_hint,collapsible_rail,preview_strip,plot_canvas}.py` |
+| **smFISH tab builder** | `well_viewer/tabs/smfish_tab_view.py` (Phase 15.1; was `well_viewer/smfish_tab.py`) |
+| **Cell Gating tab builder** | `well_viewer/tabs/cell_gating_tab_view.py` (Phase 15.1; was `well_viewer/cell_gating_tab.py`) |
 | **Theme tokens** | `theme.py` |
 | **Selections model (Phase 8.0)** | `well_viewer/selections_model.py`, `well_viewer/persistence/sample_definitions.py` |
 
