@@ -15,6 +15,7 @@ from __future__ import annotations
 import queue
 import re as _re_well
 import sys as _sys
+import time as _time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -570,9 +571,7 @@ class AnalyzeTab(QWidget):
                     "and also quantifies the cytoplasm channel."
                 )
         else:
-            self._segmentation_hint_lbl.setText(
-                "Default mode: StarDist nuclei segmentation."
-            )
+            self._segmentation_hint_lbl.setText("")
 
     # ------------------------------------------------------------------
     # Schema helpers
@@ -699,6 +698,9 @@ class AnalyzeTab(QWidget):
         self._progress.setValue(0)
         self._progress.setTextVisible(False)
         pl.addWidget(self._progress, 1)
+        self._eta_lbl = QLabel("", prog_widget)
+        self._eta_lbl.setObjectName("Muted")
+        pl.addWidget(self._eta_lbl)
         rl.addWidget(prog_widget)
 
         r2 = QFrame(parent); r2.setFrameShape(QFrame.HLine); r2.setObjectName("HRule")
@@ -783,9 +785,19 @@ class AnalyzeTab(QWidget):
         self._progress_tracker.reset()
         self._progress.setValue(0)
         self._prog_lbl.setText("Preparing…")
+        self._eta_lbl.setText("")
+        self._pipeline_started_at = _time.monotonic()
         self._run_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._status_lbl.setText("Running…")
+        # Status light goes yellow (warn) for the lifetime of the pipeline
+        # run. ``finished`` (in ``_poll_log``) pops the count.
+        try:
+            from well_viewer import status_signal as _status_signal
+            _status_signal.warn_push()
+            self._status_signal_pushed = True
+        except Exception:
+            self._status_signal_pushed = False
 
     def _collect_run_options(self) -> dict:
         method = self._seg_method_cb.currentText() or "stardist_nuclei"
@@ -884,6 +896,26 @@ class AnalyzeTab(QWidget):
     def _clear_log(self) -> None:
         self._log.clear()
 
+    def _update_eta(self, done: int, total: int) -> None:
+        started = getattr(self, "_pipeline_started_at", None)
+        if started is None or done <= 0 or total <= 0 or done >= total:
+            self._eta_lbl.setText("")
+            return
+        elapsed = _time.monotonic() - started
+        if elapsed <= 0.0:
+            return
+        remaining = elapsed / done * (total - done)
+
+        def _fmt(secs: float) -> str:
+            secs = int(round(max(0.0, secs)))
+            if secs >= 3600:
+                return f"{secs // 3600}h{(secs % 3600) // 60:02d}m"
+            if secs >= 60:
+                return f"{secs // 60}m{secs % 60:02d}s"
+            return f"{secs}s"
+
+        self._eta_lbl.setText(f"ETA {_fmt(remaining)}")
+
     def _apply_progress_event(self, kind: str, payload: object) -> None:
         """Render a progress event from :class:`ProgressTracker` to the UI."""
         if kind == "well_total":
@@ -900,6 +932,7 @@ class AnalyzeTab(QWidget):
             self._prog_lbl.setText(
                 f"Pipeline: {self._well_done} / {total} wells  ({pct}%)"
             )
+            self._update_eta(self._well_done, total)
 
     def _poll_log(self) -> None:
         try:
@@ -926,12 +959,17 @@ class AnalyzeTab(QWidget):
                     self._progress.setValue(self._zipper_done)
                     pct = int(self._zipper_done / n_total * 100)
                     self._prog_lbl.setText(f"Grouping: {self._zipper_done} / {n_total} wells  ({pct}%)")
+                    self._update_eta(self._zipper_done, n_total)
                 elif kind == "zipper_done":
                     self._progress.setRange(0, 100)
                     self._progress.setValue(0)
                     self._well_total = 0
                     self._well_done  = 0
                     self._prog_lbl.setText("Grouping complete — starting pipeline…")
+                    self._eta_lbl.setText("")
+                    # Reset the per-phase clock so the pipeline-phase ETA
+                    # isn't biased by the (typically short) grouping phase.
+                    self._pipeline_started_at = _time.monotonic()
                 elif kind == "workers":
                     self._log_line(f"[info] Workers: {payload} parallel well(s).\n", "INFO")
                 elif kind == "done":
@@ -957,6 +995,14 @@ class AnalyzeTab(QWidget):
                     self._run_btn.setEnabled(True)
                     self._stop_btn.setEnabled(False)
                     self._status_lbl.setText("Idle")
+                    self._eta_lbl.setText("")
+                    if getattr(self, "_status_signal_pushed", False):
+                        try:
+                            from well_viewer import status_signal as _status_signal
+                            _status_signal.warn_pop()
+                        except Exception:
+                            pass
+                        self._status_signal_pushed = False
         except queue.Empty:
             pass
         QTimer.singleShot(80, self._poll_log)
