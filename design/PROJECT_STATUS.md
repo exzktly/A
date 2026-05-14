@@ -1,6 +1,6 @@
 # All-Well — Project Status
 
-**Last updated:** session of 2026-05-13
+**Last updated:** session of 2026-05-14 (Phase 15 shipped, awaiting runtime QA)
 **Active reconciliation branch:** `claude/analyze-repo-structure-2uEVQ`
 **Current canonical mockup:** `design/mockup-decoded.html` (decoded from the
 `Redesign v2 _standalone_.html` bundle via `scripts/decode_mockup.py`)
@@ -174,6 +174,8 @@ the user has not yet runtime-QA'd. Mark `✅` and move down once verified.
 | `c3e937b` | Phase 13 final: compact Saved list in sidebar | Sidebar bottom shows a "SAVED [N]" caption + a compact `SavedSelectionsList` mirror of `app._selections` (dot + name + meta only — no kebab/eye/drag). Clicking a row activates that selection. Refreshes with every group edit. |
 | `9990bcc` | Sidebar simplification + Analyze hides rail | All 96 / Invert / Clear buttons + "Tip: click a row letter…" line gone from the main sidebar; ditto the Sample Definitions sidebar tip. Plate widget now uses identical `setMinimumHeight(280)` + `Preferred / MinimumExpanding` size policy on both sidebars, so its size + placement stay fixed across every section. Switching to Analyze mode hides the whole left rail (sidebar); switching back to Review restores it. |
 | `dce3a62` | Export Style sidebar width | The floating Export Style sidebar (sliders IconButton) shrinks to 440 px and tightens its internal column widths so all controls fit without cutoff. |
+| `4365c9f` | Phase 11b slice — global channel chip | In Plotting, edit the channel via the ctxbar combo; the active renderer redraws against the new channel; switching plot type updates the chip from the new renderer's combo. |
+| `4b083ac` … `60aabc0` | **Phase 15** — centre stack `NamedPageStack` | RailNav click sweep across all 8 sections; ctxbar SegmentedControl sweep across all 5 plot types; the four Batch Export entry points (line / bar / scatter cells / scatter agg) still land on Batch Export; smFISH single-well clamp still fires; Movie Montage preview refresh still triggers; no regressions in Sample Definitions / Image Table / Stats sidebar visibility. |
 
 ### Known bugs reported in this session, not yet fixed
 
