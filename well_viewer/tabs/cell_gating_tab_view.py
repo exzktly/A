@@ -437,13 +437,14 @@ class _AutoThresholdWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, app, out_dir, channels, *, well_labels=None,
-                 in_dir=None, parent=None) -> None:
+                 in_dir=None, fov_tp_extractor=None, parent=None) -> None:
         super().__init__(parent)
         self._app = app
         self._out_dir = out_dir
         self._channels = list(channels)
         self._well_labels = list(well_labels) if well_labels else []
         self._in_dir = in_dir
+        self._fov_tp_extractor = fov_tp_extractor
 
     def run(self) -> None:  # noqa: D401 - QThread override
         # Stream traceback into the log drawer too — the previous "fail
@@ -462,6 +463,7 @@ class _AutoThresholdWorker(QThread):
                 progress=lambda msg: self.progress.emit(str(msg)),
                 well_labels=self._well_labels or None,
                 in_dir=self._in_dir,
+                fov_tp_extractor=self._fov_tp_extractor,
             )
         except Exception as exc:
             _log.error(
@@ -585,6 +587,7 @@ def cell_gating_auto_threshold(app) -> None:
     worker = _AutoThresholdWorker(
         app, out_dir, channels,
         well_labels=well_labels, in_dir=in_dir,
+        fov_tp_extractor=getattr(app, "_fov_tp_extractor", None),
     )
     worker.progress.connect(_on_progress)
     worker.done.connect(_on_done)

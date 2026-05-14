@@ -209,6 +209,8 @@ def _scan_well_images(
     zip_path: Path,
     fluor_token: str,
     pipeline_info: Optional[dict],
+    *,
+    fov_tp_extractor=None,
 ):
     """Wrapper around ``well_viewer.image_discovery.scan_zip_members`` that
     returns the mask + tophat_fluor dicts for one well + one channel."""
@@ -217,16 +219,19 @@ def _scan_well_images(
         zip_path,
         fluor_token.lower(),
         _pipeline_info=pipeline_info,
+        _fov_tp_extractor=fov_tp_extractor,
     )
     return mask, tophat
 
 
-def _gather_via_zip(zip_path: Path, channels: List[str], pipeline_info):
+def _gather_via_zip(zip_path: Path, channels: List[str], pipeline_info,
+                    fov_tp_extractor=None):
     """Return ``{channel: (mask_refs, fluor_refs)}`` for one well zip."""
     out: Dict[str, Tuple[dict, dict]] = {}
     for ch in channels:
         try:
-            m, f = _scan_well_images(zip_path, ch, pipeline_info)
+            m, f = _scan_well_images(zip_path, ch, pipeline_info,
+                                     fov_tp_extractor=fov_tp_extractor)
         except Exception as exc:
             logger.warning("auto_threshold: %s ch=%s scan failed: %s",
                            zip_path.name, ch, exc)
@@ -235,7 +240,8 @@ def _gather_via_zip(zip_path: Path, channels: List[str], pipeline_info):
     return out
 
 
-def _gather_via_find(target, channels: List[str], pipeline_info):
+def _gather_via_find(target, channels: List[str], pipeline_info,
+                     fov_tp_extractor=None):
     """Multi-layout discovery via :func:`find_well_images_and_masks`.
 
     ``target`` is ``(well_label, data_dir, in_dir)``.  Returns
@@ -250,6 +256,7 @@ def _gather_via_find(target, channels: List[str], pipeline_info):
             _g, _ov, mask, tophat = find_well_images_and_masks(
                 data_dir, well_label, fluor_token=ch, in_dir=in_dir_path,
                 _pipeline_info=pipeline_info,
+                _fov_tp_extractor=fov_tp_extractor,
             )
         except Exception as exc:
             logger.warning("auto_threshold: well=%s ch=%s discovery failed: %s",
@@ -287,6 +294,7 @@ def compute_auto_thresholds(
     rng_seed: Optional[int] = None,
     well_labels: Optional[Iterable[str]] = None,
     in_dir: Optional[Path] = None,
+    fov_tp_extractor: Optional[Callable[[str], Tuple[str, str]]] = None,
 ) -> Dict[str, float]:
     """Compute the auto-threshold per channel by Otsu on a per-cell + bg
     distribution sampled from the first / middle / last timepoint of every
@@ -350,7 +358,8 @@ def compute_auto_thresholds(
 
     for w_idx, target in enumerate(targets, start=1):
         try:
-            per_channel_refs = _scan_one_well(target, channels, pipeline_info)
+            per_channel_refs = _scan_one_well(target, channels, pipeline_info,
+                                              fov_tp_extractor)
         except Exception as exc:
             logger.warning("auto_threshold: skipping %s — scan failed: %s",
                            label_of(target), exc)
