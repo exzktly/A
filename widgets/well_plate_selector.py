@@ -790,24 +790,21 @@ class _PlateGrid(QWidget):
                 )
                 group_color = self._colors.get(key)
                 in_selection = key in self._selected
-                # Three visual states:
-                #   • selected (with or without a group colour) → raised
-                #     ``_paint_lit`` using the group colour when set,
-                #     otherwise the rank-cycled trace colour.
-                #   • group-coloured but not in the active selection →
-                #     recessed ``_paint_depressed`` with a muted blend of
-                #     the group colour so the well still hints at its
-                #     membership.
-                #   • neither → the default recessed look.
+                # Two visual states for wells with data:
+                #   • selected → raised ``_paint_lit`` (group colour if
+                #     set, else the rank-cycled trace colour).
+                #   • unselected → recessed ``_paint_depressed`` with a
+                #     muted tint (group colour if set, else the app's
+                #     accent) so the well always reads as a faint hue
+                #     rather than a dark recess.
                 if in_selection:
                     base = group_color if group_color is not None else QColor(
                         traces[self._selected[key] % len(traces)]
                     )
                     self._paint_lit(p, wr, base, hovered)
-                elif group_color is not None:
-                    self._paint_depressed(p, wr, hovered, tint=group_color)
                 else:
-                    self._paint_depressed(p, wr, hovered)
+                    tint = group_color if group_color is not None else QColor(c.accent)
+                    self._paint_depressed(p, wr, hovered, tint=tint)
 
         # Rubber-band rectangle while a "rect" drag-select is in progress.
         if (self._drag_mode == "rect" and self._rect_start is not None
