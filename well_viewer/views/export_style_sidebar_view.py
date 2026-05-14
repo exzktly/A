@@ -737,31 +737,92 @@ class ExportStyleSidebar(QWidget):
             QMessageBox.critical(self, "Copy PNG failed", str(exc))
 
     def _copy_svg(self) -> None:
-        """Copy the current figure to the clipboard as SVG markup."""
+        """Copy the current figure to the clipboard as vector PDF.
+
+        On macOS we write ``com.adobe.pdf`` directly to ``NSPasteboard``
+        via PyObjC so Keynote / Pages / Preview paste editable vector
+        — Qt6's clipboard adapter doesn't surface ``application/pdf``
+        or ``image/svg+xml`` to the OS pasteboard, so a pure
+        :class:`QMimeData` path lands as either rasterised PNG (when
+        macOS reads the SVG text as an ``NSImage``) or as a block of
+        text. Falls back to SVG-via-``QMimeData`` on other OSes and
+        when PyObjC isn't available.
+        """
         try:
             self._persist()
             apply_export_style_to_current(self._app, self._fig, self._canvas)
             import matplotlib as _mpl
             from PySide6.QtCore import QMimeData
+            from PySide6.QtGui import QImage
+            from well_viewer import clipboard_macos as _cm
+            write_vector_pdf_pasteboard = _cm.write_vector_pdf_pasteboard
+
             orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
             _mpl.rcParams["svg.fonttype"] = "none"
             try:
-                buf = BytesIO()
+                svg_buf = BytesIO()
                 self._fig.savefig(
-                    buf, format="svg",
+                    svg_buf, format="svg",
                     bbox_inches="tight", transparent=True,
                 )
             finally:
                 _mpl.rcParams["svg.fonttype"] = orig_svg
-            data = buf.getvalue()
-            mime = QMimeData()
-            mime.setData("image/svg+xml", QByteArray(data))
+            svg_bytes = svg_buf.getvalue()
+
+            pdf_bytes: bytes | None = None
             try:
-                mime.setText(data.decode("utf-8"))
-            except UnicodeDecodeError:
+                pdf_buf = BytesIO()
+                self._fig.savefig(
+                    pdf_buf, format="pdf",
+                    bbox_inches="tight", transparent=True,
+                )
+                pdf_bytes = pdf_buf.getvalue()
+            except Exception:
                 pass
-            QApplication.clipboard().setMimeData(mime)
-            self._app._set_status("Figure copied to clipboard (SVG)")
+
+            png_bytes: bytes | None = None
+            try:
+                png_buf = BytesIO()
+                self._fig.savefig(
+                    png_buf, format="png",
+                    bbox_inches="tight", transparent=True, dpi=200,
+                )
+                png_bytes = png_buf.getvalue()
+            except Exception:
+                pass
+
+            wrote_pdf_native = False
+            if pdf_bytes is not None:
+                wrote_pdf_native = write_vector_pdf_pasteboard(
+                    pdf_bytes=pdf_bytes,
+                    png_bytes=png_bytes,
+                )
+
+            if not wrote_pdf_native:
+                mime = QMimeData()
+                svg_qba = QByteArray(svg_bytes)
+                mime.setData("image/svg+xml", svg_qba)
+                mime.setData("image/svg", svg_qba)
+                if pdf_bytes is not None:
+                    pdf_qba = QByteArray(pdf_bytes)
+                    mime.setData("application/pdf", pdf_qba)
+                    mime.setData("com.adobe.pdf", pdf_qba)
+                if png_bytes is not None:
+                    mime.setData("image/png", QByteArray(png_bytes))
+                    img = QImage.fromData(png_bytes, "PNG")
+                    if not img.isNull():
+                        mime.setImageData(img)
+                QApplication.clipboard().setMimeData(mime)
+
+            if wrote_pdf_native:
+                self._app._set_status(
+                    "Figure copied to clipboard (vector PDF)."
+                )
+            else:
+                reason = _cm.last_failure_reason or "no native PDF path"
+                self._app._set_status(
+                    f"Figure copied to clipboard (PNG; {reason})."
+                )
         except Exception as exc:
             QMessageBox.critical(self, "Copy SVG failed", str(exc))
 
