@@ -509,10 +509,16 @@ def build_centre(app, parent: QWidget) -> None:
                         except Exception:
                             pass
                 if hasattr(app, "_set_status"):
+                    from well_viewer import clipboard_macos as _cm
                     if wrote_pdf_native:
-                        msg = "Copied figure to clipboard (vector PDF, publication)."
+                        suffix = _cm.status_suffix()
+                        if suffix == "also inserted into Keynote":
+                            msg = "Copied figure to clipboard + inserted into Keynote (vector)."
+                        elif suffix:
+                            msg = f"Copied figure to clipboard (vector PDF). {suffix}."
+                        else:
+                            msg = "Copied figure to clipboard (vector PDF, publication)."
                     else:
-                        from well_viewer import clipboard_macos as _cm
                         reason = _cm.last_failure_reason or "Qt clipboard fallback"
                         msg = (
                             "Copied figure to clipboard (PNG image; "

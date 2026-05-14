@@ -1,45 +1,51 @@
-"""Native macOS pasteboard helper for vector-PDF copy.
+"""Native macOS pasteboard helper + AppleScript-driven Keynote insert.
 
 Qt6's QMacMimeRegistry doesn't surface ``application/pdf`` /
 ``com.adobe.pdf`` from a :class:`QMimeData` to the macOS pasteboard,
 so Copy-as-PDF via :meth:`QClipboard.setMimeData` lands as nothing in
-Keynote / Pages / Preview. Going through ``NSPasteboard`` directly
-via PyObjC reaches the OS pasteboard, but raw PDF *data* still
-rasterises in Keynote — confirmed empirically over multiple iterations
-(PRs #195, #197, #198, #199, #200). The same bytes paste as vector
-into Illustrator / Affinity / Preview, so Keynote's paste handler is
-choosing to rasterise on a path we can't influence from the data
-side.
+Keynote / Pages / Preview. We went through every variation of writing
+PDF data directly to ``NSPasteboard`` (legacy ``setData:forType:``,
+modern ``NSPasteboardItem`` + ``writeObjects:``, with and without a
+PNG fallback, with ``public.file-url`` alongside, with file URL alone)
+over PRs #195/#197/#198/#199/#200/#201. Illustrator / Affinity /
+Preview paste vector from every variant; Keynote rasterises every
+variant. The asymmetry proves Keynote's paste handler picks raster on
+a code path no pasteboard contents can influence.
 
-The recipe that actually works for Keynote is the AppleScript one:
+The only path that gets a vector .pdf into Keynote reliably is the
+same one ``Insert > Choose…`` and drag-drop use. We reach it via
+AppleScript:
 
-    tell application "Finder"
-        set the clipboard to (POSIX file "/path/to/figure.pdf")
+    tell application "Keynote"
+        tell front document
+            tell current slide
+                make new image with properties {file: POSIX file "..."}
+            end tell
+        end tell
     end tell
 
-i.e. the clipboard holds a *file URL*, not raw PDF bytes. Apps that
-read ``com.adobe.pdf`` still get it (NSPasteboard advertises the
-file's UTI based on its extension and lazily reads the bytes on
-demand), so Illustrator / Affinity / Preview keep working. Keynote
-sees a "file paste" rather than a "PDF data paste" and embeds the
-.pdf as a vector object exactly the way ``Insert > Choose…`` does.
+Copy SVG now does both: writes the file URL to the pasteboard (so
+Illustrator / Affinity / Preview keep working via paste), **and**, if
+Keynote is already running, tells Keynote to insert the figure on
+the current slide of the front document. No new UI; the existing
+button just does the right thing when Keynote is open.
 
-**Scope trade-off.** Because the pasteboard now carries a file URL
-instead of raw image data, apps that previously pasted an inline PNG
-raster (Slack, Mail, Notes, browser composers) now paste a **PDF
-file attachment** instead. This was an explicit user choice — Copy
-SVG is being optimised for vector-aware targets.
+The AppleScript send requires Automation > Keynote permission. macOS
+prompts once on the first attempt; if the user declines we report
+that in the status bar and fall back to pasteboard-only.
 
 The module is import-safe on every OS: ``write_vector_pdf_pasteboard``
 returns ``False`` when not running on macOS or when PyObjC isn't
 available, and the caller falls back to its in-Qt clipboard path.
-``last_failure_reason`` exposes the human-readable reason a write was
-skipped so the UI can surface it.
+``last_failure_reason`` and ``last_keynote_status`` expose
+human-readable diagnostics so the UI can surface what happened.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -50,16 +56,25 @@ from pathlib import Path
 # diagnostic without piping a tuple through every call site.
 last_failure_reason: str = ""
 
-# Subdir under the OS temp dir for "live" clipboard PDFs. macOS prunes
-# NSTemporaryDirectory periodically, so files here disappear on reboot;
-# we also best-effort prune our own entries older than an hour on each
-# write so back-to-back copies don't grow the dir without bound.
+# Outcome of the most recent AppleScript-to-Keynote send. One of:
+#   ""                  — not attempted (no PDF written / non-darwin)
+#   "inserted"          — make-new-image succeeded
+#   "not-running"       — Keynote.app wasn't running; skipped silently
+#   "no-document"       — Keynote running but no documents open
+#   "no-slide"          — front document has no slides
+#   "permission-denied" — TCC Automation > Keynote not granted
+#   "timeout"           — osascript ran > _OSASCRIPT_TIMEOUT_SEC
+#   "missing-cli"       — pgrep or osascript not on PATH (shouldn't happen)
+#   anything else       — verbatim AppleScript error message (truncated)
+last_keynote_status: str = ""
+
 _TMP_SUBDIR = "allwell-clipboard"
 _TMP_MAX_AGE_SEC = 3600
+_OSASCRIPT_TIMEOUT_SEC = 15
 
 
 def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
-    """Write a PDF file URL to the macOS pasteboard.
+    """Write a PDF file URL to the macOS pasteboard + auto-insert into Keynote.
 
     Returns ``True`` when the pasteboard was written, ``False`` when
     the platform isn't macOS, PyObjC isn't importable, or the write
@@ -68,18 +83,20 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
     Writes the PDF bytes to a temp file under
     ``NSTemporaryDirectory()/allwell-clipboard`` and puts the resulting
     file URL on the general pasteboard via
-    ``pb.writeObjects_([NSURL])``. This is the AppleScript-equivalent
-    recipe Keynote respects for vector paste; see the module docstring
-    for the full rationale.
+    ``pb.writeObjects_([NSURL])``. Then, if Keynote.app is currently
+    running, sends an AppleScript event asking Keynote to make a new
+    image on the current slide of the front document from that same
+    temp file — the only path that reliably produces a *vector* paste
+    in Keynote.
 
-    Deliberately does **not** put raw ``com.adobe.pdf`` bytes on the
-    pasteboard. NSPasteboard still advertises ``com.adobe.pdf`` (and
-    other UTIs derived from the file's ``.pdf`` extension) as
-    promised types, so data-paste consumers (Illustrator, Affinity,
-    Preview) read the file content on demand and still receive vector.
+    The AppleScript send is fire-and-forget for the caller's purposes:
+    the pasteboard write succeeded either way (return value
+    reflects the pasteboard, not the Keynote insert), and the Keynote
+    outcome is reported separately via ``last_keynote_status``.
     """
-    global last_failure_reason
+    global last_failure_reason, last_keynote_status
     last_failure_reason = ""
+    last_keynote_status = ""
 
     if sys.platform != "darwin":
         last_failure_reason = "not macOS"
@@ -122,8 +139,38 @@ def write_vector_pdf_pasteboard(*, pdf_bytes: bytes) -> bool:
     if not bool(pb.writeObjects_([file_url])):
         last_failure_reason = "NSPasteboard.writeObjects_([NSURL]) returned NO"
         return False
+
+    last_keynote_status = _try_insert_into_keynote(pdf_path_str)
     return True
 
+
+def status_suffix() -> str:
+    """Short status hint reflecting the most recent Keynote insert attempt.
+
+    Empty string when Keynote wasn't running (the common case when the
+    user just wants the figure on the clipboard). Callers append it to
+    their Copy-SVG status message when non-empty.
+    """
+    s = last_keynote_status
+    if not s or s == "not-running":
+        return ""
+    table = {
+        "inserted": "also inserted into Keynote",
+        "no-document": "Keynote insert skipped: no document open",
+        "no-slide": "Keynote insert skipped: front document has no slides",
+        "permission-denied": (
+            "Keynote insert blocked: grant Automation > Keynote in "
+            "System Settings → Privacy & Security"
+        ),
+        "timeout": "Keynote insert timed out",
+        "missing-cli": "Keynote insert skipped: osascript/pgrep missing",
+    }
+    return table.get(s, f"Keynote insert error: {s[:80]}")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Internals
+# ────────────────────────────────────────────────────────────────────────────
 
 def _prune_stale(tmp_dir: Path) -> None:
     """Best-effort cleanup of clipboard PDFs older than the cap.
@@ -141,3 +188,67 @@ def _prune_stale(tmp_dir: Path) -> None:
                 stale.unlink()
         except OSError:
             pass
+
+
+def _try_insert_into_keynote(pdf_path: str) -> str:
+    """Ask Keynote to insert the PDF on the front slide via AppleScript.
+
+    Returns one of the status tokens documented on
+    ``last_keynote_status``. Never raises — every error path is
+    caught and reduced to a token so the caller can keep going.
+
+    Uses ``pgrep`` (no TCC permission needed) to skip the AppleScript
+    altogether when Keynote isn't running, which is the common case
+    and avoids surprising the user with permission prompts the first
+    time they Copy SVG without Keynote open.
+    """
+    if not (shutil.which("pgrep") and shutil.which("osascript")):
+        return "missing-cli"
+
+    try:
+        rc = subprocess.run(
+            ["pgrep", "-x", "Keynote"],
+            capture_output=True, timeout=5,
+        ).returncode
+    except Exception:
+        return "missing-cli"
+    if rc != 0:
+        return "not-running"
+
+    # mkstemp paths from tempfile.gettempdir() are POSIX-clean (no quotes,
+    # no backslashes on darwin), but defend anyway in case the temp dir
+    # contains an unusual character.
+    escaped = pdf_path.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "Keynote"\n'
+        '    if (count of documents) is 0 then return "no-document"\n'
+        '    tell front document\n'
+        '        if (count of slides) is 0 then return "no-slide"\n'
+        '        tell current slide\n'
+        f'            make new image with properties {{file:POSIX file "{escaped}"}}\n'
+        '        end tell\n'
+        '    end tell\n'
+        '    return "inserted"\n'
+        'end tell'
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True,
+            timeout=_OSASCRIPT_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        return "timeout"
+    except Exception as exc:
+        return f"osascript-failed: {exc.__class__.__name__}"
+
+    if result.returncode != 0:
+        err = (result.stderr or "").strip()
+        low = err.lower()
+        # Error 1743 = "not authorized to send Apple events"
+        if "1743" in err or "not authorized" in low or "not allowed" in low:
+            return "permission-denied"
+        return f"osascript-error: {err[:120]}" if err else "osascript-error"
+
+    out = (result.stdout or "").strip()
+    return out or "inserted"

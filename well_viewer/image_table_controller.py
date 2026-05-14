@@ -1620,10 +1620,16 @@ def image_table_copy_svg(app) -> None:
                 md.setImageData(img)
         QGuiApplication.clipboard().setMimeData(md)
 
+    from well_viewer import clipboard_macos as _cm
     if wrote_pdf_native:
-        msg = "Image table copied to clipboard (vector PDF)."
+        suffix = _cm.status_suffix()
+        if suffix == "also inserted into Keynote":
+            msg = "Image table copied to clipboard + inserted into Keynote (vector)."
+        elif suffix:
+            msg = f"Image table copied to clipboard (vector PDF). {suffix}."
+        else:
+            msg = "Image table copied to clipboard (vector PDF)."
     else:
-        from well_viewer import clipboard_macos as _cm
         reason = _cm.last_failure_reason or "Qt clipboard fallback"
         msg = f"Image table copied to clipboard (PNG image; {reason})."
     app._set_status(msg)

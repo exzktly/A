@@ -820,9 +820,19 @@ class ExportStyleSidebar(QWidget):
                 QApplication.clipboard().setMimeData(mime)
 
             if wrote_pdf_native:
-                self._app._set_status(
-                    "Figure copied to clipboard (vector PDF)."
-                )
+                suffix = _cm.status_suffix()
+                if suffix == "also inserted into Keynote":
+                    self._app._set_status(
+                        "Figure copied to clipboard + inserted into Keynote (vector)."
+                    )
+                elif suffix:
+                    self._app._set_status(
+                        f"Figure copied to clipboard (vector PDF). {suffix}."
+                    )
+                else:
+                    self._app._set_status(
+                        "Figure copied to clipboard (vector PDF)."
+                    )
             else:
                 reason = _cm.last_failure_reason or "no native PDF path"
                 self._app._set_status(
