@@ -376,11 +376,31 @@ def cell_gating_get_thresh_frac_on(app, channel: str) -> float:
         return 50.0
 
 
+def _safe_edit_text(edit) -> str:
+    """Read ``edit.text()`` while tolerating the underlying QLineEdit
+    having been C++-deleted (e.g. the Cell Gating tab was rebuilt while
+    a queued ``editingFinished`` signal was still in flight). Returns
+    an empty string in that case so the caller falls into the
+    ValueError path and skips the dead-widget update."""
+    if edit is None:
+        return ""
+    try:
+        from shiboken6 import isValid as _is_valid
+        if not _is_valid(edit):
+            return ""
+    except Exception:
+        pass
+    try:
+        return edit.text()
+    except RuntimeError:
+        return ""
+
+
 def cell_gating_on_gating_change(app) -> None:
     try:
-        float(app._cell_gating_area_edit.text())
+        float(_safe_edit_text(app._cell_gating_area_edit))
         for edit in app._cell_gating_fluor_gate_edits.values():
-            float(edit.text())
+            float(_safe_edit_text(edit))
     except ValueError:
         return
 
@@ -393,7 +413,7 @@ def cell_gating_on_gating_change(app) -> None:
 def cell_gating_on_threshold_frac_on_change(app) -> None:
     try:
         for edit in app._cell_gating_thresh_frac_edits.values():
-            float(edit.text())
+            float(_safe_edit_text(edit))
         _cell_gating_save_threshold_frac_on(app)
         _cell_gating_persist_params(app)
         app._redraw()
