@@ -197,13 +197,19 @@ def redraw_line_plots(
                 app._line_ax_cdf.plot(vals, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{disp} (n={n:,})", zorder=3)
                 any_cdf = True
 
+    def _has_labeled(ax) -> bool:
+        handles, labels = ax.get_legend_handles_labels()
+        return any(lbl and not str(lbl).startswith("_") for lbl in labels)
+
     if any_ts:
-        leg_mean = app._line_ax_mean.legend(**legend_kw)
-        leg_frac = app._line_ax_frac.legend(**legend_kw)
-        leg_mean.set_draggable(True)
-        leg_frac.set_draggable(True)
-        leg_mean.set_visible(app._legend_visible["mean"])
-        leg_frac.set_visible(app._legend_visible["frac"])
+        if _has_labeled(app._line_ax_mean):
+            leg_mean = app._line_ax_mean.legend(**legend_kw)
+            leg_mean.set_draggable(True)
+            leg_mean.set_visible(app._legend_visible["mean"])
+        if _has_labeled(app._line_ax_frac):
+            leg_frac = app._line_ax_frac.legend(**legend_kw)
+            leg_frac.set_draggable(True)
+            leg_frac.set_visible(app._legend_visible["frac"])
     if any_cdf:
         app._line_ax_cdf.axvline(threshold, color=warn, lw=1.2, ls="--", label=f"threshold={threshold:.2f}", zorder=4, picker=8)
         try:
@@ -217,9 +223,10 @@ def redraw_line_plots(
         if cdf_hi <= cdf_lo:
             cdf_hi = cdf_lo + 1.0
         app._line_ax_cdf.axvspan(threshold, cdf_hi, alpha=0.05, color=warn, zorder=1)
-        leg_cdf = app._line_ax_cdf.legend(**legend_kw)
-        leg_cdf.set_draggable(True)
-        leg_cdf.set_visible(app._legend_visible["cdf"])
+        if _has_labeled(app._line_ax_cdf):
+            leg_cdf = app._line_ax_cdf.legend(**legend_kw)
+            leg_cdf.set_draggable(True)
+            leg_cdf.set_visible(app._legend_visible["cdf"])
         app._line_ax_cdf.set_xlim(cdf_lo, cdf_hi)
     else:
         app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
