@@ -118,8 +118,20 @@ class _LayoutTable(QTableWidget):
         if not idx.isValid():
             event.ignore()
             return
-        self._on_drop("cell", (idx.row(), idx.column()), token)
-        event.acceptProposedAction()
+        rc = (idx.row(), idx.column())
+        # Use IgnoreAction so QAbstractItemView's framework code doesn't
+        # try to "complete" the drop with its own model insertion after
+        # we've already updated the layout — that was leaving the cell
+        # blank in the table view even though the layout model and the
+        # heatmap plot were correct.
+        event.setDropAction(Qt.IgnoreAction)
+        event.accept()
+        # Defer the model update + table rebuild until Qt finishes its
+        # drag/drop bookkeeping for this event. Rebuilding the table from
+        # inside dropEvent left the dropped cell visually empty on some
+        # platforms.
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._on_drop("cell", rc, token))
 
     def mouseDoubleClickEvent(self, event) -> None:
         idx = self.indexAt(event.position().toPoint())
@@ -293,19 +305,25 @@ def refresh_heatmap_layout_sidebar(app) -> None:
             cols_spin.blockSignals(False)
 
     # Shrink the cell font when the grid grows past the sidebar's natural
-    # column width — keeps wells like ``H12`` legible at 12+ cols.
+    # column width — keeps wells like ``H12`` legible at 12+ cols. Sizes
+    # were knocked down ~2 pt across the board so cell text stays inside
+    # the cell at narrow sidebar widths.
     cell_font = table.font()
     if layout.cols <= 8:
-        cell_font.setPointSize(10)
-    elif layout.cols <= 12:
-        cell_font.setPointSize(9)
-    elif layout.cols <= 16:
         cell_font.setPointSize(8)
-    elif layout.cols <= 24:
+    elif layout.cols <= 12:
         cell_font.setPointSize(7)
-    else:
+    elif layout.cols <= 16:
         cell_font.setPointSize(6)
+    elif layout.cols <= 24:
+        cell_font.setPointSize(5)
+    else:
+        cell_font.setPointSize(5)
     table.setFont(cell_font)
+    hdr_font = table.horizontalHeader().font()
+    hdr_font.setPointSize(max(6, cell_font.pointSize() - 1))
+    table.horizontalHeader().setFont(hdr_font)
+    table.verticalHeader().setFont(hdr_font)
 
     table.blockSignals(True)
     try:

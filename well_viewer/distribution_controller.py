@@ -64,13 +64,34 @@ def _grid_for(values_lists: Iterable[Sequence[float]], n_pts: int = 200, log_x: 
 
 
 def _empty_msg(ax) -> None:
+    # Preserve the facecolor that the caller already applied via
+    # apply_axes_style; matplotlib's ax.clear() resets it otherwise.
+    fc = ax.get_facecolor()
     ax.clear()
+    ax.set_facecolor(fc)
+    fig = ax.figure
+    if fig is not None:
+        fig.set_facecolor(fc)
     ax.text(
         0.5, 0.5, NO_DATA_MSG,
         ha="center", va="center", transform=ax.transAxes,
         fontsize=10, color="gray",
     )
     ax.set_axis_off()
+
+
+def _apply_card_style(app, ax) -> None:
+    """Re-apply the active card's plot theme to *ax* after ``ax.clear()``.
+
+    The other plot tabs route through ``well_viewer.plot_style.apply_ax_style``
+    which already does this; the distribution renderer didn't, so on initial
+    load the dark Screen-mode tokens never reached the axes (the user saw
+    matplotlib's default white background instead).
+    """
+    from widgets.plot_card import apply_axes_style
+    card = getattr(app, "_distribution_card", None)
+    mode = getattr(card, "_plot_theme", "screen") if card is not None else "screen"
+    apply_axes_style(ax, mode)
 
 
 def redraw_distribution(app) -> None:
@@ -112,6 +133,7 @@ def redraw_distribution(app) -> None:
             groups.append((name, color, vals))
 
     ax.clear()
+    _apply_card_style(app, ax)
     if not groups:
         _empty_msg(ax)
         canvas.draw_idle()
