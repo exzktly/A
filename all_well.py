@@ -517,6 +517,17 @@ class AllWellApp(QMainWindow):
             heading = QLabel("All-Well — quick help", content)
             heading.setObjectName("Heading")
             cl.addWidget(heading)
+            credit = QLabel(
+                "Constructed by Zak Singer, 2026,<br>Regeneron Pharmaceuticals, Inc.",
+                content,
+            )
+            credit.setObjectName("HelpCredit")
+            credit.setStyleSheet(
+                f"color: {theme_v2.Colors.text_muted}; "
+                f"font-size: {theme_v2.Typography.caption_size}px; "
+                f"font-style: italic; padding-bottom: 4px;"
+            )
+            cl.addWidget(credit)
             body = QLabel(content)
             body.setWordWrap(True)
             body.setText(
@@ -852,6 +863,55 @@ class AllWellApp(QMainWindow):
         self.threshold_changed.emit(self._cell_threshold)
 
 
+def _load_bundled_fonts() -> None:
+    """Register every font file in ``fonts/`` with QFontDatabase so the
+    bundled Inter family is available without a system-wide install. The
+    OFL-licensed Inter sources live alongside this module under ``fonts/``
+    (see ``fonts/LICENSE.txt``)."""
+    from PySide6.QtGui import QFontDatabase
+    fonts_dir = Path(__file__).resolve().parent / "fonts"
+    if not fonts_dir.is_dir():
+        return
+    for path in sorted(fonts_dir.iterdir()):
+        if path.suffix.lower() not in (".ttf", ".otf"):
+            continue
+        try:
+            QFontDatabase.addApplicationFont(str(path))
+        except Exception:
+            pass
+
+
+def _install_combobox_popup_widener() -> None:
+    """Patch QComboBox.showPopup so the popup view sizes itself to the
+    widest item text instead of inheriting the field's width — dropdown
+    items elsewhere in the app were being clipped at the field width."""
+    from PySide6.QtWidgets import QComboBox, QStyle, QStyleOptionComboBox
+    from PySide6.QtCore import QSize, Qt
+    if getattr(QComboBox, "_aw_popup_widened", False):
+        return
+    QComboBox._aw_popup_widened = True
+    _original_show = QComboBox.showPopup
+
+    def _wide_show(self) -> None:  # noqa: N802 — Qt API name
+        view = self.view()
+        if view is not None:
+            fm = view.fontMetrics()
+            max_w = 0
+            for i in range(self.count()):
+                w = fm.horizontalAdvance(self.itemText(i))
+                if w > max_w:
+                    max_w = w
+            opt = QStyleOptionComboBox()
+            self.initStyleOption(opt)
+            scrollbar_w = view.verticalScrollBar().sizeHint().width() if view.verticalScrollBar() else 0
+            extra = 28 + scrollbar_w   # padding + scrollbar room
+            target = max(self.width(), max_w + extra)
+            view.setMinimumWidth(target)
+        _original_show(self)
+
+    QComboBox.showPopup = _wide_show
+
+
 def main() -> None:
     from well_viewer import debug_flags as _debug_flags
 
@@ -869,6 +929,8 @@ def main() -> None:
     args = ap.parse_args()
 
     app = QApplication.instance() or QApplication(sys.argv)
+    _load_bundled_fonts()
+    _install_combobox_popup_widener()
     app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()
