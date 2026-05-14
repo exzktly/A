@@ -50,7 +50,7 @@ from PySide6.QtCore import (  # noqa: E402
     Property, QEvent, QMimeData, QPoint, QRectF, QSize, Qt, Signal,
 )
 from PySide6.QtGui import (  # noqa: E402
-    QBrush, QColor, QDrag, QPainter, QPen, QRadialGradient,
+    QBrush, QColor, QDrag, QLinearGradient, QPainter, QPen, QRadialGradient,
 )
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QHBoxLayout, QPushButton, QSizePolicy, QToolTip,
@@ -663,35 +663,45 @@ class _PlateGrid(QWidget):
     def _paint_depressed(self, p: QPainter, wr: QRectF, hovered: bool) -> None:
         """Paint an unselected well so it reads as a *recessed* circle.
 
-        Inverts the radial gradient used by ``_paint_lit`` — dark at the
-        top-left, lighter at the bottom-right — so the well looks pressed
-        into the plate rather than popping out of it.
+        Uses the classic CSS ``inset`` box-shadow look:
+        the fill is a vertical *linear* gradient — dark at the top
+        (rim shadows the upper inside of the well) and lighter at the
+        bottom (light from above reaches the floor of the recess) —
+        and an inner shadow arc reinforces the dark band at the top.
+        Selected / coloured wells still go through ``_paint_lit`` for the
+        raised sphere look.
         """
         c = theme.Colors
-        # Use the rail token as the recessed-fill base so the well's well
-        # tracks the surrounding plate frame and visibly sits below the
-        # panel surface.
+        # Wells sit on the ``panel_elevated`` plate surface; the recessed
+        # fill needs to be visibly darker so the eye reads it as below
+        # that surface. Use the app's deepest token (``rail``).
         base = QColor(c.rail)
-        grad = QRadialGradient(
-            wr.center().x() + wr.width() * 0.20,
-            wr.center().y() + wr.height() * 0.20,
-            wr.width() * 0.80,
-        )
-        grad.setColorAt(0.0, base.lighter(115))
-        grad.setColorAt(0.55, base)
-        grad.setColorAt(1.0, base.darker(150))
+        grad = QLinearGradient(wr.topLeft(), wr.bottomLeft())
+        grad.setColorAt(0.0, base.darker(165))
+        grad.setColorAt(0.55, base.darker(115))
+        grad.setColorAt(1.0, base.lighter(112))
         p.setBrush(QBrush(grad))
         p.setPen(QPen(QColor(c.border_strong if hovered else c.border_subtle),
-                      max(1.0, wr.width() * 0.04)))
+                      max(1.0, wr.width() * 0.05)))
         p.drawEllipse(wr)
-        # Subtle inner-shadow arc at the top to reinforce the recessed feel.
-        hl = QRectF(wr).adjusted(
-            wr.width() * 0.14, wr.height() * 0.10,
-            -wr.width() * 0.14, -wr.height() * 0.46,
+        # Top inner-shadow: a dark arc just inside the rim across the top
+        # half of the well — this is the cue the eye reads as "shadow cast
+        # by the well's lip into the recess".
+        inner = QRectF(wr).adjusted(
+            wr.width() * 0.06, wr.height() * 0.06,
+            -wr.width() * 0.06, -wr.height() * 0.06,
         )
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(with_alpha("#000000", 0.30), max(1.0, wr.width() * 0.05)))
-        p.drawArc(hl, 200 * 16, 140 * 16)
+        p.setPen(QPen(with_alpha("#000000", 0.55),
+                      max(1.0, wr.width() * 0.10)))
+        # Qt arc angles are sixteenths of a degree, 0° at +x, CCW positive;
+        # 30°→150° draws the upper half of the ellipse (the rim's shaded
+        # underside).
+        p.drawArc(inner, 30 * 16, 120 * 16)
+        # Faint bright arc on the bottom to mirror the lit floor.
+        p.setPen(QPen(with_alpha("#FFFFFF", 0.10),
+                      max(1.0, wr.width() * 0.06)))
+        p.drawArc(inner, 210 * 16, 120 * 16)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         c = theme.Colors
