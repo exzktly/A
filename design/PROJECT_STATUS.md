@@ -30,6 +30,7 @@ The v2 mockup re-anchoring has been executed in 6 phases (`Phase 9–14` in
 | **12b** | Rail controls bound to active figure via `_export_style_prefs` | ✅ shipped |
 | **13** | Group B polish (Invert / ⌘ shortcuts / preview wire / cut-corner / compact sidebar Saved list) | ✅ shipped |
 | **14** | Doc reconciliation — flip the contradicted decisions in `DECISIONS_NEEDED.md` / `OPEN_DECISIONS.md` / `PORT_PLAN.md` / `DESIGN_NOTES.md` (C1–C17) | ⏳ **PENDING** |
+| **15** | Centre stack v2 native — replace outer `app._notebook` + nested `app._plotting_notebook` `QTabWidget`s with a `NamedPageStack` (`QStackedWidget` subclass); retire `_GroupedTabBar`. Plan: `design/plans/phase_15_named_page_stack.md`. | ⏳ **PENDING** |
 
 In addition to the planned phases, a number of **ad-hoc UX fixes** landed
 during runtime QA: navigation re-layout, plate sizing, sample-definitions
@@ -109,6 +110,49 @@ Per `RECONCILIATION_PLAN.md` Section 6:
 | C17 | `mockup-decoded.html` | Append a top-comment banner explaining which DESIGN_NOTES sections it supersedes. |
 
 **Estimate:** half a day.
+
+### Phase 15 — retire the legacy `app._notebook` (pending)
+
+The centre still hosts two v1 `QTabWidget`s with their tab bars hidden:
+
+- **`app._notebook`** — outer section host (8 pages), driven by the v2
+  `RailNav` via `setCurrentIndex(...)`.
+- **`app._plotting_notebook`** — nested plot-type host (5 pages), driven
+  by the v2 ctxbar `SegmentedControl`.
+
+Both are page-host-only; the rest of the v1 chrome (`_GroupedTabBar`
+custom paint, wheel-to-scroll on the tab bar, the `select_by_text`
+closure attached to the instance) is dead weight kept alive only because
+downstream callers in `runtime_app.py`, `selection_controller.py`,
+`sidebar_view.py`, `plot_orchestrator.py`, and `review_image_controller.py`
+still read `tabText(currentIndex())` / call `select_by_text(...)`.
+
+**Goal:** zero `QTabWidget` instances in `well_viewer/views/centre_view.py`;
+`_GroupedTabBar` and `select_by_text` deleted; every centre-stack
+consumer routed through a v2 name-based API.
+
+**Migration path** (full detail in
+`design/plans/phase_15_named_page_stack.md`): introduce a small
+`NamedPageStack(QStackedWidget)` subclass that exposes `addPage(name,
+widget)` / `setCurrentByName(name)` / `currentName()` / `pageNames()` /
+`nameOf(w)` plus back-compat shims (`tabText`, `select_by_text`) so the
+swap can land in five small commits that each leave the app launchable:
+
+1. Introduce `NamedPageStack`, swap outer `_notebook` in `build_centre`.
+2. Swap nested `_plotting_notebook` in `_build_plotting`.
+3. Migrate read-side call sites to `currentName()` / `pageNames()`.
+4. Migrate write-side call sites to `setCurrentByName()`.
+5. Delete `_GroupedTabBar`, drop now-unused back-compat shims, remove
+   `QTabWidget` import.
+
+**Exit criteria:**
+- Zero `QTabWidget` references in `well_viewer/views/centre_view.py`.
+- `_GroupedTabBar` deleted.
+- Every downstream caller in `well_viewer/` uses `currentName()` /
+  `setCurrentByName()` / `pageNames()`.
+
+**Estimate:** half a day, dominated by runtime QA across the 8 sections
+and 5 plot types.
 
 ---
 
