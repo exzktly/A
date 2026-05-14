@@ -25,14 +25,80 @@ from __future__ import annotations
 import logging
 from typing import Callable, Dict, Set
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QStyle, QStyleOptionTab, QStylePainter,
+    QHBoxLayout, QLabel, QStackedWidget, QStyle, QStyleOptionTab, QStylePainter,
     QTabBar, QTabWidget, QVBoxLayout, QWidget,
 )
 
 
 _logger = logging.getLogger("well_viewer.centre_view")
+
+
+class NamedPageStack(QStackedWidget):
+    """``QStackedWidget`` with name-keyed page lookup.
+
+    Phase 15 replacement for the legacy ``_notebook`` / ``_plotting_notebook``
+    ``QTabWidget``s. Exposes the v2 name-based API
+    (``addPage`` / ``setCurrentByName`` / ``currentName`` / ``pageNames`` /
+    ``nameOf``) plus a couple of ``QTabWidget`` back-compat shims
+    (``tabText``, ``select_by_text``) so the migration can land across small
+    commits without breaking any downstream caller.
+    """
+
+    currentNameChanged = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._names: list[str] = []
+        self._by_name: dict[str, QWidget] = {}
+        super().currentChanged.connect(self._emit_name)
+
+    # ── v2 API ────────────────────────────────────────────────────────────
+    def addPage(self, name: str, widget: QWidget) -> int:  # noqa: N802
+        idx = self.addWidget(widget)
+        # Pad / overwrite the name list to keep indices aligned with the
+        # underlying QStackedWidget order.
+        while len(self._names) <= idx:
+            self._names.append("")
+        self._names[idx] = name
+        self._by_name[name] = widget
+        return idx
+
+    def setCurrentByName(self, name: str) -> bool:  # noqa: N802
+        w = self._by_name.get(name)
+        if w is None:
+            return False
+        self.setCurrentWidget(w)
+        return True
+
+    def currentName(self) -> str:  # noqa: N802
+        idx = self.currentIndex()
+        if 0 <= idx < len(self._names):
+            return self._names[idx]
+        return ""
+
+    def pageNames(self) -> list[str]:  # noqa: N802
+        return list(self._names)
+
+    def nameOf(self, w: QWidget) -> str | None:  # noqa: N802
+        idx = self.indexOf(w)
+        if 0 <= idx < len(self._names):
+            return self._names[idx]
+        return None
+
+    # ── QTabWidget back-compat shims ──────────────────────────────────────
+    def tabText(self, i: int) -> str:  # noqa: N802
+        if 0 <= i < len(self._names):
+            return self._names[i]
+        return ""
+
+    def select_by_text(self, name: str) -> bool:
+        return self.setCurrentByName(name)
+
+    def _emit_name(self, idx: int) -> None:
+        if 0 <= idx < len(self._names):
+            self.currentNameChanged.emit(self._names[idx])
 
 
 class _GroupedTabBar(QTabBar):
@@ -165,30 +231,14 @@ def build_centre(app, parent: QWidget) -> None:
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
 
-    app._notebook = QTabWidget(parent)
+    # Phase 15: the centre is a NamedPageStack (QStackedWidget subclass) —
+    # the rail nav on the left drives currentIndex externally, and downstream
+    # callers reach pages via currentName() / setCurrentByName() / pageNames().
+    # The QTabWidget back-compat shims (tabText, select_by_text) remain
+    # during the staged caller migration; commit 5 removes the now-unused ones.
+    app._notebook = NamedPageStack(parent)
     app._notebook.setObjectName("CentreTabs")
-    app._notebook.setMovable(False)
-    app._notebook.setUsesScrollButtons(False)
-    app._notebook.setElideMode(Qt.ElideNone)
-    custom_tabbar = _GroupedTabBar(app._notebook)
-    custom_tabbar.setUsesScrollButtons(False)
-    custom_tabbar.setExpanding(False)
-    custom_tabbar.setElideMode(Qt.ElideNone)
-    app._notebook.setTabBar(custom_tabbar)
-    # Phase 10 (A1): the section tabs migrate into the left rail's RailNav.
-    # We keep the QTabWidget as the page host (so every call site that uses
-    # tabText / setCurrentIndex / currentChanged still works) but hide its
-    # tab bar; the rail drives currentIndex externally.
-    custom_tabbar.setVisible(False)
-    app._notebook.setDocumentMode(True)
     layout.addWidget(app._notebook, 1)
-
-    def _select_by_text(title: str, _nb=app._notebook) -> None:
-        for i in range(_nb.count()):
-            if _nb.tabText(i) == title:
-                _nb.setCurrentIndex(i)
-                return
-    app._notebook.select_by_text = _select_by_text
 
     # Map tab title -> deferred builder. Populated below; drained after the
     # window paints. The tab-change handler also calls into this map so a
@@ -591,17 +641,14 @@ def build_centre(app, parent: QWidget) -> None:
         else:
             frame = QWidget(app._notebook)
             QVBoxLayout(frame).setContentsMargins(0, 0, 0, 0)
-        app._notebook.addTab(frame, title)
+        app._notebook.addPage(title, frame)
         tab_frames[title] = frame
         return frame
 
-    # Add tabs in group order. Track which indices start a new group, and
-    # the group's label, so the custom tab bar can paint a separator and a
-    # tiny header before them.
-    group_starts: Dict[int, str] = {}
-    for group_idx, (group_label, tabs) in enumerate(groups):
-        if group_idx > 0:
-            group_starts[app._notebook.count()] = group_label
+    # Add tabs in group order. The tab bar / group separator chrome retired
+    # in Phase 15 — RailNav (in the left sidebar) is now the only section
+    # selector, so group_starts is unused at the view layer.
+    for group_idx, (_group_label, tabs) in enumerate(groups):
         for tab_idx_in_group, (title, builder) in enumerate(tabs):
             _new_tab(title)
             if group_idx == 0 and tab_idx_in_group == 0:
@@ -615,17 +662,12 @@ def build_centre(app, parent: QWidget) -> None:
     # eager attribute set so external references keep resolving).
     app._batch_export_tab_frame = tab_frames["Batch Export"]
 
-    custom_tabbar.set_group_starts(group_starts)
-    if groups:
-        custom_tabbar.set_first_group_label(groups[0][0])
-
     app._notebook.setCurrentIndex(0)
 
     def _on_tab_change(_i: int = 0) -> None:
         # Force-build the tab the user just switched to if it hasn't been
         # built yet, so click-before-build never shows a blank tab body.
-        idx = app._notebook.currentIndex()
-        title = app._notebook.tabText(idx) if idx >= 0 else ""
+        title = app._notebook.currentName()
         if title in pending:
             _build_pending(title)
         app._on_tab_change(None)

@@ -1,6 +1,6 @@
 # Phase 15 — Retire the legacy `app._notebook` QTabWidget
 
-**Status:** ⏳ PENDING
+**Status:** 🚧 IN PROGRESS — commit 1 landed (outer `_notebook` swapped to `NamedPageStack`).
 **Target branch:** `claude/analyze-repo-structure-2uEVQ`
 **Owner doc:** referenced from `design/PROJECT_STATUS.md` phase table.
 
