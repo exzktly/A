@@ -195,9 +195,30 @@ def build_cell_gating_tab(app, parent: QWidget) -> None:
     ar.addStretch(1)
     cf_layout.addWidget(area_row)
 
-    title = QLabel("FluorGating (Cell Inclusion)", control_frame)
+    title_row = QWidget(control_frame)
+    tr = QHBoxLayout(title_row)
+    tr.setContentsMargins(0, 0, 0, 0)
+    title = QLabel("FluorGating (Cell Inclusion)", title_row)
     title.setProperty("role", "section")
-    cf_layout.addWidget(title)
+    tr.addWidget(title)
+    tr.addStretch(1)
+    # Auto-threshold all channels: runs the same Otsu pass the pipeline's
+    # final stage executes (well_viewer.auto_threshold) and writes the
+    # results into the FluorGating edits for every loaded channel. Status
+    # messages stream to the log drawer via the standard logger.
+    from PySide6.QtWidgets import QPushButton as _QPushButton
+    auto_btn = _QPushButton("Auto-threshold all channels", title_row)
+    auto_btn.setProperty("variant", "secondary")
+    auto_btn.setToolTip(
+        "Compute a default FluorGating threshold per channel via Otsu on "
+        "a per-cell + matched-background-pixel distribution sampled from "
+        "the first, middle, and last timepoint of every FOV.\n\n"
+        "Progress + per-channel results are written to the log drawer."
+    )
+    auto_btn.clicked.connect(lambda _=False: cell_gating_auto_threshold(app))
+    tr.addWidget(auto_btn)
+    app._cell_gating_auto_btn = auto_btn
+    cf_layout.addWidget(title_row)
 
     app._cell_gating_scroll = QScrollArea(control_frame)
     app._cell_gating_scroll.setWidgetResizable(True)
@@ -368,6 +389,144 @@ def cell_gating_start_gating_worker(app) -> None:
         bar.setRange(0, max(1, len(app._well_paths)))
         bar.setValue(0)
         bar.show()
+    worker.start()
+
+
+class _AutoThresholdWorker(QThread):
+    """Run :func:`well_viewer.auto_threshold.compute_auto_thresholds` on a
+    background thread so the GUI stays responsive while images load.
+
+    Emits one ``progress(str)`` per logged status line plus a final
+    ``done(dict)`` with the computed ``{channel: threshold}`` map (empty
+    if nothing was sampled). On failure, ``failed(str)`` carries the
+    exception message; ``done`` is still emitted with ``{}`` so callers
+    can re-enable the trigger button.
+    """
+
+    progress = Signal(str)
+    done = Signal(object)        # Dict[str, float]
+    failed = Signal(str)
+
+    def __init__(self, app, out_dir, channels, parent=None) -> None:
+        super().__init__(parent)
+        self._app = app
+        self._out_dir = out_dir
+        self._channels = list(channels)
+
+    def run(self) -> None:  # noqa: D401 - QThread override
+        try:
+            from well_viewer.auto_threshold import compute_auto_thresholds
+            result = compute_auto_thresholds(
+                self._out_dir,
+                fluor_channels=self._channels,
+                progress=lambda msg: self.progress.emit(str(msg)),
+            )
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            self.done.emit({})
+            return
+        self.done.emit(result or {})
+
+
+def cell_gating_auto_threshold(app) -> None:
+    """Kick off the Auto-threshold pass for every loaded fluorescence channel.
+
+    Mirrors what the ``process_microscopy_v2`` pipeline runs as its final
+    step: per-cell mean + matched random background pixel pooled across
+    every well's first/middle/last timepoint, then Otsu. The result lands
+    in ``app._cell_gating_fluor_gate_edits`` and is persisted to
+    ``pipeline_info.json`` so the next load picks the new defaults up.
+
+    Status streams to the log drawer via the standard logging API (the
+    ``logging.Handler`` installed by ``all_well._attach_log_ring_buffer``
+    captures every record).
+    """
+    if not hasattr(app, "_cell_gating_fluor_gate_edits"):
+        return
+    out_dir = getattr(app, "_data_dir", None)
+    if not out_dir:
+        try:
+            app._set_status(
+                "Auto-threshold: load a dataset first."
+            )
+        except Exception:
+            pass
+        return
+    channels = [str(ch).strip().lower() for ch in (getattr(app, "_fluor_channels", []) or []) if str(ch).strip()]
+    if not channels:
+        try:
+            app._set_status(
+                "Auto-threshold: no fluorescence channels detected in the loaded dataset."
+            )
+        except Exception:
+            pass
+        return
+    # Stop any previous worker still running.
+    prev = getattr(app, "_cell_gating_auto_worker", None)
+    if prev is not None and prev.isRunning():
+        try:
+            prev.wait(50)
+        except Exception:
+            pass
+    btn = getattr(app, "_cell_gating_auto_btn", None)
+    if btn is not None:
+        btn.setEnabled(False)
+        btn.setText("Auto-thresholding…")
+
+    def _on_progress(msg: str) -> None:
+        try:
+            app._set_status(msg)
+        except Exception:
+            pass
+
+    def _on_done(result) -> None:
+        if btn is not None:
+            btn.setEnabled(True)
+            btn.setText("Auto-threshold all channels")
+        if not isinstance(result, dict) or not result:
+            try:
+                app._set_status(
+                    "Auto-threshold finished — no thresholds were updated."
+                )
+            except Exception:
+                pass
+            return
+        edits = app._cell_gating_fluor_gate_edits or {}
+        written: list[str] = []
+        for ch, thr in result.items():
+            edit = edits.get(ch)
+            if edit is None:
+                continue
+            try:
+                edit.setText(f"{float(thr):.4g}")
+                written.append(f"{ch.upper()}={float(thr):.4g}")
+            except Exception:
+                continue
+        # Persist + re-render the CDF + kick the gating worker exactly as
+        # the user typing a new threshold would.
+        try:
+            cell_gating_on_gating_change(app)
+        except Exception:
+            pass
+        try:
+            app._set_status(
+                "Auto-threshold updated " + ", ".join(written) if written
+                else "Auto-threshold finished — no FluorGating edits were touched."
+            )
+        except Exception:
+            pass
+
+    def _on_failed(msg: str) -> None:
+        try:
+            app._set_status(f"Auto-threshold failed: {msg}")
+        except Exception:
+            pass
+
+    worker = _AutoThresholdWorker(app, out_dir, channels)
+    worker.progress.connect(_on_progress)
+    worker.done.connect(_on_done)
+    worker.failed.connect(_on_failed)
+    app._cell_gating_auto_worker = worker
     worker.start()
 
 

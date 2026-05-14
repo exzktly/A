@@ -2815,6 +2815,32 @@ def main() -> None:
         log.info("Per-well CSVs written to: %s", output_dir)
         log.info("=" * 60)
 
+    # Auto-threshold pass: now that every well has been processed and the
+    # output zips + pipeline_info sidecar are on disk, compute a default
+    # FluorGating threshold per channel via Otsu on a balanced per-cell /
+    # background-pixel distribution. The result lands in
+    # ``pipeline_info.json``'s ``cell_gating.fluor_gates`` block and the
+    # Cell Gating tab picks it up the next time the dataset is loaded.
+    try:
+        from well_viewer.auto_threshold import (
+            apply_auto_thresholds_to_pipeline_info as _apply_auto_thresholds,
+        )
+        written = _apply_auto_thresholds(
+            output_dir,
+            fluor_channels=fluor_tokens_for_quant,
+            progress=lambda msg: log.info("%s", msg),
+        )
+        if written:
+            log.info(
+                "Auto-threshold defaults written for %d channel(s): %s",
+                len(written),
+                ", ".join(f"{ch.upper()}={v:.4g}" for ch, v in written.items()),
+            )
+        else:
+            log.info("Auto-threshold pass produced no new defaults.")
+    except Exception as exc:
+        log.warning("Auto-threshold pass failed: %s", exc)
+
 
 if __name__ == "__main__":
     main()

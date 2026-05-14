@@ -1,0 +1,423 @@
+"""Auto-threshold default cell-gating values via Otsu on a balanced
+per-cell / background-pixel distribution.
+
+The Cell Gating tab lets the user set a per-channel FluorGating
+threshold — every cell whose mean intensity sits below it is excluded
+from the analysis. Picking a good default for that threshold by hand
+is tedious, so this module derives one automatically:
+
+1. For every loaded well, list the available timepoints (sorted
+   chronologically) and pick the **first**, **middle**, and **last**.
+2. For each of those (FOV, timepoint) pairs and each fluorescence
+   channel, load the segmentation mask and the (tophat-corrected)
+   fluorescence image.
+3. For every cell in the image, compute its mean intensity and pick
+   *one* random pixel that lies outside any cell. The pair contributes
+   one "on-cell" value and one "off-cell" value to the channel's
+   pooled distribution.
+4. Run Otsu's method on each channel's distribution. The threshold
+   value naturally separates background-pixel intensities from
+   cell-mean intensities and is returned as the channel default.
+
+Two entry points share the algorithm:
+
+* :func:`compute_auto_thresholds` — pure-Python helper that walks an
+  on-disk results directory. Called from the end of the
+  ``process_microscopy_v2`` pipeline and from the runtime Cell Gating
+  tab's "Auto-threshold" button.
+* :func:`apply_auto_thresholds_to_pipeline_info` — convenience that
+  computes the thresholds and merges them into ``pipeline_info.json``
+  via the existing :mod:`well_viewer.gating_state` writer.
+
+Logging
+-------
+The module uses ``logging.getLogger("well_viewer.auto_threshold")``.
+The runtime app's log drawer (``all_well._attach_log_ring_buffer``)
+already captures every logger record, so streaming progress messages
+to the drawer is free — callers don't have to pass a logger in.
+"""
+
+from __future__ import annotations
+
+import logging
+import random
+import re
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
+
+import numpy as np
+
+
+logger = logging.getLogger("well_viewer.auto_threshold")
+
+
+# Per-image cell cap. Large fields of view can hold thousands of nuclei;
+# sampling a few hundred per image is plenty for a stable Otsu estimate
+# and keeps the runtime bounded.
+DEFAULT_CELLS_PER_IMAGE_CAP = 800
+
+
+# ── Timepoint helpers ──────────────────────────────────────────────────────
+
+
+def _parse_tp_hours(tp: str) -> Optional[float]:
+    """Mirror of ``well_viewer.data_loading.parse_timepoint_hours`` without
+    pulling in the GUI module. Recognises ``"01d02h30m"`` / ``"48h"`` /
+    ``"2d"`` / ``"30m"`` / plain numerics. Returns ``None`` when nothing
+    parseable is found."""
+    s = str(tp or "").strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    total = 0.0
+    matched = False
+    for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([dhms])", s, flags=re.IGNORECASE):
+        matched = True
+        v = float(value)
+        u = unit.lower()
+        if u == "d":
+            total += v * 24.0
+        elif u == "h":
+            total += v
+        elif u == "m":
+            total += v / 60.0
+        elif u == "s":
+            total += v / 3600.0
+    if matched:
+        return total
+    m = re.search(r"\d+", s)
+    if m:
+        try:
+            return float(int(m.group(0)))
+        except ValueError:
+            return None
+    return None
+
+
+def _pick_endpoint_timepoints(tps: Iterable[str]) -> List[str]:
+    """Return *up to* three timepoints from *tps*: first, middle, last
+    (chronologically). Drops duplicates so a movie with one or two
+    timepoints still works."""
+    sorted_tps = sorted(
+        set(tps),
+        key=lambda t: (_parse_tp_hours(t) is None, _parse_tp_hours(t) or 0.0, t),
+    )
+    if not sorted_tps:
+        return []
+    if len(sorted_tps) <= 2:
+        return sorted_tps
+    mid = sorted_tps[len(sorted_tps) // 2]
+    picked: List[str] = []
+    for tp in (sorted_tps[0], mid, sorted_tps[-1]):
+        if tp not in picked:
+            picked.append(tp)
+    return picked
+
+
+# ── Image loading ──────────────────────────────────────────────────────────
+
+
+def _open_image_at(ref) -> Optional[np.ndarray]:
+    """Open an ``ImgRef`` (disk or zip member) as a 2-D numpy array."""
+    if ref is None:
+        return None
+    try:
+        from well_viewer.image_discovery import open_imgref_as_array
+        arr = open_imgref_as_array(ref, greyscale=False)
+    except Exception as exc:
+        logger.debug("auto_threshold: failed to open image %r: %s", ref, exc)
+        return None
+    if arr is None:
+        return None
+    arr = np.asarray(arr)
+    if arr.ndim == 3:
+        # Multi-channel — collapse to the first channel as a fallback;
+        # the pipeline writes single-channel tophat TIFs so this branch
+        # is mostly defensive.
+        arr = arr[..., 0]
+    return arr
+
+
+# ── Core sampling ──────────────────────────────────────────────────────────
+
+
+def _sample_cell_and_bg(
+    labels: np.ndarray,
+    fluor: np.ndarray,
+    *,
+    cap: int,
+    rng: random.Random,
+) -> Tuple[List[float], List[float]]:
+    """Return ``(cell_means, bg_pixels)`` sampled from one image.
+
+    For every distinct cell label in ``labels`` (excluding background
+    ``0``), one entry is added to ``cell_means`` (the mean ``fluor``
+    inside that cell). A matched random background pixel is added to
+    ``bg_pixels``. Each list is capped to ``cap`` entries so we don't
+    blow up memory on very dense fields.
+    """
+    if labels.shape != fluor.shape:
+        return [], []
+    flat_labels = labels.ravel()
+    flat_fluor = fluor.ravel().astype(np.float64, copy=False)
+    nonzero = flat_labels > 0
+    if not nonzero.any():
+        return [], []
+    bg_indices = np.flatnonzero(~nonzero)
+    if bg_indices.size == 0:
+        return [], []
+
+    # Bincount-based per-label sums → per-label means.
+    n_labels = int(flat_labels.max()) + 1
+    sums = np.bincount(flat_labels, weights=flat_fluor, minlength=n_labels)
+    counts = np.bincount(flat_labels, minlength=n_labels)
+    valid = np.arange(1, n_labels)
+    valid_counts = counts[1:]
+    keep = valid_counts > 0
+    valid = valid[keep]
+    if valid.size == 0:
+        return [], []
+    means = (sums[valid] / counts[valid]).astype(np.float64)
+
+    if means.size > cap:
+        idx = np.array(rng.sample(range(means.size), cap), dtype=np.int64)
+        means = means[idx]
+
+    n = int(means.size)
+    bg_pick = rng.choices(bg_indices.tolist(), k=n)
+    bg_values = flat_fluor[np.asarray(bg_pick, dtype=np.int64)]
+    return means.tolist(), bg_values.tolist()
+
+
+# ── Walk the output dir ────────────────────────────────────────────────────
+
+
+def _iter_well_zips(out_dir: Path) -> List[Path]:
+    """Return the ``<WELL>_out.zip`` files in *out_dir*, sorted by name."""
+    out: List[Path] = []
+    for p in sorted(out_dir.glob("*_out.zip")):
+        if p.name.startswith("."):
+            continue
+        out.append(p)
+    return out
+
+
+def _scan_well_images(
+    zip_path: Path,
+    fluor_token: str,
+    pipeline_info: Optional[dict],
+):
+    """Wrapper around ``well_viewer.image_discovery.scan_zip_members`` that
+    returns the mask + tophat_fluor dicts for one well + one channel."""
+    from well_viewer.image_discovery import scan_zip_members
+    _g, _ov, mask, tophat, _sm = scan_zip_members(
+        zip_path,
+        fluor_token.lower(),
+        _pipeline_info=pipeline_info,
+    )
+    return mask, tophat
+
+
+def _read_pipeline_info(out_dir: Path) -> Optional[dict]:
+    """Load ``pipeline_info.json`` from *out_dir* (or its parent) if present."""
+    import json
+    for candidate in (out_dir / "pipeline_info.json",
+                      out_dir.parent / "pipeline_info.json"):
+        try:
+            if candidate.exists():
+                data = json.loads(candidate.read_text())
+                if isinstance(data, dict):
+                    return data
+        except Exception as exc:
+            logger.warning("auto_threshold: could not read %s: %s",
+                           candidate, exc)
+    return None
+
+
+# ── Public API ─────────────────────────────────────────────────────────────
+
+
+def compute_auto_thresholds(
+    out_dir: Path,
+    *,
+    fluor_channels: Iterable[str],
+    cells_per_image_cap: int = DEFAULT_CELLS_PER_IMAGE_CAP,
+    progress: Optional[Callable[[str], None]] = None,
+    rng_seed: Optional[int] = None,
+) -> Dict[str, float]:
+    """Compute the auto-threshold per channel by Otsu on a per-cell + bg
+    distribution sampled from the first / middle / last timepoint of every
+    FOV in every loaded well.
+
+    Returns a dict ``{channel: threshold}``. Channels that produced no
+    samples (e.g. no masks loaded) are omitted from the result.
+
+    ``progress`` is invoked with human-readable status strings so the
+    caller (the Cell Gating tab) can stream them to the log drawer. The
+    module-level logger receives the same strings.
+    """
+    channels = [str(ch).strip().lower() for ch in fluor_channels if str(ch).strip()]
+    if not channels:
+        return {}
+
+    out_dir = Path(out_dir)
+    if not out_dir.exists():
+        return {}
+
+    try:
+        from skimage.filters import threshold_otsu as _threshold_otsu
+    except Exception as exc:  # noqa: BLE001 - third party guard
+        msg = f"auto_threshold: skimage.filters.threshold_otsu unavailable: {exc}"
+        logger.error(msg)
+        if progress is not None:
+            progress(msg)
+        return {}
+
+    pipeline_info = _read_pipeline_info(out_dir)
+    well_zips = _iter_well_zips(out_dir)
+    if not well_zips:
+        msg = f"auto_threshold: no processed wells in {out_dir}"
+        logger.info(msg)
+        if progress is not None:
+            progress(msg)
+        return {}
+
+    rng = random.Random(rng_seed)
+    per_channel: Dict[str, List[float]] = {ch: [] for ch in channels}
+
+    def _emit(msg: str) -> None:
+        logger.info(msg)
+        if progress is not None:
+            try:
+                progress(msg)
+            except Exception:
+                pass
+
+    _emit(f"Auto-threshold: scanning {len(well_zips)} well(s) for "
+          f"channels: {', '.join(channels)}")
+
+    for zw_idx, zip_path in enumerate(well_zips, start=1):
+        # Pick first / middle / last timepoints — use the mask coverage of
+        # the first channel as the reference TP set; every channel has the
+        # same FOV/TP geometry.
+        try:
+            ref_mask, _ = _scan_well_images(zip_path, channels[0], pipeline_info)
+        except Exception as exc:
+            logger.warning("auto_threshold: skipping %s — scan failed: %s",
+                           zip_path.name, exc)
+            continue
+        if not ref_mask:
+            continue
+        all_tps = {tp for (_fov, tp) in ref_mask.keys()}
+        pick_tps = _pick_endpoint_timepoints(all_tps)
+        if not pick_tps:
+            continue
+        _emit(f"Auto-threshold: {zip_path.name} → timepoints "
+              f"{', '.join(pick_tps)}")
+
+        for ch in channels:
+            try:
+                mask_refs, fluor_refs = _scan_well_images(zip_path, ch, pipeline_info)
+            except Exception as exc:
+                logger.warning("auto_threshold: %s ch=%s scan failed: %s",
+                               zip_path.name, ch, exc)
+                continue
+            if not mask_refs or not fluor_refs:
+                continue
+            for (fov, tp), mask_ref in mask_refs.items():
+                if tp not in pick_tps:
+                    continue
+                fluor_ref = fluor_refs.get((fov, tp))
+                if fluor_ref is None:
+                    continue
+                labels = _open_image_at(mask_ref)
+                fluor = _open_image_at(fluor_ref)
+                if labels is None or fluor is None:
+                    continue
+                cell_means, bg_values = _sample_cell_and_bg(
+                    labels, fluor, cap=cells_per_image_cap, rng=rng,
+                )
+                if not cell_means:
+                    continue
+                per_channel[ch].extend(cell_means)
+                per_channel[ch].extend(bg_values)
+        _emit(f"Auto-threshold: completed well "
+              f"{zw_idx}/{len(well_zips)} ({zip_path.name})")
+
+    thresholds: Dict[str, float] = {}
+    for ch in channels:
+        values = per_channel.get(ch) or []
+        if len(values) < 2:
+            _emit(f"Auto-threshold: skipping {ch.upper()} — only "
+                  f"{len(values)} sample(s).")
+            continue
+        arr = np.asarray(values, dtype=np.float64)
+        # Otsu fails on a constant array; guard.
+        if arr.max() <= arr.min():
+            _emit(f"Auto-threshold: skipping {ch.upper()} — constant "
+                  f"distribution (min == max == {arr.min():.3g}).")
+            continue
+        try:
+            thr = float(_threshold_otsu(arr))
+        except Exception as exc:
+            _emit(f"Auto-threshold: Otsu failed for {ch.upper()}: {exc}")
+            continue
+        thresholds[ch] = thr
+        _emit(f"Auto-threshold: {ch.upper()} → {thr:.4g} "
+              f"(n={arr.size})")
+
+    return thresholds
+
+
+def apply_auto_thresholds_to_pipeline_info(
+    out_dir: Path,
+    *,
+    fluor_channels: Iterable[str],
+    progress: Optional[Callable[[str], None]] = None,
+    overwrite_existing: bool = False,
+) -> Dict[str, float]:
+    """Compute the auto-thresholds for *out_dir* and merge them into the
+    ``pipeline_info.json`` cell-gating block.
+
+    When ``overwrite_existing`` is False (default), channels that already
+    have a non-default FluorGating value persisted are left alone so a
+    user-curated threshold isn't silently overwritten.
+
+    Returns the dict of values that were actually written.
+    """
+    from well_viewer.gating_state import (
+        build_gating_block,
+        read_gating_params,
+        save_gating_to_pipeline_info,
+    )
+
+    out_dir = Path(out_dir)
+    computed = compute_auto_thresholds(
+        out_dir,
+        fluor_channels=fluor_channels,
+        progress=progress,
+    )
+    if not computed:
+        return {}
+
+    existing = read_gating_params(out_dir) or {}
+    existing_fluor = dict(existing.get("fluor_gates") or {})
+    existing_tfo = dict(existing.get("thresh_frac_on") or {})
+    existing_area = float(existing.get("cell_area_threshold") or 0.0)
+
+    written: Dict[str, float] = {}
+    for ch, thr in computed.items():
+        if not overwrite_existing and ch in existing_fluor:
+            continue
+        existing_fluor[ch] = float(thr)
+        written[ch] = float(thr)
+
+    if not written:
+        return {}
+
+    block = build_gating_block(existing_area, existing_fluor, existing_tfo)
+    save_gating_to_pipeline_info(out_dir, block)
+    return written
