@@ -1,7 +1,7 @@
 """Pure logic + I/O helpers for the smFISH tab.
 
 Holds the image-reference dataclass, member classifier, and zip scanning so
-the SmfishTab QWidget only handles GUI work.
+``well_viewer/tabs/smfish_tab_view.py`` only handles GUI work.
 """
 
 from __future__ import annotations

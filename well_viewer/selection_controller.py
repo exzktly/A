@@ -38,8 +38,8 @@ def _refresh_after_selection_change(app) -> None:
     elif tab == "Review CSV":
         app._refresh_review_csv()
     elif tab == "smFISH":
-        if hasattr(app, "_smfish_tab"):
-            app._smfish_tab.sync_from_app()
+        from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
+        smfish_sync_from_app(app)
     elif tab == "Sample Definitions":
         # Cell Gating is a sub-tab here; refresh its CDF if the user has
         # opened it at least once.

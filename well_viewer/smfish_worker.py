@@ -1,8 +1,8 @@
 """Background worker that applies a global smFISH threshold across all wells.
 
 Runs in a daemon thread; never touches Qt directly. Status updates are
-delivered through the ``status_cb`` and ``done_cb`` callables (the SmfishTab
-hands in functions that emit Qt signals).
+delivered through the ``status_cb`` and ``done_cb`` callables (the smFISH
+tab builder hands in functions that emit Qt signals).
 """
 
 from __future__ import annotations

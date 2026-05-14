@@ -4893,8 +4893,8 @@ class WellViewerApp(QWidget):
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
             self._refresh_sidebar_map()
-            if hasattr(self, "_smfish_tab"):
-                self._smfish_tab.sync_from_app()
+            from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
+            smfish_sync_from_app(self)
 
         elif tab == "Cell Gating":
             self._sidebar_main_frame.setVisible(True)

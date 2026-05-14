@@ -446,10 +446,8 @@ def build_centre(app, parent: QWidget) -> None:
         app._build_review_image_panel(tab_frames["Segmentation"])
 
     def _build_smfish() -> None:
-        from well_viewer.smfish_tab import SmfishTab
-        frame = tab_frames["smFISH"]
-        app._smfish_tab = SmfishTab(frame, app=app)
-        frame.layout().addWidget(app._smfish_tab)
+        from well_viewer.tabs.smfish_tab_view import build_smfish_tab
+        build_smfish_tab(app, tab_frames["smFISH"])
 
     def _build_stats() -> None:
         app._build_stats_tab(tab_frames["Statistics"])
