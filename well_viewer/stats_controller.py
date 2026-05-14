@@ -250,11 +250,19 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         app._stats_write_result("scipy is required.\nInstall with: pip install scipy")
         return
 
-    sample_units = (
-        "per-cell values"
-        if is_ks
-        else ("per-FOV samples" if any(len([w for w in g.wells if w in app._well_paths]) == 1 for g in groups) else "per-well samples")
-    )
+    # Detect solo-well groups (variance computed across FOVs because there's
+    # only one well per "group") so the output can note the change in unit
+    # of replication.
+    solo_groups = [
+        g.name for g in groups
+        if len([w for w in g.wells if w in app._well_paths]) == 1
+    ]
+    if is_ks:
+        sample_units = "per-cell values"
+    elif solo_groups:
+        sample_units = "per-FOV samples (solo-well groups — see note below)"
+    else:
+        sample_units = "per-well samples"
     header_lines: List[str] = [
         f"Test:       {test}",
         f"Channel:    {channel_lbl}",
@@ -264,6 +272,12 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
         f"Samples:    {sample_units}",
         "",
     ]
+    if solo_groups and not is_ks:
+        header_lines.insert(-1,
+            "Note:       solo-well group(s) " + ", ".join(solo_groups)
+            + " — variance computed across FOVs (one sample per FOV) since "
+            "no replicate wells were defined for them.")
+        header_lines.insert(-1, "")
     lines: List[str] = list(header_lines)
     for name_a, vals_a in group_vals:
         if not vals_a:

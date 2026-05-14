@@ -248,11 +248,10 @@ class AllWellApp(QMainWindow):
             sb_layout.addWidget(l)
             sb_layout.addWidget(_KbdHint(hint))
             sb_layout.addSpacing(theme_v2.Spacing.xs)
-        self._log_tray_btn = IconButton("terminal-square")
-        self._log_tray_btn.setText("  Log")
-        self._log_tray_btn.setToolTip("Open the log drawer")
-        self._log_tray_btn.clicked.connect(self._toggle_log_drawer)
-        sb_layout.addWidget(self._log_tray_btn)
+        # "Open Application Log" / "Log" tray button removed per
+        # redesign-bug-batch-2 — the button affordance is gone; the
+        # _toggle_log_drawer implementation stays in place for any other
+        # entry point or future re-introduction.
         statusbar.setStyleSheet(
             f"#StatusBar {{ background-color: {theme_v2.Colors.titlebar}; "
             f"border-top: 1px solid {theme_v2.Colors.border_subtle}; }}"
@@ -504,6 +503,15 @@ class AllWellApp(QMainWindow):
                 "help drawer.<br><br>"
                 "<b>Style panel</b> — the per-card sliders button on every "
                 "plot opens the export-style sidebar; click again to hide.<br><br>"
+                "<b>Keyboard shortcuts</b><br>"
+                "<tt>⌘O</tt> / <tt>Ctrl+O</tt> — Open results directory<br>"
+                "<tt>⌘K</tt> / <tt>Ctrl+K</tt> — Focus the Properties rail's "
+                "search input (opens the rail if collapsed)<br>"
+                "<tt>⌘E</tt> / <tt>Ctrl+E</tt> — Export the active figure "
+                "(drives the visible plot card's save-figure action)<br>"
+                "<tt>⌘W</tt> / <tt>Ctrl+W</tt> — Close window<br><br>"
+                "Inside the Properties rail's search box, typing filters "
+                "the visible sections live; <tt>Esc</tt> clears the filter.<br><br>"
                 "For the full design notes see <tt>design/PORT_PLAN.md</tt>."
             )
             cl.addWidget(body)

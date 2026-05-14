@@ -972,8 +972,11 @@ class WellViewerApp(QWidget):
         outer.addWidget(self._h_pane, 1)
 
         sidebar = QWidget()
-        sidebar.setMinimumWidth(400)  # Q9: mockup 260 widened to 400 for plate breathing room
-        sidebar.setMaximumWidth(600)
+        # Review sidebar width reduced 25% (400→300 min, 600→450 max) per
+        # redesign-bug-batch-2: the plate map needs less breathing room than
+        # the original 400-px reservation; freed pixels go to the canvas.
+        sidebar.setMinimumWidth(300)
+        sidebar.setMaximumWidth(450)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)

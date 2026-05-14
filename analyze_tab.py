@@ -149,7 +149,9 @@ class AnalyzeTab(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll
-        scroll.setMinimumWidth(280)
+        # Analyze form sidebar expanded 25% (280→350) per redesign-bug-batch-2:
+        # the schema string + per-channel rows often clip at 280 px.
+        scroll.setMinimumWidth(350)
         form_host = QWidget()
         form_host
         self._form_layout = QVBoxLayout(form_host)

@@ -198,6 +198,10 @@ def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
     app._stats_canvas_widget = _StatsFCA(app._stats_fig)
     ff_l.addWidget(app._stats_canvas_widget)
     layout.addWidget(app._stats_fig_frame)
+    # Hide the figure frame until a test that actually plots (KS) is run.
+    # run_stats toggles visibility per-test; before the first run the user
+    # sees the controls + result text only, no empty canvas.
+    app._stats_fig_frame.setVisible(False)
 
     app._stats_res_frame = QWidget(parent)
     rl = QVBoxLayout(app._stats_res_frame)
