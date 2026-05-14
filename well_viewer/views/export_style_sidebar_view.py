@@ -795,7 +795,6 @@ class ExportStyleSidebar(QWidget):
             if pdf_bytes is not None:
                 wrote_pdf_native = write_vector_pdf_pasteboard(
                     pdf_bytes=pdf_bytes,
-                    png_bytes=png_bytes,
                 )
 
             if not wrote_pdf_native:
