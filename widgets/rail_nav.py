@@ -76,6 +76,8 @@ class _RailNavRow(QFrame):
         # property selector ``[active="true"]``.
         self._strip = QFrame(self)
         self._strip.setObjectName("RailNavRowStrip")
+        self._strip.setAttribute(Qt.WA_StyledBackground, True)
+        self._strip.setProperty("active", False)
         self._strip.setFixedWidth(2)
         outer.addWidget(self._strip, 0)
 
@@ -117,7 +119,13 @@ class _RailNavRow(QFrame):
         # descendant + property combinator is unreliable across platforms;
         # carrying the property on the body itself avoids that.
         self._body.setProperty("active", bool(on))
-        for w in (self, self._body):
+        # Carry the property on the strip too — the descendant +
+        # property combinator (``QFrame#RailNavRow[active="true"]
+        # QFrame#RailNavRowStrip``) doesn't re-evaluate reliably when
+        # the parent's property flips, leaving the previous accent bar
+        # painted on the first-clicked row.
+        self._strip.setProperty("active", bool(on))
+        for w in (self, self._body, self._strip):
             w.style().unpolish(w)
             w.style().polish(w)
         self._refresh_icon()
@@ -248,7 +256,7 @@ class RailNav(QFrame):
             background: transparent;
             border: 0;
         }}
-        QFrame#RailNavRow[active="true"] QFrame#RailNavRowStrip {{
+        QFrame#RailNavRowStrip[active="true"] {{
             background-color: {c.accent};
             border-top-right-radius: 2px;
             border-bottom-right-radius: 2px;
