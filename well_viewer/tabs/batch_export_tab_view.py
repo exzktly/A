@@ -109,6 +109,19 @@ def _show_batch_mode(app, mode: str) -> None:
     for key, panel in panels.items():
         panel.setVisible(key == mode)
 
+    # Resync the visible panel's groups from the live Sample Definitions
+    # selections. The panel's __init__ snapshots app._rep_sets_loaded(),
+    # which is empty when the user opens the line-plot sub-mode before
+    # they've defined any selections; without this refresh the line panel
+    # never picks up groups added later, while bar/scatter happened to work
+    # because they were always opened after some selections existed.
+    active_panel = panels.get(mode)
+    if active_panel is not None and hasattr(active_panel, "_sync_from_app"):
+        try:
+            active_panel._sync_from_app()
+        except Exception:
+            pass
+
     state["mode"] = mode
     _refresh_mode_buttons(app, mode)
 
