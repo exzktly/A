@@ -228,8 +228,15 @@ def smfish_sync_from_app(app) -> None:
     if out_dir is None:
         _smfish_set_status(app, "No output loaded.")
         return
+    info_path = out_dir / "pipeline_info.json"
+    if not info_path.exists():
+        app._smfish_out_dir = out_dir
+        app._smfish_tokens = []
+        app._smfish_well_to_zip = {}
+        app._smfish_fov_tp_extractor = None
+        _smfish_show_no_smfish_state(app)
+        return
     try:
-        info_path = out_dir / "pipeline_info.json"
         info = json.loads(info_path.read_text())
         app._smfish_tokens = [
             str(t).strip() for t in info.get("smfish_tokens", []) if str(t).strip()
@@ -245,14 +252,18 @@ def smfish_sync_from_app(app) -> None:
         else:
             app._smfish_fov_tp_extractor = None
     except Exception as exc:
-        QMessageBox.critical(app._smfish_frame, "Invalid pipeline_info.json", str(exc))
+        logger.warning("Could not parse %s: %s", info_path, exc)
+        app._smfish_out_dir = out_dir
+        app._smfish_tokens = []
+        app._smfish_well_to_zip = {}
+        app._smfish_fov_tp_extractor = None
+        _smfish_show_no_smfish_state(app)
         return
 
     app._smfish_out_dir = out_dir
 
     if not app._smfish_tokens:
-        # The pipeline run produced no smFISH channels — surface that
-        # explicitly instead of leaving the user with empty dropdowns.
+        app._smfish_well_to_zip = {}
         _smfish_show_no_smfish_state(app)
         return
 
