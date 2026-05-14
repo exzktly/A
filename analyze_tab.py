@@ -924,7 +924,18 @@ class AnalyzeTab(QWidget):
         elapsed = _time.monotonic() - started
         if elapsed <= 0.0:
             return
-        remaining = elapsed / done * (total - done)
+        # Compute the per-well wall-clock time in isolation, then divide
+        # the remaining work by the parallel worker count. With ``W``
+        # workers each running a single well at a time and each well
+        # taking ``t`` seconds in isolation, ``done`` wells take
+        # ``done / W * t`` wall-clock seconds, so observed elapsed ÷ done
+        # × W is a stable estimate of ``t`` once at least ``W`` wells
+        # have finished. Falling back to 1 keeps single-worker runs
+        # behaving as the original "remaining × elapsed / done" formula.
+        workers = max(1, int(getattr(self, "_pipeline_workers", 1) or 1))
+        per_well_isolation = (elapsed * workers) / done
+        remaining_wells = total - done
+        remaining = (remaining_wells * per_well_isolation) / workers
 
         def _fmt(secs: float) -> str:
             secs = int(round(max(0.0, secs)))
@@ -999,6 +1010,10 @@ class AnalyzeTab(QWidget):
                     # isn't biased by the (typically short) grouping phase.
                     self._pipeline_started_at = _time.monotonic()
                 elif kind == "workers":
+                    try:
+                        self._pipeline_workers = max(1, int(payload))
+                    except (TypeError, ValueError):
+                        self._pipeline_workers = 1
                     self._log_line(f"[info] Workers: {payload} parallel well(s).\n", "INFO")
                 elif kind == "done":
                     self._progress.setValue(self._progress.maximum() or 100)
