@@ -781,6 +781,14 @@ class SavedSelectionsList(QWidget):
             self._composable = False
         for row in self._rows.values():
             row.setCompact(on)
+        # The "From selection" / "Import…" footer buttons exist to manage
+        # the editable list in Sample Definitions; in the left rail's
+        # read-only mirror they're noise.
+        try:
+            self._from_btn.setVisible(not on)
+            self._import_btn.setVisible(not on)
+        except Exception:
+            pass
 
     def isCompact(self) -> bool:
         return self._compact
