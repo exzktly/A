@@ -381,21 +381,39 @@ def image_table_rebuild_grid(app) -> None:
     image_table_rebuild_lut_row(app)
 
 
-def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
-    """Return the (r, g, b) tint for row *r*, or None for grayscale.
+def _row_cmap_name(app, r: int) -> Optional[str]:
+    """Return the mpl colormap name for row *r*, or None when the row is
+    set to ``Greys`` (untinted grayscale fast path).
 
-    The LutSelector knows the full mpl colormap catalogue (viridis / magma /
-    coolwarm / …), so when the user picks a name outside our explicit
-    ``LUT_COLORS`` table we sample the colormap's high-end colour to derive
-    a tint. ``"Greys"`` (and any LUT we explicitly mapped to ``None``) keeps
-    the untinted grayscale fast path.
+    ``make_fluor_thumb`` consumes this directly and applies the colormap
+    across the full LUT [lo, hi] range, so the rendered thumbnails match
+    the gradient shown by the LutSelector's strip — high intensity gets
+    the cmap's high-end colour, low intensity gets the low end.
     """
     cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
     if not (0 <= r < len(cbs)):
         return None
     cb = cbs[r]
-    # v2 LutSelector exposes .lut(); fall back to currentText for the
-    # legacy QComboBox path.
+    if hasattr(cb, "lut"):
+        name = (cb.lut() or "").strip()
+    else:
+        name = cb.currentText().strip()
+    if not name or name == "Greys":
+        return None
+    return name
+
+
+def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
+    """Legacy single-colour tint for row *r* (kept for export-cmap derivation).
+
+    The Image Table thumbnails now go through ``_row_cmap_name`` so the full
+    colormap maps across the LUT range; this helper still backs the export
+    figure path, which constructs a black→tint LinearSegmentedColormap.
+    """
+    cbs = getattr(app, "_image_table_row_lut_color_cbs", None) or []
+    if not (0 <= r < len(cbs)):
+        return None
+    cb = cbs[r]
     if hasattr(cb, "lut"):
         name = (cb.lut() or "").strip()
     else:
@@ -1115,7 +1133,8 @@ def image_table_generate(app) -> None:
                     pix = make_overlay_thumb(cropped, 240, 240, lo, hi)
                 else:
                     pix = make_fluor_thumb(
-                        cropped, 240, 240, lo, hi, tint=_row_tint(app, r),
+                        cropped, 240, 240, lo, hi,
+                        cmap=_row_cmap_name(app, r),
                     )
                 # CropTool needs the FULL source array + the active crop on
                 # the label so label-pixel → image-pixel coord conversion

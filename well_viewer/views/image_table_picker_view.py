@@ -20,7 +20,7 @@ def build_image_table_picker(app, parent: QWidget) -> None:
         layout = QVBoxLayout(parent)
         parent.setLayout(layout)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(2)
+    layout.setSpacing(0)
 
     plate = WellPlateSelector(parent)
     plate.setActionsVisible(False)          # the rail keeps its own All / Clear below
@@ -28,6 +28,13 @@ def build_image_table_picker(app, parent: QWidget) -> None:
     plate.setDragSelectEnabled(True)
     plate.setRowColumnSelectable(True)
     plate.setEnabledWells([])               # nothing selectable until a dataset loads
+    # Match the main sidebar plate's geometry so the picker stays in the
+    # same screen position when the user switches tabs.
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
     layout.addWidget(plate)
     app._sidebar_image_table_plate = plate
 

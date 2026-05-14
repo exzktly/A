@@ -660,6 +660,39 @@ class _PlateGrid(QWidget):
         p.setPen(QPen(with_alpha("#FFFFFF", 0.30), max(1.0, wr.width() * 0.06)))
         p.drawArc(hl, 20 * 16, 140 * 16)
 
+    def _paint_depressed(self, p: QPainter, wr: QRectF, hovered: bool) -> None:
+        """Paint an unselected well so it reads as a *recessed* circle.
+
+        Inverts the radial gradient used by ``_paint_lit`` — dark at the
+        top-left, lighter at the bottom-right — so the well looks pressed
+        into the plate rather than popping out of it.
+        """
+        c = theme.Colors
+        # Use the rail token as the recessed-fill base so the well's well
+        # tracks the surrounding plate frame and visibly sits below the
+        # panel surface.
+        base = QColor(c.rail)
+        grad = QRadialGradient(
+            wr.center().x() + wr.width() * 0.20,
+            wr.center().y() + wr.height() * 0.20,
+            wr.width() * 0.80,
+        )
+        grad.setColorAt(0.0, base.lighter(115))
+        grad.setColorAt(0.55, base)
+        grad.setColorAt(1.0, base.darker(150))
+        p.setBrush(QBrush(grad))
+        p.setPen(QPen(QColor(c.border_strong if hovered else c.border_subtle),
+                      max(1.0, wr.width() * 0.04)))
+        p.drawEllipse(wr)
+        # Subtle inner-shadow arc at the top to reinforce the recessed feel.
+        hl = QRectF(wr).adjusted(
+            wr.width() * 0.14, wr.height() * 0.10,
+            -wr.width() * 0.14, -wr.height() * 0.46,
+        )
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(with_alpha("#000000", 0.30), max(1.0, wr.width() * 0.05)))
+        p.drawArc(hl, 200 * 16, 140 * 16)
+
     def paintEvent(self, _event) -> None:  # noqa: N802
         c = theme.Colors
         traces = theme.Colors.trace
@@ -716,10 +749,7 @@ class _PlateGrid(QWidget):
                 if base is not None:
                     self._paint_lit(p, wr, base, hovered)
                 else:
-                    p.setBrush(QColor(c.hover if hovered else c.panel_elevated))
-                    p.setPen(QPen(QColor(c.border_strong if hovered else c.border),
-                                  max(1.0, wr.width() * 0.04)))
-                    p.drawEllipse(wr)
+                    self._paint_depressed(p, wr, hovered)
 
         # Rubber-band rectangle while a "rect" drag-select is in progress.
         if (self._drag_mode == "rect" and self._rect_start is not None

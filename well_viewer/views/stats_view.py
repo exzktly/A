@@ -40,6 +40,13 @@ def build_stats_group_editor(app, parent: QWidget, **_kw) -> None:
     plate.setDragSelectEnabled(True)
     plate.setRowColumnSelectable(True)
     plate.setEnabledWells([])
+    # Match the main sidebar plate's geometry so the picker stays in the
+    # same screen position when the user switches tabs.
+    plate.setMinimumHeight(280)
+    from PySide6.QtWidgets import QSizePolicy as _SizePolicy
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
+    _sp.setHeightForWidth(True)
+    plate.setSizePolicy(_sp)
     layout.addWidget(plate)
     app._stats_map_plate = plate
 

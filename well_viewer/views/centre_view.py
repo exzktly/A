@@ -291,9 +291,10 @@ def build_centre(app, parent: QWidget) -> None:
 
         arl.addStretch(1)
 
-        add_panel_btn = _IconButton("plus", text=" Add panel")
-        add_panel_btn.setToolTip("Add a subplot to the canvas (1–4 max)")
-        arl.addWidget(add_panel_btn)
+        # "+ Add panel" button retired — the underlying per-renderer
+        # multi-subplot story was never wired (the _add_panel handler
+        # just toasted a "coming soon" message), so the button only
+        # added clutter.
         config_btn = _IconButton("sliders")
         config_btn.setToolTip("Configure subplots…")
         arl.addWidget(config_btn)
@@ -326,6 +327,11 @@ def build_centre(app, parent: QWidget) -> None:
                 _build_pending(sub_title)
             app._on_tab_change(None)
             _refresh_channel_chip(sub_title)
+            try:
+                from well_viewer.views.properties_rail_view import set_properties_rail_scope
+                set_properties_rail_scope(app, sub_title)
+            except Exception:
+                pass
             if sub_seg.currentData() != sub_title:
                 blocked = sub_seg.blockSignals(True)
                 try:
@@ -373,13 +379,6 @@ def build_centre(app, parent: QWidget) -> None:
                 global_cb.blockSignals(blocked)
 
         # Wire the buttons.
-        def _add_panel() -> None:
-            # Phase 11b: route into PlotCanvas.addPanel once the shared
-            # canvas replaces the per-renderer pages.
-            app._toast("Add panel: per-renderer multi-subplot landing in "
-                       "Phase 11b.", kind="info") if hasattr(app, "_toast") else None
-        add_panel_btn.clicked.connect(_add_panel)
-
         def _config_subplots() -> None:
             # Delegate to matplotlib's built-in dialog on whichever PlotCard
             # is currently active.

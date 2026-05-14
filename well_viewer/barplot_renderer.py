@@ -365,6 +365,14 @@ def redraw_bars(app) -> None:
             apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
     ax_frac.set_ylim(-0.05, 1.05)
 
+    if not getattr(app, "_well_paths", None):
+        app._draw_bar_empty_state(
+            ax_mean, ax_frac,
+            "Load a results directory to begin.\n"
+            "Use the Open button at the top-right (⌘O) to pick a folder.",
+            ax_n=ax_n,
+        )
+        return
     if not bar_selected and not active_rsets:
         app._draw_bar_empty_state(ax_mean, ax_frac, NO_SELECTION_MSG, ax_n=ax_n)
         return

@@ -78,11 +78,18 @@ def _bind_to_prefs(app, key: str, getter, setter, change_signal):
 
     _initial()
 
+    # Prefs that only matter at save time — changing them shouldn't trigger
+    # a figure redraw / rescale on the live canvas. Adding ``format`` here
+    # fixes the bug where clicking PNG/SVG/PDF/TIFF re-rendered the plot.
+    _SAVE_ONLY_KEYS = {"format", "export_profile"}
+
     def _on_change(*_args):
         prefs = _ensure_export_style_prefs(app)
         try:
             prefs[key] = getter()
         except Exception:
+            return
+        if key in _SAVE_ONLY_KEYS:
             return
         # Apply to whichever PlotCard is currently visible. Each renderer
         # also has a per-card sidebar that mirrors the same prefs dict;
@@ -291,6 +298,59 @@ def _chips(*labels: str, default: str | None = None) -> SegmentedControl:
     return seg
 
 
+# Maps every plotting sub-tab to the names of its subplots (top → bottom).
+# Single-subplot renderers list one entry; the scope row then collapses to
+# just ``All`` (or hides entirely depending on how the caller wants it).
+_PLOT_SUBPLOTS: dict[str, list[str]] = {
+    "Line Graphs":  ["Mean", "Fraction", "CDF"],
+    "Bar Plots":    ["Mean", "Fraction", "n above"],
+    "Scatter Plot": ["Scatter"],
+    "Distribution": ["Distribution"],
+    "Heat Map":     ["Heat map"],
+}
+
+
+def set_properties_rail_scope(app, renderer: str) -> None:
+    """Repopulate the Properties rail scope SegmentedControl for *renderer*.
+
+    Drops the legacy fixed ``All / Plot 1 / Plot 2`` segments in favour of
+    the actual subplot names for the active renderer (e.g. line graphs
+    expose Mean / Fraction / CDF). Single-axes views collapse to a single
+    ``All`` segment and the row stays present but compact.
+    """
+    seg = getattr(app, "_props_scope_seg", None)
+    row = getattr(app, "_props_scope_row", None)
+    if seg is None:
+        return
+    subplots = _PLOT_SUBPLOTS.get(renderer, [])
+    blocked = seg.blockSignals(True)
+    try:
+        # Tear down the old segments by replacing the contained QButtonGroup
+        # buttons. SegmentedControl doesn't expose a public clear() so we
+        # iterate its internal _buttons list (created in __init__).
+        for btn in list(getattr(seg, "_buttons", []) or []):
+            seg._group.removeButton(btn)
+            btn.setParent(None)
+            btn.deleteLater()
+        seg._buttons = []
+        seg._data = []
+        seg._current = -1
+        if len(subplots) <= 1:
+            seg.addSegment("All", data="all")
+        else:
+            seg.addSegment("All", data="all")
+            for name in subplots:
+                seg.addSegment(name, data=name)
+        seg.setCurrentIndex(0)
+    finally:
+        seg.blockSignals(blocked)
+    if row is not None:
+        # Hide the entire scope row when there's nothing meaningful to
+        # pick — single-axes renderers like Scatter / Distribution /
+        # Heat Map shouldn't clutter the rail with a useless "All".
+        row.setVisible(len(subplots) > 1)
+
+
 def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     """Return the populated Properties-rail content widget.
 
@@ -347,10 +407,14 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     )
     sl.addWidget(scope_lbl, 0)
     app._props_scope_seg = SegmentedControl()
+    # Seed with a single "All" segment; ``set_properties_rail_scope`` (called
+    # by centre_view._on_plotting_subtab) repopulates this with the active
+    # renderer's actual subplot names — e.g. ``All / Mean / Fraction / CDF``
+    # for the line tab, or just ``All`` for single-axes views like scatter.
     app._props_scope_seg.addSegment("All", data="all")
-    app._props_scope_seg.addSegment("Plot 1", data="plot1")
-    app._props_scope_seg.addSegment("Plot 2", data="plot2")
     sl.addWidget(app._props_scope_seg, 1)
+    app._props_scope_row = scope_row
+    app._props_scope_label = scope_lbl
     outer.addWidget(scope_row)
 
     # ── search ──────────────────────────────────────────────────────────

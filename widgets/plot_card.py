@@ -127,10 +127,12 @@ if _HAVE_MPL:
             self.setFrameShape(QFrame.NoFrame)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-            # Decision #2: the canonical/exported state is "publication" (white,
-            # CPub/TRACE_PUB); "screen" (dark token set) is a per-card live
-            # preview only — a "preview only" chip shows whenever it's active.
-            self._plot_theme = "publication"
+            # v2 default: Screen mode (dark token set, matches the rest of
+            # the app's chrome). Publication (white bg, CPub/TRACE_PUB) is
+            # the canonical/exported state and gets toggled via the
+            # titlebar's Presentation Mode button when the user wants to
+            # preview the export look.
+            self._plot_theme = "screen"
             self._stat = "Mean"
             self._error = "SEM"
             self._stats_pop = None

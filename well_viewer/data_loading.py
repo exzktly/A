@@ -594,24 +594,19 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
         return fallback_palette[idx % len(fallback_palette)]
 
     if rep_sets:
-        # Wells that belong to one of the active rep_sets are represented by
-        # that set's pooled curve; everything else the user has explicitly
-        # selected is a "solo well" and gets its own curve so it stays
-        # toggleable from the plot legend / visibility chip alongside the
-        # group entries.
-        in_set: set = set()
+        # With groups defined, the sidebar plate becomes passive (the user
+        # can't toggle per-well selection alongside the groups), so we only
+        # yield the group curves. PR 152's "solo wells stay toggleable
+        # alongside groups" path was reverted because stale `_selected_wells`
+        # from before group creation surfaced as a phantom curve (typically
+        # A01) on every redraw.
         for idx, rset in enumerate(rep_sets):
             wells = [w for w in rset.wells if w in well_paths]
             if not wells:
                 continue
-            in_set.update(wells)
             frames = [app._get_rows(w) for w in wells]
             pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
             yield rset.name, _color(rset.name, idx), pooled
-        # Solo wells: selected on the plate but not assigned to any active set.
-        solo = sorted(w for w in selected if w in well_paths and w not in in_set)
-        for jdx, w in enumerate(solo):
-            yield w, _color(w, len(rep_sets) + jdx), app._get_rows(w)
         return
 
     if not selected:

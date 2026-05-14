@@ -56,11 +56,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     plate.setActionsVisible(False)        # the rail keeps its own All / None below
     plate.setEnabledWells([])             # nothing selectable until a dataset loads
     # Fixed size + placement so the plate looks identical no matter which
-    # section is active (Sample Definitions has its own plate via
-    # build_replicate_panel and uses the same constraints).
+    # section is active (every sidebar tab uses the same Preferred/Preferred
+    # size policy + 280-px min height + heightForWidth, with a trailing
+    # ``layout.addStretch(1)`` absorbing the remaining vertical space —
+    # the plate stays anchored to the top of the sidebar across tabs).
     plate.setMinimumHeight(280)
     from PySide6.QtWidgets import QSizePolicy as _SizePolicy
-    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.MinimumExpanding)
+    _sp = _SizePolicy(_SizePolicy.Preferred, _SizePolicy.Preferred)
     _sp.setHeightForWidth(True)
     plate.setSizePolicy(_sp)
     layout.addWidget(plate)
@@ -118,34 +120,13 @@ def build_sidebar(app, parent: QWidget) -> None:
     heatmap_frame = build_heatmap_layout_sidebar(app, parent)
     heatmap_frame.setVisible(False)
 
-    # ── Phase 13 B8: compact "Saved" list (mockup-decoded.html §2.5) ────
-    # Read-only mirror of app._selections; mounting it in the rail gives
-    # the user a glance at which selections / groups exist without having
-    # to jump to Sample Definitions. Compact mode hides drag-handle / eye /
-    # kebab — the editable variant lives in the centre Groups sub-tab.
-    from widgets.saved_selections_list import SavedSelectionsList
-    from widgets.selection_chip import SelectionChip
-    saved_head = QWidget(parent)
-    sh_l = QHBoxLayout(saved_head)
-    sh_l.setContentsMargins(8, 10, 8, 2)
-    saved_lbl = QLabel("SAVED", saved_head)
-    saved_lbl.setObjectName("Caption")
-    sh_l.addWidget(saved_lbl)
-    sh_l.addStretch(1)
-    app._sidebar_saved_count_chip = SelectionChip(
-        "0", variant="muted", parent=saved_head,
-    )
-    sh_l.addWidget(app._sidebar_saved_count_chip)
-    layout.addWidget(saved_head)
-
-    app._sidebar_saved_list = SavedSelectionsList(parent)
-    app._sidebar_saved_list.setCompact(True)
-    # Forward activation clicks to the same handler the centre uses, so
-    # clicking a row in the sidebar Saved list activates that selection.
-    app._sidebar_saved_list.entryActivated.connect(
-        lambda sid: app._sel_select(sid) if hasattr(app, "_sel_select") else None
-    )
-    layout.addWidget(app._sidebar_saved_list)
+    # ── Phase 13 B8 (retired): the compact "Saved" mirror below the plate
+    # showed the Sample Definitions groups. The user can already see /
+    # manage them on the Sample Definitions tab itself, so the
+    # under-plate box was redundant noise. The attributes stay around as
+    # ``None`` so ``_refresh_sidebar_saved_list`` no-ops cleanly.
+    app._sidebar_saved_count_chip = None
+    app._sidebar_saved_list = None
 
     # Absorb leftover vertical space so the well picker stays pinned to the
     # top of the sidebar even when the sidebar is taller than its contents.
