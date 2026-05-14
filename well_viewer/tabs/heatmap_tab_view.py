@@ -47,16 +47,15 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1 = QHBoxLayout(ctrl1)
     cl1.setContentsMargins(10, 6, 10, 6)
 
-    cl1.addWidget(QLabel("Channel:", ctrl1))
-    app._chan_cb_heatmap = QComboBox(ctrl1)
+    # Channel combo hidden — global ctxbar combo is the only visible
+    # channel control. See line_graphs_tab_view.py for rationale.
+    app._chan_cb_heatmap = QComboBox()
     app._chan_cb_heatmap.addItems(["GFP"])
-    # Ratios appear here as virtual channels and their names can be long
-    # ("ratio:gfp_over_mcherry"), so reserve enough room to read them.
     app._chan_cb_heatmap.setMinimumWidth(220)
     app._chan_cb_heatmap.currentIndexChanged.connect(
         lambda _i, _src=app._chan_cb_heatmap: app._on_plot_channel_selected(_src)
     )
-    cl1.addWidget(app._chan_cb_heatmap)
+    app._chan_cb_heatmap.hide()
 
     cl1.addWidget(QLabel("Metric:", ctrl1))
     app._heatmap_metric_cb = QComboBox(ctrl1)

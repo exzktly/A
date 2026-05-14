@@ -39,13 +39,14 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl = QHBoxLayout(bar_ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
-    cl.addWidget(QLabel("Channel:", bar_ctrl))
-    app._chan_cb_bar = QComboBox(bar_ctrl)
+    # Channel combo hidden — global ctxbar combo (Phase 11b) is the only
+    # visible channel control. See line_graphs_tab_view.py for rationale.
+    app._chan_cb_bar = QComboBox()
     app._chan_cb_bar.addItems(["GFP"])
     app._chan_cb_bar.currentIndexChanged.connect(
         lambda _i, _src=app._chan_cb_bar: app._on_plot_channel_selected(_src)
     )
-    cl.addWidget(app._chan_cb_bar)
+    app._chan_cb_bar.hide()
 
     app._metric_selector_frame_bar = QWidget(bar_ctrl)
     mf_l = QHBoxLayout(app._metric_selector_frame_bar)

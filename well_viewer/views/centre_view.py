@@ -289,13 +289,6 @@ def build_centre(app, parent: QWidget) -> None:
         # combo so callers that read its text still work.
         app._plotting_channel_chip = app._plotting_channel_cb
 
-        hint = QLabel("· click a trace to filter properties")
-        hint.setStyleSheet(
-            f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
-            f"padding-left: 4px;"
-        )
-        arl.addWidget(hint)
-
         arl.addStretch(1)
 
         add_panel_btn = _IconButton("plus", text=" Add panel")
@@ -307,8 +300,8 @@ def build_centre(app, parent: QWidget) -> None:
         edit_btn = _IconButton("settings-2")
         edit_btn.setToolTip("Edit axes / curve…")
         arl.addWidget(edit_btn)
-        export_btn = _IconButton("download", text=" Export figure")
-        export_btn.setToolTip("Export the current figure")
+        export_btn = _IconButton("copy", text=" Copy SVG")
+        export_btn.setToolTip("Copy the current figure to the clipboard as SVG")
         arl.addWidget(export_btn)
 
         plotting_container.layout().addWidget(action_row, 0)
@@ -419,20 +412,33 @@ def build_centre(app, parent: QWidget) -> None:
                 return
         edit_btn.clicked.connect(_edit_axes)
 
-        def _export_figure() -> None:
+        def _copy_svg() -> None:
+            """Serialise the active card's matplotlib figure to SVG and put
+            it on the clipboard so the user can paste into Affinity /
+            Illustrator / Figma."""
+            import io
+            from PySide6.QtGui import QGuiApplication
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
                 card = getattr(app, attr, None)
                 if card is None or not card.isVisible():
                     continue
-                nav = getattr(card, "_nav", None)
-                if nav is not None and hasattr(nav, "save_figure"):
-                    try:
-                        nav.save_figure()
-                    except Exception:
-                        pass
+                fig = getattr(card, "_figure", None) or getattr(card, "figure", None)
+                canvas = getattr(card, "_canvas", None)
+                if fig is None and canvas is not None:
+                    fig = getattr(canvas, "figure", None)
+                if fig is None:
+                    return
+                buf = io.BytesIO()
+                try:
+                    fig.savefig(buf, format="svg", bbox_inches="tight")
+                except Exception:
+                    return
+                QGuiApplication.clipboard().setText(buf.getvalue().decode("utf-8"))
+                if hasattr(app, "_set_status"):
+                    app._set_status("Copied figure to clipboard as SVG.")
                 return
-        export_btn.clicked.connect(_export_figure)
+        export_btn.clicked.connect(_copy_svg)
 
         _refresh_channel_chip("Line Graphs")
 
