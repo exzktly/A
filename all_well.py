@@ -972,7 +972,15 @@ def main() -> None:
         app.setFont(QFont(_family))
         theme_v2.Typography.family = _family
     else:
-        theme_v2.Typography.family = "sans-serif"
+        # Qt's QSS parser doesn't recognise CSS generics like
+        # ``sans-serif`` — it title-cases them and warns about
+        # ``"Sans-serif"`` not being in the alias table. Fall back to
+        # the actual platform default-font family name Qt itself reports
+        # so QSS interpolation produces a single resolvable family.
+        try:
+            theme_v2.Typography.family = app.font().family()
+        except Exception:
+            theme_v2.Typography.family = ""
     app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()
