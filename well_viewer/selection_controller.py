@@ -19,7 +19,7 @@ def _active_tab(app) -> str:
     if not hasattr(app, "_notebook"):
         return ""
     try:
-        return app._notebook.tabText(app._notebook.currentIndex())
+        return app._notebook.currentName()
     except Exception:
         return ""
 
@@ -63,7 +63,7 @@ def on_plate_sel_change(app) -> None:
         app._last_sel = deselected if cur_labels else None
     app._prev_sel = cur_labels
     if hasattr(app, "_notebook"):
-        tab = app._notebook.tabText(app._notebook.currentIndex())
+        tab = app._notebook.currentName()
         if tab == "smFISH" and len(app._selected_wells) > 1:
             keep = app._last_sel if app._last_sel in app._selected_wells else next(iter(app._selected_wells))
             app._selected_wells = {keep}

@@ -1,6 +1,6 @@
 # Phase 15 — Retire the legacy `app._notebook` QTabWidget
 
-**Status:** 🚧 IN PROGRESS — commits 1–2 landed (both outer `_notebook` and nested `_plotting_notebook` swapped to `NamedPageStack`).
+**Status:** 🚧 IN PROGRESS — commits 1–3 landed (both outer `_notebook` and nested `_plotting_notebook` swapped to `NamedPageStack`; read-side callers in `runtime_app`, `selection_controller`, `sidebar_view`, `plot_orchestrator`, `review_image_controller` migrated to `currentName()` / `pageNames()`).
 **Target branch:** `claude/analyze-repo-structure-2uEVQ`
 **Owner doc:** referenced from `design/PROJECT_STATUS.md` phase table.
 

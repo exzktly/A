@@ -1186,13 +1186,12 @@ class WellViewerApp(QWidget):
         self._section_nav_building = True
         try:
             existing = set(nav.items())
-            for i in range(nb.count()):
-                title = nb.tabText(i)
+            for title in nb.pageNames():
                 if title in existing:
                     continue
                 nav.addItem(title, icon=self._SECTION_ICONS.get(title), key=title)
                 self._section_nav_keys.append(title)
-            cur = nb.tabText(nb.currentIndex()) if nb.count() else None
+            cur = nb.currentName() if nb.count() else None
             if cur:
                 nav.setCurrentKey(cur)
         finally:
@@ -1213,7 +1212,7 @@ class WellViewerApp(QWidget):
         nav = getattr(self, "_section_nav", None)
         if nav is None or nb is None:
             return
-        title = nb.tabText(nb.currentIndex())
+        title = nb.currentName()
         if title and nav.currentKey() != title:
             self._section_nav_building = True
             try:
@@ -2100,11 +2099,10 @@ class WellViewerApp(QWidget):
         """
         self._enforce_well_exclusivity()
         tab_visible = False
-        if hasattr(self, "_notebook"):
+        nb = getattr(self, "_notebook", None)
+        if nb is not None:
             try:
-                tab_visible = (
-                    self._notebook.tabText(self._notebook.currentIndex())
-                    == "Sample Definitions")
+                tab_visible = nb.currentName() == "Sample Definitions"
             except Exception:
                 pass
 
@@ -2180,10 +2178,7 @@ class WellViewerApp(QWidget):
         nb = getattr(self, "_notebook", None)
         if nb is None:
             return
-        for i in range(nb.count()):
-            if nb.tabText(i) == "Sample Definitions":
-                nb.setCurrentIndex(i)
-                return
+        nb.setCurrentByName("Sample Definitions")
 
     # ── Ratio / heatmap / cell-override / line-order persistence ─────────────
     # Each block delegates to ``well_viewer.persistence.<domain>``.
@@ -3162,7 +3157,7 @@ class WellViewerApp(QWidget):
         nb = getattr(self, "_notebook", None)
         if nb is not None:
             try:
-                smfish = (nb.tabText(nb.currentIndex()) == "smFISH")
+                smfish = nb.currentName() == "smFISH"
             except Exception:
                 smfish = False
 
@@ -4809,14 +4804,14 @@ class WellViewerApp(QWidget):
         if nb is None:
             return ""
         try:
-            tab = nb.tabText(nb.currentIndex())
+            tab = nb.currentName()
         except Exception:
             return ""
         if tab == "Plotting":
             plotting_nb = getattr(self, "_plotting_notebook", None)
             if plotting_nb is not None and plotting_nb.count() > 0:
                 try:
-                    return plotting_nb.tabText(plotting_nb.currentIndex())
+                    return plotting_nb.currentName()
                 except Exception:
                     pass
         return tab
