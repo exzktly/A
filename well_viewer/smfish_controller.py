@@ -29,7 +29,7 @@ def make_classifier(
 ) -> Callable[[str, str, Optional[Callable[[str], tuple[str, str]]]], tuple[str, str, str]]:
     """Build a ``classify_member`` adapter that knows the schema separator."""
 
-    def _classify(name: str, fluor_lower: str, fov_tp_extractor=None):
+    def _classify(name: str, fluor_lower: str, fov_tp_extractor=None, _pipeline_info=None):
         mask_re = re.compile(
             r"(?:%s)$" % "|".join(re.escape(sfx) for sfx in output_suffixes_for_kind("mask")),
             re.I,
