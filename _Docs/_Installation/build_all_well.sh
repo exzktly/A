@@ -9,13 +9,13 @@
 #   pip install -r _Docs/requirements.txt
 #   xcode-select --install
 #
-# BUILD (from _Installation directory or repository root):
+# BUILD (run from the repository root):
 #   mamba activate allwell
-#   chmod +x _Installation/build_all_well.sh
-#   _Installation/build_all_well.sh
+#   chmod +x _Docs/_Installation/build_all_well.sh
+#   _Docs/_Installation/build_all_well.sh
 #
 # UNIVERSAL BINARY (Intel + Apple Silicon):
-#   TARGET_ARCH=universal2 _Installation/build_all_well.sh
+#   TARGET_ARCH=universal2 _Docs/_Installation/build_all_well.sh
 
 set -euo pipefail
 
@@ -61,9 +61,11 @@ python - << 'CHECKS'
 import sys, importlib, platform
 
 checks = [
-    ("tkinter",     "tkinter"),
+    ("PySide6",     "PySide6"),
+    ("shiboken6",   "shiboken6"),
     ("matplotlib",  "matplotlib"),
     ("numpy",       "numpy"),
+    ("pandas",      "pandas"),
     ("scipy",       "scipy"),
     ("tifffile",    "tifffile"),
     ("imageio",     "imageio"),
@@ -107,21 +109,16 @@ except ImportError:
         print("    pip install tensorflow>=2.12,<2.16")
     ok = False
 
-# tkinter functional test
+# PySide6 functional test — create + destroy a QApplication to verify
+# the Qt6 plugins are reachable. matplotlib's QtAgg backend depends on
+# the same plugins working at runtime.
 try:
-    import tkinter as tk
-    root = tk.Tk(); root.withdraw(); root.destroy()
-    print(f"  ✓ tkinter {tk.TkVersion} functional")
+    from PySide6.QtWidgets import QApplication
+    _app = QApplication.instance() or QApplication(sys.argv[:1])
+    print("  ✓ PySide6 functional")
 except Exception as e:
-    print(f"  ✗ tkinter failed: {e}")
+    print(f"  ✗ PySide6 failed: {e}")
     ok = False
-
-# PIL.ImageTk (optional)
-try:
-    from PIL import ImageTk
-    print("  ✓ PIL.ImageTk available")
-except ImportError:
-    print("  ! PIL.ImageTk unavailable — preview montage will be disabled")
 
 if not ok:
     sys.exit(1)
@@ -145,11 +142,17 @@ REQUIRED=(
     "analyze_tab.py"
     "process_microscopy_v2.py"
     "WellPlateZipper.py"
-    "_Installation/all_well.spec"
-    "_Installation/hooks/hook-stardist.py"
-    "_Installation/hooks/hook-csbdeep.py"
-    "_Installation/hooks/hook-pkg_resources.py"
-    "_Installation/hooks/rthook-pkg_resources.py"
+    "theme.py"
+    "well_viewer/__init__.py"
+    "widgets/__init__.py"
+    "ui/__init__.py"
+    "services/__init__.py"
+    "fonts/Inter-Regular.otf"
+    "_Docs/_Installation/all_well.spec"
+    "_Docs/_Installation/hooks/hook-stardist.py"
+    "_Docs/_Installation/hooks/hook-csbdeep.py"
+    "_Docs/_Installation/hooks/hook-pkg_resources.py"
+    "_Docs/_Installation/hooks/rthook-pkg_resources.py"
     "_Docs/requirements.txt"
 )
 MISSING=0
@@ -169,7 +172,7 @@ if [ "$MISSING" -gt 0 ]; then
     echo ""
     echo "Ensure you:"
     echo "  1. Have all core files in repository root: all_well.py, analyze_tab.py, etc."
-    echo "  2. Have _Installation/hooks/ subdirectory with PyInstaller hooks"
+    echo "  2. Have _Docs/_Installation/hooks/ subdirectory with PyInstaller hooks"
     echo "  3. Have _Docs/requirements.txt with pip dependencies"
     exit 1
 fi
@@ -180,7 +183,7 @@ echo "Running PyInstaller ..."
 echo "  Repository root: $REPO_ROOT"
 rm -rf build "$DIST_DIR/$APP_NAME" "$DIST_DIR/$APP_NAME.app"
 
-SPEC_FILE="_Installation/all_well.spec"
+SPEC_FILE="_Docs/_Installation/all_well.spec"
 if [ -n "$TARGET_ARCH" ]; then
     echo "  Patching spec for target_arch='$TARGET_ARCH' ..."
     sed -i '' "s/target_arch=None/target_arch='$TARGET_ARCH'/" "$SPEC_FILE"
