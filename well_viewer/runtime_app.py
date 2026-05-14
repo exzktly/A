@@ -3097,8 +3097,16 @@ class WellViewerApp(QWidget):
         # Drain any pending deferred tab builds so post-load redraw paths
         # (e.g., _redraw_bars in _recalculate_threshold call sites) hit
         # fully-constructed tabs instead of unbuilt placeholders.
+        from well_viewer import status_signal as _status_signal
         self._drain_pending_centre_builders()
-        _load_path_controller(self, path)
+        _status_signal.busy_push()
+        try:
+            _load_path_controller(self, path)
+        except Exception:
+            _status_signal.signal_failed()
+            raise
+        finally:
+            _status_signal.busy_pop()
         self._refresh_plot_empty_states()
 
     def _load_directory(self, d: Path, label: Optional[str] = None) -> None:
@@ -4968,15 +4976,21 @@ class WellViewerApp(QWidget):
         # plot is hidden behind the EmptyState page, so we can skip the
         # actual redraw — but `_plot_redraw_orchestrator` still tolerates
         # the empty state via its own no-data branch.
+        from well_viewer import status_signal as _status_signal
         self._refresh_plot_empty_states()
-        _plot_redraw_orchestrator(
-            self,
-            lineplot_redraw=_lineplot_redraw,
-            apply_ax_style=apply_ax_style,
-            all_fluor_values=_all_fluor_values,
-            all_fluor_values_filtered=_all_fluor_values_filtered,
-            warn=WARN,
-        )
+        with _status_signal.warn_scope():
+            try:
+                _plot_redraw_orchestrator(
+                    self,
+                    lineplot_redraw=_lineplot_redraw,
+                    apply_ax_style=apply_ax_style,
+                    all_fluor_values=_all_fluor_values,
+                    all_fluor_values_filtered=_all_fluor_values_filtered,
+                    warn=WARN,
+                )
+            except Exception:
+                _status_signal.signal_failed()
+                raise
         from well_viewer.figure_export_editor import apply_export_style_to_current
 
         apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
