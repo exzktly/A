@@ -1200,12 +1200,7 @@ class WellViewerApp(QWidget):
     def _on_section_nav_changed(self, key: str) -> None:
         if self._section_nav_building:
             return
-        nb = self._notebook
-        for i in range(nb.count()):
-            if nb.tabText(i) == key:
-                if nb.currentIndex() != i:
-                    nb.setCurrentIndex(i)
-                return
+        self._notebook.setCurrentByName(key)
 
     def _on_notebook_current_changed(self, _idx: int) -> None:
         nb = self._notebook
@@ -4743,8 +4738,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("line")
 
@@ -5990,8 +5985,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Bar Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("bar")
 
@@ -6000,8 +5995,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Cells Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_cells")
 
@@ -6010,8 +6005,8 @@ class WellViewerApp(QWidget):
         if not self._well_paths:
             QMessageBox.warning(self, "No data", "Load data before opening Scatter Aggregate Batch Export.")
             return
-        if hasattr(self, "_notebook") and hasattr(self._notebook, "select_by_text"):
-            self._notebook.select_by_text("Batch Export")
+        if hasattr(self, "_notebook"):
+            self._notebook.setCurrentByName("Batch Export")
         if hasattr(self, "_batch_export_set_mode"):
             self._batch_export_set_mode("scatter_agg")
 
