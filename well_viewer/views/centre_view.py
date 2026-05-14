@@ -412,24 +412,21 @@ def build_centre(app, parent: QWidget) -> None:
 
         def _copy_svg() -> None:
             """Copy the active card's matplotlib figure to the clipboard
-            in publication mode. On macOS, Qt6's clipboard adapter only
-            surfaces a fixed set of MIME types to the OS pasteboard —
-            custom types like ``image/svg+xml`` / ``application/pdf``
-            registered via setData stay inside the Qt QMimeData object
-            and never reach Keynote / Pages / Preview. The only slot
-            those apps reliably see is the QImage one set via
-            setImageData (bridged to ``public.png`` / ``public.tiff``).
-            We *also* register the vector formats via setData wrapped
-            in QByteArray so vector editors on Linux (and any app that
-            reads the Qt clipboard directly) still get SVG / PDF, but
-            on macOS the practical paste is raster from setImageData.
-            setText is deliberately *not* set: when both text/plain
-            and image are offered, several macOS targets default to
-            the text slot, which is what made Copy SVG paste as a
-            block of text instead of as the figure."""
+            in publication mode as a vector PDF. On macOS we write
+            ``com.adobe.pdf`` directly to ``NSPasteboard`` via PyObjC
+            — Qt6's clipboard adapter doesn't surface
+            ``application/pdf`` to the OS pasteboard, so going through
+            ``QMimeData.setMimeData`` produces a paste that Keynote /
+            Pages / Preview can't honour. The macOS path also writes
+            a PNG slot so raster-only consumers (Slack, Mail) still
+            paste an image. On every other OS, and as a fallback if
+            PyObjC isn't available, we set SVG + PDF + PNG via
+            ``QMimeData`` and ``setImageData(QImage)`` so the figure
+            still pastes everywhere Qt's clipboard reaches."""
             import io
             from PySide6.QtCore import QByteArray, QMimeData
             from PySide6.QtGui import QGuiApplication, QImage
+            from well_viewer.clipboard_macos import write_vector_pdf_pasteboard
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
                 card = getattr(app, attr, None)
@@ -445,52 +442,59 @@ def build_centre(app, parent: QWidget) -> None:
                 try:
                     if hasattr(card, "setPlotTheme") and prev_theme != "publication":
                         card.setPlotTheme("publication")
-                    md = QMimeData()
-                    wrote_any = False
-                    # SVG — vector editors that read the Qt clipboard
-                    # directly (Linux Inkscape, etc.). Payload MUST be
-                    # wrapped in QByteArray; PySide6's setData silently
-                    # stores an empty slot when handed raw Python bytes.
-                    try:
-                        svg_buf = io.BytesIO()
-                        fig.savefig(svg_buf, format="svg", bbox_inches="tight")
-                        svg_qba = QByteArray(svg_buf.getvalue())
-                        md.setData("image/svg+xml", svg_qba)
-                        md.setData("image/svg", svg_qba)
-                        wrote_any = True
-                    except Exception:
-                        pass
-                    # PDF — cross-platform MIME + Apple UTI. Largely a
-                    # no-op on macOS (Qt6's pasteboard bridge ignores
-                    # these), but harmless and helps on other OSes.
+
+                    pdf_bytes: bytes | None = None
+                    svg_bytes: bytes | None = None
+                    png_bytes: bytes | None = None
                     try:
                         pdf_buf = io.BytesIO()
                         fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
-                        pdf_qba = QByteArray(pdf_buf.getvalue())
-                        md.setData("application/pdf", pdf_qba)
-                        md.setData("com.adobe.pdf", pdf_qba)
-                        wrote_any = True
+                        pdf_bytes = pdf_buf.getvalue()
                     except Exception:
                         pass
-                    # PNG — the slot that actually reaches the macOS
-                    # pasteboard. Set via setImageData so Qt6 maps it
-                    # to public.png / public.tiff (and as a raw
-                    # image/png blob for non-macOS clipboards).
+                    try:
+                        svg_buf = io.BytesIO()
+                        fig.savefig(svg_buf, format="svg", bbox_inches="tight")
+                        svg_bytes = svg_buf.getvalue()
+                    except Exception:
+                        pass
                     try:
                         png_buf = io.BytesIO()
                         fig.savefig(png_buf, format="png",
                                     bbox_inches="tight", dpi=200)
                         png_bytes = png_buf.getvalue()
-                        md.setData("image/png", QByteArray(png_bytes))
-                        img = QImage.fromData(png_bytes, "PNG")
-                        if not img.isNull():
-                            md.setImageData(img)
-                        wrote_any = True
                     except Exception:
                         pass
-                    if not wrote_any:
-                        return
-                    QGuiApplication.clipboard().setMimeData(md)
+
+                    wrote_pdf_native = False
+                    if pdf_bytes is not None:
+                        wrote_pdf_native = write_vector_pdf_pasteboard(
+                            pdf_bytes=pdf_bytes,
+                            png_bytes=png_bytes,
+                        )
+
+                    if not wrote_pdf_native:
+                        md = QMimeData()
+                        wrote_any = False
+                        if svg_bytes is not None:
+                            svg_qba = QByteArray(svg_bytes)
+                            md.setData("image/svg+xml", svg_qba)
+                            md.setData("image/svg", svg_qba)
+                            wrote_any = True
+                        if pdf_bytes is not None:
+                            pdf_qba = QByteArray(pdf_bytes)
+                            md.setData("application/pdf", pdf_qba)
+                            md.setData("com.adobe.pdf", pdf_qba)
+                            wrote_any = True
+                        if png_bytes is not None:
+                            md.setData("image/png", QByteArray(png_bytes))
+                            img = QImage.fromData(png_bytes, "PNG")
+                            if not img.isNull():
+                                md.setImageData(img)
+                            wrote_any = True
+                        if not wrote_any:
+                            return
+                        QGuiApplication.clipboard().setMimeData(md)
                 finally:
                     if (hasattr(card, "setPlotTheme")
                             and getattr(card, "_plot_theme", "screen") != prev_theme):
@@ -499,7 +503,12 @@ def build_centre(app, parent: QWidget) -> None:
                         except Exception:
                             pass
                 if hasattr(app, "_set_status"):
-                    app._set_status("Copied figure to clipboard (PNG image; SVG + PDF where supported).")
+                    msg = (
+                        "Copied figure to clipboard (vector PDF, publication)."
+                        if wrote_pdf_native
+                        else "Copied figure to clipboard (PNG image; SVG + PDF where supported)."
+                    )
+                    app._set_status(msg)
                 return
         app._copy_active_card_as_svg = _copy_svg
 

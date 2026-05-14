@@ -28,3 +28,10 @@ scikit-image>=0.21
 # ── Build (omit at runtime, install before running PyInstaller) ────────────
 pyinstaller>=6.0
 setuptools>=67.0  # PyInstaller needs pkg_resources at build/runtime
+
+# ── macOS-only: vector PDF Copy ────────────────────────────────────────────
+# Used by well_viewer/clipboard_macos.py to write com.adobe.pdf directly to
+# NSPasteboard so Copy SVG pastes as editable vector in Keynote / Pages /
+# Preview. Qt6's clipboard adapter doesn't surface application/pdf to the
+# macOS pasteboard, so the native path is the only way to reach iWork.
+pyobjc-framework-Cocoa>=10.0 ; sys_platform == "darwin"

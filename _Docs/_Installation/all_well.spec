@@ -151,6 +151,13 @@ hiddenimports = [
     "PySide6.QtSvg",
     "shiboken6",
 
+    # PyObjC — Copy SVG writes vector PDF directly to NSPasteboard on
+    # macOS so iWork apps paste it as editable vector. The helper in
+    # well_viewer/clipboard_macos.py imports these lazily and is a no-op
+    # if they're missing, but the frozen .app needs them resolved.
+    "AppKit",
+    "Foundation",
+
     # pandas — the Review tab and gating pipeline run on DataFrames.
     "pandas",
     "pandas.io",
