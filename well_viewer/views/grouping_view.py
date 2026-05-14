@@ -67,8 +67,18 @@ def rep_panel_refresh(app) -> None:
     sels = list(getattr(app, "_selections", []) or [])
     lst.updateSelections(sels)
     cur = getattr(app, "_current_selection_id", None)
+    # When the app has explicitly cleared the active group (e.g. the user
+    # just entered the Groups sub-tab), force the list's current row to
+    # "" so no row paints with the active stripe. The list otherwise
+    # auto-falls-back to the first selection in ``updateSelections``.
     if cur:
         lst.setCurrentId(cur)
+    else:
+        try:
+            lst._current_id = ""
+            lst._refresh_current()
+        except Exception:
+            pass
     # honour a pending inline-rename request (set by the "Rename" action — it
     # stores a position into _selections; see _sel_request_inline_rename)
     idx = getattr(app, "_grp_inline_edit_idx", -1)

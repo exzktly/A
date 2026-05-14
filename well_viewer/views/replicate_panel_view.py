@@ -149,6 +149,34 @@ def build_replicate_groups_centre(app, parent: QWidget) -> None:
     sep.setFixedHeight(1)
     layout.addWidget(sep)
 
+    # Active-group banner — until the user clicks a group below, plate
+    # clicks have no effect. Make that state legible so the user isn't
+    # left wondering why nothing happens.
+    import theme as _theme
+    active_row = QWidget(parent)
+    active_row.setObjectName("ActiveGroupBanner")
+    active_l = QHBoxLayout(active_row)
+    active_l.setContentsMargins(10, 6, 10, 6)
+    active_l.setSpacing(6)
+    active_caption = QLabel("ACTIVE GROUP", active_row)
+    active_caption.setStyleSheet(
+        f"color: {_theme.Colors.text_muted}; "
+        f"font-size: {_theme.Typography.caption_size}px; "
+        f"letter-spacing: 0.08em; font-weight: 600;"
+    )
+    active_l.addWidget(active_caption)
+    app._rep_active_group_lbl = QLabel("None selected — click a group below to start", active_row)
+    app._rep_active_group_lbl.setObjectName("ActiveGroupValue")
+    app._rep_active_group_lbl.setStyleSheet(
+        f"QLabel#ActiveGroupValue {{ "
+        f"color: {_theme.Colors.text_secondary}; "
+        f"font-size: {_theme.Typography.small_size}px; "
+        f"font-weight: 600; }}"
+    )
+    active_l.addWidget(app._rep_active_group_lbl)
+    active_l.addStretch(1)
+    layout.addWidget(active_row)
+
     # The groups card-list — a widgets.SavedSelectionsList (composable)
     # over app._selections.
     from widgets.saved_selections_list import SavedSelectionsList
@@ -159,8 +187,10 @@ def build_replicate_groups_centre(app, parent: QWidget) -> None:
     _wire(app, app._rep_list)
 
     hint = QLabel(
-        "Select a group, then click wells on the plate map (left sidebar) "
-        "to add/remove them. Expand a group to edit its replicate structure.",
+        "Click a group below to make it the ACTIVE group — its row "
+        "highlights with an accent stripe. Then click wells on the plate "
+        "map (left sidebar) to add or remove them. Expand a group to edit "
+        "its replicate structure.",
         parent,
     )
     hint.setObjectName("Muted")

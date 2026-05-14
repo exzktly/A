@@ -1743,10 +1743,23 @@ class WellViewerApp(QWidget):
         nl.addWidget(self._notes_edit, 1)
         sub_tabs.addTab(notes_tab, "Notes")
 
-        sub_tabs.currentChanged.connect(
-            lambda idx: self._build_cell_gating_subtab()
-            if sub_tabs.tabText(idx) == "Cell Gating" else None
-        )
+        def _on_sample_def_subtab(idx: int) -> None:
+            name = sub_tabs.tabText(idx)
+            if name == "Cell Gating":
+                self._build_cell_gating_subtab()
+            # Entering the Groups sub-tab deselects any previously-active
+            # group so a click on the sidebar plate has no consequence
+            # until the user explicitly picks one. The active-group banner
+            # built by ``build_replicate_groups_centre`` updates via
+            # ``_groups_centre_refresh``.
+            if name == "Groups":
+                if getattr(self, "_current_selection_id", None) is not None:
+                    self._current_selection_id = None
+                    self._groups_centre_refresh()
+                    self._refresh_sidebar_map()
+                if hasattr(self, "_rep_active_group_lbl"):
+                    self._update_active_group_label()
+        sub_tabs.currentChanged.connect(_on_sample_def_subtab)
 
     def _build_cell_gating_subtab(self) -> None:
         """Build the Cell Gating sub-tab content if it hasn't been built yet.
@@ -2189,6 +2202,44 @@ class WellViewerApp(QWidget):
             self._rep_panel_refresh()
             self._label_panel_refresh()
         self._rep_refresh_map()
+        self._update_active_group_label()
+
+    def _update_active_group_label(self) -> None:
+        """Mirror ``_current_selection_id`` into the Groups sub-tab banner.
+
+        Shows the active group's name (bold, accent-coloured) when one is
+        selected, or a "click a group below" prompt when none is — so a
+        click on the sidebar plate always has a visible target.
+        """
+        lbl = getattr(self, "_rep_active_group_lbl", None)
+        if lbl is None:
+            return
+        sid = getattr(self, "_current_selection_id", None)
+        sel = self._sel_by_id(sid) if sid else None
+        try:
+            import theme as _theme
+        except Exception:
+            _theme = None
+        if sel is None:
+            lbl.setText("None selected — click a group below to start")
+            if _theme is not None:
+                lbl.setStyleSheet(
+                    f"QLabel#ActiveGroupValue {{ "
+                    f"color: {_theme.Colors.text_secondary}; "
+                    f"font-size: {_theme.Typography.small_size}px; "
+                    f"font-weight: 600; }}"
+                )
+            return
+        name = str(sel.get("name") or "(unnamed)")
+        n_wells = sum(1 for w in (sel.get("wells") or []) if w in self._well_paths)
+        lbl.setText(f"{name}  ·  {n_wells} well(s)")
+        if _theme is not None:
+            lbl.setStyleSheet(
+                f"QLabel#ActiveGroupValue {{ "
+                f"color: {_theme.Colors.accent}; "
+                f"font-size: {_theme.Typography.small_size}px; "
+                f"font-weight: 700; }}"
+            )
 
     def _rebuild_all(self) -> None:
         """

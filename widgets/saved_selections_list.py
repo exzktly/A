@@ -261,8 +261,16 @@ class _SelectionRow(QFrame):
     def _qss(self) -> str:
         c, r = theme.Colors, theme.Radii
         return f"""
-        QFrame#SelectionRow {{ background: transparent; border-radius: {r.sm}px; }}
-        QFrame#SelectionRow[current="true"] {{ background-color: {c.accent_dim}; }}
+        QFrame#SelectionRow {{ background: transparent; border-radius: {r.sm}px;
+            border-left: 3px solid transparent; }}
+        QFrame#SelectionRow[current="true"] {{
+            background-color: {c.accent_dim};
+            border-left: 3px solid {c.accent};
+        }}
+        QFrame#SelectionRow[current="true"] QLabel#RowName {{
+            color: {c.text_primary};
+            font-weight: 700;
+        }}
         QToolButton#RowGhost {{ border: none; background: transparent; color: {c.text_secondary};
             padding: 0 2px; }}
         QToolButton#RowGhost:hover {{ color: {c.text_primary}; }}
