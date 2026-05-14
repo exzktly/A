@@ -106,25 +106,6 @@ def _is_plotting_tab(app) -> bool:
     return _active_tab(app) in PLOTTING_TABS
 
 
-def _toggle_unit_in_focus(app, unit: set) -> None:
-    """Multi-select toggle: union ``unit`` into ``_selected_wells`` if it
-    isn't already entirely there, otherwise remove it. Used by plotting-tab
-    row / column header clicks so groups behave consistently with well
-    clicks."""
-    if not unit:
-        return
-    new_sel = set(app._selected_wells)
-    if unit <= new_sel:
-        new_sel -= unit
-    else:
-        new_sel |= unit
-    if new_sel == app._selected_wells:
-        return
-    app._selected_wells = new_sel
-    app._prev_sel = new_sel.copy()
-    _refresh_after_selection_change(app)
-
-
 def select_row(app, row: str) -> None:
     if app._selections:  # rep-mode
         crossing = [
@@ -132,12 +113,12 @@ def select_row(app, row: str) -> None:
             if any(_well_rc(app, w)[0] == row and w in app._well_paths
                    for w in (s.get("wells") or []))
         ]
-        if _is_plotting_tab(app):
-            unit = {w for s in crossing for w in (s.get("wells") or [])
-                    if w in app._well_paths}
-            _toggle_unit_in_focus(app, unit)
-            return
-        _set_groups_hidden(app, crossing)
+        # In rep-mode (plotting and non-plotting tabs alike), a row click
+        # toggles ``hidden`` on every group crossing that row — groups
+        # that don't touch the row are untouched.
+        if crossing:
+            _set_groups_hidden(app, crossing)
+        return
     else:
         row_labels = [lbl for lbl in app._well_paths if _well_rc(app, lbl)[0] == row]
         if not row_labels:
@@ -156,12 +137,9 @@ def select_col(app, col: str) -> None:
             if any(_well_rc(app, w)[1] == col and w in app._well_paths
                    for w in (s.get("wells") or []))
         ]
-        if _is_plotting_tab(app):
-            unit = {w for s in crossing for w in (s.get("wells") or [])
-                    if w in app._well_paths}
-            _toggle_unit_in_focus(app, unit)
-            return
-        _set_groups_hidden(app, crossing)
+        if crossing:
+            _set_groups_hidden(app, crossing)
+        return
     else:
         col_labels = [lbl for lbl in app._well_paths if _well_rc(app, lbl)[1] == col]
         if not col_labels:

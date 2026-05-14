@@ -776,6 +776,11 @@ class WellViewerApp(QWidget):
 
         # Plate-map well selection
         self._selected_wells: set  = set()
+        # Plotting-tab solo-well overrides: when a user clicks a well not
+        # in any group, it's added here so the plot picks it up alongside
+        # the visible groups. Independent of ``_selected_wells``, which is
+        # the per-well selection used outside rep-mode.
+        self._active_solo_wells: set = set()
         self._tok_to_label:   Dict[str, str] = {}
 
         # Preview state
@@ -3326,17 +3331,22 @@ class WellViewerApp(QWidget):
         plotting_tab = tab_name in self._PLOTTING_TABS
         if rep_mode and not plotting_tab:
             plate.setSelectedWellIds([])
-        elif rep_mode and not self._selected_wells:
-            # Default rep-mode look on a plotting tab: every well in a
-            # visible (non-hidden) group is "selected" so it renders
-            # raised + bright. Hidden groups' wells stay recessed with a
-            # muted tint. A subsequent well-click narrows ``_selected_wells``
-            # to one group and that focus is honoured here.
-            visible_wells = [
+        elif rep_mode and plotting_tab:
+            # In rep-mode on a plotting tab the "active" set is exactly the
+            # union of every non-hidden group's wells. ``_selected_wells``
+            # is not used here — clicks toggle each group's ``hidden`` flag
+            # so the visual state and the plot's ``_rep_sets_active()``
+            # filter stay in lock-step. Solo wells (not in any group) live
+            # in ``_active_solo_wells``.
+            visible_wells = {
                 w for s in self._selections if not s.get("hidden")
                 for w in (s.get("wells") or []) if w in self._well_paths
-            ]
-            plate.setSelectedWellIds(visible_wells)
+            }
+            visible_wells |= {
+                w for w in (getattr(self, "_active_solo_wells", set()) or set())
+                if w in self._well_paths
+            }
+            plate.setSelectedWellIds(list(visible_wells))
         else:
             plate.setSelectedWellIds(list(self._selected_wells))
 
@@ -3424,28 +3434,22 @@ class WellViewerApp(QWidget):
         except Exception:
             tab = ""
         if tab in self._PLOTTING_TABS:
+            # Click a group's well → toggle that group's visibility.
+            # Click a solo well → toggle its membership in
+            # ``_active_solo_wells``. Either path leaves every other
+            # group's active state untouched.
             sid = self._sel_id_for_well(well_id)
             if sid is not None:
-                sel = self._sel_by_id(sid)
-                unit = {w for w in (sel.get("wells") or [])
-                        if w in self._well_paths}
-                if not unit:
-                    unit = {well_id}
+                self._sel_toggle_hidden(sid)
+                return
+            if not hasattr(self, "_active_solo_wells"):
+                self._active_solo_wells = set()
+            if well_id in self._active_solo_wells:
+                self._active_solo_wells.discard(well_id)
             else:
-                unit = {well_id}
-            # Multi-select: clicking a group / solo toggles its wells in
-            # and out of ``_selected_wells``. When the focus empties,
-            # ``_refresh_sidebar_map_now`` falls back to painting every
-            # visible group raised.
-            new_sel = set(self._selected_wells)
-            if unit <= new_sel:
-                new_sel -= unit
-            else:
-                new_sel |= unit
-            if new_sel != self._selected_wells:
-                self._selected_wells = new_sel
-                self._refresh_sidebar_map()
-                self._on_plate_sel_change()
+                self._active_solo_wells.add(well_id)
+            self._refresh_sidebar_map()
+            self._on_plate_sel_change()
             return
         # Legacy fallback for non-plotting tabs that still receive
         # wellActivated in rep-set mode (Image Table / smFISH / etc):

@@ -594,43 +594,24 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
         return fallback_palette[idx % len(fallback_palette)]
 
     if rep_sets:
-        # With groups defined the sidebar plate is passive, but on plotting
-        # tabs a click on a well still rewrites ``_selected_wells`` to the
-        # clicked group's wells (or to ``{well}`` for a solo well). When
-        # that focus is set, yield only the groups whose wells intersect it
-        # — plus any solo wells in the focus that don't belong to any group
-        # — so the plot redraws to the active selection. With an empty
-        # focus, fall back to yielding every visible group as before.
-        focus = selected
-        any_yielded = False
+        # With groups defined the active set on the plot is exactly
+        # ``_rep_sets_active()`` (every non-hidden group) plus any solo
+        # wells the user has explicitly toggled on via
+        # ``_active_solo_wells``. ``_selected_wells`` is not used in
+        # rep-mode — group visibility is the single source of truth.
         in_any_group: set = set()
         for idx, rset in enumerate(rep_sets):
             wells = [w for w in rset.wells if w in well_paths]
             in_any_group.update(wells)
             if not wells:
                 continue
-            if focus and not (set(wells) & focus):
-                continue
             frames = [app._get_rows(w) for w in wells]
             pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
             yield rset.name, _color(rset.name, idx), pooled
-            any_yielded = True
-        if focus:
-            solo = sorted(w for w in focus if w in well_paths and w not in in_any_group)
-            for i, w in enumerate(solo):
-                yield w, _color(w, i), app._get_rows(w)
-                any_yielded = True
-            if any_yielded:
-                return
-            # focus matched nothing — fall through to the all-groups path
-            # below so the canvas isn't left empty.
-            for idx, rset in enumerate(rep_sets):
-                wells = [w for w in rset.wells if w in well_paths]
-                if not wells:
-                    continue
-                frames = [app._get_rows(w) for w in wells]
-                pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-                yield rset.name, _color(rset.name, idx), pooled
+        active_solo = getattr(app, "_active_solo_wells", set()) or set()
+        for i, w in enumerate(sorted(w for w in active_solo
+                                     if w in well_paths and w not in in_any_group)):
+            yield w, _color(w, i), app._get_rows(w)
         return
 
     if not selected:
