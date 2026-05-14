@@ -245,10 +245,29 @@ def smfish_sync_from_app(app) -> None:
         app._smfish_classifier = make_classifier(app._smfish_separator)
         fov_idx = int(info.get("fov_index", -1))
         tp_idx = int(info.get("tp_index", -1))
-        if fov_idx >= 0 and tp_idx >= 0:
+        if tp_idx >= 0 and fov_idx >= 0:
             app._smfish_fov_tp_extractor = make_schema_extractor(
                 app._smfish_separator, fov_idx, tp_idx
             )
+        elif tp_idx >= 0:
+            # Single-FOV pipeline (schema has `timepoint` but no `fov`).
+            # Without this branch the smFISH tab silently falls back to
+            # a legacy "last two parts of the stem" regex — that pulls
+            # in the channel suffix (DAPI for the mask vs GFP for the
+            # smFISH image), so the (fov, tp) keys for the two image
+            # kinds never intersect and the tab reports "No smFISH/mask
+            # pair found". Mirror the single-FOV extractor in
+            # viewer_state.read_pipeline_info: synthesise a constant FOV
+            # ("1") and read the timepoint from the schema index.
+            _sep = app._smfish_separator
+            _tp_idx = tp_idx
+
+            def _single_fov_extractor(stem: str):
+                parts = stem.split(_sep)
+                tp = parts[_tp_idx] if 0 <= _tp_idx < len(parts) else "unknown"
+                return "1", tp
+
+            app._smfish_fov_tp_extractor = _single_fov_extractor
         else:
             app._smfish_fov_tp_extractor = None
     except Exception as exc:

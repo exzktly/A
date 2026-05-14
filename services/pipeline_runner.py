@@ -44,7 +44,6 @@ def classify_log_line(line: str) -> str:
 
 _RE_TF_WORKERS = re.compile(r"TF threads/worker\s*:\s*\d+\s+\(workers:\s*(\d+)\s+x")
 _RE_MODE_WELLS = re.compile(r"(?:Zip mode|Flat mode|Folder mode):\s+(\d+)\s+well")
-_RE_WELL_DONE = re.compile(r"Well\s+\S+\s+->\s+\S+\.csv\s+\(\d+\s+rows?\)")
 
 
 class ProgressTracker:
@@ -93,11 +92,14 @@ class ProgressTracker:
                 events.append(("well_total", self.well_total))
                 return events
         if self.well_total:
-            completed = (
-                "temporary directories removed" in line
-                or bool(_RE_WELL_DONE.search(line))
-            )
-            if completed:
+            # Count a well as "done" only after the per-well cleanup line
+            # ('temporary directories removed') — the CSV-write line
+            # ('Well xxx -> *.csv (N rows)') fires *before* the slow
+            # compression step, so counting both inflated well_done to
+            # ~2 × well_total and crushed the ETA estimate. Keep the CSV
+            # line in the log for clarity but stop using it as the
+            # progress trigger.
+            if "temporary directories removed" in line:
                 self.well_done += 1
                 events.append(("well_done", (self.well_done, self.well_total)))
         return events
