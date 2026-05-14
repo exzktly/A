@@ -407,11 +407,14 @@ class _AutoThresholdWorker(QThread):
     done = Signal(object)        # Dict[str, float]
     failed = Signal(str)
 
-    def __init__(self, app, out_dir, channels, parent=None) -> None:
+    def __init__(self, app, out_dir, channels, *, well_labels=None,
+                 in_dir=None, parent=None) -> None:
         super().__init__(parent)
         self._app = app
         self._out_dir = out_dir
         self._channels = list(channels)
+        self._well_labels = list(well_labels) if well_labels else []
+        self._in_dir = in_dir
 
     def run(self) -> None:  # noqa: D401 - QThread override
         # Stream traceback into the log drawer too — the previous "fail
@@ -426,6 +429,8 @@ class _AutoThresholdWorker(QThread):
                 self._out_dir,
                 fluor_channels=self._channels,
                 progress=lambda msg: self.progress.emit(str(msg)),
+                well_labels=self._well_labels or None,
+                in_dir=self._in_dir,
             )
         except Exception as exc:
             _log.error(
@@ -536,7 +541,17 @@ def cell_gating_auto_threshold(app) -> None:
         except Exception:
             pass
 
-    worker = _AutoThresholdWorker(app, out_dir, channels)
+    well_labels = list(getattr(app, "_well_paths", {}) or {})
+    in_dir = getattr(app, "_in_dir", None)
+    import logging as _logging
+    _logging.getLogger("well_viewer.auto_threshold").info(
+        "Auto-threshold: starting — data_dir=%s in_dir=%s wells=%d channels=%s",
+        out_dir, in_dir, len(well_labels), ",".join(channels),
+    )
+    worker = _AutoThresholdWorker(
+        app, out_dir, channels,
+        well_labels=well_labels, in_dir=in_dir,
+    )
     worker.progress.connect(_on_progress)
     worker.done.connect(_on_done)
     worker.failed.connect(_on_failed)

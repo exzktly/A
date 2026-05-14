@@ -651,7 +651,15 @@ class AllWellApp(QMainWindow):
         h = _RingHandler()
         h.setFormatter(_logging.Formatter("%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
                                           datefmt="%H:%M:%S"))
-        _logging.getLogger().addHandler(h)
+        # Default root level is WARNING — that hides every ``logger.info``
+        # call (progress streams, status updates, etc) from the drawer.
+        # Lower both the handler and the root level to INFO so the user
+        # actually sees what the workers are doing.
+        h.setLevel(_logging.INFO)
+        root = _logging.getLogger()
+        if root.level > _logging.INFO or root.level == _logging.NOTSET:
+            root.setLevel(_logging.INFO)
+        root.addHandler(h)
 
     def _open_dataset(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Open results directory")

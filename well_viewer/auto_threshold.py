@@ -221,6 +221,44 @@ def _scan_well_images(
     return mask, tophat
 
 
+def _gather_via_zip(zip_path: Path, channels: List[str], pipeline_info):
+    """Return ``{channel: (mask_refs, fluor_refs)}`` for one well zip."""
+    out: Dict[str, Tuple[dict, dict]] = {}
+    for ch in channels:
+        try:
+            m, f = _scan_well_images(zip_path, ch, pipeline_info)
+        except Exception as exc:
+            logger.warning("auto_threshold: %s ch=%s scan failed: %s",
+                           zip_path.name, ch, exc)
+            continue
+        out[ch] = (m or {}, f or {})
+    return out
+
+
+def _gather_via_find(target, channels: List[str], pipeline_info):
+    """Multi-layout discovery via :func:`find_well_images_and_masks`.
+
+    ``target`` is ``(well_label, data_dir, in_dir)``.  Returns
+    ``{channel: (mask_refs, fluor_refs)}`` where the fluor refs are the
+    tophat-corrected images (matching the pipeline's behaviour).
+    """
+    well_label, data_dir, in_dir_path = target
+    from well_viewer.image_discovery import find_well_images_and_masks
+    out: Dict[str, Tuple[dict, dict]] = {}
+    for ch in channels:
+        try:
+            _g, _ov, mask, tophat = find_well_images_and_masks(
+                data_dir, well_label, fluor_token=ch, in_dir=in_dir_path,
+                _pipeline_info=pipeline_info,
+            )
+        except Exception as exc:
+            logger.warning("auto_threshold: well=%s ch=%s discovery failed: %s",
+                           well_label, ch, exc)
+            continue
+        out[ch] = (mask or {}, tophat or {})
+    return out
+
+
 def _read_pipeline_info(out_dir: Path) -> Optional[dict]:
     """Load ``pipeline_info.json`` from *out_dir* (or its parent) if present."""
     import json
@@ -247,6 +285,8 @@ def compute_auto_thresholds(
     cells_per_image_cap: int = DEFAULT_CELLS_PER_IMAGE_CAP,
     progress: Optional[Callable[[str], None]] = None,
     rng_seed: Optional[int] = None,
+    well_labels: Optional[Iterable[str]] = None,
+    in_dir: Optional[Path] = None,
 ) -> Dict[str, float]:
     """Compute the auto-threshold per channel by Otsu on a per-cell + bg
     distribution sampled from the first / middle / last timepoint of every
@@ -263,30 +303,7 @@ def compute_auto_thresholds(
     if not channels:
         return {}
 
-    out_dir = Path(out_dir)
-    if not out_dir.exists():
-        return {}
-
-    try:
-        from skimage.filters import threshold_otsu as _threshold_otsu
-    except Exception as exc:  # noqa: BLE001 - third party guard
-        msg = f"auto_threshold: skimage.filters.threshold_otsu unavailable: {exc}"
-        logger.error(msg)
-        if progress is not None:
-            progress(msg)
-        return {}
-
-    pipeline_info = _read_pipeline_info(out_dir)
-    well_zips = _iter_well_zips(out_dir)
-    if not well_zips:
-        msg = f"auto_threshold: no processed wells in {out_dir}"
-        logger.info(msg)
-        if progress is not None:
-            progress(msg)
-        return {}
-
-    rng = random.Random(rng_seed)
-    per_channel: Dict[str, List[float]] = {ch: [] for ch in channels}
+    out_dir = Path(out_dir) if out_dir else None
 
     def _emit(msg: str) -> None:
         logger.info(msg)
@@ -296,35 +313,65 @@ def compute_auto_thresholds(
             except Exception:
                 pass
 
-    _emit(f"Auto-threshold: scanning {len(well_zips)} well(s) for "
-          f"channels: {', '.join(channels)}")
+    if out_dir is None or not out_dir.exists():
+        _emit(f"Auto-threshold: data directory not found ({out_dir!r}).")
+        return {}
 
-    for zw_idx, zip_path in enumerate(well_zips, start=1):
-        # Pick first / middle / last timepoints — use the mask coverage of
-        # the first channel as the reference TP set; every channel has the
-        # same FOV/TP geometry.
+    try:
+        from skimage.filters import threshold_otsu as _threshold_otsu
+    except Exception as exc:  # noqa: BLE001 - third party guard
+        _emit(f"Auto-threshold: skimage.filters.threshold_otsu unavailable: {exc}")
+        return {}
+
+    pipeline_info = _read_pipeline_info(out_dir)
+    rng = random.Random(rng_seed)
+    per_channel: Dict[str, List[float]] = {ch: [] for ch in channels}
+
+    well_list = [str(w).strip() for w in (well_labels or []) if str(w).strip()]
+    in_dir_path = Path(in_dir) if in_dir else None
+
+    if well_list:
+        _emit(f"Auto-threshold: scanning {len(well_list)} well(s) "
+              f"({', '.join(well_list[:6])}{'…' if len(well_list) > 6 else ''}) "
+              f"for channels: {', '.join(channels)}")
+        _scan_one_well = _gather_via_find  # multi-layout discovery
+        targets: List = [(label, out_dir, in_dir_path) for label in well_list]
+        label_of = lambda t: t[0]
+    else:
+        well_zips = _iter_well_zips(out_dir)
+        if not well_zips:
+            _emit(f"Auto-threshold: no processed wells in {out_dir}")
+            return {}
+        _emit(f"Auto-threshold: scanning {len(well_zips)} well(s) for "
+              f"channels: {', '.join(channels)}")
+        _scan_one_well = _gather_via_zip
+        targets = list(well_zips)
+        label_of = lambda t: Path(t).name
+
+    for w_idx, target in enumerate(targets, start=1):
         try:
-            ref_mask, _ = _scan_well_images(zip_path, channels[0], pipeline_info)
+            per_channel_refs = _scan_one_well(target, channels, pipeline_info)
         except Exception as exc:
             logger.warning("auto_threshold: skipping %s — scan failed: %s",
-                           zip_path.name, exc)
+                           label_of(target), exc)
             continue
+        if not per_channel_refs:
+            _emit(f"Auto-threshold: no images found for {label_of(target)}")
+            continue
+
+        ref_mask = next((m for (m, _f) in per_channel_refs.values() if m), {})
         if not ref_mask:
+            _emit(f"Auto-threshold: no masks for {label_of(target)} — skipped")
             continue
         all_tps = {tp for (_fov, tp) in ref_mask.keys()}
         pick_tps = _pick_endpoint_timepoints(all_tps)
         if not pick_tps:
             continue
-        _emit(f"Auto-threshold: {zip_path.name} → timepoints "
+        _emit(f"Auto-threshold: {label_of(target)} → timepoints "
               f"{', '.join(pick_tps)}")
 
         for ch in channels:
-            try:
-                mask_refs, fluor_refs = _scan_well_images(zip_path, ch, pipeline_info)
-            except Exception as exc:
-                logger.warning("auto_threshold: %s ch=%s scan failed: %s",
-                               zip_path.name, ch, exc)
-                continue
+            mask_refs, fluor_refs = per_channel_refs.get(ch, ({}, {}))
             if not mask_refs or not fluor_refs:
                 continue
             for (fov, tp), mask_ref in mask_refs.items():
@@ -345,7 +392,7 @@ def compute_auto_thresholds(
                 per_channel[ch].extend(cell_means)
                 per_channel[ch].extend(bg_values)
         _emit(f"Auto-threshold: completed well "
-              f"{zw_idx}/{len(well_zips)} ({zip_path.name})")
+              f"{w_idx}/{len(targets)} ({label_of(target)})")
 
     thresholds: Dict[str, float] = {}
     for ch in channels:
