@@ -3259,7 +3259,16 @@ class WellViewerApp(QWidget):
         plate.setSingleSelectionMode(smfish and not rep_mode)
         plate.clearWellColors()
         plate.setWellColors(colors)
-        plate.setSelectedWellIds([] if rep_mode else list(self._selected_wells))
+        # Plotting tabs in rep-mode still honour ``_selected_wells`` so a
+        # click on a well in a saved group promotes that group's wells to
+        # the raised + bright (``_paint_lit``) look. Other rep-mode tabs
+        # (Image Table / smFISH / etc) keep the legacy "no per-well
+        # selection" override.
+        plotting_tab = tab_name in self._PLOTTING_TABS
+        if rep_mode and not plotting_tab:
+            plate.setSelectedWellIds([])
+        else:
+            plate.setSelectedWellIds(list(self._selected_wells))
 
         # Count label / hint
         loaded  = self._rep_sets_loaded() if rep_mode else []
@@ -3327,9 +3336,40 @@ class WellViewerApp(QWidget):
             return
         self._on_plate_sel_change()
 
+    _PLOTTING_TABS = frozenset({
+        "Line Graphs", "Bar Plots", "Scatter Plot", "Distribution", "Heat Map",
+    })
+
     def _on_sidebar_plate_well_activated(self, well_id: str) -> None:
-        # Only meaningful in rep-set mode (the plate is passive there); in
-        # per-well mode the widget owns its selection and toggles internally.
+        # On a plotting tab, a single click on a well "activates" that well
+        # and (if it belongs to a saved group) every other well in the same
+        # group — ``_selected_wells`` is rewritten to the group's wells so
+        # the plate's three-state painter promotes those wells to the raised
+        # + bright (``_paint_lit``) look and the plot refocuses. Other groups
+        # stay in the recessed-with-tint state.
+        if well_id not in self._well_paths:
+            return
+        try:
+            tab = self._current_centre_tab()
+        except Exception:
+            tab = ""
+        if tab in self._PLOTTING_TABS:
+            sid = self._sel_id_for_well(well_id)
+            if sid is not None:
+                sel = self._sel_by_id(sid)
+                wells = {w for w in (sel.get("wells") or [])
+                         if w in self._well_paths}
+                new_sel = wells or {well_id}
+            else:
+                new_sel = {well_id}
+            if new_sel != self._selected_wells:
+                self._selected_wells = new_sel
+                self._refresh_sidebar_map()
+                self._on_plate_sel_change()
+            return
+        # Legacy fallback for non-plotting tabs that still receive
+        # wellActivated in rep-set mode (Image Table / smFISH / etc):
+        # toggle the clicked group's visibility.
         if not self._selections:
             return
         sid = self._sel_id_for_well(well_id)
