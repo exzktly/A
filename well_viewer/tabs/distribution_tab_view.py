@@ -93,6 +93,9 @@ def build_distribution_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_secondary(ctrl, "Copy SVG",
                                lambda: app._copy_active_card_as_svg(),
                                icon="copy"))
+    cl.addWidget(btn_secondary(ctrl, "Save figure",
+                               lambda: app._save_active_card_figure(),
+                               icon="save"))
     layout.addWidget(ctrl)
 
     card = PlotCard(parent, figsize=(7.2, 5.4), constrained=False)

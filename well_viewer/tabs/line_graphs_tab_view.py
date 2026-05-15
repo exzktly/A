@@ -70,6 +70,9 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_secondary(line_ctrl, "Copy SVG",
                                lambda: app._copy_active_card_as_svg(),
                                icon="copy"))
+    cl.addWidget(btn_secondary(line_ctrl, "Save figure",
+                               lambda: app._save_active_card_figure(),
+                               icon="save"))
     layout.addWidget(line_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────

@@ -310,6 +310,40 @@ _PLOT_SUBPLOTS: dict[str, list[str]] = {
 }
 
 
+def _apply_scope_to_prefs(app, picked) -> None:
+    """Translate the scope segment's data value into the ``axis_target``
+    pref consumed by :func:`apply_export_style_prefs`. ``"all"`` →
+    ``"All"``; a subplot name → its 1-based index within the active
+    renderer's _PLOT_SUBPLOTS list."""
+    from well_viewer.figure_export_editor import (
+        _ensure_export_style_prefs as _ensure,
+        apply_export_style_to_current,
+    )
+    prefs = _ensure(app)
+    subplots = list(getattr(app, "_props_scope_subplots", []) or [])
+    if picked is None or picked == "all" or picked == "All":
+        prefs["axis_target"] = "All"
+    else:
+        try:
+            idx = subplots.index(str(picked)) + 1
+        except ValueError:
+            prefs["axis_target"] = "All"
+        else:
+            prefs["axis_target"] = str(idx)
+    # Re-render the active card so the per-axis limit / log-scale prefs
+    # reflect the new scope immediately.
+    for attr in ("_line_card", "_bar_card", "_scatter_card",
+                 "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
+        card = getattr(app, attr, None)
+        if card is None or not card.isVisible():
+            continue
+        try:
+            apply_export_style_to_current(app, card.figure, card.canvas)
+        except Exception:
+            pass
+        break
+
+
 def set_properties_rail_scope(app, renderer: str) -> None:
     """Repopulate the Properties rail scope SegmentedControl for *renderer*.
 
@@ -349,6 +383,11 @@ def set_properties_rail_scope(app, renderer: str) -> None:
         # pick — single-axes renderers like Scatter / Distribution /
         # Heat Map shouldn't clutter the rail with a useless "All".
         row.setVisible(len(subplots) > 1)
+    # Reset the cached subplot list so the change handler can map the
+    # picked segment back to a 1-based axes index inside
+    # ``apply_export_style_prefs``.
+    setattr(app, "_props_scope_subplots", list(subplots))
+    _apply_scope_to_prefs(app, "all")
 
 
 def build_properties_rail_view(app, parent: QWidget) -> QWidget:
@@ -417,6 +456,13 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     app._props_scope_label = scope_lbl
     outer.addWidget(scope_row)
 
+    # Wire the scope picker so picking a subplot actually changes which
+    # axes the per-axis prefs (limits, log scale) affect. Without this
+    # the buttons were inert visual chrome.
+    def _on_scope_changed(_idx: int = 0) -> None:
+        _apply_scope_to_prefs(app, app._props_scope_seg.currentData())
+    app._props_scope_seg.currentChanged.connect(_on_scope_changed)
+
     # ── search ──────────────────────────────────────────────────────────
     search_row = QWidget(host)
     sr = QHBoxLayout(search_row)
@@ -456,16 +502,9 @@ def build_properties_rail_view(app, parent: QWidget) -> QWidget:
     sec_profile.addWidget(_row("Format", fmt_chips))
     bl.addWidget(sec_profile)
 
-    # ── 2. Statistics (Q4 / §6.2) ───────────────────────────────────────
-    sec_stats = CollapsibleSection("Statistics", expanded=True)
-    sec_stats.setValueWidget(_preview_label("SEM · spread"))
-    error_chips = _chips("None", "SEM", "SD", "95% CI", default="SEM")
-    sec_stats.addWidget(_row("Error bars", error_chips))
-    across_chips = _chips("Replicates", "FOV", default="Replicates")
-    sec_stats.addWidget(_row("Across", across_chips))
-    show_chips = _chips("Mean", "Mean + spread", "All points", default="Mean + spread")
-    sec_stats.addWidget(_row("Show", show_chips))
-    bl.addWidget(sec_stats)
+    # Statistics section retired — the controls were stubs (no rendering
+    # path consumed them) and only added clutter. Error-bar / spread
+    # selection lives next to each plot card already.
 
     # ── 3. Axes ─────────────────────────────────────────────────────────
     sec_axes = CollapsibleSection("Axes", expanded=False)

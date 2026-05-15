@@ -508,6 +508,32 @@ def build_centre(app, parent: QWidget) -> None:
                 return
         app._copy_active_card_as_svg = _copy_svg
 
+        def _save_active_card_figure() -> None:
+            """Open a Save-As dialog for the active visible plot card's
+            figure. Uses the existing ``app._save_matplotlib_fig`` helper
+            so all renderers honour the same file-type filter and the
+            active dataset directory as the starting location."""
+            for attr, default in (
+                ("_line_card", "lines.png"),
+                ("_bar_card", "bars.png"),
+                ("_scatter_card", "scatter.png"),
+                ("_scatter_agg_card", "scatter_agg.png"),
+                ("_distribution_card", "distribution.png"),
+                ("_heatmap_card", "heatmap.png"),
+            ):
+                card = getattr(app, attr, None)
+                if card is None or not card.isVisible():
+                    continue
+                fig = getattr(card, "_figure", None) or getattr(card, "figure", None)
+                if fig is None:
+                    return
+                try:
+                    app._save_matplotlib_fig(fig, default)
+                except Exception:
+                    pass
+                return
+        app._save_active_card_figure = _save_active_card_figure
+
         _refresh_channel_chip("Line Graphs")
 
     def _build_image_table() -> None:
