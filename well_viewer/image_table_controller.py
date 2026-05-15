@@ -1547,45 +1547,44 @@ def image_table_copy_png(app) -> None:
 def image_table_copy_svg(app) -> None:
     """Render the image table and place it on the system clipboard.
 
-    On macOS we write ``com.adobe.pdf`` directly to ``NSPasteboard``
-    via PyObjC so iWork apps paste the figure as editable vector PDF —
-    Qt6's clipboard adapter doesn't surface ``application/pdf`` to the
-    OS pasteboard, so going through :class:`QMimeData` produces an
-    empty paste in those apps. On every other OS, and as a fallback if
-    PyObjC isn't available, we register SVG + PDF + PNG via
-    :class:`QMimeData` (with a :meth:`QImage.setImageData` raster slot)
-    so the figure still pastes everywhere Qt's clipboard reaches.
+    Standard cross-platform Qt clipboard write: ``image/svg+xml``,
+    ``application/pdf`` and a raster ``QImage`` via ``setImageData``.
+    Apps pick the slot they understand — Inkscape reads SVG,
+    Illustrator / Affinity read PDF, raster-only consumers (Slack,
+    Mail, browser composers) read the image. For a true vector
+    handoff to Keynote (which rasterises clipboard input by design),
+    use the Save As… button in the Export Style sidebar.
     """
     import io
     from PySide6.QtCore import QByteArray, QMimeData
     from PySide6.QtGui import QGuiApplication, QImage
-    from well_viewer.clipboard_macos import write_vector_pdf_pasteboard
 
     fig, save_kwargs = _build_export_figure(app)
     if fig is None:
         return
     save_kwargs.pop("_dpi", None)
+    pdf_kwargs = {k: v for k, v in save_kwargs.items() if k != "format"}
+    raster_kwargs = dict(pdf_kwargs)
+    raster_kwargs.setdefault("dpi", 200)
+
+    import matplotlib as _mpl
+
     svg_buf = io.BytesIO()
     try:
-        fig.savefig(svg_buf, format="svg", **save_kwargs)
+        with _mpl.rc_context({"svg.fonttype": "none"}):
+            fig.savefig(svg_buf, format="svg", **save_kwargs)
     except Exception as exc:
         QMessageBox.critical(app, "Copy failed", str(exc))
         return
 
-    raster_kwargs = {k: v for k, v in save_kwargs.items() if k != "format"}
-    raster_kwargs.setdefault("dpi", 200)
-
     pdf_bytes: bytes | None = None
     try:
-        import matplotlib as _mpl
         pdf_buf = io.BytesIO()
         # Type 42 (TrueType) instead of matplotlib's default Type 3
-        # (bitmap glyphs) — iWork apps have been observed to
-        # rasterise PDFs containing Type 3 fonts.
+        # (bitmap glyphs) — keeps text editable in downstream vector
+        # tools.
         with _mpl.rc_context({"pdf.fonttype": 42, "ps.fonttype": 42}):
-            fig.savefig(pdf_buf, format="pdf", **{
-                k: v for k, v in save_kwargs.items() if k != "format"
-            })
+            fig.savefig(pdf_buf, format="pdf", **pdf_kwargs)
         pdf_bytes = pdf_buf.getvalue()
     except Exception:
         pass
@@ -1598,38 +1597,17 @@ def image_table_copy_svg(app) -> None:
     except Exception:
         pass
 
-    wrote_pdf_native = False
+    md = QMimeData()
+    svg_qba = QByteArray(svg_buf.getvalue())
+    md.setData("image/svg+xml", svg_qba)
+    md.setData("image/svg", svg_qba)
     if pdf_bytes is not None:
-        wrote_pdf_native = write_vector_pdf_pasteboard(
-            pdf_bytes=pdf_bytes,
-        )
+        md.setData("application/pdf", QByteArray(pdf_bytes))
+    if png_bytes is not None:
+        md.setData("image/png", QByteArray(png_bytes))
+        img = QImage.fromData(png_bytes, "PNG")
+        if not img.isNull():
+            md.setImageData(img)
+    QGuiApplication.clipboard().setMimeData(md)
 
-    if not wrote_pdf_native:
-        md = QMimeData()
-        svg_qba = QByteArray(svg_buf.getvalue())
-        md.setData("image/svg+xml", svg_qba)
-        md.setData("image/svg", svg_qba)
-        if pdf_bytes is not None:
-            pdf_qba = QByteArray(pdf_bytes)
-            md.setData("application/pdf", pdf_qba)
-            md.setData("com.adobe.pdf", pdf_qba)
-        if png_bytes is not None:
-            md.setData("image/png", QByteArray(png_bytes))
-            img = QImage.fromData(png_bytes, "PNG")
-            if not img.isNull():
-                md.setImageData(img)
-        QGuiApplication.clipboard().setMimeData(md)
-
-    from well_viewer import clipboard_macos as _cm
-    if wrote_pdf_native:
-        suffix = _cm.status_suffix()
-        if suffix == "also inserted into Keynote":
-            msg = "Image table copied to clipboard + inserted into Keynote (vector)."
-        elif suffix:
-            msg = f"Image table copied to clipboard (vector PDF). {suffix}."
-        else:
-            msg = "Image table copied to clipboard (vector PDF)."
-    else:
-        reason = _cm.last_failure_reason or "Qt clipboard fallback"
-        msg = f"Image table copied to clipboard (PNG image; {reason})."
-    app._set_status(msg)
+    app._set_status("Image table copied to clipboard (SVG + PDF + PNG).")
