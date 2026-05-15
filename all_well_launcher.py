@@ -66,6 +66,54 @@ _dispatch_multiprocessing_child()
 import multiprocessing
 multiprocessing.freeze_support()
 
+# ---------------------------------------------------------------------------
+# Runtime stub for setuptools._distutils.compilers.
+#
+# TF's eager import chain ``tensorflow → _api/v2/compat/v1/lite →
+# tensorflow.lite.python.convert → setuptools._distutils.spawn →
+# setuptools._distutils.errors`` ends in, on setuptools >= 75, a
+# ``from .compilers.C.errors import CompileError, ...`` statement.
+# PyInstaller fails to bundle that subpackage's ``__init__.py`` files
+# (collect_submodules/collect_all both miss it), leaving the workers
+# to crash with ``KeyError: 'setuptools._distutils.compilers'`` inside
+# ``_NamespacePath._get_parent_path``.
+#
+# AllWell never invokes tflite conversion, so we plant an inert stub
+# tree in ``sys.modules`` before any setuptools-distutils import runs.
+# This is a defense-in-depth fix that does not depend on the build
+# environment's setuptools layout.
+# ---------------------------------------------------------------------------
+
+def _install_setuptools_distutils_compilers_stub() -> None:
+    import types
+    if "setuptools._distutils.compilers.C.errors" in sys.modules:
+        return
+
+    errors_mod = types.ModuleType("setuptools._distutils.compilers.C.errors")
+    for _name in (
+        "CompileError",
+        "LibError",
+        "LinkError",
+        "PreprocessError",
+        "UnknownFileError",
+    ):
+        errors_mod.__dict__[_name] = type(_name, (Exception,), {})
+
+    c_mod = types.ModuleType("setuptools._distutils.compilers.C")
+    c_mod.__path__ = []  # mark as package so submodule lookups don't crash
+    c_mod.errors = errors_mod
+
+    compilers_mod = types.ModuleType("setuptools._distutils.compilers")
+    compilers_mod.__path__ = []
+    compilers_mod.C = c_mod
+
+    sys.modules["setuptools._distutils.compilers"] = compilers_mod
+    sys.modules["setuptools._distutils.compilers.C"] = c_mod
+    sys.modules["setuptools._distutils.compilers.C.errors"] = errors_mod
+
+
+_install_setuptools_distutils_compilers_stub()
+
 import matplotlib
 matplotlib.use("QtAgg")
 
