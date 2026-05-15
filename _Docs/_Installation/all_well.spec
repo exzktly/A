@@ -315,9 +315,25 @@ datas       += collect_data_files("scipy")
 # setuptools._distutils.spawn and setuptools._distutils.errors. In
 # setuptools >= 75 the latter does `from .compilers.C.errors import ...`,
 # so the bundle must include the setuptools._distutils.compilers
-# subpackage. The hand-curated hiddenimports list never enumerated
-# setuptools internals — collect them wholesale.
-hiddenimports += collect_submodules("setuptools")
+# subpackage. collect_submodules alone under-collects this tree (the
+# vendored _distutils package's __init__.py files get skipped, leaving
+# phantom namespace packages that crash with
+# KeyError: 'setuptools._distutils.compilers'). collect_all bundles
+# every .py file as a data file, guaranteeing __init__.py is present.
+from PyInstaller.utils.hooks import collect_all  # noqa: E402
+_setuptools_datas, _setuptools_binaries, _setuptools_hidden = collect_all("setuptools")
+datas         += _setuptools_datas
+hiddenimports += _setuptools_hidden
+hiddenimports += [
+    "setuptools._distutils.compilers",
+    "setuptools._distutils.compilers.C",
+    "setuptools._distutils.compilers.C.errors",
+    "setuptools._distutils.compilers.C.base",
+    "setuptools._distutils.compilers.C.cygwin",
+    "setuptools._distutils.compilers.C.msvc",
+    "setuptools._distutils.compilers.C.unix",
+    "setuptools._distutils.compilers.C.zos",
+]
 
 # Filter out dead/moved skimage submodules before collect_submodules even
 # tries to import them. ``skimage.future.graph`` was moved to
