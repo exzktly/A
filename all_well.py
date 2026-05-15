@@ -159,12 +159,6 @@ class AllWellApp(QMainWindow):
         hl.addWidget(self._help_btn)
         self._help_drawer = None  # built lazily on first open
 
-        # The titlebar rail-toggle IconButton was retired — redundant with
-        # the CollapsibleRail's own edge-handle on the right of the canvas,
-        # which is always visible whether the rail is open or collapsed.
-        # ``_on_rail_collapsed_changed`` still gets called and is safe with
-        # the attribute absent (the helpers ``getattr``-guard it).
-
         rl.addWidget(header)
 
         sep = QFrame()
@@ -211,12 +205,6 @@ class AllWellApp(QMainWindow):
             on_pipeline_complete=self._on_analyze_pipeline_complete,
         )
         self._review.mountAnalyzePane(self._analyze)
-
-        # Properties rail retired — figure styling now lives in the
-        # per-plot Export Style sidebar (opened from each plot card's
-        # sliders IconButton). The titlebar rail-toggle has been gone
-        # since Phase 11; _on_rail_toggle_clicked / _on_rail_collapsed_changed
-        # are kept as harmless no-ops in case anything still calls them.
 
         # Status bar v2: status / kbd hints / Log tray IconButton.
         from widgets.kbd_hint import KbdHint as _KbdHint
@@ -273,11 +261,9 @@ class AllWellApp(QMainWindow):
         self._log_ring: list[str] = []
 
     def _install_shortcuts(self) -> None:
-        """Phase 13 (B16): global ⌘/Ctrl shortcuts the statusbar advertises.
+        """Global ⌘/Ctrl shortcuts the statusbar advertises.
 
         - ⌘O / Ctrl+O — open dataset (matches the titlebar Open button).
-        - ⌘K / Ctrl+K — focus the Properties rail's search input (auto-
-          opens the rail if it's collapsed).
         - ⌘E / Ctrl+E — export figure (drives the active plot card's
           ``save_figure`` toolbar action).
         - ⌘← / Ctrl+← — back through the section tab history.
@@ -286,7 +272,6 @@ class AllWellApp(QMainWindow):
         from PySide6.QtGui import QKeySequence, QShortcut
 
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self._open_dataset)
-        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._focus_props_search)
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self._export_active_figure)
         QShortcut(QKeySequence("Ctrl+Left"), self, activated=self._tab_history_back)
         QShortcut(QKeySequence("Ctrl+Right"), self, activated=self._tab_history_forward)
@@ -300,12 +285,6 @@ class AllWellApp(QMainWindow):
         review = getattr(self, "_review", None)
         if review is not None and hasattr(review, "_tab_history_forward"):
             review._tab_history_forward()
-
-    def _focus_props_search(self) -> None:
-        # Properties rail (and its search input) was retired in favour of
-        # the per-plot Export Style sidebar. Ctrl+K is a no-op until a
-        # replacement search target is introduced.
-        return
 
     def _export_active_figure(self) -> None:
         review = getattr(self, "_review", None)
@@ -549,8 +528,6 @@ class AllWellApp(QMainWindow):
                 "plot opens the export-style sidebar; click again to hide.<br><br>"
                 "<b>Keyboard shortcuts</b><br>"
                 "<tt>⌘O</tt> / <tt>Ctrl+O</tt> — Open results directory<br>"
-                "<tt>⌘K</tt> / <tt>Ctrl+K</tt> — Focus the Properties rail's "
-                "search input (opens the rail if collapsed)<br>"
                 "<tt>⌘E</tt> / <tt>Ctrl+E</tt> — Export the active figure "
                 "(drives the visible plot card's save-figure action)<br>"
                 "<tt>⌘←</tt> / <tt>Ctrl+←</tt> — Back to the previously "
@@ -558,8 +535,6 @@ class AllWellApp(QMainWindow):
                 "<tt>⌘→</tt> / <tt>Ctrl+→</tt> — Forward to the next section "
                 "tab in history<br>"
                 "<tt>⌘W</tt> / <tt>Ctrl+W</tt> — Close window<br><br>"
-                "Inside the Properties rail's search box, typing filters "
-                "the visible sections live; <tt>Esc</tt> clears the filter.<br><br>"
                 "For the full design notes see <tt>design/PORT_PLAN.md</tt>."
             )
             cl.addWidget(body)
@@ -608,15 +583,6 @@ class AllWellApp(QMainWindow):
                 review._load_path(Path(cur))
             except Exception:
                 pass
-
-    def _on_rail_toggle_clicked(self) -> None:
-        # Retired with the Properties rail; kept as a no-op for any
-        # legacy callers wired before the rail was removed.
-        return
-
-    def _on_rail_collapsed_changed(self, collapsed: bool) -> None:
-        # Retired with the Properties rail.
-        return
 
     def _toggle_log_drawer(self) -> None:
         if self._log_drawer is None:

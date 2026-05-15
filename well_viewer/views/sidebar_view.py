@@ -140,14 +140,6 @@ def build_sidebar(app, parent: QWidget) -> None:
     heatmap_frame = build_heatmap_layout_sidebar(app, parent)
     heatmap_frame.setVisible(False)
 
-    # ── Phase 13 B8 (retired): the compact "Saved" mirror below the plate
-    # showed the Sample Definitions groups. The user can already see /
-    # manage them on the Sample Definitions tab itself, so the
-    # under-plate box was redundant noise. The attributes stay around as
-    # ``None`` so ``_refresh_sidebar_saved_list`` no-ops cleanly.
-    app._sidebar_saved_count_chip = None
-    app._sidebar_saved_list = None
-
     # Absorb leftover vertical space so the well picker stays pinned to the
     # top of the sidebar even when the sidebar is taller than its contents.
     layout.addStretch(1)
