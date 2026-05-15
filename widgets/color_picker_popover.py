@@ -1,7 +1,7 @@
 """ColorPickerPopover (+ SvSquare, HueStrip) — a free-form colour picker in a
-popover (Phase 6.5.6).
+popover.
 
-The "Custom" escape hatch behind `ColorSwatchRow` (6.5.7): a saturation/value
+The "Custom" escape hatch behind `ColorSwatchRow`: a saturation/value
 square + a hue strip + a `#RRGGBB` hex field + an alpha field + a "recents"
 row (≤8 swatches, reusing `ColorSwatchRow`), all hosted in a `Popover`.
 

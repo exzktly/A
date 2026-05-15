@@ -1,4 +1,4 @@
-"""LutSelector — pick a colour-map (LUT) for review-image display (Phase 6.5.5).
+"""LutSelector — pick a colour-map (LUT) for review-image display.
 
 A trigger button showing the current LUT's gradient + name, with a reverse-LUT
 toggle and a reset button next to it; clicking the trigger opens a `Popover`

@@ -39,8 +39,8 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl = QHBoxLayout(bar_ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
-    # Channel combo hidden — global ctxbar combo (Phase 11b) is the only
-    # visible channel control. See line_graphs_tab_view.py for rationale.
+    # Channel combo hidden — the global ctxbar combo is the only visible
+    # channel control. See line_graphs_tab_view.py for rationale.
     app._chan_cb_bar = QComboBox()
     app._chan_cb_bar.addItems(["GFP"])
     app._chan_cb_bar.currentIndexChanged.connect(
@@ -119,7 +119,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Bar Plots')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
-    # Phase 11b: ctxbar above replaces the per-card header.
+    # Hide the per-card header — the ctxbar above already carries the same controls.
     card.setHeaderVisible(False)
     card.setFigureTitle("")
     app._bar_card = card

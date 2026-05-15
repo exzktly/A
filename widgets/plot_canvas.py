@@ -1,15 +1,9 @@
 """PlotCanvas — single shared matplotlib figure with 1–4 stacked subplots.
 
-Mockup target: the centre column's ``.canvas > .figure``. One ``Figure``
-holding N vertically stacked subplots (each its own ``Axes`` with
-independent X/Y — Q10), one persistent bottom ``MplToolbar``, one mono
-coords readout. The ctxbar above (built by the Plotting section in
-Phase 11) drives a single plot-TYPE switch that applies to all subplots.
-
-Phase 9 scope: ship the canvas widget with a **placeholder renderer**
-(simple ``ax.plot([1, 2, 3, …])`` per subplot) so it can be runtime-QA'd in
-isolation. Phase 11 swaps the placeholder for the real controllers
-(line / bar / scatter / distribution / heatmap).
+One ``Figure`` holding N vertically stacked subplots (each its own
+``Axes`` with independent X/Y), one persistent bottom ``MplToolbar``,
+one mono coords readout. The ctxbar above drives a single plot-TYPE
+switch that applies to all subplots.
 
 API
 ---
@@ -22,7 +16,7 @@ API
 * ``removePanel(idx) -> bool`` — removes the subplot at ``idx`` (0-based);
   no-op if only one subplot remains.
 * ``subplotCount() -> int``
-* ``axes() -> list[Axes]`` — read-only snapshot for Phase-11 renderer wiring.
+* ``axes() -> list[Axes]`` — read-only snapshot for renderer wiring.
 * ``setSubplotTitle(idx, title)`` — convenience for the per-subplot title.
 * signals
   * ``plotTypeChanged(name)``

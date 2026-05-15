@@ -1,4 +1,4 @@
-"""PlotCard — an embedded matplotlib figure in a v2 card with a custom toolbar.
+"""PlotCard — an embedded matplotlib figure in a card with a custom toolbar.
 
 A ``QFrame`` (``#Panel`` chrome) containing a ``FigureCanvasQTAgg`` above a
 slim toolbar row of :class:`~widgets.icon_button.IconButton`s grouped the
@@ -91,7 +91,7 @@ def _make_segmented(items, parent=None, *, current=None):
 
 
 def apply_axes_style(ax, mode: str = "screen") -> None:
-    """Apply the v2 token look (``"screen"``) or the publication look
+    """Apply the screen token look (``"screen"``) or the publication look
     (``"publication"`` — white bg, ``theme.CPub`` ink) to a matplotlib Axes."""
     bg, fg, muted, grid, spine = _plot_tokens(mode)
     sec = fg if mode == "publication" else theme.Colors.text_secondary
@@ -204,10 +204,9 @@ if _HAVE_MPL:
             return self._header
 
         def setHeaderVisible(self, visible: bool) -> None:
-            """Phase 11: the Plotting section's ctxbar replaces the per-card
-            header (view-switcher / Pub-Screen toggle / stats chip). Hide
-            the card header to avoid duplicating those controls on every
-            renderer."""
+            """Hide the card header — the Plotting section's ctxbar already
+            carries the view-switcher / Pub-Screen toggle / stats chip, so
+            the per-card header would duplicate those controls."""
             self._header.setVisible(bool(visible))
 
         def setLeftHeaderWidget(self, widget) -> None:

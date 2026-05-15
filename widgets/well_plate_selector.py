@@ -1,4 +1,4 @@
-"""WellPlateSelector — the 8×12 microplate selector from the v2 mockup.
+"""WellPlateSelector — the 8×12 microplate selector.
 
 Composes a custom-painted plate grid (clickable A–H row letters and 1–12 column
 numbers act as whole-row / whole-column controls) with an optional action row
@@ -298,10 +298,9 @@ class _PlateGrid(QWidget):
         self._drag_select = bool(on)
 
     def set_drag_mode(self, mode: str) -> None:
-        """``"paint"`` (toggle each cell the cursor crosses — the default, as the
-        legacy rep-map plate) or ``"rect"`` (rubber-band: drag a rectangle, all
-        enclosed enabled cells are added — or removed, if the press cell was
-        already selected)."""
+        """``"paint"`` (toggle each cell the cursor crosses — the default) or
+        ``"rect"`` (rubber-band: drag a rectangle, all enclosed enabled cells
+        are added — or removed, if the press cell was already selected)."""
         if mode in ("paint", "rect"):
             self._drag_mode = mode
 
@@ -871,7 +870,7 @@ class WellPlateSelector(QWidget):
 
         self.setStyleSheet(self._build_qss())
 
-    # ── selection API (back-compat + enabled-aware) ──────────────────────
+    # ── selection API (enabled-aware) ────────────────────────────────────
     def selectAll(self) -> None:
         self._grid.set_all(True)
 

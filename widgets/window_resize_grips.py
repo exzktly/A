@@ -1,5 +1,4 @@
-"""WindowResizeGrips — edge/corner resize affordances for a frameless window
-(Phase 6.5.4).
+"""WindowResizeGrips — edge/corner resize affordances for a frameless window.
 
 A helper object (not a widget you place in a layout) that installs 8 invisible
 ~6–8 px grip widgets — 4 edges + 4 corners — over a top-level frameless window,

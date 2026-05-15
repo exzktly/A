@@ -1,4 +1,4 @@
-"""Popover — an anchor-relative floating panel (Phase 6.5.2).
+"""Popover — an anchor-relative floating panel.
 
 A frameless `Qt.Popup` top-level that positions itself next to an *anchor*
 widget (below / above / left / right, auto-flipping if it would be clipped by
