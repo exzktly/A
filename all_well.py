@@ -212,13 +212,11 @@ class AllWellApp(QMainWindow):
         )
         self._review.mountAnalyzePane(self._analyze)
 
-        # Phase 11: the Properties rail is owned by WellViewerApp now and
-        # overlays its centre column only (mockup parity — the rail must not
-        # span the sidebar). The titlebar's rail-toggle button routes to
-        # ``self._review._properties_rail`` via _on_rail_toggle_clicked.
-        self._review._properties_rail.collapsedChanged.connect(
-            self._on_rail_collapsed_changed
-        )
+        # Properties rail retired — figure styling now lives in the
+        # per-plot Export Style sidebar (opened from each plot card's
+        # sliders IconButton). The titlebar rail-toggle has been gone
+        # since Phase 11; _on_rail_toggle_clicked / _on_rail_collapsed_changed
+        # are kept as harmless no-ops in case anything still calls them.
 
         # Status bar v2: status / kbd hints / Log tray IconButton.
         from widgets.kbd_hint import KbdHint as _KbdHint
@@ -304,19 +302,10 @@ class AllWellApp(QMainWindow):
             review._tab_history_forward()
 
     def _focus_props_search(self) -> None:
-        review = getattr(self, "_review", None)
-        if review is None:
-            return
-        rail = getattr(review, "_properties_rail", None)
-        search = getattr(review, "_props_search", None)
-        if rail is not None and rail.isCollapsed():
-            rail.setCollapsed(False)
-        if search is not None:
-            try:
-                search.setFocus()
-                search.selectAll()
-            except Exception:
-                pass
+        # Properties rail (and its search input) was retired in favour of
+        # the per-plot Export Style sidebar. Ctrl+K is a no-op until a
+        # replacement search target is introduced.
+        return
 
     def _export_active_figure(self) -> None:
         review = getattr(self, "_review", None)
@@ -621,22 +610,13 @@ class AllWellApp(QMainWindow):
                 pass
 
     def _on_rail_toggle_clicked(self) -> None:
-        # The Properties rail is scoped to Review's centre column (mounted
-        # by WellViewerApp). Reach in so the titlebar button still drives it.
-        rail = getattr(getattr(self, "_review", None), "_properties_rail", None)
-        if rail is None:
-            return
-        rail.toggle()
+        # Retired with the Properties rail; kept as a no-op for any
+        # legacy callers wired before the rail was removed.
+        return
 
     def _on_rail_collapsed_changed(self, collapsed: bool) -> None:
-        if not hasattr(self, "_rail_toggle_btn"):
-            return
-        self._rail_toggle_btn.setIconName(
-            "panel-right-open" if collapsed else "panel-right-close"
-        )
-        self._rail_toggle_btn.setToolTip(
-            "Show the Properties rail" if collapsed else "Hide the Properties rail"
-        )
+        # Retired with the Properties rail.
+        return
 
     def _toggle_log_drawer(self) -> None:
         if self._log_drawer is None:

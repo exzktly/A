@@ -69,6 +69,26 @@ def build_sidebar(app, parent: QWidget) -> None:
     app._sidebar_plate = plate
     app._sidebar_map_outer = plate
 
+    # Select all / Select none quick actions. _on_tab_change toggles this
+    # frame's visibility per tab (smFISH hides it; multi-select tabs show
+    # it). Storing the frame on ``app._sidebar_allnone_frame`` is what
+    # makes those existing hasattr() checks active.
+    allnone = QFrame(parent)
+    _al = QHBoxLayout(allnone)
+    _al.setContentsMargins(0, 4, 0, 0)
+    _al.setSpacing(6)
+    b_all = QPushButton("Select all", allnone)
+    b_all.setObjectName("Ghost")
+    b_all.clicked.connect(plate.selectAll)
+    b_none = QPushButton("Select none", allnone)
+    b_none.setObjectName("Ghost")
+    b_none.clicked.connect(plate.clearSelection)
+    _al.addWidget(b_all)
+    _al.addWidget(b_none)
+    _al.addStretch(1)
+    layout.addWidget(allnone)
+    app._sidebar_allnone_frame = allnone
+
     # Tokens-only stub: a {tok: None} dict that doubles as the "sidebar built"
     # sentinel and the loaded-well token list for _refresh_sidebar_map and the
     # rep-colour map. (set_state calls land on the None values and are skipped.)

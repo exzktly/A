@@ -80,6 +80,22 @@ def _empty_msg(ax) -> None:
     ax.set_axis_off()
 
 
+def _apply_export_style(app) -> None:
+    """Push the user's Export Style prefs (font sizes, grid, limits, …) onto
+    the distribution figure. Called at the end of each redraw so toggling
+    grid/log/etc. in the sidebar configurator sticks across re-renders.
+    """
+    fig = getattr(app, "_distribution_fig", None)
+    canvas = getattr(app, "_distribution_canvas", None)
+    if fig is None:
+        return
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, fig, canvas)
+    except Exception:
+        pass
+
+
 def _apply_card_style(app, ax) -> None:
     """Re-apply the active card's plot theme to *ax* after ``ax.clear()``.
 
@@ -136,6 +152,7 @@ def redraw_distribution(app) -> None:
     _apply_card_style(app, ax)
     if not groups:
         _empty_msg(ax)
+        _apply_export_style(app)
         canvas.draw_idle()
         return
 
@@ -189,6 +206,7 @@ def redraw_distribution(app) -> None:
 
     title = _title_for(app, tp_h, int(sum(int(vs.size) for _, _, vs in groups)), len(groups))
     ax.set_title(title, fontsize=9)
+    _apply_export_style(app)
     canvas.draw_idle()
 
 

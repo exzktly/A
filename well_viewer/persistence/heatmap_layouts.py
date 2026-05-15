@@ -101,13 +101,16 @@ def apply_persisted_settings(app) -> None:
 
     cmap = str(settings.get("cmap") or "")
     if cmap and cmap_cb is not None:
-        idx = cmap_cb.findText(cmap)
-        if idx >= 0:
-            blocked = cmap_cb.blockSignals(True)
-            try:
-                cmap_cb.setCurrentIndex(idx)
-            finally:
-                cmap_cb.blockSignals(blocked)
+        # ``_heatmap_cmap_cb`` is a LutSelector, not a QComboBox — use its
+        # setLut(name, reversed) API and split the trailing "_r" convention
+        # that the heatmap tab uses for reversed colormaps.
+        base = cmap[:-2] if cmap.endswith("_r") else cmap
+        rev = cmap.endswith("_r")
+        blocked = cmap_cb.blockSignals(True)
+        try:
+            cmap_cb.setLut(base, rev)
+        finally:
+            cmap_cb.blockSignals(blocked)
         app._heatmap_cmap_name = cmap
 
     scale_mode = str(settings.get("scale_mode") or "Auto")
