@@ -35,8 +35,8 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     # Channel combo: kept as an offscreen widget so the rest of the app can
     # still read/write the per-renderer channel through ``app._chan_cb_line``
-    # and ``_plot_chan_var``; the global ctxbar combo (Phase 11b) is the only
-    # visible channel control in v2.
+    # and ``_plot_chan_var``; the global ctxbar combo is the only visible
+    # channel control.
     app._chan_cb_line = QComboBox()
     app._chan_cb_line.addItems(["GFP"])
     app._chan_cb_line.currentIndexChanged.connect(
@@ -80,7 +80,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Line Graphs')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
-    # Phase 11b: ctxbar above replaces the per-card header.
+    # Hide the per-card header — the ctxbar above already carries the same controls.
     card.setHeaderVisible(False)
     card.setFigureTitle("")          # the tab name is the title; keep the header lean
     app._line_card = card

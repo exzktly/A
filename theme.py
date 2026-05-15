@@ -1,7 +1,7 @@
 """
 theme.py
 --------
-Design tokens for the All-Well v2 interface, translated from
+Design tokens for the All-Well interface, translated from
 ``design/DESIGN_TOKENS.md``, plus a base Qt stylesheet builder.
 
 This module is the single source of truth for colors, typography, spacing,
@@ -296,8 +296,8 @@ QPushButton#Ghost:hover, QToolButton#Ghost:hover {{
     background-color: {c.panel};
 }}
 
-/* ── Plate-map well buttons (legacy WellButton grid) ──────────────────── */
-/* Used by the picker grids that still use ``WellButton`` / ``build_plate_grid``
+/* ── Plate-map well buttons (WellButton grid) ─────────────────────────── */
+/* Used by the picker grids that use ``WellButton`` / ``build_plate_grid``
    (Statistics / Image Table / Segmentation / Sample Definitions / Bar Plots).
    Driven by ``WellButton.set_state(...)`` via the dynamic ``state`` property;
    the per-widget overrides in ``WellViewerApp._style_plate_button`` (Stats /

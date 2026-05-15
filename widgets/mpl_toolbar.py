@@ -1,4 +1,4 @@
-"""MplToolbar — a v2-styled matplotlib navigation toolbar.
+"""MplToolbar — a styled matplotlib navigation toolbar.
 
 A slim ``QWidget`` row of :class:`~widgets.icon_button.IconButton`s grouped the
 matplotlib way (home · back/forward · pan/zoom · save) plus a right-aligned mono

@@ -1,4 +1,4 @@
-"""GradientStrip — a custom-painted horizontal colour-ramp swatch (Phase 6.5.3).
+"""GradientStrip — a custom-painted horizontal colour-ramp swatch.
 
 A thin widget that paints a `QLinearGradient` left→right from a list of stops
 (or sampled from a ``t∈[0,1] → colour`` callable), reversible. Used by

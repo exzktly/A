@@ -12,7 +12,7 @@ Per row: drag handle (drag-to-reorder) · visibility eye · colour dot (opens a
 Move up / Move down / Export / Delete). Clicking the row body activates it;
 clicking the chevron expands it to the selection's well chips.
 
-**Composition (Phase 6.5.12, opt-in via ``setComposable(True)``):** the expanded
+**Composition (opt-in via ``setComposable(True)``):** the expanded
 row becomes editable — replicate sub-lists (``R1:/R2:/solo:``) with *ungroup*
 (``⊟``) / *group-solo* (``⊞``) buttons, each chip a click-menu (Remove · Move to
 new replicate · Move to R*k* · Make solo), and a ``+ wells…`` button that opens

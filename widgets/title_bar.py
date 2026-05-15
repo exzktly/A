@@ -1,4 +1,4 @@
-"""TitleBar — the frameless-window chrome strip from the v2 mockup (Phase 6.5.9).
+"""TitleBar — the frameless-window chrome strip.
 
 Brand tile + wordmark (the brand opens a **brand menu**: Open / Recent /
 Preferences / About / Quit), a breadcrumb (``Workspace · Project / file.awd``

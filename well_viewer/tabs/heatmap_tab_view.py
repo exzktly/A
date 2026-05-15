@@ -180,7 +180,7 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     _sw = make_plot_view_switcher(app, 'Heat Map')
     if _sw is not None:
         card.setLeftHeaderWidget(_sw)
-    # Phase 11b: ctxbar above replaces the per-card header.
+    # Hide the per-card header — the ctxbar above already carries the same controls.
     card.setHeaderVisible(False)
     card.setFigureTitle("")
     app._heatmap_card = card
