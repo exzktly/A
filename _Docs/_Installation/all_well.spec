@@ -301,6 +301,15 @@ hiddenimports += [m for m in _numba_mods
 hiddenimports += collect_submodules("llvmlite")
 hiddenimports += collect_submodules("h5py")
 
+# scipy — vendors array_api_compat under scipy/_lib/ since 1.13. The
+# array-api shim's numpy/__init__.py pulls in .fft/.linalg/_aliases via
+# dynamic-looking imports that PyInstaller's static analyzer misses,
+# producing a ModuleNotFoundError on the very first `from scipy import
+# ndimage` at runtime. Collecting every scipy submodule is the most
+# durable fix as scipy continues to refactor the array-api layer.
+hiddenimports += collect_submodules("scipy")
+datas       += collect_data_files("scipy")
+
 # Filter out dead/moved skimage submodules before collect_submodules even
 # tries to import them. ``skimage.future.graph`` was moved to
 # ``skimage.graph`` in scikit-image 0.20 and importing it raises
