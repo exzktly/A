@@ -205,7 +205,3 @@ for _name, _value in _DARK_THEME.items():
     globals()[_name] = _value
 for _name, _value in _WELL_COLORS.items():
     globals()[_name] = _value
-
-BTN_FLAT_BG = _DARK_THEME["button_bg"]
-BTN_FLAT_TEXT = _DARK_THEME["button_text"]
-BTN_FLAT_TEXT_DISABLED = _DARK_THEME["button_text_disabled"]

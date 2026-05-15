@@ -144,7 +144,7 @@ REQUIRED=(
     "all_well.py"
     "all_well_launcher.py"
     "analyze_tab.py"
-    "process_microscopy_v2.py"
+    "process_microscopy.py"
     "WellPlateZipper.py"
     "theme.py"
     "well_viewer/__init__.py"

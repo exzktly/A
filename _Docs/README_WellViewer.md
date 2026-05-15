@@ -113,7 +113,7 @@ Repository root:
 all_well.py                 Composition root — QMainWindow hosting Review + Analyze
 all_well_launcher.py        PyInstaller entry point (sets QtAgg, _MEIPASS sys.path)
 analyze_tab.py              Analyze tab (PySide6) — schema form, run controls, live log
-process_microscopy_v2.py    StarDist segmentation + fluorescence quantification pipeline
+process_microscopy.py       StarDist segmentation + fluorescence quantification pipeline
 WellPlateZipper.py          Groups loose TIFs into per-well zip archives from a schema
 pipeline_config.py          Shared pipeline-config constants
 theme.py                    Legacy shim; real theming lives under ui/theme/
@@ -250,7 +250,7 @@ re-entry required.
 
 ## Analyze tab
 
-`analyze_tab.py` wraps `process_microscopy_v2.py` with a Qt UI. The form is
+`analyze_tab.py` wraps `process_microscopy.py` with a Qt UI. The form is
 scrollable; sections top-to-bottom:
 
 1. **Filename Schema** — separator character (default `_`) and ordered

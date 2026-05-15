@@ -918,42 +918,6 @@ class WellViewerApp(QWidget):
             gates[channel] = self._get_fluor_gate(channel)
         return gates
 
-    def _apply_cell_gating_to_included(self) -> None:
-        """Write cell-gating result into each cached DataFrame's ``Included`` column."""
-        cell_area_threshold = self._get_cell_area_threshold()
-        fluor_gates = self._get_all_fluor_gates()
-
-        for label in self._well_paths:
-            df = self._get_rows(label)
-            if df is None or df.empty:
-                continue
-            mask = pd.Series(True, index=df.index)
-            if "area_px" in df.columns:
-                area = pd.to_numeric(df["area_px"], errors="coerce")
-                mask &= area.notna() & (area > cell_area_threshold)
-            else:
-                mask &= cell_area_threshold < 0
-            for channel, gate in fluor_gates.items():
-                col = f"{channel}_mean_intensity"
-                if col not in df.columns:
-                    mask = pd.Series(False, index=df.index)
-                    break
-                v = pd.to_numeric(df[col], errors="coerce")
-                mask &= v.notna() & (v > gate)
-            df["Included"] = mask.astype(int)
-
-        # Re-apply user overrides on top of the gating-computed Included so
-        # per-cell curation persists across threshold recomputes.
-        self._apply_review_overrides_to_cache()
-        # CRITICAL: Do NOT call _refresh_review_csv_rows() here. It rebuilds
-        # the Review CSV table by deep-copying every cached row across every
-        # well (``[dict(row) for row in self._get_rows(label)]``), which
-        # produces tens of thousands of new dicts per well and balloons RAM
-        # usage into the hundreds of GB on modestly-sized inputs. The Review
-        # CSV table refreshes on its own user-driven events; gating only
-        # needs to invalidate the stats cache.
-        self._invalidate_stats_cache()
-
     def _get_thresh_frac_on(self, channel: Optional[str] = None) -> float:
         """Get ThreshFracOn threshold. Uses active channel if not specified."""
         if channel is None:
@@ -1138,26 +1102,6 @@ class WellViewerApp(QWidget):
         if sidebar is not None:
             sidebar.setVisible(mode == "review")
         self.modeChanged.emit(mode)
-
-    def _refresh_sidebar_saved_list(self) -> None:
-        """Phase 13 (B8): push the canonical ``app._selections`` into the
-        compact Saved mirror in the sidebar + sync the count chip."""
-        lst = getattr(self, "_sidebar_saved_list", None)
-        chip = getattr(self, "_sidebar_saved_count_chip", None)
-        sels = list(getattr(self, "_selections", []) or [])
-        if lst is not None:
-            try:
-                lst.setSelections(sels)
-                cur = getattr(self, "_current_selection_id", None)
-                if cur:
-                    lst.setCurrentId(cur)
-            except Exception:
-                pass
-        if chip is not None:
-            try:
-                chip.setText(str(len(sels)))
-            except Exception:
-                pass
 
     def _build_centre(self, parent) -> None:
         from well_viewer.views.centre_view import build_centre as _build_centre_view
@@ -1847,25 +1791,6 @@ class WellViewerApp(QWidget):
         cancel_btn.clicked.connect(dlg.reject)
         dlg.exec()
 
-    def _rep_set_id_at(self, idx: int):
-        """Selection id of the idx-th rep_set-source selection (legacy bridge)."""
-        sels = [s for s in self._selections if s.get("source") == "rep_set"]
-        return sels[idx].get("id") if 0 <= idx < len(sels) else None
-
-    def _rep_rename(self, idx: int) -> None:
-        sid = self._rep_set_id_at(idx)
-        if sid is None:
-            return
-        s = self._sel_by_id(sid)
-        name = ask_name_dialog(self, default=s.get("name", "") if s else "")
-        if name:
-            self._sel_rename(sid, name)
-
-    def _rep_delete(self, idx: int) -> None:
-        sid = self._rep_set_id_at(idx)
-        if sid is not None:
-            self._sel_delete(sid)
-
     def _rep_clear_all(self) -> None:
         if not self._selections:
             return
@@ -2226,7 +2151,6 @@ class WellViewerApp(QWidget):
         self._invalidate_stats_cache()
         self._groups_centre_refresh()          # Sample Definitions: GROUPS panel + map
         self._refresh_sidebar_map()            # line-graph picker: rep colours
-        self._refresh_sidebar_saved_list()     # Phase 13 B8: compact Saved mirror
         self._redraw_bars()
         self._redraw()
         try:
@@ -2449,12 +2373,6 @@ class WellViewerApp(QWidget):
     def _load_gating_from_pipeline_info(self) -> bool:
         from well_viewer.persistence import cell_gating as _cg
         return _cg.load_from_pipeline_info(self)
-
-    def _bar_groups_prune(self) -> None:
-        """No-op: ``app._selections`` keeps wells that aren't in the current
-        dataset (per the contract — they render greyed); the renderers filter
-        to ``_well_paths`` themselves."""
-        return
 
     # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
     # group is coloured by *well-position rank*, so the same well always gets the
@@ -2976,9 +2894,6 @@ class WellViewerApp(QWidget):
 
     def _toggle_montage_crop_mode(self) -> None:
         self._montage_crop_tool.toggle_mode()
-
-    def _clear_montage_crop(self) -> None:
-        self._montage_crop_tool.clear()
 
     def _refresh_montage_crop_indicator(self) -> None:
         self._montage_crop_tool._refresh_indicator()

@@ -1,6 +1,6 @@
 """Export-style sidebar view (extracted from ``figure_export_editor``).
 
-Hosts the ``_ExportStyleSidebar`` widget that lives inside each plot tab's
+Hosts the ``ExportStyleSidebar`` widget that lives inside each plot tab's
 right-side dock. Pure view: prefs persistence, profile lookups, and the
 matplotlib export pipeline live in ``well_viewer.figure_export_editor``.
 """
@@ -1046,11 +1046,3 @@ class ExportStyleSidebar(QWidget):
                 item.setData(Qt.UserRole, w)
                 self._line_order_wells_list.addItem(item)
             self._line_order_wells_list.blockSignals(False)
-
-
-
-
-
-# Backwards-compat alias for callers that imported the leading-underscore name.
-_ExportStyleSidebar = ExportStyleSidebar
-

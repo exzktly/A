@@ -99,7 +99,6 @@ def load_directory(app, d: Path, label=None) -> None:
         except Exception:
             pass
     app._refresh_sidebar_map()
-    app._bar_groups_prune()
     if app._preview_selected_well not in app._well_paths:
         app._preview_selected_well = None
     if hasattr(app, "_sidebar_preview_plate"):

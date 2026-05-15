@@ -7,7 +7,7 @@ Input-folder resolution rules (applied when Run is pressed):
   3. Folder has >10 TIF files    → move TIFs to folder/"in"
   4. Otherwise                   → error
 
-process_microscopy_v2.py must live alongside this file.
+process_microscopy.py must live alongside this file.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from ui.theme import (
 )
 
 # ---------------------------------------------------------------------------
-# Schema vocabulary — kept in sync with process_microscopy_v2.py
+# Schema vocabulary — kept in sync with process_microscopy.py
 # ---------------------------------------------------------------------------
 SCHEMA_FIELDS  = ("experiment", "channel", "well", "fov", "timepoint", "ignore")
 DEFAULT_SCHEMA = "experiment:channel:well:fov:timepoint"
@@ -774,7 +774,7 @@ class AnalyzeTab(QWidget):
         pipeline = find_pipeline_script()
         if pipeline is None:
             QMessageBox.critical(self, "Configuration Error",
-                "process_microscopy_v2.py not found next to all_well.py.")
+                "process_microscopy.py not found next to all_well.py.")
             return None
         return pipeline
 

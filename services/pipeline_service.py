@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
-PIPELINE_SCRIPT = HERE / "process_microscopy_v2.py"
+PIPELINE_SCRIPT = HERE / "process_microscopy.py"
 
 
 def find_pipeline_script() -> Path | None:
     # When running from a PyInstaller bundle ``sys.executable`` is the
     # bundle launcher (not a Python interpreter), so there's no .py to
-    # locate — the GUI dispatches into ``process_microscopy_v2.main``
+    # locate — the GUI dispatches into ``process_microscopy.main``
     # via a ``--run-pipeline`` re-exec of the launcher (see
     # ``build_pipeline_args`` + ``all_well_launcher._dispatch``).
     if getattr(sys, "frozen", False):
@@ -30,7 +30,7 @@ def build_pipeline_args(
     if getattr(sys, "frozen", False):
         # Frozen bundle: re-invoke the launcher with the sentinel; the
         # launcher routes argv past the sentinel into
-        # ``process_microscopy_v2.main``. Passing the .py path here
+        # ``process_microscopy.main``. Passing the .py path here
         # would make the launcher treat it as a CLI argument and
         # argparse would bail with exit code 2.
         args = [sys.executable, "--run-pipeline"]

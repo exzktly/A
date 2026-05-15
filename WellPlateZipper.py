@@ -6,7 +6,7 @@ import argparse
 from typing import List, Optional
 
 # ---------------------------------------------------------------------------
-# Schema constants (kept in sync with process_microscopy_v2.py)
+# Schema constants (kept in sync with process_microscopy.py)
 # ---------------------------------------------------------------------------
 SCHEMA_FIELDS   = ("experiment", "channel", "well", "fov", "timepoint", "ignore")
 DEFAULT_SCHEMA  = "experiment:channel:well:fov:timepoint"
