@@ -109,6 +109,9 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_secondary(bar_ctrl, "Copy SVG",
                                lambda: app._copy_active_card_as_svg(),
                                icon="copy"))
+    cl.addWidget(btn_secondary(bar_ctrl, "Save figure",
+                               lambda: app._save_active_card_figure(),
+                               icon="save"))
     right_l.addWidget(bar_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────

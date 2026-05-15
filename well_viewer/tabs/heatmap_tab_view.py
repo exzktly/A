@@ -77,6 +77,9 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1.addWidget(btn_secondary(ctrl1, "Copy SVG",
                                 lambda: app._copy_active_card_as_svg(),
                                 icon="copy"))
+    cl1.addWidget(btn_secondary(ctrl1, "Save figure",
+                                lambda: app._save_active_card_figure(),
+                                icon="save"))
     layout.addWidget(ctrl1)
 
     # ── Control row 2: cmap / scale / log ───────────────────────────────────
