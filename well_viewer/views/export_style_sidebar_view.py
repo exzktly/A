@@ -737,16 +737,14 @@ class ExportStyleSidebar(QWidget):
             QMessageBox.critical(self, "Copy PNG failed", str(exc))
 
     def _copy_svg(self) -> None:
-        """Copy the current figure to the clipboard as vector PDF.
+        """Copy the current figure to the clipboard.
 
-        On macOS we write ``com.adobe.pdf`` directly to ``NSPasteboard``
-        via PyObjC so Keynote / Pages / Preview paste editable vector
-        — Qt6's clipboard adapter doesn't surface ``application/pdf``
-        or ``image/svg+xml`` to the OS pasteboard, so a pure
-        :class:`QMimeData` path lands as either rasterised PNG (when
-        macOS reads the SVG text as an ``NSImage``) or as a block of
-        text. Falls back to SVG-via-``QMimeData`` on other OSes and
-        when PyObjC isn't available.
+        Standard cross-platform Qt clipboard write: ``image/svg+xml``
+        (SVG markup), ``application/pdf`` (vector container) and a
+        raster ``QImage`` via ``setImageData``. Apps pick the slot
+        they understand. For a true vector handoff to Keynote (which
+        rasterises clipboard input by design), use the **Save As…**
+        button to write a PDF to disk and drag it onto the slide.
         """
         try:
             self._persist()
@@ -754,27 +752,24 @@ class ExportStyleSidebar(QWidget):
             import matplotlib as _mpl
             from PySide6.QtCore import QMimeData
             from PySide6.QtGui import QImage
-            from well_viewer import clipboard_macos as _cm
-            write_vector_pdf_pasteboard = _cm.write_vector_pdf_pasteboard
 
-            orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
-            _mpl.rcParams["svg.fonttype"] = "none"
             try:
                 svg_buf = BytesIO()
-                self._fig.savefig(
-                    svg_buf, format="svg",
-                    bbox_inches="tight", transparent=True,
-                )
-            finally:
-                _mpl.rcParams["svg.fonttype"] = orig_svg
-            svg_bytes = svg_buf.getvalue()
+                with _mpl.rc_context({"svg.fonttype": "none"}):
+                    self._fig.savefig(
+                        svg_buf, format="svg",
+                        bbox_inches="tight", transparent=True,
+                    )
+                svg_bytes = svg_buf.getvalue()
+            except Exception:
+                svg_bytes = b""
 
             pdf_bytes: bytes | None = None
             try:
                 pdf_buf = BytesIO()
                 # Type 42 (TrueType) instead of matplotlib's default
-                # Type 3 (bitmap glyphs) — iWork apps have been
-                # observed to rasterise PDFs containing Type 3 fonts.
+                # Type 3 (bitmap glyphs) — keeps text editable in
+                # downstream vector tools.
                 with _mpl.rc_context({
                     "pdf.fonttype": 42, "ps.fonttype": 42,
                 }):
@@ -797,47 +792,23 @@ class ExportStyleSidebar(QWidget):
             except Exception:
                 pass
 
-            wrote_pdf_native = False
-            if pdf_bytes is not None:
-                wrote_pdf_native = write_vector_pdf_pasteboard(
-                    pdf_bytes=pdf_bytes,
-                )
-
-            if not wrote_pdf_native:
-                mime = QMimeData()
+            mime = QMimeData()
+            if svg_bytes:
                 svg_qba = QByteArray(svg_bytes)
                 mime.setData("image/svg+xml", svg_qba)
                 mime.setData("image/svg", svg_qba)
-                if pdf_bytes is not None:
-                    pdf_qba = QByteArray(pdf_bytes)
-                    mime.setData("application/pdf", pdf_qba)
-                    mime.setData("com.adobe.pdf", pdf_qba)
-                if png_bytes is not None:
-                    mime.setData("image/png", QByteArray(png_bytes))
-                    img = QImage.fromData(png_bytes, "PNG")
-                    if not img.isNull():
-                        mime.setImageData(img)
-                QApplication.clipboard().setMimeData(mime)
+            if pdf_bytes is not None:
+                mime.setData("application/pdf", QByteArray(pdf_bytes))
+            if png_bytes is not None:
+                mime.setData("image/png", QByteArray(png_bytes))
+                img = QImage.fromData(png_bytes, "PNG")
+                if not img.isNull():
+                    mime.setImageData(img)
+            QApplication.clipboard().setMimeData(mime)
 
-            if wrote_pdf_native:
-                suffix = _cm.status_suffix()
-                if suffix == "also inserted into Keynote":
-                    self._app._set_status(
-                        "Figure copied to clipboard + inserted into Keynote (vector)."
-                    )
-                elif suffix:
-                    self._app._set_status(
-                        f"Figure copied to clipboard (vector PDF). {suffix}."
-                    )
-                else:
-                    self._app._set_status(
-                        "Figure copied to clipboard (vector PDF)."
-                    )
-            else:
-                reason = _cm.last_failure_reason or "no native PDF path"
-                self._app._set_status(
-                    f"Figure copied to clipboard (PNG; {reason})."
-                )
+            self._app._set_status(
+                "Figure copied to clipboard (SVG + PDF + PNG)."
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Copy SVG failed", str(exc))
 
