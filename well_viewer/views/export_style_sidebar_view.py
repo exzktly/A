@@ -545,8 +545,12 @@ class ExportStyleSidebar(QWidget):
         copy_svg_btn = QPushButton("Copy SVG")
         copy_svg_btn.setObjectName("Ghost")
         copy_svg_btn.clicked.connect(lambda _=False: self._copy_svg())
+        save_as_btn = QPushButton("Save As…")
+        save_as_btn.setObjectName("Ghost")
+        save_as_btn.clicked.connect(lambda _=False: self._save_as())
         copy_row.addWidget(copy_png_btn)
         copy_row.addWidget(copy_svg_btn)
+        copy_row.addWidget(save_as_btn)
         copy_row.addStretch(1)
         fl.addLayout(copy_row)
         act_row = QHBoxLayout()
@@ -674,6 +678,75 @@ class ExportStyleSidebar(QWidget):
             self._app._set_status(f"Saved export preset: {preset_name}")
         except Exception as exc:
             QMessageBox.critical(self, "Save preset failed", str(exc))
+
+    def _save_as(self) -> None:
+        """Save the figure to a file, vector formats preferred.
+
+        Unlike :meth:`_export`, which is locked to the export
+        profile's ``format`` field, this dialog offers PDF / SVG /
+        EPS / PNG side-by-side with PDF as the default — so the
+        user can drop a true vector file to disk without first
+        editing the preset. Type-42 (TrueType) fonts are used for
+        PDF/EPS so text stays editable downstream.
+        """
+        try:
+            self._persist()
+            apply_export_style_to_current(self._app, self._fig, self._canvas)
+
+            stem = Path(self._default_name).stem or "figure"
+            start = str(self._base_dir / f"{stem}.pdf")
+            filters = (
+                "Vector PDF (*.pdf);;"
+                "SVG (*.svg);;"
+                "EPS (*.eps);;"
+                "PNG (*.png);;"
+                "All files (*.*)"
+            )
+            out, picked_filter = QFileDialog.getSaveFileName(
+                self, "Save figure as", start, filters,
+            )
+            if not out:
+                return
+
+            out_path = Path(out)
+            # Resolve format from the chosen extension; fall back to the
+            # selected filter when the user typed a name without one.
+            ext = out_path.suffix.lstrip(".").lower()
+            if ext in {"pdf", "svg", "eps", "png"}:
+                fmt = ext
+            else:
+                fmt = {
+                    "Vector PDF": "pdf",
+                    "SVG": "svg",
+                    "EPS": "eps",
+                    "PNG": "png",
+                }.get(picked_filter.split(" (")[0], "pdf")
+                out_path = out_path.with_suffix(f".{fmt}")
+
+            kw: dict = {
+                "format": fmt,
+                "bbox_inches": "tight",
+                "transparent": True,
+            }
+            rc_overrides: dict = {}
+            if fmt == "png":
+                kw["dpi"] = 300
+            elif fmt == "svg":
+                rc_overrides["svg.fonttype"] = "none"
+            else:  # pdf / eps
+                # Type 42 (TrueType) instead of matplotlib's default
+                # Type 3 (bitmap glyphs) — keeps text editable in
+                # downstream vector tools.
+                rc_overrides["pdf.fonttype"] = 42
+                rc_overrides["ps.fonttype"] = 42
+
+            import matplotlib as _mpl
+            with _mpl.rc_context(rc_overrides):
+                self._fig.savefig(str(out_path), **kw)
+
+            self._app._set_status(f"Figure saved → {out_path.name}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save As failed", str(exc))
 
     def _export(self) -> None:
         try:
