@@ -310,6 +310,15 @@ hiddenimports += collect_submodules("h5py")
 hiddenimports += collect_submodules("scipy")
 datas       += collect_data_files("scipy")
 
+# setuptools — TF's eager import of tensorflow._api.v2.compat.v1.lite
+# walks through tensorflow.lite.python.convert, which pulls in
+# setuptools._distutils.spawn and setuptools._distutils.errors. In
+# setuptools >= 75 the latter does `from .compilers.C.errors import ...`,
+# so the bundle must include the setuptools._distutils.compilers
+# subpackage. The hand-curated hiddenimports list never enumerated
+# setuptools internals — collect them wholesale.
+hiddenimports += collect_submodules("setuptools")
+
 # Filter out dead/moved skimage submodules before collect_submodules even
 # tries to import them. ``skimage.future.graph`` was moved to
 # ``skimage.graph`` in scikit-image 0.20 and importing it raises
