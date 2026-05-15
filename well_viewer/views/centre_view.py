@@ -325,11 +325,9 @@ def build_centre(app, parent: QWidget) -> None:
                 _build_pending(sub_title)
             app._on_tab_change(None)
             _refresh_channel_chip(sub_title)
-            try:
-                from well_viewer.views.properties_rail_view import set_properties_rail_scope
-                set_properties_rail_scope(app, sub_title)
-            except Exception:
-                pass
+            # Properties rail retired — its scope picker followed the
+            # active sub-tab. Per-plot styling now happens through the
+            # floating Export Style sidebar.
             if sub_seg.currentData() != sub_title:
                 blocked = sub_seg.blockSignals(True)
                 try:
@@ -376,9 +374,9 @@ def build_centre(app, parent: QWidget) -> None:
             finally:
                 global_cb.blockSignals(blocked)
 
-        # Configure-subplots / Edit-axes are wired by the Properties rail
-        # (build_properties_rail_view). The handlers themselves live on
-        # ``app`` so the rail can reach them without importing centre_view.
+        # Configure-subplots / Edit-axes handlers live on ``app`` (kept here
+        # as helpers for tab toolbars and the per-plot Export Style sidebar's
+        # footer matplotlib helpers).
         def _config_subplots() -> None:
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):

@@ -207,10 +207,11 @@ class ExportStyleSidebar(QWidget):
         self._profile_combo.setCurrentText(str(self._prefs.get("export_profile", "Custom")))
         self._profile_combo.currentTextChanged.connect(lambda _t: self._on_profile_selected())
         add_row(s_profile, "Profile", self._profile_combo, "export_profile")
-        fmt_cb = QComboBox()
-        fmt_cb.addItems(["png", "svg", "pdf", "eps"])
-        fmt_cb.setCurrentText(str(self._prefs["format"]))
-        add_row(s_profile, "Format", fmt_cb, "format")
+        # File format selector intentionally omitted — the Save As… dialog
+        # offers PDF / SVG / EPS / PNG via the file filter, so picking the
+        # format up front was redundant. The "format" pref (read by
+        # ``_export`` when the dedicated Export… button is used) still
+        # falls back to "png" if absent.
 
         # Per-axis xlim/ylim/log buckets so each axis keeps its own values when
         # the Axis # dropdown is flipped. Unchanged from the legacy panel — the
@@ -618,12 +619,19 @@ class ExportStyleSidebar(QWidget):
         new_bucket = self._axis_buckets.setdefault(self._current_axis, {})
         self._updating = True
         try:
+            # Always set every bucketed widget — fall back to defaults for
+            # keys the new axis hasn't customised yet. Without this, a fresh
+            # axis inherits the previous axis's widget values, and the next
+            # _persist call would silently push those stale values into the
+            # new axis's bucket.
             for k in self._axis_keys:
-                if k not in new_bucket:
-                    continue
                 setter = self._setters.get(k)
-                if setter is not None and new_bucket[k] is not None:
+                if setter is None:
+                    continue
+                if k in new_bucket and new_bucket[k] is not None:
                     setter(new_bucket[k])
+                else:
+                    setter(DEFAULT_EXPORT_STYLE_PREFS[k])
         finally:
             self._updating = False
         # Persist the new axis_target selection without re-applying the

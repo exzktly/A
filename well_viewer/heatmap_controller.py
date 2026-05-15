@@ -497,6 +497,14 @@ def redraw_heatmap(app) -> None:
     )
     ax.set_title(title, fontsize=9, color=_title_fg)
 
+    # Apply the Export Style sidebar prefs (font sizes, grid, log scale, …)
+    # so toggling those in the configurator survives a redraw.
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, fig, canvas)
+    except Exception:
+        pass
+
     canvas.draw_idle()
 
 

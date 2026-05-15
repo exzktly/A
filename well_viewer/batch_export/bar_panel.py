@@ -79,6 +79,7 @@ class BarBatchExportPanel(BatchExportPanel):
 
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
         self._build_output_header_and_io(layout)
+        self._build_channel_row(layout, attr="_bar_channel_cb")
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -134,7 +135,8 @@ class BarBatchExportPanel(BatchExportPanel):
         if out_dir is None:
             return
 
-        threshold = self._app._get_thresh_frac_on(self._app._active_channel)
+        _ch_selected = self._selected_export_channel() or self._app._active_channel
+        threshold = self._app._get_thresh_frac_on(_ch_selected)
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
@@ -162,7 +164,7 @@ class BarBatchExportPanel(BatchExportPanel):
                     well_name_for, well_names_joined,
                 )
                 _val_col = self._app._active_val_col
-                _ch = self._app._active_channel
+                _ch = _ch_selected
                 _metric = self._app._active_metric
                 _well_labels = _well_labels_map(self._app)
                 _cell_area_threshold = self._app._get_cell_area_threshold()
@@ -269,7 +271,7 @@ class BarBatchExportPanel(BatchExportPanel):
                             left=0.13, right=0.97)
         fig.suptitle(f"{grp.name}  \u2014  t = {tp_str} h",
                      fontsize=10, fontweight="bold", color=get_color("PLOT_TXT"), y=0.97)
-        _ch = self._app._active_channel.upper()
+        _ch = (self._selected_export_channel() or self._app._active_channel).upper()
         apply_ax_style(ax_mean,
                        f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
                        f"Mean {_ch}")

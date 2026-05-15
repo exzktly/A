@@ -249,6 +249,7 @@ class BatchExportPanel(QWidget):
 
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
         self._build_output_header_and_io(layout)
+        self._build_channel_row(layout, attr="_line_channel_cb")
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -270,6 +271,46 @@ class BatchExportPanel(QWidget):
 
         self._build_run_row(layout)
         layout.addStretch(1)
+
+    def _build_channel_row(self, layout: QVBoxLayout, *, attr: str) -> None:
+        """Add a Channel: <combo> row populated from ``app._fluor_channels``.
+
+        Defaults to the app's currently active channel; the combobox is
+        stashed at ``self.<attr>`` so the panel's _run_batch can read it.
+        Mirrors the scatter panel's channel picker so bar / line batch
+        exports aren't locked to whatever the parent plot card had picked.
+        """
+        channels = list(getattr(self._app, "_fluor_channels", None) or [])
+        if not channels:
+            channels = ["gfp"]
+        row = QHBoxLayout()
+        row.setContentsMargins(12, 2, 12, 2)
+        lbl = QLabel("Channel:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        row.addWidget(lbl)
+        cb = QComboBox()
+        cb.addItems(channels)
+        default = str(getattr(self._app, "_active_channel", "") or "")
+        if default and default in channels:
+            cb.setCurrentText(default)
+        else:
+            cb.setCurrentIndex(0)
+        cb.setMinimumWidth(140)
+        setattr(self, attr, cb)
+        row.addWidget(cb)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+    def _selected_export_channel(self) -> str:
+        """Return the channel currently picked in the channel row, falling
+        back to ``app._active_channel`` when the row hasn't been built."""
+        for attr in ("_line_channel_cb", "_bar_channel_cb"):
+            cb = getattr(self, attr, None)
+            if cb is not None:
+                text = str(cb.currentText() or "").strip()
+                if text:
+                    return text
+        return str(getattr(self._app, "_active_channel", "") or "")
 
     def _build_export_profile_row(self, layout: QVBoxLayout) -> None:
         row = QHBoxLayout()
@@ -930,7 +971,8 @@ class BatchExportPanel(QWidget):
         if out_dir is None:
             return
 
-        threshold = self._app._get_thresh_frac_on(self._app._active_channel)
+        _ch_selected = self._selected_export_channel() or self._app._active_channel
+        threshold = self._app._get_thresh_frac_on(_ch_selected)
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
@@ -949,7 +991,7 @@ class BatchExportPanel(QWidget):
                     well_name_for, well_names_joined,
                 )
                 _val_col = self._app._active_val_col
-                _ch = self._app._active_channel
+                _ch = _ch_selected
                 _metric = self._app._active_metric
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
@@ -1058,7 +1100,7 @@ class BatchExportPanel(QWidget):
 
         legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=PLOT_BG,
                          edgecolor=PLOT_SPN, labelcolor=get_color("PLOT_TXT"))
-        _ch = self._app._active_channel.upper()
+        _ch = (self._selected_export_channel() or self._app._active_channel).upper()
         apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) \u00b1 {band_lbl}", f"Mean {_ch}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         apply_ax_style(ax_cdf, f"{_ch} Value CDF", "Cumulative fraction")

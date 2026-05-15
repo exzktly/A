@@ -1082,38 +1082,9 @@ class WellViewerApp(QWidget):
         # it does NOT push the canvas smaller (mockup parity) and it does
         # NOT extend across the sidebar (user reported it was spanning the
         # whole window). Mounted here — inside WellViewerApp — so toggling
-        # the rail when Analyze is active doesn't matter because the rail
-        # is scoped to the Review centre area.
-        from widgets.collapsible_rail import CollapsibleRail as _CollapsibleRail
-        # Hidden on launch (user request) — the edge handle on the centre's
-        # right edge is always visible and pokes inward when the rail is
-        # closed so the user can always re-open it. The titlebar
-        # ``panel-right-close`` IconButton is the secondary toggle.
-        self._properties_rail = _CollapsibleRail(centre, width=332, collapsed=True)
-        self._properties_rail.installEdgeHandle()
-        # Phase 12: populate the rail with the v2 Properties view (scope
-        # segmented + ⌘K search + eight CollapsibleSections, including
-        # the new Statistics section per Q4 / DESIGN_NOTES §6.2).
-        from well_viewer.views.properties_rail_view import (
-            build_properties_rail_view as _build_props_rail,
-            set_properties_rail_scope as _set_props_scope,
-        )
-        self._properties_rail.setContentWidget(_build_props_rail(self, self._properties_rail))
-        # Seed scope segments for the initial sub-tab (Line Graphs by default).
-        try:
-            _set_props_scope(self, "Line Graphs")
-        except Exception:
-            pass
-        # Wire the head's collapse IconButton to the rail's own toggle so
-        # the user can dismiss from inside the rail too (the titlebar
-        # toggle is mirrored — both work).
-        try:
-            head = getattr(self, "_props_rail_head_actions", {})
-            collapse = head.get("collapse")
-            if collapse is not None:
-                collapse.clicked.connect(self._properties_rail.toggle)
-        except Exception:
-            pass
+        # Properties rail retired — figure styling now lives in the
+        # per-plot Export Style sidebar (opened from each plot card's
+        # sliders IconButton). Nothing to install here.
 
         # Status + log — packed last so it sits below the splitter.
         self._build_bottom()
@@ -5095,6 +5066,14 @@ class WellViewerApp(QWidget):
         prev_tab = getattr(self, "_last_tab_name", None)
         prev_selected = set(getattr(self, "_selected_wells", set()))
 
+        # Dismiss any open figure configurator on tab change — the user can
+        # re-open it on the new tab via the plot card's sliders IconButton.
+        for sb in list((getattr(self, "_export_style_sidebars", {}) or {}).values()):
+            try:
+                sb._close_dock()
+            except Exception:
+                pass
+
         self._sidebar_main_frame.setVisible(False)
         self._sidebar_preview_frame.setVisible(False)
         if hasattr(self, "_sidebar_image_table_frame"):
@@ -6335,26 +6314,42 @@ class WellViewerApp(QWidget):
         _plot_save_bar_figure_orchestrator(self, plot_bg=PLOT_BG)
 
     def _open_export_style_panel(self, plot_key: str) -> None:
-        """Toggle the v2 Properties rail.
+        """Open the floating Export Style sidebar for ``plot_key``'s figure.
 
-        Phase 15.2: the per-tab ExportStyleSidebar was a strict subset of
-        the Properties rail (same prefs, same binding layer, no ⌘K search /
-        scope picker / global Save+Reset). Every per-tab "style" button now
-        routes through this single rail; ``plot_key`` is unused but kept in
-        the signature so the existing tab-builders don't need to change.
+        Each plot tab (line / bar / scatter cells / scatter agg /
+        distribution / heatmap) pre-allocates a right-side dock when its
+        view is built. This routes the per-card "▸" style button to the
+        ExportStyleSidebar mounted in that dock.
         """
-        del plot_key  # unused — the rail is the single styling surface
-        rail = getattr(self, "_properties_rail", None)
-        if rail is None:
-            self._set_status("Properties rail not available.")
+        mapping = {
+            "line":          ("_line_fig",         "_line_canvas",         "line_figure"),
+            "bar":           ("_bar_fig",          "_bar_canvas",          "bar_figure"),
+            "scatter_cells": ("_scatter_fig",      "_scatter_canvas",      "scatter_figure"),
+            "scatter_agg":   ("_scatter_agg_fig",  "_scatter_agg_canvas",  "scatter_agg_figure"),
+            "distribution":  ("_distribution_fig", "_distribution_canvas", "distribution_figure"),
+            "heatmap":       ("_heatmap_fig",      "_heatmap_canvas",      "heatmap_figure"),
+        }
+        spec = mapping.get(plot_key)
+        if spec is None:
+            self._set_status(f"Unknown export panel: {plot_key}")
             return
-        try:
-            rail.toggle()
-        except Exception:
+        fig_attr, canvas_attr, default_name = spec
+        fig = getattr(self, fig_attr, None)
+        canvas = getattr(self, canvas_attr, None)
+        if fig is None:
+            self._set_status("Plot is not ready yet.")
+            return
+        # If a sidebar for this figure is already open, toggle it off so
+        # the button behaves as an open/close affordance.
+        existing = (getattr(self, "_export_style_sidebars", {}) or {}).get(id(fig))
+        if existing is not None and existing.isVisible():
             try:
-                rail.setCollapsed(not rail.isCollapsed())
+                existing._close_dock()
             except Exception:
                 pass
+            return
+        from well_viewer.figure_export_editor import launch_export_editor
+        launch_export_editor(self, fig, default_name, plot_bg=PLOT_BG, canvas=canvas)
 
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
