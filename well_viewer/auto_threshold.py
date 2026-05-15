@@ -23,7 +23,7 @@ Two entry points share the algorithm:
 
 * :func:`compute_auto_thresholds` — pure-Python helper that walks an
   on-disk results directory. Called from the end of the
-  ``process_microscopy_v2`` pipeline and from the runtime Cell Gating
+  ``process_microscopy`` pipeline and from the runtime Cell Gating
   tab's "Auto-threshold" button.
 * :func:`apply_auto_thresholds_to_pipeline_info` — convenience that
   computes the thresholds and merges them into ``pipeline_info.json``

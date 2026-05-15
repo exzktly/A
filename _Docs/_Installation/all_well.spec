@@ -40,7 +40,7 @@ _parent = _here.parent.parent        # repository root (two levels up)
 sibling_scripts = [
     (str(_parent / "all_well.py"),              "."),
     (str(_parent / "analyze_tab.py"),           "."),
-    (str(_parent / "process_microscopy_v2.py"), "."),
+    (str(_parent / "process_microscopy.py"),    "."),
     (str(_parent / "WellPlateZipper.py"),       "."),
     (str(_parent / "theme.py"),                 "."),
 ]
@@ -349,7 +349,7 @@ a = Analysis(
         "skimage.future.graph",
         # keras benchmark module has syntax errors and is never used at runtime
         "keras.src.benchmarks",
-        # NOTE: ssl intentionally NOT excluded — process_microscopy_v2 patches
+        # NOTE: ssl intentionally NOT excluded — process_microscopy patches
         # ssl._create_default_https_context for StarDist model download
     ],
     noarchive=False,

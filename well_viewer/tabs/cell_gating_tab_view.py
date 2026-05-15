@@ -480,7 +480,7 @@ class _AutoThresholdWorker(QThread):
 def cell_gating_auto_threshold(app) -> None:
     """Kick off the Auto-threshold pass for every loaded fluorescence channel.
 
-    Mirrors what the ``process_microscopy_v2`` pipeline runs as its final
+    Mirrors what the ``process_microscopy`` pipeline runs as its final
     step: per-cell mean + matched random background pixel pooled across
     every well's first/middle/last timepoint, then Otsu. The result lands
     in ``app._cell_gating_fluor_gate_edits`` and is persisted to

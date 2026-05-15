@@ -1791,25 +1791,6 @@ class WellViewerApp(QWidget):
         cancel_btn.clicked.connect(dlg.reject)
         dlg.exec()
 
-    def _rep_set_id_at(self, idx: int):
-        """Selection id of the idx-th rep_set-source selection (legacy bridge)."""
-        sels = [s for s in self._selections if s.get("source") == "rep_set"]
-        return sels[idx].get("id") if 0 <= idx < len(sels) else None
-
-    def _rep_rename(self, idx: int) -> None:
-        sid = self._rep_set_id_at(idx)
-        if sid is None:
-            return
-        s = self._sel_by_id(sid)
-        name = ask_name_dialog(self, default=s.get("name", "") if s else "")
-        if name:
-            self._sel_rename(sid, name)
-
-    def _rep_delete(self, idx: int) -> None:
-        sid = self._rep_set_id_at(idx)
-        if sid is not None:
-            self._sel_delete(sid)
-
     def _rep_clear_all(self) -> None:
         if not self._selections:
             return
