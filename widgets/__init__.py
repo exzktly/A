@@ -13,8 +13,6 @@ Import widgets directly from their modules, e.g.::
 or run a module directly to preview it::
 
     python widgets/toggle_switch.py
-
-``widgets/gallery.py`` shows the whole library in one scrollable window.
 """
 
 from __future__ import annotations
