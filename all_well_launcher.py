@@ -23,10 +23,52 @@ When running from source (not bundled), sys._MEIPASS is not set, so
 modules are loaded from the repository root instead.
 """
 
+import sys
+
+# ---------------------------------------------------------------------------
+# Multiprocessing child-process dispatcher.
+#
+# On macOS the default start method is "spawn", which re-execs this bundled
+# binary for every worker. PyInstaller's multiprocessing runtime hook
+# handles ``--multiprocessing-fork`` for the pool workers, but the
+# resource_tracker child invocation is hard-coded inside CPython
+# (multiprocessing/resource_tracker.py::ensure_running) and bypasses that
+# patch — it re-execs as ``<exe> -B -S -I -c "from
+# multiprocessing.resource_tracker import main;main(N)"``. Without this
+# guard those flags fall through to all_well's argparse and the worker
+# dies with "unrecognized arguments: -B -S -I -c ...".
+#
+# This block must run before any other imports so the child exits cleanly
+# without touching matplotlib, Qt, or the user-facing argument parser.
+# ---------------------------------------------------------------------------
+
+def _dispatch_multiprocessing_child() -> None:
+    argv = sys.argv
+    if len(argv) >= 2 and argv[1] == "--multiprocessing-fork":
+        from multiprocessing.spawn import spawn_main
+        kwds = {}
+        for arg in argv[2:]:
+            name, value = arg.split("=", 1)
+            kwds[name] = int(value)
+        spawn_main(**kwds)
+        sys.exit()
+    if "-c" in argv:
+        ci = argv.index("-c")
+        if ci + 1 < len(argv) and argv[ci + 1].startswith(
+            "from multiprocessing.resource_tracker import main"
+        ):
+            exec(argv[ci + 1], {"__name__": "__main__"})
+            sys.exit()
+
+
+_dispatch_multiprocessing_child()
+
+import multiprocessing
+multiprocessing.freeze_support()
+
 import matplotlib
 matplotlib.use("QtAgg")
 
-import sys
 from pathlib import Path
 
 if hasattr(sys, "_MEIPASS"):
