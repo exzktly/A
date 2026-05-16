@@ -6,7 +6,7 @@ numbers act as whole-row / whole-column controls) with an optional action row
 chips": a radial gradient + a faint top sheen.
 
 Beyond the basic flat selection set, the widget supports the decoration /
-interaction surface an embedding app needs (see ``design/WELL_SELECTOR_GAP.md``):
+interaction surface an embedding app needs (see ``Markdowns/WELL_SELECTOR_GAP.md``):
 
 * **Per-well enabled state** — ``setEnabledWells`` / ``setWellEnabled``. Disabled
   wells recede visually and are ignored by clicks, drags and hover.
