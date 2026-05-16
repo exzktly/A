@@ -164,7 +164,11 @@ hiddenimports = [
     "imageio",
     "imageio.plugins.tifffile",
 
-    # imagecodecs — optional but prevents codec errors on compressed TIFFs
+    # imagecodecs — the top-level package only; compiled per-codec extensions
+    # (lzw, jpeg, zstd, etc.) are collected via collect_all() below so their
+    # .so binaries are bundled. Listing only "imagecodecs" here would bundle
+    # the Python shim but leave the compiled codec extensions out, producing
+    # "cannot import name lzw_decode from imagecodecs" at runtime.
     "imagecodecs",
 
     # standard library PyInstaller sometimes misses
@@ -400,11 +404,18 @@ _req_datas, _req_binaries, _req_hidden = collect_all("requests")
 datas         += _req_datas
 hiddenimports += _req_hidden
 
+# imagecodecs — each codec (lzw, jpeg, zstd, …) is a separate compiled C
+# extension. collect_all bundles both the Python shims and the .so binaries
+# so that tifffile can load any codec present in the build environment.
+_icd_datas, _icd_binaries, _icd_hidden = collect_all("imagecodecs")
+datas         += _icd_datas
+hiddenimports += _icd_hidden
+
 # Collect data files
 datas += collect_data_files("numba")
 datas += collect_data_files("skimage")
 
-_extra_binaries = _csn_binaries + _req_binaries
+_extra_binaries = _csn_binaries + _req_binaries + _icd_binaries
 
 a = Analysis(
     [str(_parent / "all_well_launcher.py")],
