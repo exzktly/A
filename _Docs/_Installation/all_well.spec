@@ -52,12 +52,6 @@ for _pkg in ("well_viewer", "widgets", "ui", "services"):
     if _pkg_path.is_dir():
         sibling_scripts.append((str(_pkg_path), _pkg))
 
-# Bundle the OFL-licensed Inter font set so the Qt application can
-# register Inter at startup without a system-wide install.
-_fonts = _parent / "fonts"
-if _fonts.is_dir():
-    sibling_scripts.append((str(_fonts), "fonts"))
-
 # matplotlib ships fonts, styles, and mpl-data at runtime
 mpl_data = (str(pkg_dir("matplotlib") / "mpl-data"), "matplotlib/mpl-data")
 

@@ -102,12 +102,11 @@ class Typography:
     # NOT understood — Qt logs ``qt.qpa.fonts: Populating font family
     # aliases took NN ms. Replace uses of missing font family …`` and pays
     # the alias-scan cost on every startup. ``sans-serif`` / ``monospace``
-    # are the only generic keywords Qt resolves without an alias walk,
-    # so we lead with those; the platform default font ultimately wins.
-    # ``Inter`` is bundled in ./fonts and loaded by ``all_well._load_bundled_fonts``.
-    # Lead with it; the platform default falls back when the font registry
-    # hasn't been populated yet (test harnesses, gallery probes).
-    family      = "Inter, sans-serif"
+    # are the only generic keywords Qt resolves without an alias walk.
+    # ``all_well.main`` overwrites ``family`` with the platform default
+    # font Qt actually loaded (e.g. "Segoe UI" on Windows, ".AppleSystemUIFont"
+    # on macOS) so QSS interpolation always produces a resolvable family.
+    family      = "sans-serif"
     family_mono = "monospace"
 
     # font sizes (px) — §2.2
