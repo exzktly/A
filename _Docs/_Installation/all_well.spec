@@ -276,22 +276,55 @@ hiddenimports = [
     "tqdm.auto",
     "tqdm.std",
 
-    # charset_normalizer — requests (pulled in by TensorFlow/Keras for model
-    # downloads) raises "unable to find acceptable character detection
-    # dependency" when PyInstaller fails to bundle this package. chardet is
-    # included as the legacy fallback that requests also accepts.
+    # charset_normalizer — requests (pulled in as a transitive dependency)
+    # raises "unable to find acceptable character detection dependency" from
+    # requests/__init__.py when neither charset_normalizer nor chardet can be
+    # imported inside the frozen bundle.
+    #
+    # charset_normalizer ships mypyc-compiled extensions on macOS (e.g.
+    # md__mypyc.cpython-310-darwin.so, cd__mypyc.cpython-310-darwin.so).
+    # collect_submodules() alone misses these binaries; collect_all() is used
+    # below instead so that the compiled extensions are collected as binaries.
+    # The explicit entries here are a belt-and-suspenders fallback in case
+    # collect_all() runs before the package is importable.
     "charset_normalizer",
+    "charset_normalizer.api",
     "charset_normalizer.cd",
+    "charset_normalizer.cd__mypyc",
     "charset_normalizer.constant",
     "charset_normalizer.legacy",
     "charset_normalizer.md",
     "charset_normalizer.md__mypyc",
     "charset_normalizer.models",
     "charset_normalizer.utils",
+    "charset_normalizer.version",
     "chardet",
     "chardet.universaldetector",
     "chardet.enums",
     "chardet.resultdict",
+
+    # requests — imported transitively (e.g. by urllib3 / stardist model
+    # download path). PyInstaller's static analyser misses it because it is
+    # imported inside try/except blocks in those libraries.
+    "requests",
+    "requests.adapters",
+    "requests.auth",
+    "requests.compat",
+    "requests.cookies",
+    "requests.exceptions",
+    "requests.hooks",
+    "requests.models",
+    "requests.sessions",
+    "requests.structures",
+    "requests.utils",
+    "urllib3",
+    "urllib3.util",
+    "urllib3.util.retry",
+    "urllib3.util.timeout",
+    "urllib3.util.url",
+    "urllib3.contrib",
+    "urllib3.contrib.pyopenssl",
+    "urllib3.contrib.securetransport",
 ]
 
 
@@ -357,18 +390,32 @@ def _skimage_filter(name: str) -> bool:
 
 hiddenimports += collect_submodules("skimage", filter=_skimage_filter)
 
-# charset_normalizer ships an optional compiled MD (magic-detection) extension.
-# collect_submodules picks up both the pure-Python fallback and the .so if present.
-hiddenimports += collect_submodules("charset_normalizer")
+# charset_normalizer — use collect_all (not collect_submodules) so that
+# mypyc-compiled binary extensions (e.g. md__mypyc.cpython-310-darwin.so,
+# cd__mypyc.cpython-310-darwin.so) are collected as binaries, not just the
+# wrapper .py files. collect_submodules() only adds module names to
+# hiddenimports; it does not guarantee that compiled .so files with the
+# __mypyc suffix are actually bundled.
+_csn_datas, _csn_binaries, _csn_hidden = collect_all("charset_normalizer")
+datas         += _csn_datas
+hiddenimports += _csn_hidden
+
+# requests — collect_all ensures urllib3 and other bundled extensions land
+# as proper binaries rather than just hidden-import names.
+_req_datas, _req_binaries, _req_hidden = collect_all("requests")
+datas         += _req_datas
+hiddenimports += _req_hidden
 
 # Collect data files
 datas += collect_data_files("numba")
 datas += collect_data_files("skimage")
 
+_extra_binaries = _csn_binaries + _req_binaries
+
 a = Analysis(
     [str(_parent / "all_well_launcher.py")],
     pathex=[str(_parent)],
-    binaries=[],
+    binaries=_extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[str(_here / "hooks")],   # custom hooks for stardist/csbdeep/pkg_resources
