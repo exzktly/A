@@ -63,38 +63,17 @@ _LIGHT_THEME: Dict[str, str] = {
     "INSET_SHADOW": "#6B7280", "INSET_HIGHLIGHT": "#FFFFFF",
 }
 
-# 48 maximally-distinct colors for the well palette. Generated via a
-# greedy max-min selection in OKLab space — at each step the candidate
-# colour with the largest minimum OKLab distance to the already-picked
-# set is taken. Min pairwise distance ≈ 0.09 in OKLab. The picks are
-# ordered roughly by saturation/contrast (bright primaries first), so
-# small datasets see the most legible separation. Consumers index
-# ``WELL_COLORS[i % len(WELL_COLORS)]`` (see ``well_viewer.plate_layout``).
+# Well palette — derived from the canonical tuple in the repo-root ``theme``
+# module so every consumer (matplotlib's ``axes.prop_cycle`` via
+# ``widgets/plot_card.plot_palette``, the QSS template substitution below,
+# and ``well_viewer.plate_layout.WELL_COLORS``) reads the same 48 entries
+# in the same order. Adjusting the palette only requires editing the
+# source tuple in ``theme.py``.
+from theme import WELL_COLORS_TUPLE as _WELL_COLORS_TUPLE  # noqa: E402
+
 _WELL_COLORS: Dict[str, str] = {
-    "WELL_COLOR_1":  "#DF2020", "WELL_COLOR_2":  "#06F906",
-    "WELL_COLOR_3":  "#0606F9", "WELL_COLOR_4":  "#6AB2FB",
-    "WELL_COLOR_5":  "#138613", "WELL_COLOR_6":  "#D406F9",
-    "WELL_COLOR_7":  "#FAAC38", "WELL_COLOR_8":  "#6E2277",
-    "WELL_COLOR_9":  "#6AFBE5", "WELL_COLOR_10": "#2E719E",
-    "WELL_COLOR_11": "#EC79B8", "WELL_COLOR_12": "#FAFA38",
-    "WELL_COLOR_13": "#774C22", "WELL_COLOR_14": "#131386",
-    "WELL_COLOR_15": "#05C783", "WELL_COLOR_16": "#806AFB",
-    "WELL_COLOR_17": "#B37D19", "WELL_COLOR_18": "#C7058D",
-    "WELL_COLOR_19": "#5C05C7", "WELL_COLOR_20": "#2E9E9E",
-    "WELL_COLOR_21": "#950437", "WELL_COLOR_22": "#FA7238",
-    "WELL_COLOR_23": "#AAC705", "WELL_COLOR_24": "#224877",
-    "WELL_COLOR_25": "#9C39C6", "WELL_COLOR_26": "#D4DD88",
-    "WELL_COLOR_27": "#AA88DD", "WELL_COLOR_28": "#779E2E",
-    "WELL_COLOR_29": "#F906BC", "WELL_COLOR_30": "#0553C7",
-    "WELL_COLOR_31": "#068CF9", "WELL_COLOR_32": "#20D6DF",
-    "WELL_COLOR_33": "#E56AFB", "WELL_COLOR_34": "#FA387C",
-    "WELL_COLOR_35": "#DD9D88", "WELL_COLOR_36": "#777222",
-    "WELL_COLOR_37": "#79EC7F", "WELL_COLOR_38": "#227762",
-    "WELL_COLOR_39": "#6938FA", "WELL_COLOR_40": "#05C705",
-    "WELL_COLOR_41": "#B34F19", "WELL_COLOR_42": "#D16167",
-    "WELL_COLOR_43": "#C7A005", "WELL_COLOR_44": "#471386",
-    "WELL_COLOR_45": "#B0F906", "WELL_COLOR_46": "#950495",
-    "WELL_COLOR_47": "#0667F9", "WELL_COLOR_48": "#1929B3",
+    f"WELL_COLOR_{_i}": _hex
+    for _i, _hex in enumerate(_WELL_COLORS_TUPLE, start=1)
 }
 
 _BEIGE_THEME: Dict[str, str] = {
