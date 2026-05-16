@@ -896,6 +896,270 @@ def _segment_stardist_seeded_watershed_cell(
     return labels, nuclear_points, cytoplasm_tophat, cytoplasm_binary_mask
 
 
+# ---------------------------------------------------------------------------
+# Auto-threshold estimation (self-contained — runs without well_viewer)
+# ---------------------------------------------------------------------------
+#
+# Walks ``<output_dir>/*_out.zip``, picks the first/middle/last timepoint of
+# every well, samples per-cell means (from the ``*_labels`` mask) plus a
+# matched random background pixel (from the ``*_tophat`` fluor image) per
+# channel, and runs Otsu on the pooled distribution. The thresholds are
+# merged into ``pipeline_info.json``'s ``cell_gating.thresh_frac_on`` block
+# (preserving any user-set values).
+#
+# Mirrors the original ``well_viewer.auto_threshold`` implementation but uses
+# only modules ``process_microscopy.py`` already imports (numpy / skimage /
+# tifffile / zipfile / pathlib / json / random), so the pipeline can produce
+# auto-thresholds even on a host where ``well_viewer`` is not installed.
+
+_AUTO_THRESHOLD_CELLS_PER_IMAGE_CAP = 800
+
+
+def _sample_cell_and_bg(
+    labels: np.ndarray,
+    fluor: np.ndarray,
+    *,
+    cap: int,
+    rng,
+) -> "tuple[list[float], list[float]]":
+    """Return ``(cell_means, bg_pixels)`` sampled from one (labels, fluor) pair.
+
+    For every distinct cell label in ``labels`` (excluding background ``0``),
+    one mean intensity is added to ``cell_means`` plus one random outside-cell
+    pixel value to ``bg_pixels``. Both lists are capped to ``cap`` entries.
+    """
+    if labels.shape != fluor.shape:
+        return [], []
+    flat_labels = labels.ravel().astype(np.int64, copy=False)
+    flat_fluor = fluor.ravel().astype(np.float64, copy=False)
+    nonzero = flat_labels > 0
+    if not nonzero.any():
+        return [], []
+    bg_indices = np.flatnonzero(~nonzero)
+    if bg_indices.size == 0:
+        return [], []
+    n_labels = int(flat_labels.max()) + 1
+    sums = np.bincount(flat_labels, weights=flat_fluor, minlength=n_labels)
+    counts = np.bincount(flat_labels, minlength=n_labels)
+    valid = np.arange(1, n_labels)
+    valid_counts = counts[1:]
+    keep = valid_counts > 0
+    valid = valid[keep]
+    if valid.size == 0:
+        return [], []
+    means = (sums[valid] / counts[valid]).astype(np.float64)
+    if means.size > cap:
+        idx = np.array(rng.sample(range(means.size), cap), dtype=np.int64)
+        means = means[idx]
+    n = int(means.size)
+    bg_pick = rng.choices(bg_indices.tolist(), k=n)
+    bg_values = flat_fluor[np.asarray(bg_pick, dtype=np.int64)]
+    return means.tolist(), bg_values.tolist()
+
+
+def _pick_endpoint_timepoints(tps) -> "list[str]":
+    """First / middle / last from *tps* (deduplicated, parsed-as-float-if-possible)."""
+    def _key(t: str):
+        s = str(t or "").strip()
+        try:
+            return (0, float(s))
+        except ValueError:
+            return (1, s)
+
+    sorted_tps = sorted({str(t).strip() for t in tps if str(t).strip()}, key=_key)
+    if not sorted_tps:
+        return []
+    if len(sorted_tps) <= 2:
+        return list(sorted_tps)
+    mid = sorted_tps[len(sorted_tps) // 2]
+    picked: list[str] = []
+    for tp in (sorted_tps[0], mid, sorted_tps[-1]):
+        if tp not in picked:
+            picked.append(tp)
+    return picked
+
+
+def _estimate_thresholds_standalone(
+    output_dir: Path,
+    *,
+    fluor_channels: "list[str]",
+    filename_schema: str,
+    filename_sep: str,
+    log: logging.Logger,
+    cells_per_image_cap: int = _AUTO_THRESHOLD_CELLS_PER_IMAGE_CAP,
+    rng_seed: "int | None" = None,
+) -> "dict[str, float]":
+    """Otsu-based per-channel threshold estimator that depends only on
+    modules already imported by this file. Returns ``{channel: threshold}``.
+    """
+    import io as _io
+    import random as _random
+
+    channels = [str(c).strip().lower() for c in fluor_channels if str(c).strip()]
+    if not channels:
+        return {}
+    output_dir = Path(output_dir)
+    if not output_dir.exists():
+        log.warning("Auto-threshold: output dir not found (%r)", str(output_dir))
+        return {}
+
+    schema_fields = [f.strip().lower() for f in str(filename_schema or "").split(":")
+                     if f.strip()]
+    sep = filename_sep or "_"
+
+    def _parse_fields(stem: str) -> "dict[str, str]":
+        parts = stem.split(sep)
+        return {f: (parts[i] if i < len(parts) else "")
+                for i, f in enumerate(schema_fields)}
+
+    rng = _random.Random(rng_seed)
+    per_channel: "dict[str, list[float]]" = {c: [] for c in channels}
+
+    well_zips = sorted(p for p in output_dir.glob("*_out.zip") if not p.name.startswith("."))
+    if not well_zips:
+        log.info("Auto-threshold: no processed *_out.zip wells in %s", output_dir)
+        return {}
+
+    log.info("Auto-threshold: scanning %d well(s) for channels: %s",
+             len(well_zips), ", ".join(channels))
+
+    for w_idx, zpath in enumerate(well_zips, start=1):
+        try:
+            zf = zipfile.ZipFile(zpath, "r")
+        except (OSError, zipfile.BadZipFile) as exc:
+            log.warning("Auto-threshold: cannot open %s: %s", zpath.name, exc)
+            continue
+        with zf:
+            label_members: "dict[tuple[str, str], str]" = {}     # (fov, tp) -> name
+            tophat_members: "dict[tuple[str, str, str], str]" = {}  # (ch, fov, tp) -> name
+            for name in zf.namelist():
+                if "/" in name or name.startswith("."):
+                    continue
+                base, _, ext = name.rpartition(".")
+                if not base or ext.lower() not in ("tif", "tiff"):
+                    continue
+                if base.endswith("_labels"):
+                    stem = base[: -len("_labels")]
+                    fields = _parse_fields(stem)
+                    fov = (fields.get("fov") or "").strip()
+                    tp = (fields.get("tp") or fields.get("timepoint") or "").strip()
+                    if fov and tp:
+                        label_members[(fov, tp)] = name
+                elif base.endswith("_tophat"):
+                    stem = base[: -len("_tophat")]
+                    fields = _parse_fields(stem)
+                    fov = (fields.get("fov") or "").strip()
+                    tp = (fields.get("tp") or fields.get("timepoint") or "").strip()
+                    ch = (fields.get("channel") or "").strip().lower()
+                    if fov and tp and ch in per_channel:
+                        tophat_members[(ch, fov, tp)] = name
+
+            if not label_members:
+                continue
+            tps_seen = {tp for (_fov, tp) in label_members.keys()}
+            picked_tps = set(_pick_endpoint_timepoints(tps_seen))
+            if not picked_tps:
+                continue
+            log.info("Auto-threshold: %s → timepoints %s",
+                     zpath.name, ", ".join(sorted(picked_tps)))
+
+            for (fov, tp), label_name in label_members.items():
+                if tp not in picked_tps:
+                    continue
+                for ch in channels:
+                    fluor_name = tophat_members.get((ch, fov, tp))
+                    if fluor_name is None:
+                        continue
+                    try:
+                        labels_arr = imread(_io.BytesIO(zf.read(label_name)))
+                        fluor_arr = imread(_io.BytesIO(zf.read(fluor_name)))
+                    except Exception as exc:
+                        log.debug("Auto-threshold: skipping %s / %s: %s",
+                                  label_name, fluor_name, exc)
+                        continue
+                    if labels_arr.ndim == 3:
+                        labels_arr = labels_arr[..., 0]
+                    if fluor_arr.ndim == 3:
+                        fluor_arr = fluor_arr[..., 0]
+                    means, bg_values = _sample_cell_and_bg(
+                        labels_arr, fluor_arr,
+                        cap=cells_per_image_cap, rng=rng,
+                    )
+                    if not means:
+                        continue
+                    per_channel[ch].extend(means)
+                    per_channel[ch].extend(bg_values)
+        log.info("Auto-threshold: completed well %d/%d (%s)",
+                 w_idx, len(well_zips), zpath.name)
+
+    thresholds: "dict[str, float]" = {}
+    for ch in channels:
+        values = per_channel.get(ch) or []
+        if len(values) < 2:
+            log.info("Auto-threshold: skipping %s — only %d sample(s)",
+                     ch.upper(), len(values))
+            continue
+        arr = np.asarray(values, dtype=np.float64)
+        if arr.max() <= arr.min():
+            log.info("Auto-threshold: skipping %s — constant distribution (min == max == %.3g)",
+                     ch.upper(), float(arr.min()))
+            continue
+        try:
+            thr = float(threshold_otsu(arr))
+        except Exception as exc:
+            log.warning("Auto-threshold: Otsu failed for %s: %s", ch.upper(), exc)
+            continue
+        thresholds[ch] = thr
+        log.info("Auto-threshold: %s → %.4g (n=%d)", ch.upper(), thr, int(arr.size))
+    return thresholds
+
+
+def _apply_thresholds_to_pipeline_info(
+    output_dir: Path,
+    thresholds: "dict[str, float]",
+    log: logging.Logger,
+) -> "dict[str, float]":
+    """Merge ``thresholds`` into ``output_dir/pipeline_info.json`` under
+    ``cell_gating.thresh_frac_on``. User-set values are preserved.
+    """
+    if not thresholds:
+        return {}
+    info_path = output_dir / "pipeline_info.json"
+    if not info_path.exists():
+        info_path = output_dir.parent / "pipeline_info.json"
+    if not info_path.exists():
+        log.info("Auto-threshold: pipeline_info.json not found — defaults not persisted.")
+        return {}
+    try:
+        existing = json.loads(info_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Auto-threshold: cannot read %s: %s", info_path, exc)
+        return {}
+    if not isinstance(existing, dict):
+        return {}
+
+    cell_gating = dict(existing.get("cell_gating") or {})
+    tfo = dict(cell_gating.get("thresh_frac_on") or {})
+    written: "dict[str, float]" = {}
+    for ch, thr in thresholds.items():
+        if ch in tfo:  # never overwrite a user-set value
+            continue
+        tfo[ch] = float(thr)
+        written[ch] = float(thr)
+    if not written:
+        return {}
+    cell_gating["thresh_frac_on"] = tfo
+    existing["cell_gating"] = cell_gating
+    try:
+        tmp = info_path.with_suffix(info_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(existing, indent=2))
+        tmp.replace(info_path)
+    except OSError as exc:
+        log.warning("Auto-threshold: cannot write %s: %s", info_path, exc)
+        return {}
+    return written
+
+
 def build_processed_output_path(
     src_path: Path,
     *,
@@ -2863,15 +3127,23 @@ def main() -> None:
     # background-pixel distribution. The result lands in
     # ``pipeline_info.json``'s ``cell_gating.thresh_frac_on`` block and the
     # Cell Gating tab picks it up the next time the dataset is loaded.
+    #
+    # The implementation lives entirely inside this module (see
+    # ``_estimate_thresholds_standalone`` above) so the pipeline can produce
+    # auto-thresholds even when ``well_viewer`` is not installed — the only
+    # third-party dependencies are skimage's threshold_otsu and tifffile's
+    # imread, which the rest of the pipeline already uses. Any failure is
+    # logged and the pipeline continues — auto-threshold is informational
+    # only and the user can always set thresholds manually in the GUI.
     try:
-        from well_viewer.auto_threshold import (
-            apply_auto_thresholds_to_pipeline_info as _apply_auto_thresholds,
-        )
-        written = _apply_auto_thresholds(
+        thresholds = _estimate_thresholds_standalone(
             output_dir,
             fluor_channels=fluor_tokens_for_quant,
-            progress=lambda msg: log.info("%s", msg),
+            filename_schema=args.filename_schema,
+            filename_sep=args.filename_sep,
+            log=log,
         )
+        written = _apply_thresholds_to_pipeline_info(output_dir, thresholds, log)
         if written:
             log.info(
                 "Auto-threshold defaults written for %d channel(s): %s",
