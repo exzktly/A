@@ -425,7 +425,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[str(_here / "hooks")],   # custom hooks for stardist/csbdeep/pkg_resources
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(_here / "hooks" / "rthook-charset_normalizer.py")],
     excludes=[
         # Heavy third-party packages not used by this app
         "IPython",
