@@ -31,7 +31,16 @@ def classify_member(
         stem = Path(name).stem
 
     parsed_fields = pipeline_fields_extractor(stem) if pipeline_fields_extractor else {}
-    fov, tp = fov_tp_extractor(stem)
+    # Prefer the schema-aware fov/tp from pipeline_info when it has them —
+    # the legacy regex-based fov_tp_extractor returns ("unknown", "unknown")
+    # for any filename that doesn't match its hardcoded 5-field pattern,
+    # which is what made the auto-threshold pass announce "timepoints
+    # unknown" on every dataset whose schema differs from the default.
+    default_fov, default_tp = fov_tp_extractor(stem)
+    schema_fov = str(parsed_fields.get("fov", "")).strip()
+    schema_tp = str(parsed_fields.get("tp", "") or parsed_fields.get("timepoint", "")).strip()
+    fov = schema_fov or default_fov
+    tp = schema_tp or default_tp
     channel_field = str(parsed_fields.get("channel", "")).strip().lower()
 
     if is_mask:
