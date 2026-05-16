@@ -163,9 +163,11 @@ class BarBatchExportPanel(BatchExportPanel):
                     bar_metric_fieldnames, bar_metric_row,
                     well_name_for, well_names_joined,
                 )
-                _val_col = self._app._active_val_col
+                # Resolve the panel's (Channel, Property) selection into a
+                # column / ratio key — independent of the plot-tab state.
+                _val_col = self._export_val_col_for("_bar_channel_cb")
                 _ch = _ch_selected
-                _metric = self._app._active_metric
+                _metric = self._selected_export_metric_key("_bar_channel_cb")
                 _well_labels = _well_labels_map(self._app)
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
@@ -304,7 +306,7 @@ class BarBatchExportPanel(BatchExportPanel):
             color = WELL_COLORS[i % len(WELL_COLORS)]
             pts = self._app._aggregate_group(
                 wells, threshold=threshold, use_sem=use_sem,
-                val_col=self._app._active_val_col,
+                val_col=self._export_val_col_for("_bar_channel_cb"),
                 cell_area_threshold=_cell_area_threshold,
                 fluor_gates=_fluor_gates,
                 per_fov_spread=self._app._use_fov_spread_active(),

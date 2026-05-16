@@ -273,13 +273,17 @@ class BatchExportPanel(QWidget):
         layout.addStretch(1)
 
     def _build_channel_row(self, layout: QVBoxLayout, *, attr: str) -> None:
-        """Add a Channel: <combo> row populated from ``app._fluor_channels``.
+        """Add a Channel: <combo> + Property: <combo> row.
 
-        Defaults to the app's currently active channel; the combobox is
-        stashed at ``self.<attr>`` so the panel's _run_batch can read it.
-        Mirrors the scatter panel's channel picker so bar / line batch
-        exports aren't locked to whatever the parent plot card had picked.
-        Ratio channels defined in the app are appended after the fluor list.
+        The channel combo is populated from ``_all_export_channels()`` so
+        ratios are listed alongside real fluor channels. The Property combo
+        lets the batch export pick the intensity flavour (Mean / Total /
+        Max / Min / Std / smFISH Count) independently of the plot-tab
+        ctxbar — and collapses to ``Calculated Val`` when the channel
+        resolves to a ratio key.
+
+        The two combos are stashed at ``self.<attr>`` and ``self.<attr +
+        "_metric">`` so the panel's ``_run_batch`` can read them.
         """
         channels = self._all_export_channels()
         row = QHBoxLayout()
@@ -297,6 +301,22 @@ class BatchExportPanel(QWidget):
         cb.setMinimumWidth(140)
         setattr(self, attr, cb)
         row.addWidget(cb)
+
+        prop_lbl = QLabel("Property:")
+        pf = prop_lbl.font(); pf.setBold(True); prop_lbl.setFont(pf)
+        row.addWidget(prop_lbl)
+        prop_cb = QComboBox()
+        prop_cb.setMinimumWidth(140)
+        prop_attr = f"{attr}_metric"
+        setattr(self, prop_attr, prop_cb)
+        row.addWidget(prop_cb)
+        # Populate the property combo based on the channel's nature
+        # (ratio → only "Calculated Val", else full METRIC_ORDER) and
+        # keep it in sync as the user changes channel.
+        self._refresh_property_combo_for(attr)
+        cb.currentIndexChanged.connect(
+            lambda _i, _a=attr: self._refresh_property_combo_for(_a)
+        )
         row.addStretch(1)
         layout.addLayout(row)
 
@@ -310,6 +330,93 @@ class BatchExportPanel(QWidget):
             if lbl and lbl not in channels:
                 channels.append(lbl)
         return channels
+
+    def _refresh_property_combo_for(self, channel_attr: str) -> None:
+        """Reshape the Property combo that pairs with ``channel_attr``.
+
+        Mirrors :py:meth:`runtime_app.WellViewerApp._populate_metric_combo`:
+        ratio channels collapse to a single ``Calculated Val`` entry, real
+        channels show the full ``METRIC_ORDER`` set with ``smFISH Count``
+        greyed out when the channel isn't an smFISH one.
+        """
+        from well_viewer.metric_labels import (
+            METRIC_ORDER, METRIC_KEY_TO_LABEL, CALCULATED_VAL_LABEL,
+        )
+        ch_cb = getattr(self, channel_attr, None)
+        prop_cb = getattr(self, f"{channel_attr}_metric", None)
+        if ch_cb is None or prop_cb is None:
+            return
+        channel = str(ch_cb.currentText() or "")
+        ratio_key = (
+            getattr(self._app, "_label_to_channel_key", None) or {}
+        ).get(channel)
+        from well_viewer.ratio_models import is_ratio_key as _is_ratio_key
+        is_ratio = bool(ratio_key and _is_ratio_key(ratio_key))
+
+        prev = str(prop_cb.currentText() or "")
+        blocked = prop_cb.blockSignals(True)
+        try:
+            prop_cb.clear()
+            if is_ratio:
+                prop_cb.addItem(CALCULATED_VAL_LABEL)
+                prop_cb.setCurrentIndex(0)
+                prop_cb.setEnabled(True)
+                return
+            prop_cb.addItems(METRIC_ORDER)
+            prop_cb.setEnabled(True)
+            if prev in METRIC_ORDER:
+                prop_cb.setCurrentText(prev)
+            else:
+                fallback = METRIC_KEY_TO_LABEL.get(
+                    getattr(self._app, "_active_metric", "mean_intensity"),
+                    "Mean Intensity",
+                )
+                idx = prop_cb.findText(fallback)
+                if idx >= 0:
+                    prop_cb.setCurrentIndex(idx)
+            sm_idx = prop_cb.findText("smFISH Count")
+            if sm_idx >= 0:
+                model = prop_cb.model()
+                item = model.item(sm_idx) if model is not None else None
+                if item is not None:
+                    smf_ok = channel in (
+                        getattr(self._app, "_smfish_channels", []) or []
+                    )
+                    item.setEnabled(smf_ok)
+        finally:
+            prop_cb.blockSignals(blocked)
+
+    def _selected_export_metric_key(self, channel_attr: str) -> str:
+        """Return the metric key (``mean_intensity`` / ``total_intensity`` / …)
+        for the Property combo paired with ``channel_attr``. Falls back to
+        ``app._active_metric`` when the combo is missing or shows
+        ``Calculated Val`` (ratio path — caller resolves the column via
+        :py:meth:`_export_val_col_for`)."""
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
+        prop_cb = getattr(self, f"{channel_attr}_metric", None)
+        if prop_cb is None:
+            return getattr(self._app, "_active_metric", "mean_intensity") or "mean_intensity"
+        label = str(prop_cb.currentText() or "")
+        return METRIC_LABEL_TO_KEY.get(
+            label, getattr(self._app, "_active_metric", "mean_intensity") or "mean_intensity",
+        )
+
+    def _export_val_col_for(self, channel_attr: str) -> str:
+        """Resolve the (Channel, Property) pair to a CSV column / ratio key.
+
+        Routes through ``app._col_for_scatter_axis`` (the same helper the
+        per-tab plot uses) so ratio labels become ``ratio:<name>`` and
+        real channels become ``<channel>_<metric>``.
+        """
+        ch_cb = getattr(self, channel_attr, None)
+        channel = str(ch_cb.currentText() or "") if ch_cb is not None else (
+            getattr(self._app, "_active_channel", "") or ""
+        )
+        metric_key = self._selected_export_metric_key(channel_attr)
+        if hasattr(self._app, "_col_for_scatter_axis"):
+            return self._app._col_for_scatter_axis(channel, metric_key)
+        # Fallback for older app versions.
+        return f"{channel}_{metric_key}"
 
     def _refresh_channel_combos(self) -> None:
         """Repopulate channel combo-boxes from the current app state.
@@ -332,6 +439,9 @@ class BatchExportPanel(QWidget):
             elif channels:
                 cb.setCurrentIndex(0)
             cb.blockSignals(False)
+            # Channel may now resolve to a ratio key — refresh the paired
+            # Property combo's item set accordingly.
+            self._refresh_property_combo_for(attr)
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -1026,9 +1136,12 @@ class BatchExportPanel(QWidget):
                     _well_labels_map, line_metric_fieldnames, line_metric_row,
                     well_name_for, well_names_joined,
                 )
-                _val_col = self._app._active_val_col
+                # Resolve the panel's (Channel, Property) selection into a
+                # column / ratio key — independent of whatever the plot-tab
+                # ctxbar has picked.
+                _val_col = self._export_val_col_for("_line_channel_cb")
                 _ch = _ch_selected
-                _metric = self._app._active_metric
+                _metric = self._selected_export_metric_key("_line_channel_cb")
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
                 _well_labels = _well_labels_map(self._app)
@@ -1138,13 +1251,14 @@ class BatchExportPanel(QWidget):
                          edgecolor=PLOT_SPN, labelcolor=get_color("PLOT_TXT"))
         _ch = (self._selected_export_channel() or self._app._active_channel).upper()
         from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
-        _metric_label = _MLB.get(getattr(self._app, "_active_metric", "mean_intensity"), "Mean Intensity")
+        _metric_key = self._selected_export_metric_key("_line_channel_cb")
+        _metric_label = _MLB.get(_metric_key, "Mean Intensity")
         apply_ax_style(ax_mean, f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}", f"{_ch} {_metric_label}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
-        apply_ax_style(ax_cdf, f"{_ch} Value CDF", "Cumulative fraction")
+        apply_ax_style(ax_cdf, f"{_ch} {_metric_label} CDF", "Cumulative fraction")
         ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)
         ax_frac.set_ylim(-0.05, 1.05)
-        ax_cdf.set_xlabel(f"{_ch} mean intensity", fontsize=8, labelpad=5)
+        ax_cdf.set_xlabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
         ax_cdf.set_ylim(-0.02, 1.05)
 
         any_ts = any_cdf = False
@@ -1161,7 +1275,7 @@ class BatchExportPanel(QWidget):
                 continue
             members.append(("well", w, [w], w))
 
-        _val_col = self._app._active_val_col
+        _val_col = self._export_val_col_for("_line_channel_cb")
         _cell_area_threshold = self._app._get_cell_area_threshold()
         _fluor_gates = self._app._get_all_fluor_gates()
         for mi, (member_type, member_key, valid_wells, display_name) in enumerate(members):
