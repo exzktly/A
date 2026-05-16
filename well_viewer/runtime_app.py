@@ -2375,8 +2375,7 @@ class WellViewerApp(QWidget):
 
     # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
     # group is coloured by *well-position rank*, so the same well always gets the
-    # same colour everywhere (plate maps, line/bar/stats plots). See
-    # Markdowns/OPEN_DECISIONS.md #1 and Markdowns/SELECTIONS_MODEL_CONTRACT.md.
+    # same colour everywhere (plate maps, line/bar/stats plots).
     def _rank_color_well(self, tok) -> str:
         return WELL_COLORS[_sel_well_rank(tok) % len(WELL_COLORS)]
 
@@ -2942,10 +2941,10 @@ class WellViewerApp(QWidget):
     def _apply_theme(self) -> None:
         """Apply the application-wide stylesheet.
 
-        Single source of truth is the repo-root ``theme`` module (see
-        ``Markdowns/PHASE_4_DIAGNOSIS.md``). Previously this re-applied the legacy
-        ``ui/theme`` per-theme QSS, which clobbered ``theme.qss()`` whenever a
-        ``WellViewerApp`` was constructed (including embedded under AllWell).
+        Single source of truth is the repo-root ``theme`` module. Previously
+        this re-applied the legacy ``ui/theme`` per-theme QSS, which clobbered
+        ``theme.qss()`` whenever a ``WellViewerApp`` was constructed (including
+        embedded under AllWell).
         """
         try:
             import theme  # type: ignore

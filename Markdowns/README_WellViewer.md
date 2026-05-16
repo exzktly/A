@@ -1,445 +1,557 @@
-# All-Well — Multi-Channel Fluorescence Microscopy Pipeline & Viewer
+# All-Well
 
-All-Well is a PySide6 (Qt) desktop application for fluorescence microscopy
-quantification. It combines a StarDist-based nuclear segmentation pipeline
-with an interactive multi-channel data viewer in a single window.
-
-## Top-level layout
-
-Two top-level tabs, composed by `all_well.py` (`AllWellApp`, a `QMainWindow`):
-
-- **Review** — `WellViewerApp` from the `well_viewer/` package; load and
-  explore per-well CSV output produced by the pipeline.
-- **Analyze** — `AnalyzeTab` from `analyze_tab.py`; run the segmentation
-  pipeline on a folder of microscopy images.
-
-A header bar exposes a **Theme** selector (Dark / Light). Themes are applied
-via `QApplication.setStyleSheet(build_stylesheet(name))` driven by
-`ui/theme/`.
-
-## Running from source
-
-Prerequisites:
-- Miniforge (Apple Silicon build for M-series Macs):
-  - `curl -LO https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh`
-  - `bash Miniforge3-MacOSX-arm64.sh`
-- Xcode Command Line Tools: `xcode-select --install`
-
-Create the environment:
+All-Well is a desktop application for fluorescence-microscopy quantification
+and analysis. It bundles a StarDist-based segmentation pipeline and an
+interactive multi-channel data viewer into a single window, so you can take a
+plate of raw images all the way to publication-ready plots without leaving
+the app.
 
 ```
+   Raw images                     Per-well CSVs
+       │                       (+ pipeline_info.json,
+       ▼                          + per-well image zips)
+  ┌──────────┐                          ▲
+  │ Analyze  │ ──── process_microscopy ─┤
+  │   tab    │                          │
+  └──────────┘                          │
+       │                                ▼
+       ▼ (auto-handoff on success) ┌──────────┐
+                                   │  Review  │
+                                   │   tab    │
+                                   └──────────┘
+                                   line / bar / scatter / distribution / heatmap
+                                   image table · segmentation · smFISH
+                                   statistics · review CSV · batch export
+```
+
+This README is the user-facing one — installing, launching, running the
+pipeline, exploring results, troubleshooting. For internals (where things
+live in the code, how to add features, how to debug), see
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+---
+
+## Contents
+
+1. [What you get](#what-you-get)
+2. [Install](#install)
+   - [macOS pre-built app](#macos-pre-built-app)
+   - [Running from source](#running-from-source)
+3. [Quick start](#quick-start)
+4. [Analyze mode — running the pipeline](#analyze-mode--running-the-pipeline)
+5. [Review mode — exploring results](#review-mode--exploring-results)
+6. [Filename schema](#filename-schema)
+7. [CSV output format](#csv-output-format)
+8. [Performance and GPU usage](#performance-and-gpu-usage)
+9. [Building the macOS bundle](#building-the-macos-bundle)
+10. [Troubleshooting](#troubleshooting)
+11. [Keyboard shortcuts](#keyboard-shortcuts)
+12. [Where to read next](#where-to-read-next)
+
+---
+
+## What you get
+
+- **Analyze tab.** A form-driven launcher for the StarDist nuclear-segmentation
+  pipeline. Pick an input folder, set the filename schema and channel tokens,
+  pick a segmentation method, hit Run. The pipeline streams its log into the
+  window and writes per-well CSVs plus per-well processed-image ZIPs to your
+  output directory.
+- **Review tab.** Open the output folder and explore: an 8×12 plate-map well
+  picker, line / bar / scatter / distribution / heat-map plots, an image
+  table for thumbnail comparison, a per-FOV segmentation reviewer with cell
+  editing, an smFISH spot-detection view, pairwise statistics, batch export
+  to CSV + figures.
+- **One window, one dataset folder.** Analyze writes a folder; Review opens
+  it. The hand-off is automatic when an Analyze run completes successfully.
+- **Persistence baked in.** Channel-threshold defaults, saved selections,
+  ratio metrics, heat-map layouts, per-cell `Included` overrides, and figure
+  styling all live next to your data in `pipeline_info.json` and a small set
+  of sibling JSON files; reopening the folder restores everything.
+
+---
+
+## Install
+
+### macOS pre-built app
+
+If someone handed you `AllWell.app` (typically inside `AllWell-mac.zip`),
+nothing else is required — the bundle ships its own Python + every
+dependency.
+
+1. Unzip; move `AllWell.app` to `/Applications` (optional).
+2. The first time you launch it, macOS may complain it's "damaged" because
+   the bundle is unsigned. Clear the quarantine attribute and re-sign with
+   an ad-hoc signature:
+   ```sh
+   xattr -cr /Applications/AllWell.app
+   codesign --force --deep --sign - /Applications/AllWell.app
+   ```
+3. Double-click to launch.
+
+About **4 GB free RAM** is recommended for StarDist inference. On Apple
+Silicon the bundled `tensorflow-metal` uses the GPU automatically.
+
+### Running from source
+
+You'll need:
+
+- **Miniforge** (or another conda/mamba distribution). On Apple Silicon:
+  ```sh
+  curl -LO https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+  bash Miniforge3-MacOSX-arm64.sh
+  ```
+- **Xcode Command Line Tools** (Apple Silicon, for native wheel builds):
+  ```sh
+  xcode-select --install
+  ```
+
+Create the environment. The version pins here matter — most of the post-pin
+ones are because TensorFlow 2.13 (the macOS-Metal build) won't accept newer
+NumPy or `setuptools`:
+
+```sh
 mamba create -n allwell python=3.10.14 setuptools=69.5.1 \
     "numpy>=1.24,<1.25" scipy scikit-image matplotlib pillow imageio h5py \
     -c conda-forge -y
 mamba activate allwell
 ```
 
-Verify `pkg_resources` works before proceeding:
+Verify `pkg_resources` works before going further (if it doesn't, you've got
+a too-new `setuptools` — see Troubleshooting):
 
-```
+```sh
 python -c "import pkg_resources; print('OK')"
 ```
 
-Install pip-only dependencies (always use `--no-build-isolation`):
+Install the pip-managed packages. **Always pass `--no-build-isolation`** so
+pip honours the mamba-managed pins above:
 
-```
+```sh
 pip install --no-build-isolation -r _Docs/requirements.txt
 ```
 
-Verify TensorFlow sees the Metal GPU (Apple Silicon):
+On Apple Silicon, confirm TensorFlow sees the Metal GPU:
 
-```
+```sh
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
-# Expected: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+# expected: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
 ```
 
-Run the app:
+Run it:
 
-```
-mamba activate allwell
+```sh
 python all_well.py
-python all_well.py --data_dir /path/to/results   # preload a dataset
+python all_well.py --data_dir /path/to/results   # pre-load a dataset
 ```
 
-## Pre-built macOS app
+The pipeline alone (no GUI) can be invoked directly — useful for CI or
+batch processing on headless workers:
 
-If you received `AllWell.app` (or `AllWell-mac.zip`), no Python installation
-is needed — the bundle ships its own Python and dependencies.
+```sh
+python process_microscopy.py --help
+```
 
-1. Unzip and move `AllWell.app` to `/Applications` (optional).
-2. First-launch Gatekeeper fix — macOS may report the app as "damaged"
-   because it is not from the App Store:
-   ```
-   xattr -cr /Applications/AllWell.app
-   codesign --force --deep --sign - /Applications/AllWell.app
-   ```
-3. Double-click `AllWell.app` to launch.
+---
 
-On Apple Silicon the pipeline uses Metal automatically via
-`tensorflow-metal`. About 4 GB of free RAM is recommended for StarDist
-inference.
+## Quick start
 
-## Building the app
+A common end-to-end run, from raw images to plots, takes five clicks:
 
-The build must run on a Mac; PyInstaller produces a binary for the host
-architecture. The `allwell` mamba environment must be active.
+1. Launch the app and switch to **Analyze** (title-bar segmented control).
+2. **Open input folder** — point at the folder of raw TIFs (or a folder of
+   per-well ZIPs).
+3. Fill the schema and channel tokens. Click **Run**.
+4. When the log prints "Processing complete" the app auto-switches to
+   **Review** and loads the output folder.
+5. Pick wells in the plate map; the plots redraw immediately.
+
+Reopen a previous output folder any time with the `Open…` button in Review
+or `Ctrl+O`.
+
+---
+
+## Analyze mode — running the pipeline
+
+The Analyze tab is one tall scrollable form. Top to bottom:
+
+### 1. Filename schema
+
+A colon-separated list of field names, applied left-to-right against the
+underscore-separated tokens in each filename. The `Schema string` field is
+editable directly; the picker chips above it mirror it.
+
+Recognised field names: `experiment`, `channel`, `well`, `fov`, `timepoint`,
+`ignore`.
+
+- `channel` and `well` are **required** and must appear exactly once.
+- `fov` is optional — single-FOV acquisitions work fine without it.
+- `ignore` consumes a token without using it (e.g. an experiment-version
+  prefix).
+
+The well token is normalised: `A1` and `A01` mean the same well.
+
+**Common examples:**
+
+| Filename | Schema | Sep |
+|---|---|---|
+| `Exp01_NIR_B03_F001_02d04h30m.tif` | `experiment:channel:well:fov:timepoint` | `_` |
+| `A1_w1_T01.tif` | `well:channel:timepoint` | `_` |
+| `Scan-A01-0001-GFP.tif` | `ignore:well:fov:channel` | `-` |
+| `A01_DAPI.tif` | `well:channel` | `_` |
+
+**Timepoint formats** the pipeline parses to hours:
 
 ```
+DDdHHhMMm   02d04h30m → 52.5 h
+Standalone  48h, 2d, 30m, 90min
+Pure number 24 or 1.5  (interpreted as hours)
+Prefixed    T01, day2, tp_3  (numeric suffix → ordinal)
+Any string  preserved as-is and sorted lexicographically
+```
+
+### 2. Channel tokens
+
+- **Nuclear (segmentation) channel.** The token used to find the image
+  StarDist runs against (also gets quantified — its intensities appear in
+  the CSV like any other channel).
+- **Fluorescent channels.** One or more tokens whose intensities you want
+  quantified. Each token gets its own CSV column set (`<token>_mean_intensity`,
+  `<token>_total_intensity`, etc.).
+- **smFISH channels** (optional). Channels processed for spot detection.
+  Each smFISH channel appears with both a regular intensity column set and
+  a `_smfish_count` column.
+
+### 3. Folders
+
+The input folder is resolved by
+[`services/input_resolution_service.py`](../services/input_resolution_service.py):
+
+- A folder named `in/` → input = that folder, output = `../out`.
+- A folder containing an `in/` subfolder → use it, output = `../out`.
+- A folder of loose TIFs → `WellPlateZipper` is invoked to group them into
+  per-well ZIPs according to your schema, then the pipeline runs against
+  those.
+- A folder of per-well ZIPs already → used directly.
+
+You can also explicitly override the output folder.
+
+### 4. Pipeline options
+
+- **Segmentation method.** `stardist_nuclei` (default — segment nuclei
+  only), `stardist_seeded_watershed_cell` (StarDist nuclei + watershed
+  cytoplasm segmentation).
+- **Cytoplasm token** (only used by the seeded-watershed method).
+- **Top-hat radii.** Nuclear and per-fluor radii in pixels. `0` or
+  `--no_tophat_*` flags disable per-channel.
+- **Min nucleus area** in pixels (rejects garbage detections).
+
+### 5. Compute options
+
+- **TF threads.** TensorFlow intra-op parallelism (CPU only; ignored on
+  Metal). Defaults to 4.
+- **Workers.** Number of wells processed in parallel.
+  - On Apple Silicon Metal the default is 2 — Metal serialises GPU calls
+    across processes, so more workers don't help GPU throughput.
+  - CPU-only: defaults to `floor((cpu_count − 1) / tf_threads)`.
+- **CPU-only.** Forces TensorFlow to ignore the GPU.
+- **Force re-run.** Re-processes wells whose output ZIPs already exist.
+
+### 6. Run / Stop / Log
+
+- Click **Run**. The log streams the pipeline's stdout/stderr live.
+- **Stop** signals the entire pipeline process group (sub-workers
+  included).
+- On success the app switches to Review and loads the output folder.
+
+### What the pipeline writes
+
+```
+<output_dir>/
+├── <well>_out.zip          ← masks + tophat-corrected fluorescence + overlays
+├── <prefix>_<well>.csv     ← per-well measurement CSV (one row per nucleus)
+├── pipeline_info.json      ← schema + channel tokens + FOVs + timepoints +
+│                              gating thresholds + saved selections, etc.
+└── (transient tmp_<well>/  ← deleted on success)
+```
+
+---
+
+## Review mode — exploring results
+
+Open a results folder with the Open button (or `Ctrl+O`, or
+`python all_well.py --data_dir <path>`). The viewer accepts:
+
+- A folder of per-well CSVs (flat).
+- A folder containing an `out/` subfolder of CSVs.
+- A folder with both `in/` (source ZIPs) and `out/` (results).
+
+Per-well image ZIPs (`<well>_out.zip`) are discovered on demand when an
+image-using tab is open. `pipeline_info.json` is read on every open and
+keeps the viewer in sync with the schema + channel tokens.
+
+### The window in one diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ All-Well   [Review|Analyze]    ↻  ⛶  ⌂  i                       │  ← title bar
+├──────────────┬──────────────────────────────────────────────────┤
+│              │  Channel: [GFP ▾]                  ── ctxbar ──  │
+│ SECTION      │  ┌────────────────────────────────────────────┐  │
+│  ⊙ Plotting  │  │                                            │  │
+│   Statistics │  │            (plot canvas)                   │  │
+│   Image …    │  │                                            │  │
+│   Segment …  │  └────────────────────────────────────────────┘  │
+│   Review CSV │         Export CSV  Copy SVG  Save  Properties   │
+│   Sample …   │                                                  │
+│   Batch …    │                                                  │
+│              │                                                  │
+│ ┌──────────┐ │                                                  │
+│ │  Plate   │ │                                                  │
+│ │  8×12    │ │                                                  │
+│ │  picker  │ │                                                  │
+│ └──────────┘ │                                                  │
+│ Select all   │                                                  │
+│ Select none  │                                                  │
+├──────────────┴──────────────────────────────────────────────────┤
+│ ● Ready.                       ⌘O Open  ⌘E Export  ⌘W Close     │  ← status bar
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### The Review tabs
+
+The left-rail "SECTION" navigator selects one of the centre tabs:
+
+| Tab | What it shows |
+|-----|---------------|
+| **Plotting** | Five sub-tabs: **Line Graphs** (mean ± SD/SEM + fraction above threshold + CDF), **Bar Plots** (bar / beeswarm / violin, drag-to-reorder), **Scatter Plot** (per-cell scatter and aggregate scatter), **Distribution** (histogram / KDE / violin of per-cell values at one timepoint), **Heat Map** (custom layout heatmap). |
+| **Statistics** | Pairwise tests across saved selections (t-test, Mann-Whitney, KS) with KS CDF. |
+| **Image Table** | Grid of per-FOV image thumbnails; configurable rows/columns/channels; bulk export. |
+| **Segmentation** | Two sub-tabs: **Segmentation** (per-FOV overlay viewer; click a nucleus to flag/unflag it for inclusion in stats) and **smFISH** (spot detection, parameter sweep, "Apply to All"). |
+| **Review CSV** | Tabular view of the loaded per-well CSVs; supports filtering, jumping to the Segmentation tab for any row. |
+| **Sample Definitions** | Saved-selection / replicate-set editor. Includes a **Cell Gating** sub-section for per-channel inclusion-threshold defaults. |
+| **Batch Export** | Define export groups (or use the Sample Definitions groups), pick timepoints, run a bulk export of CSVs + figures + ZIPs. |
+
+### Channel selector
+
+The single channel dropdown at the top of every plotting sub-tab is shared
+across the whole window — picking a different channel re-renders every
+plot, every axis label, every threshold range, and every export against
+the new channel. Ratio channels (e.g. `GFP/MCHERRY`) defined under the
+Sample Definitions ratio editor appear here as virtual channels.
+
+### Plate-map well picker
+
+The 8×12 plate map in the left sidebar drives every plot and table. Click
+a well to toggle it; drag across wells to multi-toggle; click a row letter
+or column number to toggle the whole row / column; **Select all** /
+**Select none** clear or fill in one click. The selection survives across
+tabs and is what every plot / aggregate / export consumes.
+
+### Properties (figure styling)
+
+The **Properties** button on each plot tab's controls row opens a slide-out
+sidebar that styles the active figure: axis label / tick / title sizes,
+grid on/off + alpha + linestyle, legend, line / marker widths, axis
+limits + log-scale, layout engine, and an export-profile picker. Settings
+are per-figure and persist across redraws.
+
+### Saved figures and CSV exports
+
+Every plot tab carries the same action buttons on its controls row:
+
+- **Export CSV** — writes the underlying data behind the current plot.
+- **Copy SVG** — puts a vector copy of the figure on the clipboard
+  (paste into Illustrator / Inkscape / Keynote / Slides).
+- **Save figure** — saves to disk; the file dialog picks the format from
+  the extension (`.svg` / `.pdf` / `.eps` / `.png`).
+- **Properties** — opens the styling sidebar described above.
+
+### Batch export
+
+Define one or more groups (replicate sets + solo wells), pick a set of
+timepoints, and the Batch Export tab generates one figure + one CSV per
+group per timepoint into a folder of your choosing. Useful for paper
+figures where every condition needs the same plot at the same time
+points.
+
+---
+
+## Filename schema
+
+The schema is a colon-separated list of field names applied left-to-right
+to filename tokens (split on the chosen separator). See
+[Analyze mode → Filename schema](#1-filename-schema) above for the
+recognised field names and worked examples.
+
+`pipeline_info.json` records the schema you ran the pipeline with, so the
+viewer doesn't need you to re-enter it.
+
+---
+
+## CSV output format
+
+One CSV per well, one row per nucleus. Standard columns:
+
+```
+filename, experiment, channel, well, fov, timepoint, timepoint_hours
+nucleus_id, area_px, Included
+<token>_total_intensity      ← one set per quantified channel
+<token>_mean_intensity
+<token>_max_intensity
+<token>_min_intensity
+<token>_std_intensity
+<token>_smfish_count          ← only if <token> is configured as smFISH
+```
+
+`<token>` is the lowercase channel token (`gfp`, `mcherry`, `w2turq`, …).
+The nuclear/segmentation channel is also quantified, so it appears as a
+normal channel in viewer selectors.
+
+`Included` is `0` or `1` and starts as the cell-gating-default verdict;
+the Segmentation tab and the Cell Gating sub-section let you override it
+per cell, with overrides persisted to `cell_overrides.json` next to the
+CSVs.
+
+---
+
+## Performance and GPU usage
+
+The pipeline spawns one worker per well, up to a configurable maximum. Each
+worker loads StarDist once and reuses it across every FOV in that well.
+
+- **Apple Silicon (Metal) — the default.** Workers default to 2. Metal
+  serialises GPU calls across processes; more workers do not improve GPU
+  throughput, they only add RAM pressure. Two workers overlap I/O and
+  CPU preprocessing with GPU inference.
+- **CPU-only.** Workers default to `floor((cpu_count − 1) / tf_threads)`,
+  with `tf_threads` defaulting to 4. Adjust under Compute Options if your
+  machine has very many cores.
+
+Temporary directories (`_tmp_extract_*`, `_tmp_images_*`) are removed when
+each well completes, even after a worker error. Stragglers from a crashed
+run are cleaned up at the start of the next run.
+
+---
+
+## Building the macOS bundle
+
+PyInstaller produces a binary for the host architecture; the build itself
+must run on a Mac. The `allwell` mamba environment must be active.
+
+```sh
 mamba activate allwell
 chmod +x _Docs/_Installation/build_all_well.sh
 _Docs/_Installation/build_all_well.sh
 ```
 
-The finished bundle is written to `dist/AllWell.app`. To distribute:
+The finished bundle lands at `dist/AllWell.app`. To distribute it:
 
-```
+```sh
 cd dist && zip -r AllWell-mac.zip AllWell.app
 ```
 
-Universal binary (Intel + Apple Silicon):
+For a Universal binary (Intel + Apple Silicon in one bundle):
 
-```
+```sh
 TARGET_ARCH=universal2 _Docs/_Installation/build_all_well.sh
 ```
 
-This requires a universal2 Python from python.org; the Miniforge Python is
-architecture-specific and cannot produce a universal binary.
+This needs a `universal2` Python from python.org — the Miniforge Python is
+architecture-specific and can't produce a universal binary.
 
-## Project layout
-
-Repository root:
-
-```
-all_well.py                 Composition root — QMainWindow hosting Review + Analyze
-all_well_launcher.py        PyInstaller entry point (sets QtAgg, _MEIPASS sys.path)
-analyze_tab.py              Analyze tab (PySide6) — schema form, run controls, live log
-process_microscopy.py       StarDist segmentation + fluorescence quantification pipeline
-WellPlateZipper.py          Groups loose TIFs into per-well zip archives from a schema
-pipeline_config.py          Shared pipeline-config constants
-theme.py                    Legacy shim; real theming lives under ui/theme/
-
-services/                   Analyze-tab service layer
-  input_resolution_service.py   Resolve input/output layout; invoke WellPlateZipper
-  pipeline_service.py           Build CLI args, spawn pipeline, write pipeline_info.json
-
-ui/theme/                   Qt theming
-  __init__.py               Re-exports set_theme/get_color/build_stylesheet/THEMES
-  styles.py                 Theme colours + QSS builder
-  dark.qss / light.qss      Stylesheet fragments
-  theme_manager.py          ThemeManager wrapper used by AllWellApp
-
-well_viewer/                Review tab package (PySide6)
-  __init__.py               Lazy-exposes WellViewerApp + debug_flags
-  runtime_app.py            WellViewerApp (QMainWindow-contained QWidget root)
-  ARCHITECTURE.md           tabs/ vs views/ split guidance
-
-  tabs/                     Centre-notebook page builders (build_*_tab(app, parent))
-    line_graphs_tab_view.py
-    bar_plots_tab_view.py
-    scatter_cells_tab_view.py
-    scatter_agg_tab_view.py
-    batch_export_tab_view.py
-    review_csv_tab_view.py
-
-  views/                    Reusable UI components and non-tab panels
-    centre_view.py          Builds QTabWidget and wires every tab
-    sidebar_view.py         Main well-picker sidebar
-    preview_panel_view.py   Movie Montage preview controls + canvas
-    preview_view.py         FOV picker
-    image_panel_view.py     Image canvas + LUT controls (_label_to_rgb colormap)
-    well_button.py          Plate-grid well buttons; 8×12 grid builder
-    grouping_view.py        Replicate-set + group cards; group-def panel
-    replicate_panel_view.py Sample Definitions sidebar
-    bar_group_panel_view.py Bar-plot group panel + card builders
-    label_editor_view.py    WELL LABELS editor
-    stats_view.py           Statistics tab UI
-    status_view.py          Status/log strip + logging handler
-
-  cell_gating_tab.py        Cell Gating tab widget (FluorGating, per-channel settings)
-  smfish_tab.py             smFISH tab widget (transcript detection / overlays)
-
-  (controllers and services — see next section)
-
-_Docs/
-  README_WellViewer.md      This file
-  requirements.txt          Pinned pip-only dependencies
-  icons/                    App / tab iconography (SVG)
-  _Installation/
-    all_well.spec           PyInstaller spec
-    build_all_well.sh       Automated macOS build script
-    schema_config.py
-    hooks/                  PyInstaller hooks for bundled packages
-      hook-stardist.py
-      hook-csbdeep.py
-      hook-pkg_resources.py
-      rthook-pkg_resources.py
-```
-
-## Review tab — controllers and services (`well_viewer/`)
-
-`runtime_app.py` wires a thin `WellViewerApp` that delegates work to cohesive
-helper modules:
-
-| Module | Responsibility |
-|--------|----------------|
-| `data_loading.py` | CSV + `pipeline_info.json` ingestion, schema inference |
-| `viewer_state.py` | Pure state/parsing helpers (no Qt) |
-| `load_controller.py` | Load/path lifecycle (`_load_path`, `_load_directory`) and token-map rebuild |
-| `selection_controller.py` | Well selection and cross-tab syncing |
-| `grouping_controller.py` | Replicate-set and group drag / membership mutations |
-| `barplot_controller.py` | Bar data-model serialization, ordering, rendering |
-| `lineplot_controller.py` | Line / fraction / CDF redraw orchestration |
-| `scatter_controller.py` | Scatter (cells + aggregate) state + drawing |
-| `scatter_callbacks.py` | Scatter UI callbacks and interactions |
-| `plot_orchestrator.py` | Shared `_redraw` / figure-save delegation |
-| `stats_controller.py` | Pairwise stats (t-test, Wilcoxon, Mann-Whitney, KS) |
-| `preview_controller.py` | Preview image/zip classification and I/O |
-| `preview_callbacks.py` | Movie-montage interaction wiring |
-| `montage_controller.py` | Montage popout generation |
-| `review_image_controller.py` | Review-Image tab logic (per-FOV overlay / labels) |
-| `image_resolver.py` | Finds per-well images (zip + loose) across layouts |
-| `export_service.py` | CSV / figure export helpers |
-| `figure_export_editor.py` | Figure-customization dialog |
-| `batch_export_dialog.py` | Batch-export dialog and preflight |
-| `batch_models.py` | `ReplicateSet`, `BarGroup` dataclasses |
-| `ui_helpers.py` | Shared Qt helpers: plot toolbar, wheel scroll, tooltips |
-| `debug_flags.py` | Tab-scoped debug toggles |
-
-Optional/runtime-heavy imports (TIFF, numpy, skimage, matplotlib) are
-guarded or lazy so lightweight imports remain cheap.
-
-## Review tab — centre-notebook tabs
-
-Built by `well_viewer/views/centre_view.py` in this order:
-
-1. **Line Graphs** — mean intensity ± SD/SEM, fraction above threshold, CDF.
-   Drag the threshold line on the CDF to adjust.
-2. **Bar Plots** — bar / beeswarm / violin modes; drag bars to reorder;
-   adjustable y-axis limits.
-3. **Scatter Plot: Cells** — per-cell scatter with gating.
-4. **Scatter Plot: Aggregate** — per-well / per-replicate aggregate scatter.
-5. **Movie Montage** — montage of top-hat filtered images per well / FOV /
-   timepoint. Works with any quantified channel.
-6. **Review Image** — single-FOV overlay + label viewer for spot-checking.
-7. **Statistics** — pairwise tests across selected replicate sets.
-8. **smFISH** — transcript detection / overlays (`smfish_tab.py`).
-9. **Review CSV** — tabular view of the currently loaded CSVs.
-10. **Cell Gating** — FluorGating and per-channel inclusion settings
-    (`cell_gating_tab.py`).
-11. **Batch Export** — preflight and export of plots / CSVs in bulk.
-12. **Sample Definitions** — replicate-set and group editor (appears last).
-
-The bottom controls bar includes a **Channel** dropdown that switches every
-plot, axis label, threshold range, and export between all quantified
-channels. The Movie Montage canvas reloads for the selected channel
-automatically.
-
-## Review tab — accepted input layouts
-
-Open a results directory with the **Open…** button. The directory may be
-any of:
-
-- A flat directory of CSV files (`measurements_A01.csv`, …)
-- A directory with an `out/` subfolder containing CSVs
-- A directory with both `in/` (source zips) and `out/` (results) subfolders
-
-Per-well image zips are discovered on demand for the Movie Montage and
-Review Image tabs. The viewer reads `pipeline_info.json` (written by the
-pipeline) to learn the filename schema and channel tokens — no manual
-re-entry required.
-
-## Analyze tab
-
-`analyze_tab.py` wraps `process_microscopy.py` with a Qt UI. The form is
-scrollable; sections top-to-bottom:
-
-1. **Filename Schema** — separator character (default `_`) and ordered
-   field list. The "Schema string" text box shows the resulting schema and
-   can be edited directly. Fields: `experiment`, `channel`, `well`, `fov`,
-   `timepoint`, `ignore`. `channel` and `well` are required and must each
-   appear exactly once. Schemas without `fov` (single-FOV acquisitions) are
-   fully supported.
-2. **Channel Tokens**
-   - Nuclear (seg): token identifying the nuclear/segmentation channel
-     (quantified and used for StarDist).
-   - Fluorescent channels: one or more tokens to quantify; each produces
-     its own intensity columns in the CSV.
-3. **Folders** — input-folder resolution is handled by
-   `services/input_resolution_service.py`:
-   - Folder named `in/` → input = folder, output = `../out`
-   - Folder contains `in/` subfolder → use it; output = `../out`
-   - Folder contains loose TIFs (> 3) → `WellPlateZipper` is invoked to
-     group them into per-well folders using the schema above
-4. **Top-Hat Background Subtraction** — nuclear and fluorescent radii.
-5. **Output Options / Compute Options / Run** — compression of input and
-   output well folders, TF threads, worker count, CPU-only toggle, force
-   re-run.
-
-The log window displays the pipeline's streamed stdout, the number of
-parallel workers used, and "Processing Complete" on success. When a run
-finishes, `AllWellApp` automatically switches to the Review tab and loads
-the output directory.
-
-## Filename schema
-
-The schema is a colon-separated list of field names applied left-to-right
-to filename tokens (split on the separator).
-
-```
-experiment  — any experiment/project identifier (optional)
-channel     — distinguishes imaging channels (required)
-well        — 96-well plate position A01–H12 or A1–H12 (required)
-fov         — field-of-view identifier (optional)
-timepoint   — acquisition timepoint (optional)
-ignore      — token present in filename but not used
-```
-
-Examples:
-
-```
-Exp01_NIR_B03_F001_02d04h30m.tif  →  experiment:channel:well:fov:timepoint   sep=_
-A1_w1594_T01.tif                   →  well:channel:timepoint                  sep=_
-Scan-A01-0001-GFP.tif              →  ignore:well:fov:channel                 sep=-
-A01_DAPI.tif                       →  well:channel                            sep=_
-```
-
-The well token is normalised automatically: `A1` and `A01` are treated
-identically.
-
-Timepoint formats:
-
-```
-DDdHHhMMm     02d04h30m → 52.5 h
-Standalone    48h, 2d, 30m, 90min
-Pure number   24 or 1.5  (hours)
-Prefixed      T01, day2, tp_3  (numeric suffix used as ordinal)
-Any string    lexicographic sort order
-```
-
-## CSV output format
-
-One CSV per well. Each row is one nucleus. Columns:
-
-```
-filename, experiment, channel, well, fov, timepoint, timepoint_hours
-nucleus_id, area_px
-<token>_total_intensity       — one set per quantified channel
-<token>_mean_intensity
-<token>_max_intensity
-<token>_min_intensity
-<token>_std_intensity
-```
-
-`<token>` is the lowercase channel token (e.g. `gfp`, `mcherry`, `w2turq`).
-The nuclear/segmentation token is also quantified, so it appears as
-standard `<token>_*_intensity` columns and is available in viewer selectors.
-
-`pipeline_info.json` is written to the output directory alongside the CSVs
-and records the schema, channel tokens, segmentation method, available
-FOVs/timepoints, and execution options. The Review tab reads this file to
-parse image filenames without requiring the user to re-enter the schema.
-
-## Parallelism and GPU usage
-
-The pipeline spawns one worker per well up to a configured maximum. Each
-worker loads StarDist once and reuses it across every FOV in that well.
-
-- **macOS with Metal GPU (default):** workers default to 2. Metal
-  serialises GPU calls across processes, so additional workers do not
-  improve GPU throughput — they only add RAM pressure. Two workers overlap
-  I/O and CPU preprocessing with GPU inference.
-- **CPU-only (`--cpu_only` or non-macOS):** workers =
-  `floor((cpu_count − 1) / tf_threads)`, with `tf_threads` defaulting to 4.
-  For example, 16 cores → 3 workers × 4 threads = 12 cores, with 1 reserved
-  for the main process. Adjust with the **TF threads** field in Compute
-  Options.
-
-Temporary directories (`_tmp_extract_*`, `_tmp_images_*`) are always
-removed when each well completes, even after an error. Any stragglers from
-a previously crashed run are cleaned up at the start of the next run.
-
-## Dependencies
-
-Installed via mamba (do not touch with pip):
-
-```
-python          3.10.14
-setuptools      69.5.1      must stay <70 — pkg_resources
-numpy           1.24.x      must stay <1.25 for TF 2.13
-scipy           1.11.x
-scikit-image    0.21.x
-matplotlib      3.8.x
-pillow          10.0.x
-imageio         2.28.x
-h5py            3.9.x
-```
-
-Installed via pip (`--no-build-isolation`) — see `_Docs/requirements.txt`:
-
-```
-tensorflow-macos   2.13.0
-tensorflow-metal   1.1.0
-keras              2.13.1
-protobuf           3.20.3
-csbdeep            0.8.0
-stardist           0.9.1
-numba              0.57.1
-llvmlite           0.40.1
-tifffile           2023.9.26
-imagecodecs        2023.9.18
-pyinstaller        6.1.0    (build only)
-PySide6                      GUI toolkit (Qt 6)
-```
+---
 
 ## Troubleshooting
 
-**"AllWell.app is damaged and can't be opened":**
-
-```
+**`AllWell.app is damaged and can't be opened.`** — macOS quarantine on
+an unsigned bundle. Fix:
+```sh
 xattr -cr /Applications/AllWell.app
 codesign --force --deep --sign - /Applications/AllWell.app
 ```
 
-**App opens then immediately closes:**
-
-```
+**The app opens and immediately closes.** — Run the bundle from a terminal
+to see the actual error:
+```sh
 dist/AllWell.app/Contents/MacOS/AllWell 2>&1 | head -100
 ```
 
-**No module named 'pkg_resources':** `setuptools` was upgraded past v70.
-Recreate the environment from scratch (never `pip install setuptools`,
-never `mamba update --all`).
+**`No module named 'pkg_resources'`.** — `setuptools` was upgraded past v70
+in the mamba environment. Recreate the environment from scratch. Don't
+`pip install setuptools` and don't `mamba update --all`.
 
-**No Metal GPU detected:**
-
-```
+**`No GPU device found` / TensorFlow not using Metal.** — Install
+`tensorflow-metal`:
+```sh
 pip install tensorflow-metal==1.1.0
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 ```
 
-**Movie Montage / Review Image shows "No images found":** ensure the
-results directory has both `in/` and `out/` subfolders and that `out/`
-contains `<well>_out.zip`. The viewer looks for top-hat filtered images
-(`_tophat.tif`; legacy `_tophat_<channel>.tif`), overlays (`_overlay.png`),
-and masks (`_labels.tif`) inside those zips. If the channel tokens differ
-from what the viewer expects, re-open the directory — `pipeline_info.json`
+**Segmentation / smFISH / Image Table show "No images found".** — Check
+that your results directory contains `<well>_out.zip` files. The viewer
+reads top-hat-filtered fluorescence (`*_tophat.tif`), masks
+(`*_labels.tif`), overlays (`*_overlay.png`), and smFISH-processed
+channels (`*_smfish.tif`) from inside those ZIPs. If channel tokens differ
+from what the viewer expected, re-open the directory — `pipeline_info.json`
 is re-read on every open.
 
-**Bar-plot timepoint dropdown is empty:** either no wells are selected or
-the CSVs do not contain a `timepoint_hours` column. Check that the schema
-used during analysis included a `timepoint` field. Single-timepoint
+**Auto-threshold reports `timepoint unknown`.** — `pipeline_info.json`
+doesn't have a schema that names a `tp` or `timepoint` field. Re-run the
+pipeline with the correct `--filename_schema` so the JSON sidecar carries
+the right field map.
+
+**Bar-plot timepoint dropdown is empty.** — Either no wells are selected,
+or the CSVs don't have a `timepoint_hours` column. Confirm the schema you
+ran the pipeline with included a `timepoint` field. Single-timepoint
 experiments show one entry (e.g. `0`).
 
-**WellPlateZipper produces no zip files:** schema or separator does not
-match the filenames. Check that `well` points to the correct token, the
-separator matches, and the token is a valid plate position (A01–H12 or
-A1–H12). The schema used is logged at the start of every run.
+**`WellPlateZipper` produces no zip files.** — Schema or separator does
+not match the filenames. Make sure `well` points at the right token, the
+separator is right, and the token is a valid plate position (`A01`–`H12`
+or `A1`–`H12`). The schema used is logged at the start of every run.
 
-**StarDist model download fails (SSL error):** pre-download the model on
+**StarDist model download fails (SSL error).** — Pre-download the model on
 an unrestricted machine and copy `~/.keras/models/` across.
 
-**`No module named 'stardist'` in the built app:** the build must include
-`_Docs/_Installation/hooks/` — notably `hook-stardist.py`.
+**`No module named 'stardist'` in the built app.** — The build forgot the
+PyInstaller hooks. Make sure `_Docs/_Installation/hooks/` (notably
+`hook-stardist.py`) was on the spec path.
 
-**Built app >900 MB:** normal. TensorFlow + numba + llvmlite + scipy +
-matplotlib account for most of it.
+**The built bundle is > 900 MB.** — Normal. TensorFlow + Numba + LLVMLite
++ SciPy + Matplotlib account for the bulk.
+
+**Channel dropdown shows a different channel than the plot.** — Should be
+fixed; if you ever see it again it means the active channel state and the
+combo got out of sync. Refresh the dataset (Open the same folder again).
+File a bug.
+
+---
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `⌘O` / `Ctrl+O` | Open a results folder |
+| `⌘E` / `Ctrl+E` | Export the active figure (drives the visible plot card's Save figure action) |
+| `⌘←` / `Ctrl+←` | Back through tab history |
+| `⌘→` / `Ctrl+→` | Forward through tab history |
+| `⌘W` / `Ctrl+W` | Close window |
+
+The bottom status bar shows these chip-style hints at all times. The header
+**`info`** icon opens a help drawer with the same list plus a few more
+quick-reference notes.
+
+---
+
+## Where to read next
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the developer-oriented
+  architectural overview: what each module does, how the pieces fit
+  together, where to add features, and how to debug.
+- [`process_microscopy.py`](../process_microscopy.py) — the pipeline. It's
+  also a usable CLI (`python process_microscopy.py --help`).
+- [`_Docs/_Installation/`](../_Docs/_Installation/) — the PyInstaller spec
+  + build script for producing the macOS bundle.
+- [`_Docs/requirements.txt`](../_Docs/requirements.txt) — the pinned
+  pip-managed dependencies, with environment-setup comments.

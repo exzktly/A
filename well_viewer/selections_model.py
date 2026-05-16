@@ -1,8 +1,5 @@
 """Unified saved-selections data model (schema v2) + the v1→v2 migration.
 
-This is the *implementation* of ``Markdowns/SELECTIONS_MODEL_CONTRACT.md`` (the
-shape) and ``Markdowns/SELECTIONS_MIGRATION.md`` (the migration plan, Phase 8.0).
-
 A ``Selection`` is a plain ``dict`` (JSON-friendly):
 
     {

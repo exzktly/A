@@ -62,9 +62,8 @@ class AllWellApp(QMainWindow):
 
     # ── UI construction ──────────────────────────────────────────────────
     def _apply_stylesheet(self) -> None:
-        # Single source of truth for the app stylesheet (see theme.py /
-        # Markdowns/PHASE_4_DIAGNOSIS.md). v2 ships one dark theme — there's no
-        # per-theme QSS to swap.
+        # Single source of truth for the app stylesheet — see theme.py.
+        # Ships one dark theme; there is no per-theme QSS to swap.
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(theme_v2.qss())
@@ -535,7 +534,7 @@ class AllWellApp(QMainWindow):
                 "<tt>⌘→</tt> / <tt>Ctrl+→</tt> — Forward to the next section "
                 "tab in history<br>"
                 "<tt>⌘W</tt> / <tt>Ctrl+W</tt> — Close window<br><br>"
-                "For the full design notes see <tt>Markdowns/PORT_PLAN.md</tt>."
+                "For the full architectural overview see <tt>Markdowns/ARCHITECTURE.md</tt>."
             )
             cl.addWidget(body)
             cl.addStretch(1)
