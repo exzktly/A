@@ -155,7 +155,23 @@ def _channel_options(app) -> List[str]:
     if seg_tok:
         options.append(NUC_SEG_TOKEN)
 
+    # Append user-defined ratio metrics as virtual channels.  The display
+    # label "GFP/RFP" is what appears in the dropdown; _find_ratio_for_channel
+    # resolves it back to the RatioMetric at render time.
+    for r in (getattr(app, "_ratios", None) or []):
+        lbl = r.display_label()
+        if lbl and lbl not in options:
+            options.append(lbl)
+
     return options
+
+
+def _find_ratio_for_channel(app, chan: str):
+    """Return the RatioMetric whose display_label matches *chan*, or None."""
+    for r in (getattr(app, "_ratios", None) or []):
+        if r.display_label().upper() == chan.strip().upper():
+            return r
+    return None
 
 
 def _is_nuc_seg(chan: str) -> bool:
@@ -838,7 +854,7 @@ def _load_well_channel(
     if is_overlay:
         fluor_token = (info.get("nuclear_token") or chan_lower).strip().lower()
     try:
-        fluor, overlay, _mask, tophat = find_well_images_and_masks(
+        fluor, overlay, mask, tophat = find_well_images_and_masks(
             app._data_dir,
             well,
             fluor_token=fluor_token,
@@ -847,7 +863,10 @@ def _load_well_channel(
             _pipeline_info=app._pipeline_info,
         )
     except Exception:
-        fluor, overlay, tophat = {}, {}, {}
+        fluor, overlay, mask, tophat = {}, {}, {}, {}
+    # Cache the mask dict (keyed by a sentinel channel token) so
+    # boundary/binary overlays can access it without a second IO round-trip.
+    cache.setdefault((well, "__mask__", "raw"), mask)
     if is_overlay:
         result = overlay
     elif use_tophat:
@@ -925,6 +944,130 @@ def _load_array(app, cache: Dict, well: str, chan_upper: str, tp: str, fov: str,
         return open_imgref_as_array(ref, greyscale=greyscale)
     except Exception:
         return None
+
+
+def _load_mask_array(app, cache, well, tp, fov):
+    """Return the int32 segmentation mask for (well, tp, fov), or None.
+
+    The mask dict is populated as a side effect of any prior ``_load_array``
+    call for the same well, so this will usually hit the cache immediately.
+    """
+    mask_dict = cache.get((well, "__mask__", "raw"))
+    if not mask_dict:
+        return None
+    ref = mask_dict.get((str(fov), str(tp)))
+    if ref is None:
+        target_fov = _norm_token(fov)
+        target_tp = _norm_token(tp)
+        for (cache_fov, cache_tp), val in mask_dict.items():
+            tp_match = (not target_tp) or _norm_token(cache_tp) == target_tp
+            fov_match = (not target_fov) or _norm_token(cache_fov) == target_fov
+            if tp_match and fov_match:
+                ref = val
+                break
+    if ref is None:
+        return None
+    try:
+        import numpy as _np
+        from well_viewer.image_discovery import open_imgref_as_array
+        arr = open_imgref_as_array(ref, greyscale=True)
+        if arr is None:
+            return None
+        return _np.rint(_np.asarray(arr)).astype(_np.int32)
+    except Exception:
+        return None
+
+
+def _load_ratio_array(app, cache, well, ratio, tp, fov, *, use_tophat):
+    """Compute the pixel-wise ratio for a RatioMetric.  Returns float32 or None."""
+    try:
+        import numpy as _np
+    except Exception:
+        return None
+    num_chan = (ratio.numerator_channel or "").strip()
+    den_chan = (ratio.denominator_channel or "").strip()
+    if not num_chan or not den_chan:
+        return None
+    num_arr = _load_array(app, cache, well, num_chan.upper(), tp, fov, use_tophat=use_tophat)
+    den_arr = _load_array(app, cache, well, den_chan.upper(), tp, fov, use_tophat=use_tophat)
+    if num_arr is None or den_arr is None:
+        return None
+    num_f = _np.asarray(num_arr, dtype=_np.float32)
+    den_f = _np.asarray(den_arr, dtype=_np.float32)
+    eps = float(ratio.epsilon) if getattr(ratio, "epsilon", None) else 1e-6
+    return num_f / (den_f + eps)
+
+
+def _render_with_boundary_overlay(arr_2d, sz_w, sz_h, lo, hi, cmap_name, mask_arr):
+    """Render a greyscale/ratio array with white cell-boundary outlines.
+
+    Applies the colormap and LUT to *arr_2d*, then paints white pixels
+    wherever the boundary of *mask_arr* falls (same padded-diff approach used
+    in the review image renderer). Returns a QPixmap or None on failure.
+    """
+    from well_viewer.runtime_app import make_fluor_thumb, make_overlay_thumb
+    try:
+        import numpy as _np
+    except Exception:
+        return make_fluor_thumb(arr_2d, sz_w, sz_h, lo, hi, cmap=cmap_name)
+
+    arr = _np.asarray(arr_2d, dtype=_np.float32)
+    alo = lo if lo is not None else float(arr.min())
+    ahi = hi if hi is not None else float(arr.max())
+    if ahi <= alo:
+        ahi = alo + 1.0
+    norm = _np.clip((arr - alo) / (ahi - alo), 0.0, 1.0)
+
+    if cmap_name:
+        try:
+            from matplotlib import colormaps as _mpl_cmaps
+            rgb = (_mpl_cmaps[cmap_name](norm)[..., :3] * 255).astype(_np.uint8).copy()
+        except Exception:
+            gray = (norm * 255).astype(_np.uint8)
+            rgb = _np.stack([gray, gray, gray], axis=-1)
+    else:
+        gray = (norm * 255).astype(_np.uint8)
+        rgb = _np.stack([gray, gray, gray], axis=-1)
+
+    center_int = _np.asarray(mask_arr, dtype=_np.int32)
+    if center_int.shape[:2] == arr.shape[:2]:
+        padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
+        center = padded[1:-1, 1:-1]
+        boundary = (center > 0) & (
+            (center != padded[:-2, 1:-1]) |
+            (center != padded[2:, 1:-1]) |
+            (center != padded[1:-1, :-2]) |
+            (center != padded[1:-1, 2:])
+        )
+        rgb[boundary] = [255, 255, 255]
+
+    return make_overlay_thumb(rgb, sz_w, sz_h, None, None)
+
+
+def image_table_toggle_boundaries(app) -> None:
+    """Flip the boundary-overlay flag and re-render."""
+    btn = getattr(app, "_image_table_boundaries_btn", None)
+    if btn is not None:
+        app._image_table_show_boundaries = bool(btn.isChecked())
+    else:
+        app._image_table_show_boundaries = not bool(
+            getattr(app, "_image_table_show_boundaries", False)
+        )
+    app._image_table_image_cache = {}
+    image_table_generate(app)
+
+
+def image_table_toggle_binary(app) -> None:
+    """Flip the binary-mask display flag and re-render."""
+    btn = getattr(app, "_image_table_binary_btn", None)
+    if btn is not None:
+        app._image_table_show_binary = bool(btn.isChecked())
+    else:
+        app._image_table_show_binary = not bool(
+            getattr(app, "_image_table_show_binary", False)
+        )
+    app._image_table_image_cache = {}
+    image_table_generate(app)
 
 
 # ── Per-cell mouse handling: hover pixel readout + crop drag ────────────────
@@ -1102,6 +1245,8 @@ def image_table_generate(app) -> None:
     rendered: Dict[Tuple[int, int], Any] = {}
     crop_tool = getattr(app, "_image_table_crop_tool", None)
     use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
+    show_boundaries = bool(getattr(app, "_image_table_show_boundaries", False))
+    show_binary = bool(getattr(app, "_image_table_show_binary", False))
 
     for r, row in enumerate(cells):
         for c, cell in enumerate(row):
@@ -1111,8 +1256,12 @@ def image_table_generate(app) -> None:
             fov = cell["fov_cb"].currentText().strip()
 
             arr = None
+            ratio = _find_ratio_for_channel(app, chan) if chan else None
             if well and chan and tp:
-                arr = _load_array(app, cache, well, chan, tp, fov, use_tophat=use_tophat)
+                if ratio is not None:
+                    arr = _load_ratio_array(app, cache, well, ratio, tp, fov, use_tophat=use_tophat)
+                else:
+                    arr = _load_array(app, cache, well, chan, tp, fov, use_tophat=use_tophat)
             rendered[(r, c)] = arr
 
             lo, hi = _parse_lut(app, chan)
@@ -1139,11 +1288,34 @@ def image_table_generate(app) -> None:
             if arr is not None:
                 # Apply the shared crop (no-op when not set) and render.
                 cropped = crop_tool.apply_to_array(arr) if crop_tool else arr
-                if _is_nuc_seg(chan) or getattr(arr, "ndim", 2) >= 3:
+                is_overlay = _is_nuc_seg(chan) or getattr(arr, "ndim", 2) >= 3
+                if is_overlay:
                     # Pre-rendered RGB overlay: tint and per-channel LUT
                     # don't apply, so feed it straight to the overlay
                     # thumbnailer (which still respects lo/hi when set).
                     pix = make_overlay_thumb(cropped, 240, 240, lo, hi)
+                elif show_binary:
+                    # Replace image with binary segmentation mask.
+                    mask_arr = _load_mask_array(app, cache, well, tp, fov)
+                    if mask_arr is not None:
+                        import numpy as _np
+                        cm = crop_tool.apply_to_array(mask_arr) if crop_tool else mask_arr
+                        binary = (_np.asarray(cm) > 0).astype(_np.uint8) * 255
+                        rgb = _np.stack([binary, binary, binary], axis=-1)
+                        pix = make_overlay_thumb(rgb, 240, 240, None, None)
+                    else:
+                        pix = make_fluor_thumb(cropped, 240, 240, lo, hi, cmap=_row_cmap_name(app, r))
+                elif show_boundaries:
+                    # Overlay white cell-boundary outlines on the fluorescence image.
+                    mask_arr = _load_mask_array(app, cache, well, tp, fov)
+                    if mask_arr is not None:
+                        cm = crop_tool.apply_to_array(mask_arr) if crop_tool else mask_arr
+                        pix = _render_with_boundary_overlay(
+                            cropped, 240, 240, lo, hi,
+                            _row_cmap_name(app, r), cm,
+                        )
+                    else:
+                        pix = make_fluor_thumb(cropped, 240, 240, lo, hi, cmap=_row_cmap_name(app, r))
                 else:
                     pix = make_fluor_thumb(
                         cropped, 240, 240, lo, hi,

@@ -149,6 +149,8 @@ _it_apply_global = _lazy("well_viewer.image_table_controller", "image_table_appl
 _it_apply_row_channel = _lazy("well_viewer.image_table_controller", "image_table_apply_row_channel")
 _it_apply_row_well = _lazy("well_viewer.image_table_controller", "image_table_apply_row_well")
 _it_toggle_tophat = _lazy("well_viewer.image_table_controller", "image_table_toggle_tophat")
+_it_toggle_boundaries = _lazy("well_viewer.image_table_controller", "image_table_toggle_boundaries")
+_it_toggle_binary = _lazy("well_viewer.image_table_controller", "image_table_toggle_binary")
 _it_auto_lut = _lazy("well_viewer.image_table_controller", "image_table_auto_lut")
 _it_clear_active = _lazy("well_viewer.image_table_controller", "image_table_clear_active")
 _it_distribute_timepoints = _lazy("well_viewer.image_table_controller", "image_table_distribute_timepoints")
@@ -1500,6 +1502,12 @@ class WellViewerApp(QWidget):
 
     def _image_table_toggle_tophat(self) -> None:
         _it_toggle_tophat(self)
+
+    def _image_table_toggle_boundaries(self) -> None:
+        _it_toggle_boundaries(self)
+
+    def _image_table_toggle_binary(self) -> None:
+        _it_toggle_binary(self)
 
     def _image_table_distribute_wells(self) -> None:
         _it_distribute_wells(self)
