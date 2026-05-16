@@ -857,15 +857,28 @@ def main() -> None:
 
     app = QApplication.instance() or QApplication(sys.argv)
     _install_combobox_popup_widener()
-    # Collapse the QSS font-family token to a single resolvable name so
-    # Qt's QSS parser doesn't walk every comma-separated entry and warn
-    # ("Populating font family aliases…"). Use the platform default-font
-    # family Qt itself reports so QSS interpolation always produces a
-    # family that exists.
+    # Collapse both font-family tokens to single resolvable names so Qt's
+    # QSS parser doesn't walk alias tables and warn at startup
+    # ("qt.qpa.fonts: Populating font family aliases took NN ms. Replace
+    # uses of missing font family ...").
+    #
+    # ``Typography.family`` is the proportional UI face — use the
+    # platform's default-app family. ``Typography.family_mono`` is the
+    # mono face — use the platform's fixed-pitch family. The CSS-style
+    # generics ``sans-serif`` / ``monospace`` are NOT in Qt's font
+    # registry, so leaving them there triggers the alias walk on every
+    # widget that uses QSS.
     try:
         theme_v2.Typography.family = app.font().family()
     except Exception:
         theme_v2.Typography.family = ""
+    try:
+        from PySide6.QtGui import QFontDatabase as _QFontDatabase
+        theme_v2.Typography.family_mono = _QFontDatabase.systemFont(
+            _QFontDatabase.SystemFont.FixedFont
+        ).family()
+    except Exception:
+        theme_v2.Typography.family_mono = ""
     app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()
