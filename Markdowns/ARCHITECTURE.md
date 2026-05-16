@@ -872,15 +872,18 @@ Three places to check:
 
 The `Markdowns/` folder is intentionally small — the long tail of port-time
 plans, status updates, phase write-ups, gap analyses, and migration plans
-was retired once the port finished, and is preserved in git history rather
+was retired once the port finished and is preserved in git history rather
 than as live files. What remains:
 
 | File | What it's for |
 |------|---------------|
-| `ARCHITECTURE.md` | This document. |
-| `README_WellViewer.md` | User-facing README — installation, day-to-day usage, the dataset folder layout. |
-| `SELECTIONS_MODEL_CONTRACT.md` | The on-disk shape of `pipeline_info.json::sample_definitions`. The live contract `well_viewer/selections_model.py` implements. |
-| `icons_README.md` | Notes on the three candidate app icons in `_Docs/icons/`. |
+| `ARCHITECTURE.md` | This document — the developer-oriented architectural overview. |
+| `README_WellViewer.md` | User-facing README — install, run, troubleshoot. |
+
+The on-disk shape of `pipeline_info.json::sample_definitions` (the saved
+selections schema) is described in the `well_viewer/selections_model.py`
+module docstring; that module is the live source of truth for the
+contract.
 
 `design/` (sibling of `Markdowns/`) holds the **non-Markdown** design
 artifacts — the HTML mockups (`mockup-decoded.html`,

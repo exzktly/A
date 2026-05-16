@@ -2375,8 +2375,7 @@ class WellViewerApp(QWidget):
 
     # ── decision-#1 colour: "the plate is the legend" — every well / rep-set /
     # group is coloured by *well-position rank*, so the same well always gets the
-    # same colour everywhere (plate maps, line/bar/stats plots). See
-    # Markdowns/OPEN_DECISIONS.md #1 and Markdowns/SELECTIONS_MODEL_CONTRACT.md.
+    # same colour everywhere (plate maps, line/bar/stats plots).
     def _rank_color_well(self, tok) -> str:
         return WELL_COLORS[_sel_well_rank(tok) % len(WELL_COLORS)]
 

@@ -1,7 +1,8 @@
 """SavedSelectionsList — an editable, reorderable list of saved well selections.
 
-Built against the model defined in ``Markdowns/SELECTIONS_MODEL_CONTRACT.md``: the
-widget holds a working ``list[dict]`` (each dict = one ``Selection``: ``id``,
+Built against the ``Selection`` model implemented in
+``well_viewer.selections_model``: the widget holds a working ``list[dict]``
+(each dict = one ``Selection``: ``id``,
 ``name``, ``color``, ``hidden``, ``wells``, ``replicates``, optional ``labels``/
 ``source``) and emits granular signals plus a coarse ``selectionsChanged(list)``
 as the user edits.
