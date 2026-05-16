@@ -92,13 +92,21 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     hl.addStretch(1)
     il.addWidget(hdr)
 
-    # ── Global Options row (channel is now per-row; see selector grid) ──────
+    # ── Global Options row (Channel / Timepoint / FOV) ──────────────────────
     glob = QWidget(inner)
     glob.setObjectName("TabCtrl")
     gl = QHBoxLayout(glob)
     gl.setContentsMargins(8, 6, 8, 6)
     gl.setSpacing(6)
     gl.addWidget(QLabel("Global Options —", glob))
+
+    gl.addWidget(QLabel("Channel:", glob))
+    chan_cb = QComboBox(glob)
+    chan_cb.currentIndexChanged.connect(
+        lambda _i: app._image_table_apply_global("chan")
+    )
+    gl.addWidget(chan_cb)
+    app._image_table_global_chan_cb = chan_cb
 
     gl.addWidget(QLabel("Timepoint:", glob))
     tp_cb = QComboBox(glob)
@@ -199,30 +207,15 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     sep2.setFixedHeight(1)
     il.addWidget(sep2)
 
-    # ── Render-related actions (Generate / Export / Copy / Settings /
-    #    Tophat / Crop) — placed directly above the rendered table per
-    #    user feedback so they sit next to the artifact they affect.
-    render_actions = QWidget(inner)
-    al = QHBoxLayout(render_actions)
-    al.setContentsMargins(0, 0, 0, 0)
-    al.setSpacing(6)
-    al.addWidget(btn_primary(render_actions, "Generate", app._image_table_generate))
-    al.addWidget(btn_secondary(render_actions, "Export", app._image_table_export))
-    al.addWidget(btn_secondary(render_actions, "Copy PNG", app._image_table_copy_png))
-    al.addWidget(btn_secondary(render_actions, "Copy SVG", app._image_table_copy_svg))
+    # ── Tools row — image-manipulation toggles on the left, output
+    #    actions (Copy / Export) on the right. Generate gets its own row
+    #    below so the primary action stands out.
+    tools_row = QWidget(inner)
+    tr = QHBoxLayout(tools_row)
+    tr.setContentsMargins(0, 0, 0, 0)
+    tr.setSpacing(6)
 
-    export_settings_btn = QPushButton("⚙", render_actions)
-    export_settings_btn.setProperty("variant", "secondary")
-    export_settings_btn.setToolTip(
-        "Export settings — outer margin, cell gap, titles, DPI, transparent BG"
-    )
-    export_settings_btn.setFixedWidth(32)
-    export_settings_btn.clicked.connect(
-        lambda _=False: app._image_table_open_export_settings()
-    )
-    al.addWidget(export_settings_btn)
-
-    tophat_btn = QPushButton("Tophat", render_actions)
+    tophat_btn = QPushButton("Tophat", tools_row)
     tophat_btn.setProperty("variant", "toggle")
     tophat_btn.setCheckable(True)
     tophat_btn.setChecked(bool(app._image_table_use_tophat))
@@ -231,18 +224,47 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     )
     tophat_btn.clicked.connect(lambda _=False: app._image_table_toggle_tophat())
     app._image_table_tophat_btn = tophat_btn
-    al.addWidget(tophat_btn)
+    tr.addWidget(tophat_btn)
 
-    crop_sep = QFrame(render_actions)
+    crop_sep = QFrame(tools_row)
     crop_sep.setFrameShape(QFrame.VLine)
     crop_sep.setFixedWidth(1)
-    al.addWidget(crop_sep)
-    al.addWidget(app._image_table_crop_tool.make_button(render_actions))
-    al.addWidget(app._image_table_crop_tool.make_reset_button(render_actions))
-    al.addWidget(app._image_table_crop_tool.make_status_label(render_actions))
+    tr.addWidget(crop_sep)
+    tr.addWidget(app._image_table_crop_tool.make_button(tools_row))
+    tr.addWidget(app._image_table_crop_tool.make_reset_button(tools_row))
+    tr.addWidget(app._image_table_crop_tool.make_status_label(tools_row))
 
-    al.addStretch(1)
-    il.addWidget(render_actions)
+    tr.addStretch(1)
+
+    export_settings_btn = QPushButton("⚙", tools_row)
+    export_settings_btn.setProperty("variant", "secondary")
+    export_settings_btn.setToolTip(
+        "Export settings — outer margin, cell gap, titles, DPI, transparent BG"
+    )
+    export_settings_btn.setFixedWidth(32)
+    export_settings_btn.clicked.connect(
+        lambda _=False: app._image_table_open_export_settings()
+    )
+    tr.addWidget(export_settings_btn)
+    tr.addWidget(btn_secondary(
+        tools_row, "Copy PNG", app._image_table_copy_png, icon="copy",
+    ))
+    tr.addWidget(btn_secondary(
+        tools_row, "Copy SVG", app._image_table_copy_svg, icon="copy",
+    ))
+    tr.addWidget(btn_secondary(
+        tools_row, "Export", app._image_table_export, icon="download",
+    ))
+    il.addWidget(tools_row)
+
+    # ── Generate row (its own row so the primary action is unambiguous) ────
+    generate_row = QWidget(inner)
+    gr = QHBoxLayout(generate_row)
+    gr.setContentsMargins(0, 0, 0, 0)
+    gr.setSpacing(6)
+    gr.addWidget(btn_primary(generate_row, "Generate", app._image_table_generate))
+    gr.addStretch(1)
+    il.addWidget(generate_row)
 
     # ── Rendered image table (drawn BELOW the action strip) ────────────────
     render_lbl = QLabel("Image Table:", inner)

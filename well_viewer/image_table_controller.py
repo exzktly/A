@@ -283,6 +283,8 @@ def image_table_repopulate_dropdowns(app) -> None:
             cb.setCurrentText(cur)
         cb.blockSignals(False)
 
+    if hasattr(app, "_image_table_global_chan_cb"):
+        _reset_combo(app._image_table_global_chan_cb, chan_opts)
     if hasattr(app, "_image_table_global_tp_cb"):
         _reset_combo(app._image_table_global_tp_cb, tp_opts)
         _reset_combo(app._image_table_global_fov_cb, fov_opts)
@@ -447,10 +449,14 @@ def _row_export_cmap(app, r: int):
 def image_table_apply_global(app, field: str) -> None:
     """Copy a global dropdown's current value into every cell's matching combo.
 
-    ``field`` is one of "tp", "fov". Channel assignment is per-row now —
-    see ``image_table_apply_row_channel``.
+    ``field`` is one of "chan", "tp", "fov". For "chan" the per-row channel
+    combos are also synced and the LUT row is rebuilt so the host's per-
+    channel min/max boxes track the new global channel.
     """
-    if field == "tp":
+    if field == "chan":
+        src = getattr(app, "_image_table_global_chan_cb", None)
+        key = "chan_cb"
+    elif field == "tp":
         src = getattr(app, "_image_table_global_tp_cb", None)
         key = "tp_cb"
     elif field == "fov":
@@ -473,6 +479,13 @@ def image_table_apply_global(app, field: str) -> None:
             if cb.findText(value) >= 0:
                 cb.setCurrentText(value)
             cb.blockSignals(False)
+    if field == "chan":
+        for cb in getattr(app, "_image_table_row_chan_cbs", None) or []:
+            cb.blockSignals(True)
+            if cb.findText(value) >= 0:
+                cb.setCurrentText(value)
+            cb.blockSignals(False)
+        image_table_rebuild_lut_row(app)
 
 
 def image_table_apply_row_well(app, row_idx: int) -> None:
