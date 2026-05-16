@@ -275,6 +275,12 @@ hiddenimports = [
     "tqdm",
     "tqdm.auto",
     "tqdm.std",
+
+    # requests/charset detection fallback used by some HTTP deps in pipeline
+    "charset_normalizer",
+    "charset_normalizer.md",
+    "charset_normalizer.md__mypyc",
+    "chardet",
 ]
 
 
