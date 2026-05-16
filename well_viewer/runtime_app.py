@@ -3320,6 +3320,7 @@ class WellViewerApp(QWidget):
             return
         self._selected_wells = new_set
         self._refresh_sidebar_map()
+        self._on_plate_sel_change()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
         try:
