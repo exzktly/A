@@ -3,7 +3,7 @@
 A helper object (not a widget you place in a layout) that installs 8 invisible
 ~6–8 px grip widgets — 4 edges + 4 corners — over a top-level frameless window,
 sets the right resize cursors, and on press resizes the window. Two modes
-(see ``design/PHASE_6_5_PLAN.md`` C4):
+(see ``Markdowns/PHASE_6_5_PLAN.md`` C4):
 
 * ``"system"`` — calls ``window.windowHandle().startSystemResize(edge)`` (OS-driven;
   gets snapping/animation). Reliable on Windows/Wayland; on macOS Cocoa it has a

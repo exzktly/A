@@ -2,15 +2,15 @@
 theme.py
 --------
 Design tokens for the All-Well interface, translated from
-``design/DESIGN_TOKENS.md``, plus a base Qt stylesheet builder.
+``Markdowns/DESIGN_TOKENS.md``, plus a base Qt stylesheet builder.
 
 This module is the single source of truth for colors, typography, spacing,
 and radii. Widget code should read the constants here rather than hardcoding
 values, and the application-wide chrome comes from :func:`qss`.
 
-Names mirror ``DESIGN_TOKENS.md``; where the design doc's CSS custom-property
-name differs from the name used in code, the original ``--token`` name is noted
-in a trailing comment.
+Names mirror ``Markdowns/DESIGN_TOKENS.md``; where the design doc's CSS custom-
+property name differs from the name used in code, the original ``--token`` name
+is noted in a trailing comment.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """SavedSelectionsList — an editable, reorderable list of saved well selections.
 
-Built against the model defined in ``design/SELECTIONS_MODEL_CONTRACT.md``: the
+Built against the model defined in ``Markdowns/SELECTIONS_MODEL_CONTRACT.md``: the
 widget holds a working ``list[dict]`` (each dict = one ``Selection``: ``id``,
 ``name``, ``color``, ``hidden``, ``wells``, ``replicates``, optional ``labels``/
 ``source``) and emits granular signals plus a coarse ``selectionsChanged(list)``
@@ -17,7 +17,7 @@ row becomes editable — replicate sub-lists (``R1:/R2:/solo:``) with *ungroup*
 (``⊟``) / *group-solo* (``⊞``) buttons, each chip a click-menu (Remove · Move to
 new replicate · Move to R*k* · Make solo), and a ``+ wells…`` button that opens
 a ``Popover`` hosting a ``WellPlateSelector`` (multi-select). See
-``design/SAVED_SELECTIONS_COMPOSITION_SPEC.md``. The widget does *not* enforce
+``Markdowns/SAVED_SELECTIONS_COMPOSITION_SPEC.md``. The widget does *not* enforce
 cross-selection well exclusivity (a well may live in many selections — that's how
 bar-plot conditions overlap).
 
