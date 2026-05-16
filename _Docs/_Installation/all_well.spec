@@ -276,11 +276,22 @@ hiddenimports = [
     "tqdm.auto",
     "tqdm.std",
 
-    # requests/charset detection fallback used by some HTTP deps in pipeline
+    # charset_normalizer — requests (pulled in by TensorFlow/Keras for model
+    # downloads) raises "unable to find acceptable character detection
+    # dependency" when PyInstaller fails to bundle this package. chardet is
+    # included as the legacy fallback that requests also accepts.
     "charset_normalizer",
+    "charset_normalizer.cd",
+    "charset_normalizer.constant",
+    "charset_normalizer.legacy",
     "charset_normalizer.md",
     "charset_normalizer.md__mypyc",
+    "charset_normalizer.models",
+    "charset_normalizer.utils",
     "chardet",
+    "chardet.universaldetector",
+    "chardet.enums",
+    "chardet.resultdict",
 ]
 
 
@@ -345,6 +356,10 @@ def _skimage_filter(name: str) -> bool:
     return not name.startswith("skimage.future")
 
 hiddenimports += collect_submodules("skimage", filter=_skimage_filter)
+
+# charset_normalizer ships an optional compiled MD (magic-detection) extension.
+# collect_submodules picks up both the pure-Python fallback and the .so if present.
+hiddenimports += collect_submodules("charset_normalizer")
 
 # Collect data files
 datas += collect_data_files("numba")
