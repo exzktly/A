@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, QRectF
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QTabWidget, QVBoxLayout, QWidget,
+    QScrollArea, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 import theme as theme_v2
@@ -477,7 +477,14 @@ class AllWellApp(QMainWindow):
         if self._help_drawer is None:
             from widgets.drawer import Drawer
             drawer = Drawer(self, width_hint=420)
-            content = QWidget(drawer)
+            # The drawer hosts a single content widget. Wrap the help body
+            # in a scroll area so the bundled README (rendered below the
+            # quick-help section) doesn't push the drawer beyond the
+            # window height.
+            scroll = QScrollArea(drawer)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            content = QWidget(scroll)
             cl = QVBoxLayout(content)
             cl.setContentsMargins(0, 0, 0, 0)
             cl.setSpacing(theme_v2.Spacing.md)
@@ -537,8 +544,55 @@ class AllWellApp(QMainWindow):
                 "For the full architectural overview see <tt>Markdowns/ARCHITECTURE.md</tt>."
             )
             cl.addWidget(body)
+
+            # README section — rendered from the bundled Markdown file so
+            # the full reference manual is reachable without leaving the
+            # app. Missing files fail silently (e.g. trimmed-down builds
+            # that ship without the Markdowns/ folder).
+            readme_path = Path(__file__).resolve().parent / "Markdowns" / "README_WellViewer.md"
+            try:
+                readme_text = readme_path.read_text(encoding="utf-8")
+            except OSError:
+                readme_text = ""
+            if readme_text:
+                rule = QFrame(content)
+                rule.setFrameShape(QFrame.HLine)
+                rule.setObjectName("Separator")
+                rule.setFixedHeight(1)
+                cl.addWidget(rule)
+
+                manual_heading = QLabel("Reference manual", content)
+                manual_heading.setObjectName("Heading")
+                cl.addWidget(manual_heading)
+
+                manual_view = QTextBrowser(content)
+                manual_view.setOpenExternalLinks(True)
+                manual_view.setSearchPaths([str(readme_path.parent)])
+                manual_view.setMarkdown(readme_text)
+                manual_view.setStyleSheet(
+                    f"QTextBrowser {{ background: transparent; border: none; "
+                    f"color: {theme_v2.Colors.text_primary}; }}"
+                )
+                # Drop the inner viewport's own scrollbar — the outer
+                # QScrollArea is what scrolls the help drawer, and a
+                # nested scrollbar would double up.
+                manual_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                manual_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                manual_view.document().setTextWidth(manual_view.viewport().width())
+                manual_view.setMinimumHeight(
+                    int(manual_view.document().size().height()) + 16
+                )
+
+                def _resize_manual(_dw=manual_view) -> None:
+                    _dw.document().setTextWidth(_dw.viewport().width())
+                    _dw.setMinimumHeight(int(_dw.document().size().height()) + 16)
+
+                manual_view.document().contentsChanged.connect(_resize_manual)
+                cl.addWidget(manual_view)
+
             cl.addStretch(1)
-            drawer.setContentWidget(content)
+            scroll.setWidget(content)
+            drawer.setContentWidget(scroll)
             self._help_drawer = drawer
         if self._help_drawer.isVisible():
             self._help_drawer.close()
