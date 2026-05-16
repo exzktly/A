@@ -279,10 +279,9 @@ class BatchExportPanel(QWidget):
         stashed at ``self.<attr>`` so the panel's _run_batch can read it.
         Mirrors the scatter panel's channel picker so bar / line batch
         exports aren't locked to whatever the parent plot card had picked.
+        Ratio channels defined in the app are appended after the fluor list.
         """
-        channels = list(getattr(self._app, "_fluor_channels", None) or [])
-        if not channels:
-            channels = ["gfp"]
+        channels = self._all_export_channels()
         row = QHBoxLayout()
         row.setContentsMargins(12, 2, 12, 2)
         lbl = QLabel("Channel:")
@@ -300,6 +299,43 @@ class BatchExportPanel(QWidget):
         row.addWidget(cb)
         row.addStretch(1)
         layout.addLayout(row)
+
+    def _all_export_channels(self) -> List[str]:
+        """Fluorescence channels + ratio metrics available for batch export."""
+        channels = list(getattr(self._app, "_fluor_channels", None) or [])
+        if not channels:
+            channels = ["gfp"]
+        for r in (getattr(self._app, "_ratios", None) or []):
+            lbl = r.display_label()
+            if lbl and lbl not in channels:
+                channels.append(lbl)
+        return channels
+
+    def _refresh_channel_combos(self) -> None:
+        """Repopulate channel combo-boxes from the current app state.
+
+        Called from ``showEvent`` so that channels loaded after the panel was
+        first constructed (e.g. after the user opens a data directory) appear
+        without requiring a restart.
+        """
+        channels = self._all_export_channels()
+        for attr in ("_line_channel_cb", "_bar_channel_cb"):
+            cb = getattr(self, attr, None)
+            if cb is None:
+                continue
+            prev = cb.currentText()
+            cb.blockSignals(True)
+            cb.clear()
+            cb.addItems(channels)
+            if prev in channels:
+                cb.setCurrentText(prev)
+            elif channels:
+                cb.setCurrentIndex(0)
+            cb.blockSignals(False)
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._refresh_channel_combos()
 
     def _selected_export_channel(self) -> str:
         """Return the channel currently picked in the channel row, falling

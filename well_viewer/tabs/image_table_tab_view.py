@@ -48,6 +48,10 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         app._image_table_image_cache = {}
     if not hasattr(app, "_image_table_use_tophat"):
         app._image_table_use_tophat = False
+    if not hasattr(app, "_image_table_show_boundaries"):
+        app._image_table_show_boundaries = False
+    if not hasattr(app, "_image_table_show_binary"):
+        app._image_table_show_binary = False
     # Shared square-region crop helper. on_change re-runs Generate so the
     # rendered grid follows mode toggles and crop changes automatically.
     if not hasattr(app, "_image_table_crop_tool"):
@@ -225,6 +229,28 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     tophat_btn.clicked.connect(lambda _=False: app._image_table_toggle_tophat())
     app._image_table_tophat_btn = tophat_btn
     tr.addWidget(tophat_btn)
+
+    boundaries_btn = QPushButton("Boundaries", tools_row)
+    boundaries_btn.setProperty("variant", "toggle")
+    boundaries_btn.setCheckable(True)
+    boundaries_btn.setChecked(bool(app._image_table_show_boundaries))
+    boundaries_btn.setToolTip(
+        "Overlay cell boundary outlines (white) on each fluorescence image."
+    )
+    boundaries_btn.clicked.connect(lambda _=False: app._image_table_toggle_boundaries())
+    app._image_table_boundaries_btn = boundaries_btn
+    tr.addWidget(boundaries_btn)
+
+    binary_btn = QPushButton("Binary", tools_row)
+    binary_btn.setProperty("variant", "toggle")
+    binary_btn.setCheckable(True)
+    binary_btn.setChecked(bool(app._image_table_show_binary))
+    binary_btn.setToolTip(
+        "Show segmentation mask as binary: labeled cells white, background black."
+    )
+    binary_btn.clicked.connect(lambda _=False: app._image_table_toggle_binary())
+    app._image_table_binary_btn = binary_btn
+    tr.addWidget(binary_btn)
 
     crop_sep = QFrame(tools_row)
     crop_sep.setFrameShape(QFrame.VLine)
