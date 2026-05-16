@@ -12,6 +12,42 @@ values, and the application-wide chrome comes from :func:`qss`.
 from __future__ import annotations
 
 
+# ── Well palette (single source of truth) ────────────────────────────────────
+# 48 maximally-distinct colours used everywhere the app needs to assign a
+# colour to a well, replicate, or trace. Generated via a greedy max-min
+# selection in OKLab space (min pairwise distance ≈ 0.09). The first colour
+# (light blue) is positioned in the most-used slot — the original first colour
+# was a dark red that read as too heavy at a single-well selection.
+#
+# This tuple is the canonical list. Three other consumers reference it:
+#   * ``Colors.trace`` / ``CPub.trace`` below — what
+#     ``widgets/plot_card.plot_palette()`` feeds into matplotlib's
+#     ``axes.prop_cycle`` (used for screen + publication modes).
+#   * ``ui.theme.styles._WELL_COLORS`` — derives a name→hex dict
+#     (``WELL_COLOR_1`` … ``WELL_COLOR_48``) for QSS template substitution.
+#   * ``well_viewer.plate_layout.WELL_COLORS`` — re-exports it for the
+#     ``_rank_color_well`` / ``_rank_color_rset`` helpers and every plot
+#     renderer that needs a per-well colour by rank.
+#
+# Keeping the list here (not in ui/theme/styles.py) lets the ``widgets``
+# package — which is supposed to import only ``theme`` — see the full
+# palette without reaching into application-side modules.
+WELL_COLORS_TUPLE: tuple = (
+    "#6AB2FB", "#06F906", "#0606F9", "#DF2020",
+    "#138613", "#D406F9", "#FAAC38", "#6E2277",
+    "#6AFBE5", "#2E719E", "#EC79B8", "#FAFA38",
+    "#774C22", "#131386", "#05C783", "#806AFB",
+    "#B37D19", "#C7058D", "#5C05C7", "#2E9E9E",
+    "#950437", "#FA7238", "#AAC705", "#224877",
+    "#9C39C6", "#D4DD88", "#AA88DD", "#779E2E",
+    "#F906BC", "#0553C7", "#068CF9", "#20D6DF",
+    "#E56AFB", "#FA387C", "#DD9D88", "#777222",
+    "#79EC7F", "#227762", "#6938FA", "#05C705",
+    "#B34F19", "#D16167", "#C7A005", "#471386",
+    "#B0F906", "#950495", "#0667F9", "#1929B3",
+)
+
+
 class Colors:
     """Color tokens (DESIGN_TOKENS.md §1)."""
 
@@ -48,7 +84,11 @@ class Colors:
     danger          = "#F87171"   # --danger
 
     # ── Data-viz / trace colors (categorical, keyed to wells) ────────────
-    trace           = ("#5B9BF8", "#F26B6B", "#4ADE80", "#F5A524")  # --trace-1..4
+    # The 48-colour ``WELL_COLORS_TUPLE`` is the canonical palette and is
+    # used as-is here so that matplotlib's ``axes.prop_cycle``
+    # (configured by ``widgets/plot_card.plot_palette()``) hands out the
+    # same colours every other tab uses for the matching well-rank.
+    trace           = WELL_COLORS_TUPLE
     threshold       = "#F5A524"   # --threshold  : dashed line + threshold chip
     plot_bg         = "#131A24"   # plot card fill (== panel)
     plot_grid       = "#1F2733"   # --plot-grid  : gridlines inside the figure
@@ -81,12 +121,18 @@ class CPub:
     grid        = "#E5E7EB"   # --pub-grid      : gridlines
     spine       = "#4C5360"   # --pub-spine     : axis spines
 
-    # Darkened trace colours chosen for AA contrast on the white surface,
-    # parallel to ``Colors.trace`` (deeper blue / red / green / amber).
-    trace       = ("#1F4FB0", "#B02C2C", "#2E8C50", "#B5781A")
+    # Publication-mode trace cycle. Uses the same ``WELL_COLORS_TUPLE`` as
+    # ``Colors.trace`` (screen mode) so a well's colour is consistent
+    # regardless of whether the plot card is in screen or publication
+    # mode, and every other tab agrees with what the plot is drawing.
+    # If a future iteration needs darkened variants for paper-figure
+    # contrast, derive them here from the canonical tuple rather than
+    # diverging by hand.
+    trace       = WELL_COLORS_TUPLE
 
 
-# Convenience aliases mirroring the on-screen `Colors.trace` / publication palette.
+# Convenience alias retained for back-compat with callers that imported
+# the older ``TRACE_PUB`` name (e.g. matplotlib rcParam loaders).
 TRACE_PUB = list(CPub.trace)
 
 
