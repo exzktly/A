@@ -346,31 +346,43 @@ def build_centre(app, parent: QWidget) -> None:
         sub_seg.setCurrentByData("Line Graphs")
 
         def _refresh_channel_chip(title: str) -> None:
-            """Re-populate the global ctxbar channel combo from whichever
-            renderer just became active. The renderer's own combo is the
-            canonical item list (it gets populated from the loaded dataset)
-            — we mirror it into the global, blocking signals so the mirror
-            itself doesn't trigger ``_on_plot_channel_selected``."""
+            """Re-populate the global ctxbar channel combo on sub-tab switch.
+
+            Reads from the canonical channel list (``app._fluor_channels`` +
+            ratios) rather than mirroring a per-renderer combo's items.
+            The per-renderer combos can lag the canonical list — they're
+            seeded with a ``["GFP"]`` placeholder and are only refreshed
+            during ``_update_channel_selector``. A sub-tab built lazily
+            after a dataset has loaded therefore had a stale placeholder
+            its first time on screen, which used to clobber the global
+            combo back to just ``["GFP"]`` (or whatever single placeholder
+            it held) and broke channel tracking until the user wiggled
+            the dropdown two or three times to force a re-sync via
+            ``_set_active_channel``.
+
+            ``title`` is no longer used (every plotting sub-tab shares the
+            same canonical channel set) but kept in the signature so
+            existing callers don't need to change.
+            """
+            del title  # canonical channel list is the same for every sub-tab
             global_cb = getattr(app, "_plotting_channel_cb", None)
             if global_cb is None:
                 return
-            attr_map = {
-                "Line Graphs":   "_chan_cb_line",
-                "Bar Plots":     "_chan_cb_bar",
-                "Scatter Plot":  "_chan_cb_scatter",
-                "Distribution":  "_chan_cb_distribution",
-                "Heat Map":      "_chan_cb_heatmap",
-            }
-            cb = getattr(app, attr_map.get(title, ""), None)
+            real_labels = [str(ch).upper() for ch in
+                           (getattr(app, "_fluor_channels", []) or [])]
+            ratio_labels = list(getattr(app, "_ratio_dropdown_labels",
+                                        lambda: [])() or [])
+            labels = (real_labels + ratio_labels) or ["—"]
+            try:
+                active_label = app._active_channel_label()
+            except Exception:
+                active_label = ""
             blocked = global_cb.blockSignals(True)
             try:
                 global_cb.clear()
-                if cb is not None and hasattr(cb, "count"):
-                    for i in range(cb.count()):
-                        global_cb.addItem(cb.itemText(i))
-                    idx = cb.currentIndex()
-                    if 0 <= idx < global_cb.count():
-                        global_cb.setCurrentIndex(idx)
+                global_cb.addItems(labels)
+                if active_label and active_label in labels:
+                    global_cb.setCurrentIndex(labels.index(active_label))
             finally:
                 global_cb.blockSignals(blocked)
 
