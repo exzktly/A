@@ -244,10 +244,13 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     except Exception:
         pass
 
-    # Sync the per-tab Property combo + aggregation enable state with the
-    # canonical ``_active_metric`` so the combo reflects the global state
-    # the first time the user opens the tab.
+    # Reshape the per-tab Property combo for the active channel (ratio
+    # channels collapse to ``Calculated Val``); then sync the selection
+    # to the canonical ``_active_metric`` and refresh the aggregation
+    # enable state.
     try:
+        if hasattr(app, "_refresh_metric_combo_for_channel"):
+            app._refresh_metric_combo_for_channel()
         from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
         prop_cb = getattr(app, "_heatmap_property_cb", None)
         if prop_cb is not None:
