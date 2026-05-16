@@ -93,15 +93,19 @@ def build_sidebar(app, parent: QWidget) -> None:
         plate.clearSelection()
         app._on_plate_sel_change()
 
-    b_all = QPushButton("Select all", allnone)
-    b_all.setObjectName("Ghost")
-    b_all.clicked.connect(_select_all_clicked)
-    b_none = QPushButton("Select none", allnone)
-    b_none.setObjectName("Ghost")
-    b_none.clicked.connect(_select_none_clicked)
-    _al.addWidget(b_all)
-    _al.addWidget(b_none)
-    _al.addStretch(1)
+    # Match the "secondary" variant used by the Copy SVG / Save figure
+    # buttons on each plot card so the visual weight reads the same. The
+    # buttons fill the sidebar row equally (no trailing stretch) so their
+    # combined width spans the picker's width.
+    from well_viewer.ui_helpers import btn_secondary as _btn_secondary
+    b_all = _btn_secondary(allnone, "Select all", _select_all_clicked)
+    b_none = _btn_secondary(allnone, "Select none", _select_none_clicked)
+    for _b in (b_all, b_none):
+        _sp = _b.sizePolicy()
+        _sp.setHorizontalPolicy(_SizePolicy.Expanding)
+        _b.setSizePolicy(_sp)
+    _al.addWidget(b_all, 1)
+    _al.addWidget(b_none, 1)
     layout.addWidget(allnone)
     app._sidebar_allnone_frame = allnone
 
