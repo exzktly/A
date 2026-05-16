@@ -275,12 +275,16 @@ def install_canvas_wheel_scroll(canvas, scroll_area) -> None:
 
 
 def ask_name_dialog(parent: QWidget, *, title: str, prompt: str, default: str,
-                    width: int = 30, **_kw) -> Optional[str]:
+                    width: int = 30, strip: bool = True, **_kw) -> Optional[str]:
     text, ok = QInputDialog.getText(parent, title, prompt, QLineEdit.Normal, default)
     if not ok:
         return None
-    text = text.strip()
-    return text or None
+    if strip:
+        text = text.strip()
+        return text or None
+    # Caller wants intentional whitespace preserved (e.g. Add Prefix /
+    # Add Suffix on well labels). Still treat an empty box as a cancel.
+    return text if text else None
 
 
 _THEMED_NAV_CLS = None
