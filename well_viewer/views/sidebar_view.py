@@ -73,16 +73,32 @@ def build_sidebar(app, parent: QWidget) -> None:
     # frame's visibility per tab (smFISH hides it; multi-select tabs show
     # it). Storing the frame on ``app._sidebar_allnone_frame`` is what
     # makes those existing hasattr() checks active.
+    #
+    # ``plate.selectAll()`` / ``plate.clearSelection()`` flip the well-
+    # button appearance via the widget's selectionChanged signal, but
+    # that path only refreshes the sidebar map — it doesn't commit the
+    # change into the redraw pipeline. ``_on_plate_sel_change`` is what
+    # tells controllers to re-render against the new selection, so the
+    # buttons explicitly call it after the widget-level toggle.
     allnone = QFrame(parent)
     _al = QHBoxLayout(allnone)
     _al.setContentsMargins(0, 4, 0, 0)
     _al.setSpacing(6)
+
+    def _select_all_clicked() -> None:
+        plate.selectAll()
+        app._on_plate_sel_change()
+
+    def _select_none_clicked() -> None:
+        plate.clearSelection()
+        app._on_plate_sel_change()
+
     b_all = QPushButton("Select all", allnone)
     b_all.setObjectName("Ghost")
-    b_all.clicked.connect(plate.selectAll)
+    b_all.clicked.connect(_select_all_clicked)
     b_none = QPushButton("Select none", allnone)
     b_none.setObjectName("Ghost")
-    b_none.clicked.connect(plate.clearSelection)
+    b_none.clicked.connect(_select_none_clicked)
     _al.addWidget(b_all)
     _al.addWidget(b_none)
     _al.addStretch(1)
