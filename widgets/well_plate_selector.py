@@ -141,6 +141,7 @@ class _PlateGrid(QWidget):
         self._hover_cell: tuple[int, int] | None = None
         self._hover_row: int | None = None
         self._hover_col: int | None = None
+        self._hover_corner = False
         self._drag_active = False
         self._drag_adding = True
         self._drag_visited: set[tuple[int, int]] = set()
@@ -174,6 +175,31 @@ class _PlateGrid(QWidget):
         cr = self._cell_rect(row, col)
         d = cr.width() * 0.80
         return QRectF(cr.center().x() - d / 2.0, cr.center().y() - d / 2.0, d, d)
+
+    def _corner_rect(self) -> QRectF:
+        """Small circle in the top-left header intersection. Acts as the
+        select-all / select-none toggle (multi-select plates only)."""
+        lab, _cell, ox, oy = self._metrics()
+        # Square sub-region of the corner header cell. Size is a bit smaller
+        # than the row-label box so the circle reads as a discrete control.
+        d = lab * 0.55
+        cx = max(0.0, ox - lab) + lab / 2.0
+        cy = max(0.0, oy - lab) + lab / 2.0
+        return QRectF(cx - d / 2.0, cy - d / 2.0, d, d)
+
+    def _corner_active(self) -> bool:
+        return self._mode == "select" and not self._single_select
+
+    def _enabled_keys(self) -> set[tuple[int, int]]:
+        if self._enabled is None:
+            return {(r, c) for r in range(_N_ROWS) for c in range(_N_COLS)}
+        return set(self._enabled)
+
+    def _corner_all_selected(self) -> bool:
+        keys = self._enabled_keys()
+        if not keys:
+            return False
+        return keys.issubset(set(self._selected))
 
     def sizeHint(self) -> QSize:
         u = max(20, round(self.fontMetrics().height() * 1.7))
@@ -440,8 +466,10 @@ class _PlateGrid(QWidget):
 
     # ── input ────────────────────────────────────────────────────────────
     def _hit(self, x: float, y: float):
-        """('well', r, c) | ('row', r) | ('col', c) | None — geometry only."""
+        """('corner',) | ('well', r, c) | ('row', r) | ('col', c) | None."""
         _lab, cell, ox, oy = self._metrics()
+        if self._corner_active() and self._corner_rect().contains(x, y):
+            return ("corner",)
         col = int((x - ox) // cell) if x >= ox else -1
         row = int((y - oy) // cell) if y >= oy else -1
         in_cols = 0 <= col < _N_COLS
@@ -461,6 +489,14 @@ class _PlateGrid(QWidget):
         if hit is None:
             return
         kind = hit[0]
+        if kind == "corner":
+            if self._mode != "select":
+                return
+            self.set_all(not self._corner_all_selected())
+            # Mirror the redraw-trigger semantics of a click-finish drag so
+            # downstream consumers re-render immediately.
+            self.selectionDragFinished.emit()
+            return
         if kind == "row":
             if not self._rc_selectable:
                 return
@@ -528,15 +564,21 @@ class _PlateGrid(QWidget):
         pos = event.position()
         hit = self._hit(pos.x(), pos.y())
         cell = row = col = None
+        corner = False
         if hit is not None:
-            if hit[0] == "well" and self._is_enabled((hit[1], hit[2])):
+            if hit[0] == "corner":
+                corner = True
+            elif hit[0] == "well" and self._is_enabled((hit[1], hit[2])):
                 cell = (hit[1], hit[2])
             elif hit[0] == "row" and self._rc_selectable:
                 row = hit[1]
             elif hit[0] == "col" and self._rc_selectable:
                 col = hit[1]
-        if (cell, row, col) != (self._hover_cell, self._hover_row, self._hover_col):
+        if (cell, row, col, corner) != (
+            self._hover_cell, self._hover_row, self._hover_col, self._hover_corner,
+        ):
             self._hover_cell, self._hover_row, self._hover_col = cell, row, col
+            self._hover_corner = corner
             self.update()
 
         if self._drag_active and (event.buttons() & Qt.LeftButton):
@@ -612,8 +654,11 @@ class _PlateGrid(QWidget):
         event.acceptProposedAction()
 
     def leaveEvent(self, _event) -> None:  # noqa: N802
-        if (self._hover_cell, self._hover_row, self._hover_col) != (None, None, None):
+        if (self._hover_cell, self._hover_row, self._hover_col, self._hover_corner) != (
+            None, None, None, False,
+        ):
             self._hover_cell = self._hover_row = self._hover_col = None
+            self._hover_corner = False
             self.update()
 
     def event(self, ev) -> bool:  # noqa: N802
@@ -628,6 +673,9 @@ class _PlateGrid(QWidget):
                         text = str(self._tooltip_provider(wid)) or wid
                     except Exception:
                         text = wid
+                QToolTip.showText(ev.globalPos(), text, self)
+            elif hit is not None and hit[0] == "corner":
+                text = "Clear selection" if self._corner_all_selected() else "Select all wells"
                 QToolTip.showText(ev.globalPos(), text, self)
             else:
                 QToolTip.hideText()
@@ -746,18 +794,32 @@ class _PlateGrid(QWidget):
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setFont(self.font())
 
-        # B18: cut-corner ornament (mockup .plate::before). A 12-px right
-        # triangle in the widget's top-left corner, filled with the rail
-        # colour, so the plate frame visually "notches" toward the labels.
-        from PySide6.QtGui import QPolygonF
-        from PySide6.QtCore import QPointF
-        nick = 12.0
-        tri = QPolygonF([QPointF(0.0, 0.0),
-                         QPointF(nick, 0.0),
-                         QPointF(0.0, nick)])
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(c.rail))
-        p.drawPolygon(tri)
+        # Top-left corner select-all / select-none toggle. Drawn only when
+        # the plate accepts multi-select interaction; otherwise the corner
+        # is left blank.
+        if self._corner_active():
+            cr = self._corner_rect()
+            all_sel = self._corner_all_selected()
+            if all_sel:
+                fill = QColor(c.accent)
+                pen_col = QColor(c.accent)
+            else:
+                fill = QColor(c.panel)
+                pen_col = QColor(c.border_subtle)
+            if self._hover_corner:
+                pen_col = QColor(c.accent)
+            p.setPen(QPen(pen_col, max(1.0, cr.width() * 0.10)))
+            p.setBrush(fill)
+            p.drawEllipse(cr)
+            if all_sel:
+                # Small inner dot to read as "filled / checked".
+                inner = QRectF(cr).adjusted(
+                    cr.width() * 0.32, cr.height() * 0.32,
+                    -cr.width() * 0.32, -cr.height() * 0.32,
+                )
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(c.panel))
+                p.drawEllipse(inner)
 
         # Column numbers (1–12) along the top.
         for ci in range(_N_COLS):

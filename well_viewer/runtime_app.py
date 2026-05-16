@@ -5102,8 +5102,6 @@ class WellViewerApp(QWidget):
         elif tab == "Batch Export":
             # Batch Export uses the standard sidebar well picker.
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             if hasattr(self, "_batch_export_set_mode"):
                 mode = getattr(self, "_batch_export_inline_state", {}).get("mode", "line")
@@ -5111,15 +5109,11 @@ class WellViewerApp(QWidget):
 
         elif tab == "Review CSV":
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             self._refresh_review_csv()
 
         elif tab == "smFISH":
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.setVisible(False)
             if len(self._selected_wells) > 1:
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
                 self._selected_wells = {keep}
@@ -5129,8 +5123,6 @@ class WellViewerApp(QWidget):
 
         elif tab == "Cell Gating":
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             if hasattr(self, "_cell_gating_area_edit"):
                 from well_viewer.tabs.cell_gating_tab_view import cell_gating_load_cell_areas
@@ -5139,8 +5131,6 @@ class WellViewerApp(QWidget):
         else:
             # Line Graphs, Bar Plots, or Scatter — unified picker always shown
             self._sidebar_main_frame.setVisible(True)
-            if hasattr(self, "_sidebar_allnone_frame"):
-                self._sidebar_allnone_frame.setVisible(True)
             self._refresh_sidebar_map()
             if tab == "Bar Plots":
                 self._update_bar_tp_menu()
