@@ -16,12 +16,15 @@ def _drag_info(tok, pos):
 
 def _row_col_select_disabled(app) -> bool:
     """Tabs that don't support multi-well selection (smFISH) suppress the
-    row/column header click handlers."""
-    nb = getattr(app, "_notebook", None)
-    if nb is None:
+    row/column header click handlers. smFISH lives as a sub-tab inside
+    Cell Segmentation now, so we descend via ``_current_centre_tab`` to
+    recover the leaf name rather than reading the top-level notebook
+    directly."""
+    cur = getattr(app, "_current_centre_tab", None)
+    if cur is None:
         return False
     try:
-        return nb.currentName() == "smFISH"
+        return cur() == "smFISH"
     except Exception:
         return False
 

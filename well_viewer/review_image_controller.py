@@ -235,7 +235,16 @@ def _on_review_csv_row_double_click_impl(app, item) -> None:
         return
 
     if hasattr(app, "_notebook"):
-        _select_tab_by_text(app._notebook, "Segmentation")
+        # Segmentation now lives as a sub-tab inside Cell Segmentation, so
+        # the top-level navigation needs both steps: switch the outer page
+        # to "Cell Segmentation", then drive the inner stack to the
+        # "Segmentation" sub-page.
+        _select_tab_by_text(app._notebook, "Cell Segmentation")
+        cs_nb = getattr(app, "_cell_segmentation_notebook", None)
+        if cs_nb is not None:
+            setter = getattr(cs_nb, "setCurrentByName", None)
+            if setter is not None:
+                setter("Segmentation")
 
     # Set the target nucleus before any refresh so intermediate renders can
     # already draw the yellow highlight.
