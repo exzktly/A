@@ -73,19 +73,39 @@ def build_sidebar(app, parent: QWidget) -> None:
     # frame's visibility per tab (smFISH hides it; multi-select tabs show
     # it). Storing the frame on ``app._sidebar_allnone_frame`` is what
     # makes those existing hasattr() checks active.
+    #
+    # ``plate.selectAll()`` / ``plate.clearSelection()`` flip the well-
+    # button appearance via the widget's selectionChanged signal, but
+    # that path only refreshes the sidebar map — it doesn't commit the
+    # change into the redraw pipeline. ``_on_plate_sel_change`` is what
+    # tells controllers to re-render against the new selection, so the
+    # buttons explicitly call it after the widget-level toggle.
     allnone = QFrame(parent)
     _al = QHBoxLayout(allnone)
     _al.setContentsMargins(0, 4, 0, 0)
     _al.setSpacing(6)
-    b_all = QPushButton("Select all", allnone)
-    b_all.setObjectName("Ghost")
-    b_all.clicked.connect(plate.selectAll)
-    b_none = QPushButton("Select none", allnone)
-    b_none.setObjectName("Ghost")
-    b_none.clicked.connect(plate.clearSelection)
-    _al.addWidget(b_all)
-    _al.addWidget(b_none)
-    _al.addStretch(1)
+
+    def _select_all_clicked() -> None:
+        plate.selectAll()
+        app._on_plate_sel_change()
+
+    def _select_none_clicked() -> None:
+        plate.clearSelection()
+        app._on_plate_sel_change()
+
+    # Match the "secondary" variant used by the Copy SVG / Save figure
+    # buttons on each plot card so the visual weight reads the same. The
+    # buttons fill the sidebar row equally (no trailing stretch) so their
+    # combined width spans the picker's width.
+    from well_viewer.ui_helpers import btn_secondary as _btn_secondary
+    b_all = _btn_secondary(allnone, "Select all", _select_all_clicked)
+    b_none = _btn_secondary(allnone, "Select none", _select_none_clicked)
+    for _b in (b_all, b_none):
+        _sp = _b.sizePolicy()
+        _sp.setHorizontalPolicy(_SizePolicy.Expanding)
+        _b.setSizePolicy(_sp)
+    _al.addWidget(b_all, 1)
+    _al.addWidget(b_none, 1)
     layout.addWidget(allnone)
     app._sidebar_allnone_frame = allnone
 

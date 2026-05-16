@@ -63,39 +63,38 @@ _LIGHT_THEME: Dict[str, str] = {
     "INSET_SHADOW": "#6B7280", "INSET_HIGHLIGHT": "#FFFFFF",
 }
 
-# 48 perceptually-separated colors for the well palette. The list is
-# arranged in four batches of 12: batches 1 and 2 fall on bright HSL hues
-# at 30° spacing (offset 0° and 15°), batches 3 and 4 add pastel + dark
-# variants at the in-between hues. The first 12 entries are maximally
-# distinct; each successive batch of 12 fills the perceptual gaps left by
-# the previous batches. Consumers index ``WELL_COLORS[i % len(WELL_COLORS)]``
-# (see ``well_viewer.plate_layout``), so any prefix of 12, 24, or 36
-# remains well-separated.
+# 48 maximally-distinct colors for the well palette. Generated via a
+# greedy max-min selection in OKLab space — at each step the candidate
+# colour with the largest minimum OKLab distance to the already-picked
+# set is taken. Min pairwise distance ≈ 0.09 in OKLab. The picks are
+# ordered roughly by saturation/contrast (bright primaries first), so
+# small datasets see the most legible separation. Consumers index
+# ``WELL_COLORS[i % len(WELL_COLORS)]`` (see ``well_viewer.plate_layout``).
 _WELL_COLORS: Dict[str, str] = {
-    "WELL_COLOR_1":  "#E63333", "WELL_COLOR_2":  "#E68C33",
-    "WELL_COLOR_3":  "#E6E633", "WELL_COLOR_4":  "#8CE633",
-    "WELL_COLOR_5":  "#33E633", "WELL_COLOR_6":  "#33E68C",
-    "WELL_COLOR_7":  "#33E6E6", "WELL_COLOR_8":  "#338CE6",
-    "WELL_COLOR_9":  "#3333E6", "WELL_COLOR_10": "#8C33E6",
-    "WELL_COLOR_11": "#E633E6", "WELL_COLOR_12": "#E6338C",
-    "WELL_COLOR_13": "#D44211", "WELL_COLOR_14": "#D4A411",
-    "WELL_COLOR_15": "#A4D411", "WELL_COLOR_16": "#42D411",
-    "WELL_COLOR_17": "#11D442", "WELL_COLOR_18": "#11D4A4",
-    "WELL_COLOR_19": "#11A4D4", "WELL_COLOR_20": "#1142D4",
-    "WELL_COLOR_21": "#4211D4", "WELL_COLOR_22": "#A411D4",
-    "WELL_COLOR_23": "#D411A4", "WELL_COLOR_24": "#D41142",
-    "WELL_COLOR_25": "#D78175", "WELL_COLOR_26": "#D7B275",
-    "WELL_COLOR_27": "#CBD775", "WELL_COLOR_28": "#99D775",
-    "WELL_COLOR_29": "#75D781", "WELL_COLOR_30": "#75D7B2",
-    "WELL_COLOR_31": "#75CBD7", "WELL_COLOR_32": "#7599D7",
-    "WELL_COLOR_33": "#8175D7", "WELL_COLOR_34": "#B275D7",
-    "WELL_COLOR_35": "#D775CB", "WELL_COLOR_36": "#D77599",
-    "WELL_COLOR_37": "#AE4404", "WELL_COLOR_38": "#AE9904",
-    "WELL_COLOR_39": "#6EAE04", "WELL_COLOR_40": "#1AAE04",
-    "WELL_COLOR_41": "#04AE44", "WELL_COLOR_42": "#04AE99",
-    "WELL_COLOR_43": "#046EAE", "WELL_COLOR_44": "#041AAE",
-    "WELL_COLOR_45": "#4404AE", "WELL_COLOR_46": "#9904AE",
-    "WELL_COLOR_47": "#AE046E", "WELL_COLOR_48": "#AE041A",
+    "WELL_COLOR_1":  "#DF2020", "WELL_COLOR_2":  "#06F906",
+    "WELL_COLOR_3":  "#0606F9", "WELL_COLOR_4":  "#6AB2FB",
+    "WELL_COLOR_5":  "#138613", "WELL_COLOR_6":  "#D406F9",
+    "WELL_COLOR_7":  "#FAAC38", "WELL_COLOR_8":  "#6E2277",
+    "WELL_COLOR_9":  "#6AFBE5", "WELL_COLOR_10": "#2E719E",
+    "WELL_COLOR_11": "#EC79B8", "WELL_COLOR_12": "#FAFA38",
+    "WELL_COLOR_13": "#774C22", "WELL_COLOR_14": "#131386",
+    "WELL_COLOR_15": "#05C783", "WELL_COLOR_16": "#806AFB",
+    "WELL_COLOR_17": "#B37D19", "WELL_COLOR_18": "#C7058D",
+    "WELL_COLOR_19": "#5C05C7", "WELL_COLOR_20": "#2E9E9E",
+    "WELL_COLOR_21": "#950437", "WELL_COLOR_22": "#FA7238",
+    "WELL_COLOR_23": "#AAC705", "WELL_COLOR_24": "#224877",
+    "WELL_COLOR_25": "#9C39C6", "WELL_COLOR_26": "#D4DD88",
+    "WELL_COLOR_27": "#AA88DD", "WELL_COLOR_28": "#779E2E",
+    "WELL_COLOR_29": "#F906BC", "WELL_COLOR_30": "#0553C7",
+    "WELL_COLOR_31": "#068CF9", "WELL_COLOR_32": "#20D6DF",
+    "WELL_COLOR_33": "#E56AFB", "WELL_COLOR_34": "#FA387C",
+    "WELL_COLOR_35": "#DD9D88", "WELL_COLOR_36": "#777222",
+    "WELL_COLOR_37": "#79EC7F", "WELL_COLOR_38": "#227762",
+    "WELL_COLOR_39": "#6938FA", "WELL_COLOR_40": "#05C705",
+    "WELL_COLOR_41": "#B34F19", "WELL_COLOR_42": "#D16167",
+    "WELL_COLOR_43": "#C7A005", "WELL_COLOR_44": "#471386",
+    "WELL_COLOR_45": "#B0F906", "WELL_COLOR_46": "#950495",
+    "WELL_COLOR_47": "#0667F9", "WELL_COLOR_48": "#1929B3",
 }
 
 _BEIGE_THEME: Dict[str, str] = {
