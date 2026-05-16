@@ -216,15 +216,18 @@ def build_cell_gating_tab(app, parent: QWidget) -> None:
     tr.addStretch(1)
     # Auto-threshold all channels: runs the same Otsu pass the pipeline's
     # final stage executes (well_viewer.auto_threshold) and writes the
-    # results into the FluorGating edits for every loaded channel. Status
-    # messages stream to the log drawer via the standard logger.
+    # results into the ThreshFracOn edits for every loaded channel — it
+    # is the fraction-on cut used in downstream plots, NOT the per-cell
+    # FluorGating inclusion threshold. Status messages stream to the log
+    # drawer via the standard logger.
     from PySide6.QtWidgets import QPushButton as _QPushButton
     auto_btn = _QPushButton("Auto-threshold all channels", title_row)
     auto_btn.setProperty("variant", "secondary")
     auto_btn.setToolTip(
-        "Compute a default FluorGating threshold per channel via Otsu on "
+        "Compute a default ThreshFracOn cut per channel via Otsu on "
         "a per-cell + matched-background-pixel distribution sampled from "
-        "the first, middle, and last timepoint of every FOV.\n\n"
+        "the first, middle, and last timepoint of every FOV. The "
+        "per-cell FluorGating inclusion thresholds are NOT modified.\n\n"
         "Progress + per-channel results are written to the log drawer."
     )
     auto_btn.clicked.connect(lambda _=False: cell_gating_auto_threshold(app))
@@ -483,8 +486,11 @@ def cell_gating_auto_threshold(app) -> None:
     Mirrors what the ``process_microscopy`` pipeline runs as its final
     step: per-cell mean + matched random background pixel pooled across
     every well's first/middle/last timepoint, then Otsu. The result lands
-    in ``app._cell_gating_fluor_gate_edits`` and is persisted to
-    ``pipeline_info.json`` so the next load picks the new defaults up.
+    in ``app._cell_gating_thresh_frac_edits`` (the **ThreshFracOn** column,
+    i.e. the fraction-on cut used by downstream plots) and is persisted
+    to ``pipeline_info.json::cell_gating.thresh_frac_on`` so the next load
+    picks the new defaults up. The per-cell ``FluorGating`` inclusion
+    thresholds are never touched by this pass.
 
     Status streams to the log drawer via the standard logging API (the
     ``logging.Handler`` installed by ``all_well._attach_log_ring_buffer``
@@ -560,7 +566,7 @@ def cell_gating_auto_threshold(app) -> None:
         try:
             app._set_status(
                 "Auto-threshold updated " + ", ".join(written) if written
-                else "Auto-threshold finished — no FluorGating edits were touched."
+                else "Auto-threshold finished — no ThreshFracOn edits were touched."
             )
         except Exception:
             pass
