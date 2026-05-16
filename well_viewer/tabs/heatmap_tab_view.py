@@ -66,12 +66,6 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
 
     cl1.addStretch(1)
 
-    style_btn = QPushButton("▸", ctrl1)
-    style_btn.setProperty("variant", "secondary")
-    style_btn.setToolTip("Export style / figure settings")
-    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("heatmap"))
-    cl1.addWidget(style_btn)
-
     cl1.addWidget(btn_primary(ctrl1, "Export CSV", app._export_heatmap_data,
                               icon="download"))
     cl1.addWidget(btn_secondary(ctrl1, "Copy SVG",
@@ -80,6 +74,15 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     cl1.addWidget(btn_secondary(ctrl1, "Save figure",
                                 lambda: app._save_active_card_figure(),
                                 icon="save"))
+    # Properties button last in the row so it sits flush with the right
+    # edge of the plot area — adjacent to where the dock slides out.
+    style_btn = btn_secondary(
+        ctrl1, "Properties",
+        lambda: app._open_export_style_panel("heatmap"),
+        icon="sliders-horizontal",
+    )
+    style_btn.setToolTip("Show / hide the figure properties panel")
+    cl1.addWidget(style_btn)
     layout.addWidget(ctrl1)
 
     # ── Control row 2: cmap / scale / log ───────────────────────────────────

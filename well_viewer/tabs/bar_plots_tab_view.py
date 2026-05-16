@@ -98,12 +98,6 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())
     cl.addWidget(app._bar_reset_order_btn)
 
-    from widgets.icon_button import IconButton as _IconButton
-    style_btn = _IconButton("sliders", bar_ctrl)
-    style_btn.setToolTip("Open export style panel for bar plots")
-    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("bar"))
-    cl.addWidget(style_btn)
-
     cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data,
                              icon="download"))
     cl.addWidget(btn_secondary(bar_ctrl, "Copy SVG",
@@ -112,6 +106,15 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_secondary(bar_ctrl, "Save figure",
                                lambda: app._save_active_card_figure(),
                                icon="save"))
+    # Properties button last in the row so it sits flush with the right
+    # edge of the plot area — adjacent to where the dock slides out.
+    style_btn = btn_secondary(
+        bar_ctrl, "Properties",
+        lambda: app._open_export_style_panel("bar"),
+        icon="sliders-horizontal",
+    )
+    style_btn.setToolTip("Show / hide the figure properties panel")
+    cl.addWidget(style_btn)
     right_l.addWidget(bar_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────

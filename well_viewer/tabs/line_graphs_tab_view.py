@@ -61,10 +61,6 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
-    style_btn = QPushButton("▸", line_ctrl)
-    style_btn.setProperty("variant", "secondary")
-    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("line"))
-    cl.addWidget(style_btn)
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data,
                              icon="download"))
     cl.addWidget(btn_secondary(line_ctrl, "Copy SVG",
@@ -73,6 +69,16 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_secondary(line_ctrl, "Save figure",
                                lambda: app._save_active_card_figure(),
                                icon="save"))
+    # Properties button last in the row so it sits flush with the right
+    # edge of the plot area — adjacent to where the figure-properties
+    # dock slides out, instead of the old "▸" floating mid-row.
+    style_btn = btn_secondary(
+        line_ctrl, "Properties",
+        lambda: app._open_export_style_panel("line"),
+        icon="sliders-horizontal",
+    )
+    style_btn.setToolTip("Show / hide the figure properties panel")
+    cl.addWidget(style_btn)
     layout.addWidget(line_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
