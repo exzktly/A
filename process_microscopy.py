@@ -1787,6 +1787,14 @@ def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
     from csbdeep.utils import normalize as _normalize   # noqa: F401 — triggers TF init
     from stardist.models import StarDist2D as _StarDist2D
 
+    # Suppress TF AutoGraph "could not transform / Unable to locate source
+    # code" warnings. In a PyInstaller frozen bundle Python source files are
+    # stripped, so TF's autograph tracer can never find the predict function
+    # source. The model runs correctly (autograph falls back to running as-is);
+    # the warning is purely cosmetic noise in the pipeline log.
+    import tensorflow as _tf_init
+    _tf_init.autograph.set_verbosity(0)
+
     # Disable GPU on non-Mac platforms (or when --cpu_only is set).
     # On macOS we leave GPU visible so tensorflow-metal can use Metal.
     if _effective_cpu:
