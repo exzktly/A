@@ -2942,10 +2942,10 @@ class WellViewerApp(QWidget):
     def _apply_theme(self) -> None:
         """Apply the application-wide stylesheet.
 
-        Single source of truth is the repo-root ``theme`` module (see
-        ``Markdowns/PHASE_4_DIAGNOSIS.md``). Previously this re-applied the legacy
-        ``ui/theme`` per-theme QSS, which clobbered ``theme.qss()`` whenever a
-        ``WellViewerApp`` was constructed (including embedded under AllWell).
+        Single source of truth is the repo-root ``theme`` module. Previously
+        this re-applied the legacy ``ui/theme`` per-theme QSS, which clobbered
+        ``theme.qss()`` whenever a ``WellViewerApp`` was constructed (including
+        embedded under AllWell).
         """
         try:
             import theme  # type: ignore

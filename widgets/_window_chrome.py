@@ -16,8 +16,8 @@ Precedence
    active, prefer the **native** frame (custom chrome is harder for AT to
    navigate). Best-effort, per-platform; see :func:`accessibility_prefers_native`.
 4. **platform default** — frameless on Windows/Linux; native on macOS (the
-   native traffic lights + ``startSystemResize`` history — see
-   ``Markdowns/PHASE_6_5_PLAN.md`` C4/C5).
+   native traffic lights + ``startSystemResize`` history make manual
+   resize necessary).
 """
 
 from __future__ import annotations

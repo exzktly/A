@@ -82,8 +82,8 @@ allwell/
 ├── services/                    ← Analyze-side service modules
 ├── scripts/                     ← build_executable.sh, dev helpers
 ├── _Docs/                       ← installer / requirements / icon SVGs
-├── Markdowns/                   ← every design / port / phase doc (start here for history)
-└── design/                      ← HTML mockups + screenshots that the port targets
+├── Markdowns/                   ← live docs (this file, README, model contract, icons readme)
+└── design/                      ← HTML mockups + screenshots — visual reference only
 ```
 
 A few rules of thumb so you know where to put something new:
@@ -870,26 +870,22 @@ Three places to check:
 
 ## 13. The `Markdowns/` library
 
-Every design / migration / phase doc lives under `Markdowns/`. The ones a
-new contributor should skim first:
+The `Markdowns/` folder is intentionally small — the long tail of port-time
+plans, status updates, phase write-ups, gap analyses, and migration plans
+was retired once the port finished, and is preserved in git history rather
+than as live files. What remains:
 
 | File | What it's for |
 |------|---------------|
-| `PORT_PLAN.md` | The original Tk → Qt port plan. Lists every module's purpose and the order things were built. |
-| `PROJECT_STATUS.md` | A live "where are we" snapshot of all the phases. |
-| `RECONCILIATION_PLAN.md` | The companion plan with risk register / dependency graph. |
-| `DESIGN_TOKENS.md` | The canonical colour / typography / spacing reference; `theme.py` mirrors this. |
-| `DESIGN_NOTES.md` | UX rationale + the v2 mockup walk-through. |
-| `PATTERNS.md` | Reusable code patterns — read before introducing a new pattern. |
-| `SELECTIONS_MODEL_CONTRACT.md` | The on-disk shape of `pipeline_info.json::sample_definitions`. |
-| `SELECTIONS_MIGRATION.md` | The v1 → v2 selections migration. |
-| `WELL_SELECTOR_GAP.md` | A long audit of the plate-selector requirements; useful background when touching `widgets/well_plate_selector.py`. |
-| `PHASE_*.md`, `PORT_PLAN.md` table | Historical phase write-ups. Marked DONE where applicable. |
+| `ARCHITECTURE.md` | This document. |
+| `README_WellViewer.md` | User-facing README — installation, day-to-day usage, the dataset folder layout. |
+| `SELECTIONS_MODEL_CONTRACT.md` | The on-disk shape of `pipeline_info.json::sample_definitions`. The live contract `well_viewer/selections_model.py` implements. |
+| `icons_README.md` | Notes on the three candidate app icons in `_Docs/icons/`. |
 
 `design/` (sibling of `Markdowns/`) holds the **non-Markdown** design
 artifacts — the HTML mockups (`mockup-decoded.html`,
 `All-Well Redesign v2 _standalone_.html`), screenshots, and decoded mockup
-assets. Use it for visual reference; the prose is in `Markdowns/`.
+assets — for visual reference only.
 
 ---
 
@@ -933,10 +929,11 @@ assets. Use it for visual reference; the prose is in `Markdowns/`.
 - **Pipeline runs in a separate process.** Don't try to share Python
   objects between Analyze and the running pipeline; everything passes
   through argv → stdout text streaming → the dataset folder.
-- **`Markdowns/` is documentation, not code.** Some of the docs there were
-  written mid-port and have stale internal links pointing at
-  `design/*.md`; the move into `Markdowns/` was deliberate but their
-  internal cross-references weren't rewritten. Treat them as history.
+- **`Markdowns/` is documentation, not code.** It is kept intentionally
+  small post-port (this file, the user README, the selections-model
+  contract, and the icons readme). The port-time plans and status updates
+  were removed once the port shipped; they remain in git history if
+  you ever need them.
 
 If you read all the way to here and the structure still doesn't make sense,
 the right next move is to open `well_viewer/runtime_app.py` and scroll
