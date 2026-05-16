@@ -56,11 +56,6 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
-    from widgets.icon_button import IconButton as _IconButton
-    style_btn = _IconButton("sliders", ctrl)
-    style_btn.setToolTip("Open export style panel for scatter (aggregate)")
-    style_btn.clicked.connect(lambda _=False: app._open_export_style_panel("scatter_agg"))
-    cl.addWidget(style_btn)
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_agg_data,
                              icon="download"))
     cl.addWidget(btn_secondary(ctrl, "Copy SVG",
@@ -69,6 +64,15 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     cl.addWidget(btn_secondary(ctrl, "Save figure",
                                lambda: app._save_active_card_figure(),
                                icon="save"))
+    # Properties button last in the row so it sits flush with the right
+    # edge of the plot area — adjacent to where the dock slides out.
+    style_btn = btn_secondary(
+        ctrl, "Properties",
+        lambda: app._open_export_style_panel("scatter_agg"),
+        icon="sliders-horizontal",
+    )
+    style_btn.setToolTip("Show / hide the figure properties panel")
+    cl.addWidget(style_btn)
     layout.addWidget(ctrl)
 
     card = PlotCard(parent, figsize=(8, 6), constrained=False)
