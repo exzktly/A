@@ -164,7 +164,11 @@ hiddenimports = [
     "imageio",
     "imageio.plugins.tifffile",
 
-    # imagecodecs — optional but prevents codec errors on compressed TIFFs
+    # imagecodecs — the top-level package only; compiled per-codec extensions
+    # (lzw, jpeg, zstd, etc.) are collected via collect_all() below so their
+    # .so binaries are bundled. Listing only "imagecodecs" here would bundle
+    # the Python shim but leave the compiled codec extensions out, producing
+    # "cannot import name lzw_decode from imagecodecs" at runtime.
     "imagecodecs",
 
     # standard library PyInstaller sometimes misses
@@ -281,31 +285,24 @@ hiddenimports = [
     # requests/__init__.py when neither charset_normalizer nor chardet can be
     # imported inside the frozen bundle.
     #
-    # charset_normalizer ships mypyc-compiled extensions on macOS (e.g.
-    # md__mypyc.cpython-310-darwin.so, cd__mypyc.cpython-310-darwin.so).
-    # collect_submodules() alone misses these binaries; collect_all() is used
-    # below instead so that the compiled extensions are collected as binaries.
-    # The explicit entries here are a belt-and-suspenders fallback in case
-    # collect_all() runs before the package is importable.
+    # collect_all("charset_normalizer") below handles mypyc-compiled binary
+    # extensions (md__mypyc / cd__mypyc .so files). Do NOT list those here
+    # explicitly — they do not exist in all build environments and PyInstaller
+    # emits ERROR: Hidden import '...' not found for any entry that is absent.
     "charset_normalizer",
     "charset_normalizer.api",
     "charset_normalizer.cd",
-    "charset_normalizer.cd__mypyc",
     "charset_normalizer.constant",
     "charset_normalizer.legacy",
     "charset_normalizer.md",
-    "charset_normalizer.md__mypyc",
     "charset_normalizer.models",
     "charset_normalizer.utils",
     "charset_normalizer.version",
-    "chardet",
-    "chardet.universaldetector",
-    "chardet.enums",
-    "chardet.resultdict",
 
-    # requests — imported transitively (e.g. by urllib3 / stardist model
-    # download path). PyInstaller's static analyser misses it because it is
-    # imported inside try/except blocks in those libraries.
+    # requests — imported transitively; PyInstaller's static analyser misses
+    # it because the import lives inside try/except blocks in dependencies.
+    # Do NOT list chardet here — it is not installed in the build environment
+    # and causes ERROR: Hidden import not found during Analysis.
     "requests",
     "requests.adapters",
     "requests.auth",
@@ -324,7 +321,8 @@ hiddenimports = [
     "urllib3.util.url",
     "urllib3.contrib",
     "urllib3.contrib.pyopenssl",
-    "urllib3.contrib.securetransport",
+    # urllib3.contrib.securetransport is macOS-only and not present in all
+    # build environments — omit to avoid ERROR: Hidden import not found.
 ]
 
 
@@ -406,11 +404,18 @@ _req_datas, _req_binaries, _req_hidden = collect_all("requests")
 datas         += _req_datas
 hiddenimports += _req_hidden
 
+# imagecodecs — each codec (lzw, jpeg, zstd, …) is a separate compiled C
+# extension. collect_all bundles both the Python shims and the .so binaries
+# so that tifffile can load any codec present in the build environment.
+_icd_datas, _icd_binaries, _icd_hidden = collect_all("imagecodecs")
+datas         += _icd_datas
+hiddenimports += _icd_hidden
+
 # Collect data files
 datas += collect_data_files("numba")
 datas += collect_data_files("skimage")
 
-_extra_binaries = _csn_binaries + _req_binaries
+_extra_binaries = _csn_binaries + _req_binaries + _icd_binaries
 
 a = Analysis(
     [str(_parent / "all_well_launcher.py")],

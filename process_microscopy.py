@@ -52,11 +52,31 @@ import re
 import shutil
 import tempfile
 import time
+import traceback
+import warnings
 import zipfile
 from collections import defaultdict
 from pathlib import Path
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+# ---------------------------------------------------------------------------
+# Debug hook: log full stack trace for every warning so we can identify
+# which import chain triggers "unable to find acceptable character detection
+# dependency" inside the frozen bundle.
+# ---------------------------------------------------------------------------
+_orig_showwarning = warnings.showwarning
+
+def _debug_showwarning(message, category, filename, lineno, file=None, line=None):
+    logging.warning(
+        "WARNING intercepted [%s] %s:%d: %s\nStack trace:\n%s",
+        category.__name__, filename, lineno, message,
+        "".join(traceback.format_stack()),
+    )
+    _orig_showwarning(message, category, filename, lineno, file, line)
+
+warnings.showwarning = _debug_showwarning
+# ---------------------------------------------------------------------------
 
 import tifffile                                      # noqa: F401  (side-effects)
 from tifffile import imread, imwrite
