@@ -785,7 +785,8 @@ class AnalyzeTab(QWidget):
         self._progress_tracker.reset()
         self._progress.setValue(0)
         self._prog_lbl.setText("Preparing…")
-        self._eta_lbl.setText("")
+        self._eta_deadline = None
+        self._eta_lbl.setText("ETA")
         self._pipeline_started_at = _time.monotonic()
         self._run_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
@@ -902,6 +903,23 @@ class AnalyzeTab(QWidget):
         # well_done events.
         self._eta_done = int(done)
         self._eta_total = int(total)
+        # Lock in a deadline at this event using the cumulative per-well
+        # wall-clock rate. The tick timer between events just renders
+        # ``deadline - now`` — never recomputing from elapsed, which would
+        # make the displayed remaining grow while waiting for the next
+        # well to complete.
+        started = getattr(self, "_pipeline_started_at", None)
+        if (
+            started is not None
+            and self._eta_done > 0
+            and self._eta_total > 0
+            and self._eta_done < self._eta_total
+        ):
+            elapsed = _time.monotonic() - started
+            if elapsed > 0.0:
+                per_well_rate = elapsed / self._eta_done
+                remaining_wells = self._eta_total - self._eta_done
+                self._eta_deadline = _time.monotonic() + remaining_wells * per_well_rate
         self._render_eta()
         # Start the 1-Hz tick timer the first time we get usable progress
         # so the label counts down even when no new well_done arrives.
@@ -918,24 +936,13 @@ class AnalyzeTab(QWidget):
         started = getattr(self, "_pipeline_started_at", None)
         done = int(getattr(self, "_eta_done", 0))
         total = int(getattr(self, "_eta_total", 0))
-        if started is None or done <= 0 or total <= 0 or done >= total:
+        if started is None:
             self._eta_lbl.setText("")
             return
-        elapsed = _time.monotonic() - started
-        if elapsed <= 0.0:
+        if total > 0 and done >= total:
+            self._eta_lbl.setText("")
             return
-        # Compute the per-well wall-clock time in isolation, then divide
-        # the remaining work by the parallel worker count. With ``W``
-        # workers each running a single well at a time and each well
-        # taking ``t`` seconds in isolation, ``done`` wells take
-        # ``done / W * t`` wall-clock seconds, so observed elapsed ÷ done
-        # × W is a stable estimate of ``t`` once at least ``W`` wells
-        # have finished. Falling back to 1 keeps single-worker runs
-        # behaving as the original "remaining × elapsed / done" formula.
-        workers = max(1, int(getattr(self, "_pipeline_workers", 1) or 1))
-        per_well_isolation = (elapsed * workers) / done
-        remaining_wells = total - done
-        remaining = (remaining_wells * per_well_isolation) / workers
+        deadline = getattr(self, "_eta_deadline", None)
 
         def _fmt(secs: float) -> str:
             secs = int(round(max(0.0, secs)))
@@ -945,6 +952,12 @@ class AnalyzeTab(QWidget):
                 return f"{secs // 60}m{secs % 60:02d}s"
             return f"{secs}s"
 
+        if deadline is None:
+            # Pipeline is running but no well has completed yet — show a
+            # placeholder so the user sees the timer is alive.
+            self._eta_lbl.setText("ETA")
+            return
+        remaining = deadline - _time.monotonic()
         self._eta_lbl.setText(f"ETA {_fmt(remaining)}")
 
     def _stop_eta_timer(self) -> None:
@@ -953,6 +966,7 @@ class AnalyzeTab(QWidget):
             timer.stop()
         self._eta_done = 0
         self._eta_total = 0
+        self._eta_deadline = None
 
     def _apply_progress_event(self, kind: str, payload: object) -> None:
         """Render a progress event from :class:`ProgressTracker` to the UI."""
@@ -1004,8 +1018,8 @@ class AnalyzeTab(QWidget):
                     self._well_total = 0
                     self._well_done  = 0
                     self._prog_lbl.setText("Grouping complete — starting pipeline…")
-                    self._eta_lbl.setText("")
                     self._stop_eta_timer()
+                    self._eta_lbl.setText("ETA")
                     # Reset the per-phase clock so the pipeline-phase ETA
                     # isn't biased by the (typically short) grouping phase.
                     self._pipeline_started_at = _time.monotonic()
