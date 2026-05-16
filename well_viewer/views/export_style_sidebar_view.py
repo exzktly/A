@@ -532,28 +532,15 @@ class ExportStyleSidebar(QWidget):
 
         body_layout.addStretch(1)
 
-        # ── footer: copy / reset / save / export ────────────────────────────
+        # ── footer: reset / save preset / export ────────────────────────────
+        # The Copy PNG / Copy SVG / Save As… row that used to live here was
+        # redundant — every plot card's controls row already exposes
+        # ``Copy SVG`` and ``Save figure`` buttons via btn_secondary, and the
+        # ``Export…`` action below covers the on-disk-export use case.
         footer = QWidget(self)
         fl = QVBoxLayout(footer)
         fl.setContentsMargins(0, sp.sm, 0, 0)
         fl.setSpacing(sp.xs)
-        copy_row = QHBoxLayout()
-        copy_row.setContentsMargins(0, 0, 0, 0)
-        copy_row.setSpacing(sp.xs)
-        copy_png_btn = QPushButton("Copy PNG")
-        copy_png_btn.setObjectName("Ghost")
-        copy_png_btn.clicked.connect(lambda _=False: self._copy_png())
-        copy_svg_btn = QPushButton("Copy SVG")
-        copy_svg_btn.setObjectName("Ghost")
-        copy_svg_btn.clicked.connect(lambda _=False: self._copy_svg())
-        save_as_btn = QPushButton("Save As…")
-        save_as_btn.setObjectName("Ghost")
-        save_as_btn.clicked.connect(lambda _=False: self._save_as())
-        copy_row.addWidget(copy_png_btn)
-        copy_row.addWidget(copy_svg_btn)
-        copy_row.addWidget(save_as_btn)
-        copy_row.addStretch(1)
-        fl.addLayout(copy_row)
         act_row = QHBoxLayout()
         act_row.setContentsMargins(0, 0, 0, 0)
         act_row.setSpacing(sp.xs)

@@ -3872,8 +3872,12 @@ class WellViewerApp(QWidget):
             montage_var.setCurrentText(montage_label)
         else:
             montage_label = "—"
-        review_label = _pick_valid(self._review_image_chan_var.currentText(), review_labels, active_image_label)
-        self._review_image_chan_var.setCurrentText(review_label)
+        review_var = getattr(self, "_review_image_chan_var", None)
+        if review_var is not None:
+            review_label = _pick_valid(review_var.currentText(), review_labels, active_image_label)
+            review_var.setCurrentText(review_label)
+        else:
+            review_label = "—"
 
         # Keep active image channel anchored only when the current value is invalid.
         if active_image_label not in montage_labels and active_image_label not in review_labels:
@@ -3905,6 +3909,29 @@ class WellViewerApp(QWidget):
                     global_cb.setCurrentIndex(idx)
                 finally:
                     global_cb.blockSignals(blocked)
+
+        # Same trick for the Segmentation tab's channel combo and the
+        # (retired-but-still-present-for-back-compat) Movie Montage combo —
+        # ``_pick_valid`` above preserves the combo's existing currentText
+        # when it's still a valid label, even when ``_active_image_channel``
+        # has drifted to something else. The dropdown would then disagree
+        # with the image actually being drawn, and the user has to wiggle
+        # it back and forth before the click handler's
+        # ``_set_active_image_channel`` realises it's a real change. Snap
+        # the currentIndex to the active label so the first user click
+        # actually triggers the redraw.
+        active_image_label_final = (self._active_image_channel or "").upper()
+        for _attr in ("_review_image_chan_cb", "_chan_cb_preview"):
+            cb = getattr(self, _attr, None)
+            if cb is None or not hasattr(cb, "findText"):
+                continue
+            idx = cb.findText(active_image_label_final) if active_image_label_final else -1
+            if idx >= 0 and cb.currentIndex() != idx:
+                blocked = cb.blockSignals(True)
+                try:
+                    cb.setCurrentIndex(idx)
+                finally:
+                    cb.blockSignals(blocked)
 
         # Back-compat sync: follow the active tab's selector instead of forcing plot labels.
         if hasattr(self, "_chan_var"):
