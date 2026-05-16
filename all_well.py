@@ -809,53 +809,6 @@ class AllWellApp(QMainWindow):
         self.threshold_changed.emit(self._cell_threshold)
 
 
-def _load_bundled_fonts() -> str | None:
-    """Register every font file in ``fonts/`` with QFontDatabase so the
-    bundled Inter family is available without a system-wide install. The
-    OFL-licensed Inter sources live alongside this module under ``fonts/``
-    (see ``fonts/LICENSE.txt``).
-
-    Returns the registered family name (e.g. ``"Inter"``) on success so the
-    caller can pin it as the application default font BEFORE applying QSS.
-    Returns ``None`` when nothing usable registered.
-    """
-    import sys as _sys
-    from PySide6.QtGui import QFontDatabase
-    fonts_dir = Path(__file__).resolve().parent / "fonts"
-    if not fonts_dir.is_dir():
-        print(f"[fonts] no fonts/ directory at {fonts_dir}", file=_sys.stderr)
-        return None
-    families: set[str] = set()
-    for path in sorted(fonts_dir.iterdir()):
-        if path.suffix.lower() not in (".ttf", ".otf"):
-            continue
-        try:
-            fid = QFontDatabase.addApplicationFont(str(path))
-        except Exception as exc:
-            print(f"[fonts] addApplicationFont({path.name}) raised: {exc}",
-                  file=_sys.stderr)
-            continue
-        if fid < 0:
-            print(f"[fonts] addApplicationFont({path.name}) returned -1 "
-                  "(load failed — possibly an unsupported OTF variant)",
-                  file=_sys.stderr)
-            continue
-        try:
-            for fam in QFontDatabase.applicationFontFamilies(fid):
-                families.add(str(fam))
-        except Exception:
-            pass
-    if not families:
-        return None
-    for preferred in ("Inter",):
-        for fam in families:
-            if fam == preferred or preferred.lower() in fam.lower():
-                return fam
-    # No Inter face matched explicitly; return whatever registered first so
-    # the caller still has a valid family.
-    return sorted(families)[0]
-
-
 def _install_combobox_popup_widener() -> None:
     """Patch QComboBox.showPopup so the popup view sizes itself to the
     widest item text instead of inheriting the field's width — dropdown
@@ -904,29 +857,16 @@ def main() -> None:
     args = ap.parse_args()
 
     app = QApplication.instance() or QApplication(sys.argv)
-    _family = _load_bundled_fonts()
     _install_combobox_popup_widener()
-    # Pin the application-wide default font BEFORE applying QSS so widgets
-    # without explicit font-family inherit Inter, and collapse the QSS
-    # font-family token to a single resolvable name. Qt's QSS parser walks
-    # every comma-separated entry and warns ("Populating font family
-    # aliases…") when one isn't already registered; a single-name token
-    # silences the walk. When no bundled face registered, fall back to the
-    # platform default via "sans-serif".
-    if _family:
-        from PySide6.QtGui import QFont
-        app.setFont(QFont(_family))
-        theme_v2.Typography.family = _family
-    else:
-        # Qt's QSS parser doesn't recognise CSS generics like
-        # ``sans-serif`` — it title-cases them and warns about
-        # ``"Sans-serif"`` not being in the alias table. Fall back to
-        # the actual platform default-font family name Qt itself reports
-        # so QSS interpolation produces a single resolvable family.
-        try:
-            theme_v2.Typography.family = app.font().family()
-        except Exception:
-            theme_v2.Typography.family = ""
+    # Collapse the QSS font-family token to a single resolvable name so
+    # Qt's QSS parser doesn't walk every comma-separated entry and warn
+    # ("Populating font family aliases…"). Use the platform default-font
+    # family Qt itself reports so QSS interpolation always produces a
+    # family that exists.
+    try:
+        theme_v2.Typography.family = app.font().family()
+    except Exception:
+        theme_v2.Typography.family = ""
     app.setStyleSheet(theme_v2.qss())
     win = AllWellApp(data_path=args.data_dir)
     win.show()

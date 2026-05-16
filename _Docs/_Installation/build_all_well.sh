@@ -160,15 +160,6 @@ REQUIRED=(
     "_Docs/_Installation/hooks/rthook-pkg_resources.py"
     "_Docs/requirements.txt"
 )
-# Optional extras — present in a normal checkout but the build runs
-# without them (e.g. ``fonts/`` is purely a UI nicety; missing it just
-# means the app falls back to the platform default font).
-OPTIONAL=(
-    "fonts/Inter-Regular.ttf"
-    "fonts/Inter-Medium.ttf"
-    "fonts/Inter-SemiBold.ttf"
-    "fonts/Inter-Bold.ttf"
-)
 MISSING=0
 for f in "${REQUIRED[@]}"; do
     if [ -f "$f" ]; then
@@ -176,13 +167,6 @@ for f in "${REQUIRED[@]}"; do
     else
         echo "  ✗ $f MISSING"
         MISSING=$((MISSING + 1))
-    fi
-done
-for f in "${OPTIONAL[@]}"; do
-    if [ -f "$f" ]; then
-        echo "  ✓ $f (optional)"
-    else
-        echo "  ! $f missing — build will continue without it"
     fi
 done
 if [ "$MISSING" -gt 0 ]; then
