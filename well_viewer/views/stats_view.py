@@ -168,12 +168,26 @@ def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
     )
     cl.addWidget(app._stats_channel_cb, 2, 1, Qt.AlignLeft)
 
+    # Per-tab Property combo — picks which CSV column drives the test.
+    # Mirrors the global ctxbar Property combo's state, kept local so it
+    # appears next to the channel/statistic selectors.
+    from well_viewer.metric_labels import METRIC_ORDER as _ST_METRIC_ORDER
+    app._stats_property_label = QLabel("Property:", app._stats_ctrl)
+    cl.addWidget(app._stats_property_label, 3, 0, Qt.AlignLeft)
+    app._stats_property_cb = QComboBox(app._stats_ctrl)
+    app._stats_property_cb.addItems(_ST_METRIC_ORDER)
+    app._stats_property_cb.currentIndexChanged.connect(
+        lambda _i: app._on_stats_property_change()
+    )
+    cl.addWidget(app._stats_property_cb, 3, 1, Qt.AlignLeft)
+
     app._stats_statistic_label = QLabel("Statistic:", app._stats_ctrl)
-    cl.addWidget(app._stats_statistic_label, 3, 0, Qt.AlignLeft)
+    cl.addWidget(app._stats_statistic_label, 4, 0, Qt.AlignLeft)
 
     app._stats_statistic_cb = QComboBox(app._stats_ctrl)
     app._stats_statistic_cb.addItems([
         "Mean (above threshold)",
+        "Mean (all cells)",
         "Median (above threshold)",
         "Fraction above threshold",
     ])
@@ -181,10 +195,10 @@ def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
     app._stats_statistic_cb.currentIndexChanged.connect(
         lambda _i: app._stats_on_test_change()
     )
-    cl.addWidget(app._stats_statistic_cb, 3, 1, Qt.AlignLeft)
+    cl.addWidget(app._stats_statistic_cb, 4, 1, Qt.AlignLeft)
 
     run_btn = btn_primary(app._stats_ctrl, "Run test", app._stats_run)
-    cl.addWidget(run_btn, 0, 2, 4, 1)
+    cl.addWidget(run_btn, 0, 2, 5, 1)
     layout.addWidget(app._stats_ctrl)
 
     app._stats_sep = QFrame(parent)
@@ -221,3 +235,19 @@ def build_stats_results_panel(app, parent: QWidget, **_kw) -> None:
 
     if hasattr(app, "_stats_update_tp_menu"):
         app._stats_update_tp_menu()
+
+    # Sync the per-tab Property combo with the canonical ``_active_metric``.
+    try:
+        from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
+        label = METRIC_KEY_TO_LABEL.get(
+            getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity"
+        )
+        idx = app._stats_property_cb.findText(label)
+        if idx >= 0:
+            blocked = app._stats_property_cb.blockSignals(True)
+            try:
+                app._stats_property_cb.setCurrentIndex(idx)
+            finally:
+                app._stats_property_cb.blockSignals(blocked)
+    except Exception:
+        pass

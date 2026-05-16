@@ -274,7 +274,9 @@ def redraw_scatter(
                               color=_title_fg)
     app._ax_scatter.grid(True, alpha=0.3, color=_grid)
     if scatter_data:
-        app._ax_scatter.legend(loc='best', fontsize=8)
+        # Transparent frame keeps the legend from masking the plot
+        # background with the wrong theme color.
+        app._ax_scatter.legend(loc='best', fontsize=8, framealpha=0.0, facecolor="none")
 
     # Redraw canvas
     app._scatter_interaction_cache = {
@@ -316,33 +318,51 @@ def collect_scatter_agg_data(
     """
     scatter_data: Dict[str, Dict[str, Any]] = {}
 
-    # Extract channel and metric type from statistic names
-    def parse_statistic(stat_str: str) -> Tuple[str, str]:
+    # Extract channel and metric type from statistic names. The legacy
+    # "Mean Fluorescence GFP" stat string now optionally carries a
+    # parenthesised property suffix ("Mean Fluorescence GFP (Total
+    # Intensity)") so the agg renderer can pick a non-MFI column.
+    def parse_statistic(stat_str: str) -> Tuple[str, str, str]:
         """Parse statistic strings.
 
-        Returns ``(channel_or_label, metric)`` where ``metric`` is one of
-        ``"mean"`` | ``"frac"`` | ``"smfish"`` | ``"ratio"``. For ratios
-        the first element is the dropdown label (mixed case) so the caller
-        can look it up in ``app._label_to_channel_key``; for the others
-        it's the lowercased channel token.
+        Returns ``(channel_or_label, metric, intensity_metric)`` where
+        ``metric`` is one of ``"mean"`` | ``"frac"`` | ``"smfish"`` |
+        ``"ratio"`` and ``intensity_metric`` is one of the
+        ``metric_labels.INTENSITY_METRIC_KEYS`` values (defaults to
+        ``"mean_intensity"`` when the stat string doesn't carry a
+        property suffix). ``intensity_metric`` is ignored for the
+        ``smfish`` / ``ratio`` paths.
         """
-        if stat_str.startswith("Mean Ratio "):
-            label = stat_str[len("Mean Ratio "):]
-            return label, "ratio"
-        if stat_str.startswith("Mean Fluorescence"):
-            channel = stat_str.replace("Mean Fluorescence ", "").lower()
-            return channel, "mean"
-        elif stat_str.startswith("Fraction On"):
-            channel = stat_str.replace("Fraction On ", "").lower()
-            return channel, "frac"
-        elif stat_str.startswith("smFISH Count"):
-            channel = stat_str.replace("smFISH Count ", "").lower()
-            return channel, "smfish"
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
+        suffix_metric = "mean_intensity"
+        body = stat_str
+        if body.endswith(")") and " (" in body:
+            head, paren = body.rsplit(" (", 1)
+            paren = paren[:-1]
+            key = METRIC_LABEL_TO_KEY.get(paren)
+            if key in (
+                "mean_intensity", "total_intensity", "max_intensity",
+                "min_intensity", "std_intensity",
+            ):
+                body = head
+                suffix_metric = key
+        if body.startswith("Mean Ratio "):
+            label = body[len("Mean Ratio "):]
+            return label, "ratio", suffix_metric
+        if body.startswith("Mean Fluorescence"):
+            channel = body.replace("Mean Fluorescence ", "").lower()
+            return channel, "mean", suffix_metric
+        elif body.startswith("Fraction On"):
+            channel = body.replace("Fraction On ", "").lower()
+            return channel, "frac", suffix_metric
+        elif body.startswith("smFISH Count"):
+            channel = body.replace("smFISH Count ", "").lower()
+            return channel, "smfish", suffix_metric
         else:
-            return "gfp", "mean"
+            return "gfp", "mean", suffix_metric
 
-    ch_x, metric_x = parse_statistic(stat_x)
-    ch_y, metric_y = parse_statistic(stat_y)
+    ch_x, metric_x, intensity_x = parse_statistic(stat_x)
+    ch_y, metric_y, intensity_y = parse_statistic(stat_y)
     use_sem = app._use_sem
     # Per-channel cell-gating thresholds don't apply to ratios — use 0 so
     # every cell with a defined ratio contributes to the well-level mean.
@@ -378,27 +398,32 @@ def collect_scatter_agg_data(
     else:
         tp_to_color = {}
 
-    # Derive column names based on metric type. For plain fluor channels
-    # the suffix follows the global Property selector (``_active_metric``)
-    # so scatter axes track whatever the user picked elsewhere.
-    active_metric = getattr(app, "_active_metric", "mean_intensity") or "mean_intensity"
-    if active_metric == "smfish_count":
-        active_metric = "mean_intensity"  # smfish is selected explicitly per-axis below
+    # Derive column names based on metric type. The per-axis Property combo
+    # supplies ``intensity_x`` / ``intensity_y`` (which CSV column) and
+    # ``metric_x`` / ``metric_y`` (how to aggregate: mean / fraction-on /
+    # smfish / ratio).
     if metric_x == "smfish":
         val_col_x = f"{ch_x}_smfish_count"
         threshold_x = 0  # No threshold for smfish counts (all spots)
     elif metric_x == "ratio":
         val_col_x = label_to_key.get(ch_x, "")
+    elif metric_x == "frac":
+        # Fraction-on always uses MFI as the underlying gate column;
+        # the aggregation reports the fraction passing the channel's
+        # ThreshFracOn cut.
+        val_col_x = f"{ch_x}_mean_intensity"
     else:
-        val_col_x = f"{ch_x}_{active_metric}"
+        val_col_x = f"{ch_x}_{intensity_x}"
 
     if metric_y == "smfish":
         val_col_y = f"{ch_y}_smfish_count"
         threshold_y = 0  # No threshold for smfish counts (all spots)
     elif metric_y == "ratio":
         val_col_y = label_to_key.get(ch_y, "")
+    elif metric_y == "frac":
+        val_col_y = f"{ch_y}_mean_intensity"
     else:
-        val_col_y = f"{ch_y}_{active_metric}"
+        val_col_y = f"{ch_y}_{intensity_y}"
 
     def _agg_wells(wells, tp, val_col, threshold, metric):
         """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""
@@ -555,7 +580,7 @@ def redraw_scatter_agg(
             color=_title_fg,
         )
         app._ax_scatter_agg.grid(True, alpha=0.3, color=_grid)
-        app._ax_scatter_agg.legend(loc='best', fontsize=8)
+        app._ax_scatter_agg.legend(loc='best', fontsize=8, framealpha=0.0, facecolor="none")
 
     # Redraw canvas
     app._scatter_agg_canvas.draw()

@@ -305,7 +305,7 @@ class BatchExportPanel(QWidget):
         channels = list(getattr(self._app, "_fluor_channels", None) or [])
         if not channels:
             channels = ["gfp"]
-        for r in (getattr(self._app, "_ratios", None) or []):
+        for r in (getattr(self._app, "_ratio_metrics", None) or []):
             lbl = r.display_label()
             if lbl and lbl not in channels:
                 channels.append(lbl)
@@ -983,7 +983,7 @@ class BatchExportPanel(QWidget):
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="best", fontsize=legend_fontsize)
+        ax.legend(loc="best", fontsize=legend_fontsize, framealpha=0.0, facecolor="none")
         self._save_figure(fig, fig_path, fmt)
 
     def _groups_for_export(self) -> List[BarGroup]:
@@ -1134,10 +1134,12 @@ class BatchExportPanel(QWidget):
         fig.subplots_adjust(hspace=0.55, top=0.92, bottom=0.07, left=0.13, right=0.97)
         fig.suptitle(grp.name, fontsize=11, fontweight="bold", color=get_color("PLOT_TXT"), y=0.97)
 
-        legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=PLOT_BG,
+        legend_kw = dict(fontsize=7, framealpha=0.0, facecolor="none",
                          edgecolor=PLOT_SPN, labelcolor=get_color("PLOT_TXT"))
         _ch = (self._selected_export_channel() or self._app._active_channel).upper()
-        apply_ax_style(ax_mean, f"Mean {_ch} (above threshold) \u00b1 {band_lbl}", f"Mean {_ch}")
+        from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+        _metric_label = _MLB.get(getattr(self._app, "_active_metric", "mean_intensity"), "Mean Intensity")
+        apply_ax_style(ax_mean, f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}", f"{_ch} {_metric_label}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         apply_ax_style(ax_cdf, f"{_ch} Value CDF", "Cumulative fraction")
         ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)

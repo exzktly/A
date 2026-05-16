@@ -28,19 +28,40 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     cl = QHBoxLayout(ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
+    # Per-axis channel + property selectors. The scatter tab overrides
+    # the global ctxbar channel/property combos (those are hidden when
+    # Scatter Plot is the active plotting subtab) because each axis
+    # needs to render an independent column.
+    from well_viewer.metric_labels import METRIC_ORDER as _METRIC_ORDER
     cl.addWidget(QLabel("X-axis:", ctrl))
+    cl.addWidget(QLabel("Channel:", ctrl))
     app._scatter_ch_x_cb = QComboBox(ctrl)
     app._scatter_ch_x_cb.addItems(["gfp"])
-    app._scatter_ch_x_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
+    app._scatter_ch_x_cb.currentIndexChanged.connect(lambda _i: app._on_scatter_axis_change("x"))
     cl.addWidget(app._scatter_ch_x_cb)
     app._scatter_ch_x_var = app._scatter_ch_x_cb
 
+    cl.addWidget(QLabel("Property:", ctrl))
+    app._scatter_metric_x_cb = QComboBox(ctrl)
+    app._scatter_metric_x_cb.addItems(_METRIC_ORDER)
+    app._scatter_metric_x_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
+    cl.addWidget(app._scatter_metric_x_cb)
+    app._scatter_metric_x_var = app._scatter_metric_x_cb
+
     cl.addWidget(QLabel("Y-axis:", ctrl))
+    cl.addWidget(QLabel("Channel:", ctrl))
     app._scatter_ch_y_cb = QComboBox(ctrl)
     app._scatter_ch_y_cb.addItems(["gfp"])
-    app._scatter_ch_y_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
+    app._scatter_ch_y_cb.currentIndexChanged.connect(lambda _i: app._on_scatter_axis_change("y"))
     cl.addWidget(app._scatter_ch_y_cb)
     app._scatter_ch_y_var = app._scatter_ch_y_cb
+
+    cl.addWidget(QLabel("Property:", ctrl))
+    app._scatter_metric_y_cb = QComboBox(ctrl)
+    app._scatter_metric_y_cb.addItems(_METRIC_ORDER)
+    app._scatter_metric_y_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
+    cl.addWidget(app._scatter_metric_y_cb)
+    app._scatter_metric_y_var = app._scatter_metric_y_cb
 
     cl.addWidget(QLabel("Timepoint:", ctrl))
     app._scatter_tp_cb = QComboBox(ctrl)

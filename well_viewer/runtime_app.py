@@ -1381,6 +1381,7 @@ class WellViewerApp(QWidget):
 
     _STATS_STATISTIC_KEYS = {
         "Mean (above threshold)": "mean",
+        "Mean (all cells)": "mean_all",
         "Median (above threshold)": "median",
         "Fraction above threshold": "fraction",
     }
@@ -3836,6 +3837,29 @@ class WellViewerApp(QWidget):
             metric = "mean_intensity"
         self._set_active_metric(metric)
 
+    def _on_heatmap_property_change(self) -> None:
+        """Heatmap tab's per-tab Property combo → propagate to global state."""
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
+        cb = getattr(self, "_heatmap_property_cb", None)
+        if cb is None:
+            return
+        metric = METRIC_LABEL_TO_KEY.get(str(cb.currentText() or ""), "mean_intensity")
+        if metric == "smfish_count" and self._active_channel not in self._smfish_channels:
+            metric = "mean_intensity"
+        self._set_active_metric(metric)
+
+    def _on_stats_property_change(self) -> None:
+        """Stats tab's per-tab Property combo → propagate to global state."""
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
+        cb = getattr(self, "_stats_property_cb", None)
+        if cb is None:
+            return
+        metric = METRIC_LABEL_TO_KEY.get(str(cb.currentText() or ""), "mean_intensity")
+        if metric == "smfish_count" and self._active_channel not in self._smfish_channels:
+            metric = "mean_intensity"
+        self._set_active_metric(metric)
+        # Stats display refreshes on its own when run; nothing to redraw here.
+
     def _set_active_metric(self, metric: str) -> None:
         """Switch the active intensity property and redraw."""
         if metric == self._active_metric:
@@ -3846,9 +3870,11 @@ class WellViewerApp(QWidget):
             self._active_val_col = f"{self._active_channel}_{self._active_metric}"
         label = METRIC_KEY_TO_LABEL.get(metric, "Mean Intensity")
         # Sync every metric combo (per-tab hidden legacy combos + the
-        # global ctxbar combo) without retriggering this handler.
+        # global ctxbar combo + the heatmap per-tab Property combo) without
+        # retriggering this handler.
         for attr in ("_metric_var", "_metric_cb", "_metric_cb_bar",
-                     "_plotting_metric_cb"):
+                     "_plotting_metric_cb", "_heatmap_property_cb",
+                     "_stats_property_cb"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
@@ -3867,11 +3893,52 @@ class WellViewerApp(QWidget):
             finally:
                 cb.blockSignals(blocked)
         self._refresh_metric_combo_for_channel()
+        self._refresh_heatmap_aggregation_options()
         self._recalculate_threshold()
         self._invalidate_stats_cache()
         self._redraw()
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
+
+    def _refresh_heatmap_aggregation_options(self) -> None:
+        """Grey out threshold-based heatmap aggregations for non-MFI properties.
+
+        The ThreshFracOn cut is defined against mean fluorescence intensity
+        (see Cell Gating tab), so "Mean above threshold" and "Fraction above
+        threshold" only make sense when the active Property is MFI. When the
+        user picks Total / Max / Min / Std / smFISH Count, those options
+        disable so they're not silently misapplied.
+        """
+        cb = getattr(self, "_heatmap_metric_cb", None)
+        if cb is None:
+            return
+        from well_viewer.heatmap_controller import (
+            METRIC_MEAN, METRIC_FRACTION,
+        )
+        is_mfi = self._active_metric == "mean_intensity"
+        model = cb.model()
+        if model is None:
+            return
+        for label in (METRIC_MEAN, METRIC_FRACTION):
+            idx = cb.findText(label)
+            if idx < 0:
+                continue
+            item = model.item(idx)
+            if item is not None:
+                item.setEnabled(is_mfi)
+        # If the currently selected aggregation just went unavailable, fall
+        # back to "Mean (all cells)" so the heatmap stays valid.
+        if not is_mfi:
+            current = str(cb.currentText() or "")
+            if current in (METRIC_MEAN, METRIC_FRACTION):
+                from well_viewer.heatmap_controller import METRIC_MEAN_ALL
+                alt = cb.findText(METRIC_MEAN_ALL)
+                if alt >= 0:
+                    blocked = cb.blockSignals(True)
+                    try:
+                        cb.setCurrentIndex(alt)
+                    finally:
+                        cb.blockSignals(blocked)
 
     def _refresh_metric_combo_for_channel(self) -> None:
         """Enable/disable the global Property combo entries for the current channel.
@@ -6401,8 +6468,28 @@ class WellViewerApp(QWidget):
 
     # ── Scatter Plot tab ───────────────────────────────────────────────────────
 
+    def _col_for_scatter_axis(self, channel_entry: str, metric_key: str) -> str:
+        """Map a scatter (channel_entry, metric_key) pair to a CSV column or ratio key.
+
+        Ratio channels collapse to the ratio key regardless of metric (ratios
+        don't carry a metric suffix). Otherwise builds ``<channel>_<metric>``.
+        ``metric_key`` may be ``fraction_above_threshold`` for the agg scatter
+        — that's a synthetic key that downstream aggregation code treats as a
+        Fraction-On aggregation against the channel's mean-intensity column.
+        """
+        ratio_key = (getattr(self, "_label_to_channel_key", None) or {}).get(channel_entry)
+        if ratio_key and is_ratio_key(ratio_key):
+            return ratio_key
+        if metric_key in ("fraction_above_threshold", "smfish_count"):
+            # Fraction-on uses MFI as the underlying value column; smFISH
+            # uses the dedicated count column.
+            if metric_key == "smfish_count":
+                return f"{channel_entry}_smfish_count"
+            return f"{channel_entry}_mean_intensity"
+        return f"{channel_entry}_{metric_key}"
+
     def _col_for_scatter_entry(self, entry: str) -> str:
-        """Map scatter dropdown entry to a CSV column name or ratio key.
+        """Legacy single-string entry → column resolver (kept for stats/export back-compat).
 
         "gfp" -> "gfp_mean_intensity"
         "gfp (spots)" -> "gfp_smfish_count"
@@ -6422,19 +6509,126 @@ class WellViewerApp(QWidget):
                 metric = "mean_intensity"
             return f"{entry}_{metric}"
 
+    # ── Per-axis scatter metric helpers ────────────────────────────────────
+
+    _SCATTER_AGG_METRIC_EXTRA = {"Fraction above threshold": "fraction_above_threshold"}
+
+    def _scatter_axis_metric_key(self, axis: str, *, agg: bool = False) -> str:
+        """Return the metric key for axis ``x``/``y`` on the active scatter tab."""
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
+        attr = (
+            f"_scatter_agg_metric_{axis}_cb" if agg
+            else f"_scatter_metric_{axis}_cb"
+        )
+        cb = getattr(self, attr, None)
+        if cb is None:
+            return "mean_intensity"
+        label = str(cb.currentText() or "")
+        if agg and label in self._SCATTER_AGG_METRIC_EXTRA:
+            return self._SCATTER_AGG_METRIC_EXTRA[label]
+        return METRIC_LABEL_TO_KEY.get(label, "mean_intensity")
+
+    def _refresh_scatter_metric_for_axis(self, axis: str) -> None:
+        """Update per-item enable state of the cells-scatter Property combo."""
+        ch_cb = getattr(self, f"_scatter_ch_{axis}_cb", None)
+        m_cb = getattr(self, f"_scatter_metric_{axis}_cb", None)
+        if ch_cb is None or m_cb is None:
+            return
+        channel = str(ch_cb.currentText() or "")
+        ratio_key = (getattr(self, "_label_to_channel_key", None) or {}).get(channel)
+        is_ratio = bool(ratio_key and is_ratio_key(ratio_key))
+        m_cb.setEnabled(not is_ratio)
+        idx = m_cb.findText("smFISH Count")
+        if idx >= 0:
+            model = m_cb.model()
+            item = model.item(idx) if model is not None else None
+            if item is not None:
+                item.setEnabled((not is_ratio) and channel in self._smfish_channels)
+
+    def _refresh_scatter_agg_metric_for_axis(self, axis: str) -> None:
+        """Update per-item enable state of the agg-scatter Property combo."""
+        ch_cb = getattr(self, f"_scatter_agg_ch_{axis}_cb", None)
+        m_cb = getattr(self, f"_scatter_agg_metric_{axis}_cb", None)
+        if ch_cb is None or m_cb is None:
+            return
+        channel = str(ch_cb.currentText() or "")
+        ratio_key = (getattr(self, "_label_to_channel_key", None) or {}).get(channel)
+        is_ratio = bool(ratio_key and is_ratio_key(ratio_key))
+        m_cb.setEnabled(not is_ratio)
+        idx_smf = m_cb.findText("smFISH Count")
+        idx_fra = m_cb.findText("Fraction above threshold")
+        model = m_cb.model()
+        if idx_smf >= 0 and model is not None:
+            it = model.item(idx_smf)
+            if it is not None:
+                it.setEnabled((not is_ratio) and channel in self._smfish_channels)
+        if idx_fra >= 0 and model is not None:
+            it = model.item(idx_fra)
+            if it is not None:
+                # Fraction-above-threshold uses MFI gating; disable on
+                # ratio columns (no per-channel threshold concept).
+                it.setEnabled(not is_ratio)
+
+    def _on_scatter_axis_change(self, axis: str) -> None:
+        self._refresh_scatter_metric_for_axis(axis)
+        self._redraw_scatter()
+
+    def _on_scatter_agg_axis_change(self, axis: str) -> None:
+        self._refresh_scatter_agg_metric_for_axis(axis)
+        self._redraw_scatter_agg()
+
+    def _sync_scatter_agg_stat_combos(self) -> None:
+        """Mirror the new per-axis (channel, metric) state into the legacy
+        ``_scatter_agg_stat_x/y_cb`` string combos so any code path that still
+        reads them (export_service, save-figure) sees a valid stat string.
+        """
+        for axis in ("x", "y"):
+            stat_cb = getattr(self, f"_scatter_agg_stat_{axis}_cb", None)
+            if stat_cb is None:
+                continue
+            ch_cb = getattr(self, f"_scatter_agg_ch_{axis}_cb", None)
+            m_cb = getattr(self, f"_scatter_agg_metric_{axis}_cb", None)
+            channel = str(ch_cb.currentText() if ch_cb else "")
+            metric_label = str(m_cb.currentText() if m_cb else "Mean Intensity")
+            stat_str = self._compose_scatter_agg_stat(channel, metric_label)
+            blocked = stat_cb.blockSignals(True)
+            try:
+                if stat_cb.findText(stat_str) < 0:
+                    stat_cb.addItem(stat_str)
+                stat_cb.setCurrentText(stat_str)
+            finally:
+                stat_cb.blockSignals(blocked)
+
+    def _compose_scatter_agg_stat(self, channel_entry: str, metric_label: str) -> str:
+        """Build the legacy stat-string from a (channel, metric) pair.
+
+        Mirrors ``parse_statistic`` in scatter_controller: keeps the same
+        prefix vocabulary so older callers and the savefile naming still
+        recognise the result.
+        """
+        ratio_key = (getattr(self, "_label_to_channel_key", None) or {}).get(channel_entry)
+        if ratio_key and is_ratio_key(ratio_key):
+            return f"Mean Ratio {channel_entry}"
+        ch_upper = (channel_entry or "").upper()
+        if metric_label == "Fraction above threshold":
+            return f"Fraction On {ch_upper}"
+        if metric_label == "smFISH Count":
+            return f"smFISH Count {ch_upper}"
+        # All intensity flavours map to the per-cell mean of values above
+        # threshold via _aggregate_group; surface a metric-aware suffix so
+        # axes/titles reflect the selected property.
+        return f"Mean Fluorescence {ch_upper} ({metric_label})"
+
     def _update_scatter_menus(self) -> None:
         """Populate scatter plot dropdowns with available channels and timepoints."""
-        # Update channel dropdowns for cells scatter (include smfish_count variants
-        # and any user-defined ratio metrics — ratios resolve via resolve_value
-        # in collect_scatter_data through _ratio_index).
+        # Channel options for both scatter tabs: real fluor channels +
+        # ratio labels. Drops the legacy "(spots)" channel variants — the
+        # per-axis Property combo now expresses smFISH count via the
+        # ``smFISH Count`` metric entry, so we no longer overload the
+        # channel column with aggregation flavour.
         channels = list(self._fluor_channels) if self._fluor_channels else ["gfp"]
-        scatter_ch_options = []
-        for ch in channels:
-            scatter_ch_options.append(ch)
-            if ch in self._smfish_channels:
-                scatter_ch_options.append(f"{ch} (spots)")
         ratio_labels = self._ratio_dropdown_labels()
-        scatter_ch_options.extend(ratio_labels)
+        scatter_ch_options = list(channels) + ratio_labels
 
         _set_combo_values(self._scatter_ch_x_cb, scatter_ch_options)
         _set_combo_values(self._scatter_ch_y_cb, scatter_ch_options)
@@ -6445,6 +6639,11 @@ class WellViewerApp(QWidget):
             if self._scatter_ch_y_var.currentText() not in scatter_ch_options:
                 self._scatter_ch_y_var.setCurrentText(scatter_ch_options[0 if len(scatter_ch_options) == 1 else 1])
 
+        # Refresh per-axis metric combo enable state to match the
+        # currently-selected channels.
+        for axis in ("x", "y"):
+            self._refresh_scatter_metric_for_axis(axis)
+
         # Update timepoint dropdown for cells scatter
         timepoints = list(self._all_timepoints_cache) or _scatter_get_timepoints(self)
         tp_strs = [f"{tp:.1f}" for tp in timepoints] if timepoints else ["0"]
@@ -6453,26 +6652,40 @@ class WellViewerApp(QWidget):
         if tp_strs and self._scatter_tp_var.currentText() not in tp_strs:
             self._scatter_tp_var.setCurrentText(tp_strs[0])
 
-        # Update statistic dropdowns for aggregate scatter
-        # Build list of available statistics: Mean Fluorescence, Fraction On, and smFISH Count for each channel.
-        # Ratio metrics show up as "Mean Ratio <label>" so the agg path can compose val_col=ratio:<name>.
-        statistics = []
+        # Aggregate scatter — propagate the same channel list to its own
+        # per-axis Channel combo.
+        for cb_attr in ("_scatter_agg_ch_x_cb", "_scatter_agg_ch_y_cb"):
+            cb = getattr(self, cb_attr, None)
+            if cb is None:
+                continue
+            current = cb.currentText()
+            _set_combo_values(cb, scatter_ch_options)
+            if current and current in scatter_ch_options:
+                cb.setCurrentText(current)
+            else:
+                default_idx = 0 if cb_attr.endswith("_x_cb") else (1 if len(scatter_ch_options) > 1 else 0)
+                cb.setCurrentText(scatter_ch_options[default_idx])
+        for axis in ("x", "y"):
+            self._refresh_scatter_agg_metric_for_axis(axis)
+
+        # Legacy stat-string combos — kept hidden but in sync so old
+        # exporters and the save-figure helpers continue to work.
+        statistics: List[str] = []
         for ch in channels:
             statistics.append(f"Mean Fluorescence {ch.upper()}")
             statistics.append(f"Fraction On {ch.upper()}")
             if ch in self._smfish_channels:
                 statistics.append(f"smFISH Count {ch.upper()}")
-        for ratio_label in self._ratio_dropdown_labels():
+        for ratio_label in ratio_labels:
             statistics.append(f"Mean Ratio {ratio_label}")
-
-        _set_combo_values(self._scatter_agg_stat_x_cb, statistics)
-        _set_combo_values(self._scatter_agg_stat_y_cb, statistics)
-
-        if statistics:
-            if self._scatter_agg_stat_x_var.currentText() not in statistics:
-                self._scatter_agg_stat_x_var.setCurrentText(statistics[0])
-            if self._scatter_agg_stat_y_var.currentText() not in statistics:
-                self._scatter_agg_stat_y_var.setCurrentText(statistics[1] if len(statistics) > 1 else statistics[0])
+        for cb_attr in ("_scatter_agg_stat_x_cb", "_scatter_agg_stat_y_cb"):
+            cb = getattr(self, cb_attr, None)
+            if cb is None:
+                continue
+            _set_combo_values(cb, statistics or ["Mean Fluorescence GFP"])
+        # Sync the legacy stat combos to whatever the new per-axis combos
+        # express right now.
+        self._sync_scatter_agg_stat_combos()
 
         # Update timepoint selections for aggregate scatter; all default checked.
         if hasattr(self, '_scatter_agg_tp_selections'):
@@ -6517,9 +6730,11 @@ class WellViewerApp(QWidget):
         fluor_gate_x = self._get_fluor_gate(ch_x_base)
         fluor_gate_y = self._get_fluor_gate(ch_y_base)
 
-        # Resolve to actual column names
-        col_x = self._col_for_scatter_entry(ch_x_entry)
-        col_y = self._col_for_scatter_entry(ch_y_entry)
+        # Resolve to actual column names using the per-axis Property combo.
+        metric_x = self._scatter_axis_metric_key("x")
+        metric_y = self._scatter_axis_metric_key("y")
+        col_x = self._col_for_scatter_axis(ch_x_entry, metric_x)
+        col_y = self._col_for_scatter_axis(ch_y_entry, metric_y)
 
         _scatter_redraw(
             self,
@@ -6664,6 +6879,10 @@ class WellViewerApp(QWidget):
         # the user triggers a redraw before that builder has run.
         if not hasattr(self, "_scatter_agg_stat_x_var"):
             return
+        # Sync the hidden stat-string combos with the new per-axis
+        # (channel, metric) state so downstream code (export_service,
+        # save-figure helpers) sees a coherent view.
+        self._sync_scatter_agg_stat_combos()
         try:
             stat_x = self._scatter_agg_stat_x_var.currentText()
             stat_y = self._scatter_agg_stat_y_var.currentText()
@@ -6724,6 +6943,12 @@ class WellViewerApp(QWidget):
     def _export_scatter_agg_data(self) -> None:
         """Export aggregate scatter plot data to CSV."""
         from well_viewer.export_service import export_scatter_agg_data as _export_scatter_agg_data
+        # Keep the legacy stat combos in sync with the new per-axis
+        # (channel, property) state — the export reads from those.
+        try:
+            self._sync_scatter_agg_stat_combos()
+        except Exception:
+            pass
 
         _export_scatter_agg_data(self)
 

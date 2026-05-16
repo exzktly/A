@@ -58,10 +58,22 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     )
     app._chan_cb_heatmap.hide()
 
-    # "Aggregation" rather than "Metric" — the global Property combo in
-    # the ctxbar picks which intensity column drives the heatmap; this
-    # local combo picks how cells in each grid square are aggregated
-    # (mean above threshold / fraction above threshold / cell count).
+    # Per-tab Property combo — picks which CSV column drives the heatmap.
+    # Mirrors the global ctxbar Property combo's state but lives in the
+    # tab so it's directly visible when the heatmap is the active subtab.
+    from well_viewer.metric_labels import METRIC_ORDER as _HM_METRIC_ORDER
+    cl1.addWidget(QLabel("Property:", ctrl1))
+    app._heatmap_property_cb = QComboBox(ctrl1)
+    app._heatmap_property_cb.addItems(_HM_METRIC_ORDER)
+    app._heatmap_property_cb.currentIndexChanged.connect(
+        lambda _i: app._on_heatmap_property_change()
+    )
+    cl1.addWidget(app._heatmap_property_cb)
+
+    # "Aggregation" rather than "Metric" — the Property combo above picks
+    # which intensity column drives the heatmap; this combo picks how
+    # cells in each grid square are aggregated (mean / mean above
+    # threshold / fraction above threshold / cell count).
     cl1.addWidget(QLabel("Aggregation:", ctrl1))
     app._heatmap_metric_cb = QComboBox(ctrl1)
     app._heatmap_metric_cb.addItems(METRIC_OPTIONS)
@@ -229,6 +241,28 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     try:
         from well_viewer.persistence.heatmap_layouts import apply_persisted_settings
         apply_persisted_settings(app)
+    except Exception:
+        pass
+
+    # Sync the per-tab Property combo + aggregation enable state with the
+    # canonical ``_active_metric`` so the combo reflects the global state
+    # the first time the user opens the tab.
+    try:
+        from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
+        prop_cb = getattr(app, "_heatmap_property_cb", None)
+        if prop_cb is not None:
+            label = METRIC_KEY_TO_LABEL.get(
+                getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity"
+            )
+            idx = prop_cb.findText(label)
+            if idx >= 0:
+                blocked = prop_cb.blockSignals(True)
+                try:
+                    prop_cb.setCurrentIndex(idx)
+                finally:
+                    prop_cb.blockSignals(blocked)
+        if hasattr(app, "_refresh_heatmap_aggregation_options"):
+            app._refresh_heatmap_aggregation_options()
     except Exception:
         pass
     _redraw(app)
