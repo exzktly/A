@@ -235,11 +235,12 @@ def _on_review_csv_row_double_click_impl(app, item) -> None:
         return
 
     if hasattr(app, "_notebook"):
-        # Segmentation now lives as a sub-tab inside Cell Segmentation, so
-        # the top-level navigation needs both steps: switch the outer page
-        # to "Cell Segmentation", then drive the inner stack to the
-        # "Segmentation" sub-page.
-        _select_tab_by_text(app._notebook, "Cell Segmentation")
+        # The Segmentation rail entry now hosts a nested stack with two
+        # sub-pages: "Segmentation" (the review image) and "smFISH".
+        # Switch the outer page first, then drive the inner stack to the
+        # Segmentation sub-page so jumps from Review CSV always land on
+        # the review image (not the smFISH side if that was last open).
+        _select_tab_by_text(app._notebook, "Segmentation")
         cs_nb = getattr(app, "_cell_segmentation_notebook", None)
         if cs_nb is not None:
             setter = getattr(cs_nb, "setCurrentByName", None)

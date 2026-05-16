@@ -1119,7 +1119,7 @@ class WellViewerApp(QWidget):
         "Plotting":           "line-chart",
         "Statistics":         "sigma",
         "Image Table":        "layout-grid",
-        "Cell Segmentation":  "scan-line",
+        "Segmentation":       "scan-line",
         "Review CSV":         "file-spreadsheet",
         "Sample Definitions": "tag",
         "Batch Export":       "boxes",
@@ -3198,10 +3198,11 @@ class WellViewerApp(QWidget):
         nb = getattr(self, "_notebook", None)
         if nb is not None:
             try:
-                # smFISH is now a sub-tab inside Cell Segmentation, so the
-                # top-level current name reads as "Cell Segmentation" here.
-                # Descend via ``_current_centre_tab`` to recover the leaf
-                # name.
+                # smFISH is now a sub-tab inside the Segmentation parent,
+                # so the top-level current name reads as "Segmentation"
+                # whether the user is on the Segmentation or smFISH sub-
+                # tab. Descend via ``_current_centre_tab`` to recover the
+                # leaf name.
                 smfish = self._current_centre_tab() == "smFISH"
             except Exception:
                 smfish = False
@@ -4973,11 +4974,14 @@ class WellViewerApp(QWidget):
     def _current_centre_tab(self) -> str:
         """Return the effective current tab name.
 
-        When the "Plotting" or "Cell Segmentation" top-level tab is active
+        When the "Plotting" or "Segmentation" top-level tab is active
         the real content lives in a nested QStackedWidget. This helper
         resolves that one level of indirection so callers can always
         compare against leaf names like "Bar Plots", "Heat Map",
-        "Segmentation", or "smFISH".
+        "Segmentation", or "smFISH". (The Segmentation parent and its
+        default leaf share the same name; descending is still correct —
+        the inner stack returns "Segmentation" or "smFISH" depending on
+        which sub-tab is active.)
         """
         nb = getattr(self, "_notebook", None)
         if nb is None:
@@ -4993,7 +4997,7 @@ class WellViewerApp(QWidget):
                     return plotting_nb.currentName()
                 except Exception:
                     pass
-        elif tab == "Cell Segmentation":
+        elif tab == "Segmentation":
             cs_nb = getattr(self, "_cell_segmentation_notebook", None)
             if cs_nb is not None and cs_nb.count() > 0:
                 try:

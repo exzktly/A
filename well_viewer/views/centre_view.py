@@ -10,7 +10,7 @@ Sections:
 
 * **Analysis** — Plotting (sub-pages: Line Graphs, Bar Plots, Scatter Plot,
   Distribution, Heat Map), Statistics.
-* **Images** — Image Table, Cell Segmentation (sub-pages: Segmentation, smFISH).
+* **Images** — Image Table, Segmentation (sub-pages: Segmentation, smFISH).
 * **Data** — Review CSV, Sample Definitions, Batch Export.
 
 Pages are also built lazily: only the initially active "Plotting" page
@@ -127,8 +127,8 @@ def build_centre(app, parent: QWidget) -> None:
     # drain — they only build on first user access (tab click). The tabs
     # listed here pull in the heaviest dependencies (matplotlib QtAgg,
     # skimage, tifffile) that aren't worth amortising at startup. smFISH
-    # used to live here; it is now a sub-tab inside Cell Segmentation,
-    # and its builder defers itself via the cell-segmentation sub-stack.
+    # used to live here; it is now a sub-tab inside the Segmentation
+    # parent, and its builder defers itself via the segmentation sub-stack.
     lazy_only: Set[str] = set()
     app._centre_lazy_only_titles = frozenset(lazy_only)
 
@@ -555,7 +555,7 @@ def build_centre(app, parent: QWidget) -> None:
         build_image_table_picker(app, app._sidebar_image_table_frame)
 
     def _build_cell_segmentation() -> None:
-        """Build the Cell Segmentation parent tab with two sub-tabs:
+        """Build the Segmentation parent tab with two sub-tabs:
         the original review-image panel (kept under the "Segmentation"
         sub-tab name so the existing _on_tab_change branch still applies),
         and the smFISH panel that used to live at top level. A
@@ -565,7 +565,7 @@ def build_centre(app, parent: QWidget) -> None:
         """
         from widgets.segmented_control import SegmentedControl as _SegmentedControl
 
-        parent = tab_frames["Cell Segmentation"]
+        parent = tab_frames["Segmentation"]
         outer = parent.layout()
         if outer is None:
             outer = QVBoxLayout(parent)
@@ -677,11 +677,11 @@ def build_centre(app, parent: QWidget) -> None:
             # the channel to NUC+SEG (or any other), and click "Distribute
             # Timepoints" to get the same per-timepoint grid.
             # smFISH used to live under Analysis; it now lives as a sub-tab
-            # of "Cell Segmentation" (alongside the original "Segmentation"
-            # review-image panel) so both image-segmentation surfaces share
-            # one rail entry.
+            # of "Segmentation" (alongside the original review-image panel,
+            # also called "Segmentation" at the leaf) so both image-
+            # segmentation surfaces share one rail entry.
             ("Image Table", _build_image_table),
-            ("Cell Segmentation", _build_cell_segmentation),
+            ("Segmentation", _build_cell_segmentation),
         ]),
         ("Data", [
             ("Review CSV", _build_review_csv),
