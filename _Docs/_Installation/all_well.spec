@@ -301,6 +301,40 @@ hiddenimports += [m for m in _numba_mods
 hiddenimports += collect_submodules("llvmlite")
 hiddenimports += collect_submodules("h5py")
 
+# scipy — vendors array_api_compat under scipy/_lib/ since 1.13. The
+# array-api shim's numpy/__init__.py pulls in .fft/.linalg/_aliases via
+# dynamic-looking imports that PyInstaller's static analyzer misses,
+# producing a ModuleNotFoundError on the very first `from scipy import
+# ndimage` at runtime. Collecting every scipy submodule is the most
+# durable fix as scipy continues to refactor the array-api layer.
+hiddenimports += collect_submodules("scipy")
+datas       += collect_data_files("scipy")
+
+# setuptools — TF's eager import of tensorflow._api.v2.compat.v1.lite
+# walks through tensorflow.lite.python.convert, which pulls in
+# setuptools._distutils.spawn and setuptools._distutils.errors. In
+# setuptools >= 75 the latter does `from .compilers.C.errors import ...`,
+# so the bundle must include the setuptools._distutils.compilers
+# subpackage. collect_submodules alone under-collects this tree (the
+# vendored _distutils package's __init__.py files get skipped, leaving
+# phantom namespace packages that crash with
+# KeyError: 'setuptools._distutils.compilers'). collect_all bundles
+# every .py file as a data file, guaranteeing __init__.py is present.
+from PyInstaller.utils.hooks import collect_all  # noqa: E402
+_setuptools_datas, _setuptools_binaries, _setuptools_hidden = collect_all("setuptools")
+datas         += _setuptools_datas
+hiddenimports += _setuptools_hidden
+hiddenimports += [
+    "setuptools._distutils.compilers",
+    "setuptools._distutils.compilers.C",
+    "setuptools._distutils.compilers.C.errors",
+    "setuptools._distutils.compilers.C.base",
+    "setuptools._distutils.compilers.C.cygwin",
+    "setuptools._distutils.compilers.C.msvc",
+    "setuptools._distutils.compilers.C.unix",
+    "setuptools._distutils.compilers.C.zos",
+]
+
 # Filter out dead/moved skimage submodules before collect_submodules even
 # tries to import them. ``skimage.future.graph`` was moved to
 # ``skimage.graph`` in scikit-image 0.20 and importing it raises
