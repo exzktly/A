@@ -94,14 +94,17 @@ class Typography:
     """Type tokens (DESIGN_TOKENS.md §2)."""
 
     # NOTE: Qt's QSS parser treats every name in the family list as a real
-    # face. Modern CSS keywords like ``system-ui`` / ``ui-monospace`` are
-    # NOT understood — Qt logs ``qt.qpa.fonts: Populating font family
-    # aliases took NN ms. Replace uses of missing font family …`` and pays
-    # the alias-scan cost on every startup. ``sans-serif`` / ``monospace``
-    # are the only generic keywords Qt resolves without an alias walk.
-    # ``all_well.main`` overwrites ``family`` with the platform default
-    # font Qt actually loaded (e.g. "Segoe UI" on Windows, ".AppleSystemUIFont"
-    # on macOS) so QSS interpolation always produces a resolvable family.
+    # face. The CSS generics ``sans-serif`` / ``monospace`` / ``system-ui``
+    # are NOT in Qt's font registry — using them triggers an alias-table
+    # walk on every QSS evaluation and Qt logs ``qt.qpa.fonts: Populating
+    # font family aliases took NN ms. Replace uses of missing font family
+    # …``. The values below are placeholders; ``all_well.main`` overwrites
+    # both at startup with the platform's real default UI family
+    # (``QApplication.font().family()`` — e.g. "Segoe UI" on Windows,
+    # ".AppleSystemUIFont" on macOS) and real fixed-pitch family
+    # (``QFontDatabase.systemFont(FixedFont).family()`` — e.g. "Menlo"
+    # on macOS, "Consolas" on Windows) so QSS interpolation always
+    # resolves to a registered family.
     family      = "sans-serif"
     family_mono = "monospace"
 

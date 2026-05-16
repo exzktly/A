@@ -987,7 +987,9 @@ class WellViewerApp(QWidget):
         nav_head.setContentsMargins(13, 10, 13, 4)
         nav_head.setStyleSheet(
             f"color: {_theme_v2.Colors.text_muted}; "
-            f"font: 600 11px/1 {_theme_v2.Typography.family}; "
+            f"font-family: {_theme_v2.Typography.family}; "
+            f"font-size: 11px; "
+            f"font-weight: 600; "
             f"letter-spacing: 0.08em;"
         )
         sidebar_layout.addWidget(nav_head)
