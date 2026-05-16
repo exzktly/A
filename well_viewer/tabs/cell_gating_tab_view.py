@@ -235,6 +235,19 @@ def build_cell_gating_tab(app, parent: QWidget) -> None:
     app._cell_gating_auto_btn = auto_btn
     cf_layout.addWidget(title_row)
 
+    # MFI-only note: FluorGating + ThreshFracOn always run against per-cell
+    # mean fluorescence intensity, regardless of which Property the user
+    # picks in the plotting ctxbar.
+    mfi_note = QLabel(
+        "Note: FluorGating (cell inclusion) and ThreshFracOn cuts are "
+        "applied against per-cell mean fluorescence intensity (MFI) only, "
+        "independent of the Property selected for plots, stats, and exports.",
+        control_frame,
+    )
+    mfi_note.setObjectName("Muted")
+    mfi_note.setWordWrap(True)
+    cf_layout.addWidget(mfi_note)
+
     app._cell_gating_scroll = QScrollArea(control_frame)
     app._cell_gating_scroll.setWidgetResizable(True)
     app._cell_gating_scroll.setFrameShape(QFrame.NoFrame)

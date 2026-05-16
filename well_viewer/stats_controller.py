@@ -130,11 +130,19 @@ def _channel_label_for_val_col(val_col: str) -> str:
     """Human-readable channel label for the chart title / status string."""
     if is_ratio_key(val_col):
         return val_col.split(":", 1)[-1]
-    if val_col.endswith("_mean_intensity"):
-        return val_col[: -len("_mean_intensity")].upper()
-    if val_col.endswith("_smfish_count"):
-        return val_col[: -len("_smfish_count")].upper() + " (spots)"
-    return val_col
+    from well_viewer.metric_labels import split_metric_col
+    parts = split_metric_col(val_col)
+    if parts is None:
+        return val_col
+    ch, metric_key, label = parts
+    if metric_key == "smfish_count":
+        return f"{ch.upper()} (spots)"
+    if metric_key == "mean_intensity":
+        # Preserve the legacy bare-channel label for mean intensity so existing
+        # chart titles ("GFP") stay unchanged when the user hasn't picked a
+        # non-default property.
+        return ch.upper()
+    return label
 
 
 def draw_ks_cdf(app, group_vals: List[Tuple[str, List[float]]], tp_str: str, well_colors: list[str]) -> None:

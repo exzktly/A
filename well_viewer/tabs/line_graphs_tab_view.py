@@ -47,15 +47,23 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
         app._plot_chan_var = app._chan_cb_line
         app._chan_var = app._plot_chan_var
 
+    # The visible metric selector now lives in the global plotting ctxbar
+    # (``_plotting_metric_cb``). This hidden per-tab combo stays as a
+    # back-compat shim for code that still reads ``_metric_var`` /
+    # ``_metric_cb``; the global combo wins when present.
+    from well_viewer.metric_labels import METRIC_ORDER as _METRIC_ORDER
     app._metric_selector_frame = QWidget(line_ctrl)
     mfl = QHBoxLayout(app._metric_selector_frame)
     mfl.setContentsMargins(0, 0, 0, 0)
-    mfl.addWidget(QLabel("Metric:", app._metric_selector_frame))
+    mfl.addWidget(QLabel("Property:", app._metric_selector_frame))
     app._metric_cb = QComboBox(app._metric_selector_frame)
-    app._metric_cb.addItems(["Mean Intensity", "smFISH Count"])
+    app._metric_cb.addItems(_METRIC_ORDER)
     app._metric_cb.currentIndexChanged.connect(lambda _i: app._on_metric_selected())
     mfl.addWidget(app._metric_cb)
-    app._metric_var = app._metric_cb
+    if getattr(app, "_plotting_metric_cb", None) is not None:
+        app._metric_var = app._plotting_metric_cb
+    else:
+        app._metric_var = app._metric_cb
     cl.addWidget(app._metric_selector_frame)
     app._metric_selector_frame.hide()
 

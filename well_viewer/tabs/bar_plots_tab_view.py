@@ -48,15 +48,20 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     )
     app._chan_cb_bar.hide()
 
+    # Hidden per-tab metric combo — back-compat shim only. The global
+    # plotting ctxbar's ``_plotting_metric_cb`` is the single visible
+    # source of truth for the active intensity property.
+    from well_viewer.metric_labels import METRIC_ORDER as _METRIC_ORDER
     app._metric_selector_frame_bar = QWidget(bar_ctrl)
     mf_l = QHBoxLayout(app._metric_selector_frame_bar)
     mf_l.setContentsMargins(0, 0, 0, 0)
-    mf_l.addWidget(QLabel("Metric:", app._metric_selector_frame_bar))
+    mf_l.addWidget(QLabel("Property:", app._metric_selector_frame_bar))
     app._metric_cb_bar = QComboBox(app._metric_selector_frame_bar)
-    app._metric_cb_bar.addItems(["Mean Intensity", "smFISH Count"])
+    app._metric_cb_bar.addItems(_METRIC_ORDER)
     app._metric_cb_bar.currentIndexChanged.connect(lambda _i: app._on_metric_selected())
     mf_l.addWidget(app._metric_cb_bar)
     cl.addWidget(app._metric_selector_frame_bar)
+    app._metric_selector_frame_bar.hide()
 
     cl.addWidget(QLabel("Timepoint:", bar_ctrl))
     app._bar_tp_cb = QComboBox(bar_ctrl)
