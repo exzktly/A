@@ -20,6 +20,15 @@
 #
 #   pip install --no-build-isolation -r requirements.txt
 #
+# Step 4 — build the macOS app bundle:
+#
+#   scripts/build_executable.sh --clean
+#
+#   Always pass --clean. PyInstaller caches build/ and dist/ between runs
+#   and will silently reuse stale TOCs that miss spec changes; --clean
+#   wipes the cache and forces a fresh Analysis. The output lands at
+#   ``dist/AllWell.app``.
+#
 # IMPORTANT:
 #   - setuptools must stay at <70. Modern setuptools (v70+) removed
 #     pkg_resources which is required by stardist and csbdeep.
@@ -46,6 +55,7 @@
 #       pyside6 -c conda-forge -y
 #   mamba activate allwell
 #   pip install --no-build-isolation -r requirements.txt
+#   scripts/build_executable.sh --clean   # produces dist/AllWell/
 #
 # Notes:
 #   - Install pyside6 from conda-forge (brings vc/vs2015_runtime; avoids
