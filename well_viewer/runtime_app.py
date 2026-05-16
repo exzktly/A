@@ -3883,6 +3883,24 @@ class WellViewerApp(QWidget):
             else:
                 self._active_channel = ""
 
+        # Force the visible global ctxbar combo to track the (now-valid)
+        # active label. ``_set_combo_values`` above only preserves the combo's
+        # previous current text, so a fresh combo (or one whose previous text
+        # got dropped from the new label list) would otherwise display the
+        # first label instead of the active channel — making the dropdown
+        # disagree with what the plot just drew. Setting the index here closes
+        # that gap so the channel chip always tracks correctly at first draw.
+        global_cb = getattr(self, "_plotting_channel_cb", None)
+        if global_cb is not None:
+            active_label_final = self._active_channel_label()
+            idx = global_cb.findText(active_label_final) if active_label_final else -1
+            if idx >= 0 and global_cb.currentIndex() != idx:
+                blocked = global_cb.blockSignals(True)
+                try:
+                    global_cb.setCurrentIndex(idx)
+                finally:
+                    global_cb.blockSignals(blocked)
+
         # Back-compat sync: follow the active tab's selector instead of forcing plot labels.
         if hasattr(self, "_chan_var"):
             tab_label = self._current_centre_tab()
