@@ -1860,7 +1860,7 @@ class WellViewerApp(QWidget):
         plural = "s" if len(selected) != 1 else ""
         prompt = (f"Text to {verb} the custom label of {len(selected)} "
                   f"selected well{plural}:")
-        text = ask_name_dialog(self, title=title, prompt=prompt, default="")
+        text = ask_name_dialog(self, title=title, prompt=prompt, default="", strip=False)
         if not text:
             return
 
