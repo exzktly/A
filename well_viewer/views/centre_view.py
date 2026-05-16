@@ -9,8 +9,8 @@ chrome along with the per-instance ``select_by_text`` closure.
 Sections:
 
 * **Analysis** — Plotting (sub-pages: Line Graphs, Bar Plots, Scatter Plot,
-  Distribution, Heat Map), smFISH, Statistics.
-* **Images** — Image Table, Segmentation.
+  Distribution, Heat Map), Statistics.
+* **Images** — Image Table, Segmentation (sub-pages: Segmentation, smFISH).
 * **Data** — Review CSV, Sample Definitions, Batch Export.
 
 Pages are also built lazily: only the initially active "Plotting" page
@@ -126,8 +126,10 @@ def build_centre(app, parent: QWidget) -> None:
     # Tabs whose construction we never want to run from the background
     # drain — they only build on first user access (tab click). The tabs
     # listed here pull in the heaviest dependencies (matplotlib QtAgg,
-    # skimage, tifffile) that aren't worth amortising at startup.
-    lazy_only: Set[str] = {"smFISH"}
+    # skimage, tifffile) that aren't worth amortising at startup. smFISH
+    # used to live here; it is now a sub-tab inside the Segmentation
+    # parent, and its builder defers itself via the segmentation sub-stack.
+    lazy_only: Set[str] = set()
     app._centre_lazy_only_titles = frozenset(lazy_only)
 
     # Pre-create stable widget handles so deferred builder closures can
@@ -552,12 +554,100 @@ def build_centre(app, parent: QWidget) -> None:
         build_image_table_tab(app, tab_frames["Image Table"])
         build_image_table_picker(app, app._sidebar_image_table_frame)
 
-    def _build_review_image() -> None:
-        app._build_review_image_panel(tab_frames["Segmentation"])
+    def _build_cell_segmentation() -> None:
+        """Build the Segmentation parent tab with two sub-tabs:
+        the original review-image panel (kept under the "Segmentation"
+        sub-tab name so the existing _on_tab_change branch still applies),
+        and the smFISH panel that used to live at top level. A
+        SegmentedControl above the sub-stack toggles between them; the
+        smFISH side is lazily built on first activation since it pulls
+        in tifffile / skimage / matplotlib-QtAgg.
+        """
+        from widgets.segmented_control import SegmentedControl as _SegmentedControl
 
-    def _build_smfish() -> None:
-        from well_viewer.tabs.smfish_tab_view import build_smfish_tab
-        build_smfish_tab(app, tab_frames["smFISH"])
+        parent = tab_frames["Segmentation"]
+        outer = parent.layout()
+        if outer is None:
+            outer = QVBoxLayout(parent)
+            outer.setContentsMargins(0, 0, 0, 0)
+
+        # ── sub-tab segmented control ───────────────────────────────────
+        from theme import Colors as _C, Spacing as _S
+        bar = QWidget(parent)
+        bar.setObjectName("CellSegCtxbar")
+        bar.setAttribute(Qt.WA_StyledBackground, True)
+        bar.setStyleSheet(
+            f"#CellSegCtxbar {{ background-color: {_C.surface}; "
+            f"border-bottom: 1px solid {_C.border_subtle}; }}"
+        )
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(_S.md, 6, _S.md, 6)
+        bl.setSpacing(_S.sm)
+        sub_seg = _SegmentedControl()
+        for title in ("Segmentation", "smFISH"):
+            sub_seg.addSegment(title, data=title)
+        bl.addWidget(sub_seg, 1)
+        outer.addWidget(bar, 0)
+
+        # ── nested page stack ────────────────────────────────────────────
+        sub_stack = NamedPageStack(parent)
+        sub_stack.setObjectName("CellSegmentationSubTabs")
+        outer.addWidget(sub_stack, 1)
+        app._cell_segmentation_notebook = sub_stack
+
+        # Build the Segmentation sub-page eagerly so the user sees content
+        # on first click. The smFISH sub-page is lazily built on first
+        # activation (it pulls heavy deps).
+        seg_page = QWidget()
+        QVBoxLayout(seg_page).setContentsMargins(0, 0, 0, 0)
+        app._build_review_image_panel(seg_page)
+        sub_stack.addPage("Segmentation", seg_page)
+
+        smfish_page = QWidget()
+        QVBoxLayout(smfish_page).setContentsMargins(0, 0, 0, 0)
+        sub_stack.addPage("smFISH", smfish_page)
+        app._cell_segmentation_smfish_built = False
+
+        def _ensure_smfish_built() -> None:
+            if getattr(app, "_cell_segmentation_smfish_built", False):
+                return
+            try:
+                from well_viewer.tabs.smfish_tab_view import build_smfish_tab
+                build_smfish_tab(app, smfish_page)
+                app._cell_segmentation_smfish_built = True
+            except Exception:
+                _logger.exception("Deferred build for smFISH sub-tab failed")
+
+        # Seed the segmented control to mirror the stack's initial page
+        # before wiring signals — addPage("Segmentation", ...) above made
+        # that the default current page. Setting the segment first avoids
+        # an extra _on_tab_change emit during build.
+        blocked = sub_seg.blockSignals(True)
+        try:
+            sub_seg.setCurrentByData("Segmentation")
+        finally:
+            sub_seg.blockSignals(blocked)
+
+        def _on_cell_seg_subtab(_i: int = 0) -> None:
+            name = sub_stack.currentName()
+            if name == "smFISH":
+                _ensure_smfish_built()
+            app._on_tab_change(None)
+            if sub_seg.currentData() != name:
+                blocked = sub_seg.blockSignals(True)
+                try:
+                    sub_seg.setCurrentByData(name)
+                finally:
+                    sub_seg.blockSignals(blocked)
+
+        sub_stack.currentChanged.connect(_on_cell_seg_subtab)
+
+        def _on_cell_seg_sub_seg(_i: int = 0) -> None:
+            target = sub_seg.currentData()
+            if target:
+                sub_stack.setCurrentByName(target)
+
+        sub_seg.currentChanged.connect(_on_cell_seg_sub_seg)
 
     def _build_stats() -> None:
         app._build_stats_tab(tab_frames["Statistics"])
@@ -580,15 +670,18 @@ def build_centre(app, parent: QWidget) -> None:
             ("Plotting", _build_plotting),
             # Cell Gating moved into the Sample Definitions tab (Cell Gating
             # sub-tab) — that's the new home for global per-cell config.
-            ("smFISH", _build_smfish),
             ("Statistics", _build_stats),
         ]),
         ("Images", [
             # Movie Montage was folded into Image Table — pick a well, set
             # the channel to NUC+SEG (or any other), and click "Distribute
             # Timepoints" to get the same per-timepoint grid.
+            # smFISH used to live under Analysis; it now lives as a sub-tab
+            # of "Segmentation" (alongside the original review-image panel,
+            # also called "Segmentation" at the leaf) so both image-
+            # segmentation surfaces share one rail entry.
             ("Image Table", _build_image_table),
-            ("Segmentation", _build_review_image),
+            ("Segmentation", _build_cell_segmentation),
         ]),
         ("Data", [
             ("Review CSV", _build_review_csv),
