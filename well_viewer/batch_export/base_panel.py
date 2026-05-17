@@ -1630,7 +1630,11 @@ class BatchExportPanel(QWidget):
                 any_cdf = True
 
         if any_ts:
-            ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.8)
+            # Threshold is in raw-fluorescence units; once fold-change scaling
+            # is applied the curves no longer live on that axis, so the line
+            # would be misleading. Suppress it in that case.
+            if not fc_active:
+                ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.8)
             # Skip the legend call entirely when no labeled artists were
             # plotted (e.g. all NaN means for a non-MFI property + a
             # threshold that filters every cell) — matplotlib otherwise
