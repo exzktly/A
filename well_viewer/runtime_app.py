@@ -4197,6 +4197,11 @@ class WellViewerApp(QWidget):
             if plot_label != "—":
                 self._set_active_channel(self._channel_key_for_label(plot_label))
             else:
+                # No valid plot channel — clear active state explicitly.
+                # Bare assignments here previously left the global combo
+                # showing whatever index 0 happened to be (a stale label
+                # from before the channel list changed). The combo
+                # cleanup just below now also runs the empty-state path.
                 self._active_channel = ""
 
         # Force the visible global ctxbar combo to track the (now-valid)
@@ -4209,13 +4214,23 @@ class WellViewerApp(QWidget):
         global_cb = getattr(self, "_plotting_channel_cb", None)
         if global_cb is not None:
             active_label_final = self._active_channel_label()
-            idx = global_cb.findText(active_label_final) if active_label_final else -1
-            if idx >= 0 and global_cb.currentIndex() != idx:
-                blocked = global_cb.blockSignals(True)
-                try:
-                    global_cb.setCurrentIndex(idx)
-                finally:
-                    global_cb.blockSignals(blocked)
+            if not active_label_final:
+                # Empty-state: deselect the combo so it can't display a
+                # stale label left over from the previous channel list.
+                if global_cb.currentIndex() != -1:
+                    blocked = global_cb.blockSignals(True)
+                    try:
+                        global_cb.setCurrentIndex(-1)
+                    finally:
+                        global_cb.blockSignals(blocked)
+            else:
+                idx = global_cb.findText(active_label_final)
+                if idx >= 0 and global_cb.currentIndex() != idx:
+                    blocked = global_cb.blockSignals(True)
+                    try:
+                        global_cb.setCurrentIndex(idx)
+                    finally:
+                        global_cb.blockSignals(blocked)
         # Refresh the global Property combo's per-item enable state now that
         # the channel list (and possibly ``_active_channel``) has changed.
         self._refresh_metric_combo_for_channel()
