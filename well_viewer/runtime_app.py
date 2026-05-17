@@ -852,6 +852,12 @@ class WellViewerApp(QWidget):
         self._line_order_save_pending: bool = False
         self._notes_text: str = ""
         self._notes_save_pending: bool = False
+        # Debounce flags for ratios.json + heatmap_layouts.json autosaves;
+        # ratio-panel field edits and heatmap-layout drags both fire saves
+        # per signal — without debouncing they hit disk dozens of times
+        # per second.
+        self._ratios_save_pending: bool = False
+        self._heatmap_layouts_save_pending: bool = False
         # When True, the Review Image tab loads the unprocessed fluorescence
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
@@ -2251,8 +2257,11 @@ class WellViewerApp(QWidget):
         return _r.path_for(self)
 
     def _ratios_save_to_data_dir(self) -> None:
+        # Debounced via the persistence module's schedule_save — every
+        # ratio-panel field edit fires this; without debouncing each
+        # keystroke produced a JSON write.
         from well_viewer.persistence import ratios as _r
-        _r.save_to_data_dir(self)
+        _r.schedule_save(self)
 
     def _ratios_load_from_data_dir(self) -> None:
         from well_viewer.persistence import ratios as _r
@@ -2263,8 +2272,11 @@ class WellViewerApp(QWidget):
         return _h.path_for(self)
 
     def _heatmap_layouts_save_to_data_dir(self) -> None:
+        # Debounced — heatmap layout drag-and-drop fires save per drop
+        # event; without debouncing, dragging wells writes JSON dozens
+        # of times per second.
         from well_viewer.persistence import heatmap_layouts as _h
-        _h.save_to_data_dir(self)
+        _h.schedule_save(self)
 
     def _heatmap_layouts_load_from_data_dir(self) -> None:
         from well_viewer.persistence import heatmap_layouts as _h
