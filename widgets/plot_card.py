@@ -161,6 +161,13 @@ if _HAVE_MPL:
             root.addWidget(self.toolbar)
 
             self.setStyleSheet(self._build_qss())
+            # Re-apply per-instance QSS when the global theme changes
+            # (Qt fires StyleChange on every widget when QApplication's
+            # stylesheet is rebuilt). Without this, the per-instance
+            # `_build_qss()` cache from construction time would freeze
+            # the dark-mode tokens even after a Light-theme switch.
+            from widgets._support import install_qss_refresh
+            install_qss_refresh(self, lambda: self._build_qss())
             self._sync_theme_ui()
 
         # ── public API ───────────────────────────────────────────────────

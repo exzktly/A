@@ -36,7 +36,10 @@ class PreviewStrip(QFrame):
         self.setObjectName("PreviewStrip")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(48)
+        # Roughly 3 lines of body text — matches the architecture's
+        # fontMetrics-derived sizing rule (§7) so the strip scales at
+        # 1×/1.5×/2× displays.
+        self.setFixedHeight(max(36, self.fontMetrics().height() * 3))
 
         self._color = QColor(theme.Colors.trace[0])
         self._line_width = 1.8
@@ -80,7 +83,8 @@ class PreviewStrip(QFrame):
 
     # ── paint ────────────────────────────────────────────────────────────
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(240, 48)
+        fm = self.fontMetrics()
+        return QSize(fm.averageCharWidth() * 28, max(36, fm.height() * 3))
 
     def paintEvent(self, ev):  # noqa: N802
         super().paintEvent(ev)

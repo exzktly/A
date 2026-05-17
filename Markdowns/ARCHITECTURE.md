@@ -556,6 +556,21 @@ a `PlotCard` flips into Publication mode. (PR #249 changed this from a
 global `matplotlib.rcParams.update` to per-figure styling so toggling
 one PlotCard no longer changes the rcParams seen by later figures.)
 
+**Widgets with per-instance QSS.** Many widgets in `widgets/` set their
+own stylesheet at construction (`self.setStyleSheet(self._build_qss())`
+or `self.setStyleSheet(self._qss())`) — that's load-bearing for
+per-widget object-name scoping, but it freezes the colour tokens at
+construction time. Today the global QSS is static and this is fine; if
+a runtime theme switcher ever ships (the `ui/theme/theme_manager.py`
+scaffold is there for exactly that), widgets need to rebuild their
+inline QSS when Qt fires `QEvent.StyleChange`.
+
+`widgets/_support.install_qss_refresh(widget, qss_factory)` is the
+opt-in helper: it installs a single event filter that catches
+`StyleChange` and calls `widget.setStyleSheet(qss_factory())`. Idempotent.
+PlotCard uses it as the canonical example; other widgets should adopt it
+when their inline QSS depends on `theme.Colors` values.
+
 ---
 
 ## 9. Key data flows

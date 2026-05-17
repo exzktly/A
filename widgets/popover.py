@@ -79,7 +79,10 @@ class Popover(QWidget):
         shadow = QGraphicsDropShadowEffect(self._frame)
         shadow.setBlurRadius(self._shadow_pad)
         shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, round(0.35 * 255)))
+        # Shadow opacity matches theme.Colors.drop_shadow_md (0.35α).
+        _shadow_color = QColor(theme.Colors.ink_dark)
+        _shadow_color.setAlpha(round(0.35 * 255))
+        shadow.setColor(_shadow_color)
         self._frame.setGraphicsEffect(shadow)
 
         self._content: QWidget | None = None

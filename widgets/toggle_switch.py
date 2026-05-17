@@ -137,7 +137,7 @@ class ToggleSwitch(QCheckBox):
         if not enabled:
             knob_color = QColor(c.text_muted)
         else:
-            knob_color = lerp_color(QColor(c.text_secondary), QColor("#FFFFFF"), self._pos)
+            knob_color = lerp_color(QColor(c.text_secondary), QColor(c.ink_light), self._pos)
         p.setPen(Qt.NoPen)
         p.setBrush(knob_color)
         p.drawEllipse(QRectF(knob_x, knob_y, knob_d, knob_d))

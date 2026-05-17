@@ -94,6 +94,15 @@ class Colors:
     plot_grid       = "#1F2733"   # --plot-grid  : gridlines inside the figure
     plot_spine      = "#3A4658"   # --plot-spine : axis spines
 
+    # ── Contrast inks for "always opaque against any background" use ─────
+    # Widgets that paint white-on-dark or black-on-light edges should use
+    # these instead of hardcoded ``#FFFFFF`` / ``#000000``. They remain
+    # constant across theme switches because the highlight/shadow
+    # semantics (lighter than the surface vs darker than the surface)
+    # already hold regardless of palette polarity in the v2 dark design.
+    ink_light       = "#FFFFFF"
+    ink_dark        = "#000000"
+
     # ── Translucent overlays (rgba; kept as editable constants) ──────────
     inset_hilite    = "rgba(255, 255, 255, 0.30)"  # top inset on "lit" wells
     inset_shadow    = "rgba(0, 0, 0, 0.30)"        # bottom inset on "lit" wells

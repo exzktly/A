@@ -45,7 +45,11 @@ class _Backdrop(QWidget):
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
-        p.fillRect(self.rect(), with_alpha("#000000", 0.35))
+        # 0.35 alpha matches theme.Colors.drop_shadow_md ("rgba(0,0,0,0.35)")
+        # — keep the literal here because Drawer paints a solid backdrop
+        # rather than reading a CSS rgba string. The numeric value comes
+        # from the same design-token decision.
+        p.fillRect(self.rect(), with_alpha(theme.Colors.ink_dark, 0.35))
 
     def mousePressEvent(self, _event) -> None:  # noqa: N802
         self.clicked.emit()

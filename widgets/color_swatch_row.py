@@ -254,7 +254,7 @@ class ColorSwatchRow(QWidget):
         p.setBrush(QColor(0, 0, 0, 130))
         p.setPen(Qt.NoPen)
         p.drawEllipse(disc)
-        p.setPen(QPen(QColor("#FFFFFF"), max(1.0, d * 0.12)))
+        p.setPen(QPen(QColor(theme.Colors.ink_light), max(1.0, d * 0.12)))
         cx, cy, arm = rect.center().x(), rect.center().y(), d * 0.26
         p.drawLine(QPointF(cx - arm, cy), QPointF(cx + arm, cy))
         p.drawLine(QPointF(cx, cy - arm), QPointF(cx, cy + arm))
