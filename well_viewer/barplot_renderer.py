@@ -135,9 +135,12 @@ def draw_violin(
         ax.set_xlim(-0.6, n - 0.4)
     ax_frac.set_ylim(-0.05, 1.05)
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
+    from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
     ax_mean.set_title(
-        f"{app._active_channel.upper()} distribution (violin, bw={bw:.2f})  —  t = {tp_str} h",
+        f"{app._active_channel.upper()} {_metric_label} distribution (violin, bw={bw:.2f})  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6)
+    ax_mean.set_ylabel(f"{app._active_channel.upper()} {_metric_label}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6)
@@ -216,9 +219,12 @@ def draw_beeswarm(
         ax.set_xlim(-0.6, n - 0.4)
     ax_frac.set_ylim(-0.05, 1.05)
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
+    from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
     ax_mean.set_title(
-        f"{app._active_channel.upper()} per cell (above threshold)  —  t = {tp_str} h",
+        f"{app._active_channel.upper()} {_metric_label} per cell (above threshold)  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6)
+    ax_mean.set_ylabel(f"{app._active_channel.upper()} {_metric_label}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6)
@@ -303,10 +309,13 @@ def draw_grouped_bar_mode(
     )
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     _ch = app._active_channel.upper()
+    from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
     ax_mean.set_title(
-        f"Mean {_ch} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
+        f"{_ch} {_metric_label} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
     )
+    ax_mean.set_ylabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
@@ -314,7 +323,7 @@ def draw_grouped_bar_mode(
     if ax_n is not None:
         fov_active = app._use_fov_spread_active()
         if fov_active:
-            n_title = f"Mean events above threshold per FOV ± {band_lbl}  —  t = {tp_str} h"
+            n_title = f"Events above threshold per FOV ± {band_lbl}  —  t = {tp_str} h"
             n_ylabel = "N(above)/FOV"
         else:
             n_title = f"Events above threshold (N)  —  t = {tp_str} h"
@@ -347,9 +356,11 @@ def redraw_bars(app) -> None:
     bar_selected = app._selected_bar_wells(active_rsets)
 
     _ch = app._active_channel.upper()
+    from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
     apply_ax_style(ax_mean,
-                   f"Mean {_ch} (above threshold) ± {band_lbl}",
-                   f"Mean {_ch}")
+                   f"{_ch} {_metric_label} (above threshold) ± {band_lbl}",
+                   f"{_ch} {_metric_label}")
     apply_ax_style(ax_frac,
                    "Fraction of Cells Above Threshold",
                    "Fraction")
@@ -358,7 +369,7 @@ def redraw_bars(app) -> None:
         if fov_active:
             apply_ax_style(
                 ax_n,
-                f"Mean events above threshold per FOV ± {band_lbl}",
+                f"Events above threshold per FOV ± {band_lbl}",
                 "N(above)/FOV",
             )
         else:

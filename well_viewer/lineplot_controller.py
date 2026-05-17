@@ -50,7 +50,7 @@ def redraw_line_plots(
     all_fluor_values,
     all_fluor_values_filtered,
     warn: str,
-    metric_label: str = "Intensity",
+    metric_label: str = "Mean Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
@@ -64,10 +64,13 @@ def redraw_line_plots(
     # state) — the renderer's *trace* colours stay rank-based.
     from well_viewer.plot_style import tokens_for as _tokens_for_ax
     _bg, _title_fg, _muted_fg, _grid, _spine = _tokens_for_ax(app._line_ax_mean)
-    legend_kw = dict(fontsize=7, framealpha=0.9, facecolor=_bg, edgecolor=_spine, labelcolor=_title_fg)
+    # framealpha=0 keeps the legend frame transparent so whatever sits behind
+    # the box (gridlines, curves) shows through correctly — fixes the wrong
+    # legend background in non-default themes.
+    legend_kw = dict(fontsize=7, framealpha=0.0, facecolor="none", edgecolor=_spine, labelcolor=_title_fg)
 
     _ch = app._active_channel.upper()
-    apply_ax_style(app._line_ax_mean, f"Mean {_ch} {metric_label} (above threshold) ± {band_lbl}", f"Mean {metric_label}")
+    apply_ax_style(app._line_ax_mean, f"{_ch} {metric_label} (above threshold) ± {band_lbl}", metric_label)
     apply_ax_style(app._line_ax_frac, "Fraction of Cells Above Threshold", "Fraction")
     cdf_lbl = (f"{_ch} {metric_label} CDF (all wells per replicate set)" if app._rep_sets_active() else f"{_ch} {metric_label} CDF (all selected wells)")
     apply_ax_style(app._line_ax_cdf, cdf_lbl, "Cumulative fraction")

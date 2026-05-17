@@ -30,11 +30,16 @@ from well_viewer.ratio_models import is_ratio_key
 
 
 METRIC_MEAN = "Mean above threshold"
+METRIC_MEAN_ALL = "Mean (all cells)"
 METRIC_FRACTION = "Fraction above threshold"
 METRIC_COUNT = "Cell count"
 METRIC_RATIO = "Ratio value"  # legacy; not exposed in METRIC_OPTIONS — ratios are picked via the channel dropdown.
 
-METRIC_OPTIONS = [METRIC_MEAN, METRIC_FRACTION, METRIC_COUNT]
+# "Mean above threshold" applies the per-channel ThreshFracOn cut (only
+# meaningful for MFI-based columns); "Mean (all cells)" pools every cell
+# that passes cell-area + FluorGating without the per-channel threshold
+# filter, which is the right default when the active Property isn't MFI.
+METRIC_OPTIONS = [METRIC_MEAN, METRIC_MEAN_ALL, METRIC_FRACTION, METRIC_COUNT]
 
 
 def active_layout(app) -> HeatmapLayout:
@@ -173,6 +178,27 @@ def _cell_value(
         # DataFrame concat — no per-row dict iteration.
         if not is_ratio_key(val_col):
             return float("nan")
+        frames = [app._get_rows(w) for w in valid_wells]
+        frames = [f for f in frames if f is not None and not f.empty]
+        if not frames:
+            return float("nan")
+        pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+        vals = _all_fluor_values_filtered(
+            pooled, val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            ratios=ratios,
+            tp_filter=target_t,
+        )
+        if vals.size == 0:
+            return float("nan")
+        return float(vals.mean())
+
+    if metric == METRIC_MEAN_ALL:
+        # Mean across every included cell at the target timepoint — no
+        # per-channel ThreshFracOn filter applied. Useful for non-MFI
+        # properties (Total / Max / Min / Std) where the MFI threshold is
+        # semantically irrelevant.
         frames = [app._get_rows(w) for w in valid_wells]
         frames = [f for f in frames if f is not None and not f.empty]
         if not frames:
@@ -495,7 +521,10 @@ def redraw_heatmap(app) -> None:
         f"{app._active_channel_label() if hasattr(app, '_active_channel_label') else app._active_channel.upper()}"
         f" — {metric} — t = {tp:g} h"
     )
-    ax.set_title(title, fontsize=9, color=_title_fg)
+    # ``pad`` lifts the title away from the heatmap rows so the descenders
+    # never overlap the top row of cells; the figure's top=0.88 margin
+    # reserves enough room for the lifted title.
+    ax.set_title(title, fontsize=9, color=_title_fg, pad=8)
 
     # Apply the Export Style sidebar prefs (font sizes, grid, log scale, …)
     # so toggling those in the configurator survives a redraw.
@@ -524,13 +553,17 @@ def _format_cell_value(v: float, metric: str) -> str:
 
 def _metric_axis_label(metric: str, app) -> str:
     label = app._active_channel_label() if hasattr(app, "_active_channel_label") else ""
+    from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    prop_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
     if metric == METRIC_COUNT:
         return "Cell count"
     if metric == METRIC_FRACTION:
         return f"{label} fraction above threshold"
     if metric == METRIC_RATIO:
         return f"{label} (mean ratio)"
-    return f"{label} mean above threshold"
+    if metric == METRIC_MEAN_ALL:
+        return f"{label} {prop_label} (mean of all cells)"
+    return f"{label} {prop_label} (mean above threshold)"
 
 
 # ── Click + hover handlers ───────────────────────────────────────────────────

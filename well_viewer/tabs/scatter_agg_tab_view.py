@@ -30,18 +30,49 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     cl = QHBoxLayout(ctrl)
     cl.setContentsMargins(10, 6, 10, 6)
 
+    # Per-axis channel + property selectors mirror the cells scatter tab.
+    # The previous monolithic stat-string combo ("Mean Fluorescence GFP")
+    # is replaced; the canonical (channel, metric) pair drives column
+    # resolution and aggregation downstream. The legacy hidden
+    # ``_scatter_agg_stat_x/y_cb`` combos stay as compatibility shims —
+    # ``_update_scatter_menus`` still populates them so older code paths
+    # (export_service, plot_orchestrator) keep working.
+    from well_viewer.metric_labels import METRIC_ORDER as _BASE_METRIC_ORDER
+    AGG_METRIC_ORDER = list(_BASE_METRIC_ORDER) + ["Fraction above threshold"]
+
     cl.addWidget(QLabel("X-axis:", ctrl))
-    app._scatter_agg_stat_x_cb = QComboBox(ctrl)
-    app._scatter_agg_stat_x_cb.addItems(["Mean Fluorescence"])
-    app._scatter_agg_stat_x_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter_agg())
-    cl.addWidget(app._scatter_agg_stat_x_cb)
-    app._scatter_agg_stat_x_var = app._scatter_agg_stat_x_cb
+    cl.addWidget(QLabel("Channel:", ctrl))
+    app._scatter_agg_ch_x_cb = QComboBox(ctrl)
+    app._scatter_agg_ch_x_cb.addItems(["gfp"])
+    app._scatter_agg_ch_x_cb.currentIndexChanged.connect(lambda _i: app._on_scatter_agg_axis_change("x"))
+    cl.addWidget(app._scatter_agg_ch_x_cb)
+
+    cl.addWidget(QLabel("Property:", ctrl))
+    app._scatter_agg_metric_x_cb = QComboBox(ctrl)
+    app._scatter_agg_metric_x_cb.addItems(AGG_METRIC_ORDER)
+    app._scatter_agg_metric_x_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter_agg())
+    cl.addWidget(app._scatter_agg_metric_x_cb)
 
     cl.addWidget(QLabel("Y-axis:", ctrl))
+    cl.addWidget(QLabel("Channel:", ctrl))
+    app._scatter_agg_ch_y_cb = QComboBox(ctrl)
+    app._scatter_agg_ch_y_cb.addItems(["gfp"])
+    app._scatter_agg_ch_y_cb.currentIndexChanged.connect(lambda _i: app._on_scatter_agg_axis_change("y"))
+    cl.addWidget(app._scatter_agg_ch_y_cb)
+
+    cl.addWidget(QLabel("Property:", ctrl))
+    app._scatter_agg_metric_y_cb = QComboBox(ctrl)
+    app._scatter_agg_metric_y_cb.addItems(AGG_METRIC_ORDER)
+    app._scatter_agg_metric_y_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter_agg())
+    cl.addWidget(app._scatter_agg_metric_y_cb)
+
+    # Legacy stat combos — hidden, kept in sync for back-compat. Export
+    # / save-figure code still reads from these by name.
+    app._scatter_agg_stat_x_cb = QComboBox(ctrl)
+    app._scatter_agg_stat_x_cb.hide()
+    app._scatter_agg_stat_x_var = app._scatter_agg_stat_x_cb
     app._scatter_agg_stat_y_cb = QComboBox(ctrl)
-    app._scatter_agg_stat_y_cb.addItems(["Fraction On"])
-    app._scatter_agg_stat_y_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter_agg())
-    cl.addWidget(app._scatter_agg_stat_y_cb)
+    app._scatter_agg_stat_y_cb.hide()
     app._scatter_agg_stat_y_var = app._scatter_agg_stat_y_cb
 
     cl.addWidget(QLabel("Timepoints:", ctrl))

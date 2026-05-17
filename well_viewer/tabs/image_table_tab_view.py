@@ -219,6 +219,18 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     tr.setContentsMargins(0, 0, 0, 0)
     tr.setSpacing(6)
 
+    def _wire_toggle_check(btn: QPushButton, base_label: str) -> None:
+        """Prefix the button label with a ✓ glyph when checked.
+
+        The toggle-variant QSS already changes background color on
+        ``:checked``; adding the glyph makes the selected state explicit
+        even at a glance and survives across themes.
+        """
+        def _refresh(checked: bool) -> None:
+            btn.setText(f"✓ {base_label}" if checked else base_label)
+        btn.toggled.connect(_refresh)
+        _refresh(btn.isChecked())
+
     tophat_btn = QPushButton("Tophat", tools_row)
     tophat_btn.setProperty("variant", "toggle")
     tophat_btn.setCheckable(True)
@@ -227,6 +239,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         "Toggle between raw fluorescence and pre-filtered tophat images."
     )
     tophat_btn.clicked.connect(lambda _=False: app._image_table_toggle_tophat())
+    _wire_toggle_check(tophat_btn, "Tophat")
     app._image_table_tophat_btn = tophat_btn
     tr.addWidget(tophat_btn)
 
@@ -238,6 +251,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         "Overlay cell boundary outlines (white) on each fluorescence image."
     )
     boundaries_btn.clicked.connect(lambda _=False: app._image_table_toggle_boundaries())
+    _wire_toggle_check(boundaries_btn, "Boundaries")
     app._image_table_boundaries_btn = boundaries_btn
     tr.addWidget(boundaries_btn)
 
@@ -249,6 +263,7 @@ def build_image_table_tab(app, parent: QWidget) -> None:
         "Show segmentation mask as binary: labeled cells white, background black."
     )
     binary_btn.clicked.connect(lambda _=False: app._image_table_toggle_binary())
+    _wire_toggle_check(binary_btn, "Binary")
     app._image_table_binary_btn = binary_btn
     tr.addWidget(binary_btn)
 
