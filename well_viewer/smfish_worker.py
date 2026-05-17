@@ -17,6 +17,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from well_viewer.persistence._io import atomic_write_text
 from well_viewer.preview_controller import read_member_bytes
 from well_viewer.smfish_controller import (
     SmfishImgRef,
@@ -75,6 +76,14 @@ def _write_counts_to_csvs(
         csv_matches = list(out_dir.glob(f"*_{well}.csv"))
         if not csv_matches:
             continue
+        if len(csv_matches) > 1:
+            logger.warning(
+                "Multiple CSV candidates for well %s in %s: %s — skipping to "
+                "avoid writing to the wrong file. Resolve the ambiguity by "
+                "removing or renaming duplicates.",
+                well, out_dir, [p.name for p in csv_matches],
+            )
+            continue
         csv_path = csv_matches[0]
         df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
 
@@ -99,7 +108,9 @@ def _write_counts_to_csvs(
         keys = list(zip(r_well, fov, tp, nid))
         df[column] = [str(counts.get(k, 0)) for k in keys]
 
-        df.to_csv(csv_path, index=False)
+        # Atomic write — a concurrent Review-CSV read or a crash mid-write
+        # must not be able to observe a truncated CSV.
+        atomic_write_text(csv_path, df.to_csv(index=False))
 
 
 def apply_global_threshold_async(

@@ -12,6 +12,8 @@ import math
 from pathlib import Path
 from typing import Optional
 
+from well_viewer.persistence._io import atomic_write_json
+
 _logger = logging.getLogger("well_viewer")
 
 
@@ -47,8 +49,7 @@ def save_to_data_dir(app) -> None:
         "settings": _collect_settings(app),
     }
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+        atomic_write_json(path, payload)
     except OSError as exc:
         _logger.warning("Failed to save heatmap layouts to %s: %s", path, exc)
 

@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from well_viewer.persistence._io import atomic_write_json
 from well_viewer.ratio_models import ratios_from_dict, ratios_to_dict
 
 _logger = logging.getLogger("well_viewer")
@@ -23,8 +24,7 @@ def save_to_data_dir(app) -> None:
     if path is None:
         return
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(ratios_to_dict(app._ratio_metrics), fh, indent=2)
+        atomic_write_json(path, ratios_to_dict(app._ratio_metrics))
     except OSError as exc:
         _logger.warning("Failed to save ratios to %s: %s", path, exc)
 

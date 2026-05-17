@@ -2860,7 +2860,33 @@ def write_pipeline_info(
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     p = output_dir / PIPELINE_INFO_FILENAME
-    p.write_text(json.dumps(info, indent=2))
+    # Preserve user-side blocks that the GUI writes back into this file
+    # (cell_gating thresholds, saved selections, ratios, notes). Re-running
+    # the pipeline against the same output dir must not clobber them.
+    if p.exists():
+        try:
+            existing = json.loads(p.read_text())
+            if isinstance(existing, dict):
+                for preserved_key in (
+                    "cell_gating",
+                    "sample_definitions",
+                    "ratios",
+                    "notes",
+                ):
+                    if preserved_key in existing and preserved_key not in info:
+                        info[preserved_key] = existing[preserved_key]
+        except (OSError, json.JSONDecodeError):
+            pass
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(info, indent=2))
+        os.replace(tmp, p)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
     return p
 
 

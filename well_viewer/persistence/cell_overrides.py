@@ -14,6 +14,8 @@ from typing import Optional
 
 from PySide6.QtCore import QTimer
 
+from well_viewer.persistence._io import atomic_write_json
+
 _logger = logging.getLogger("well_viewer")
 
 
@@ -38,10 +40,7 @@ def save_to_data_dir(app) -> None:
         })
     payload = {"version": 1, "overrides": overrides}
     try:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
-        tmp.replace(path)
+        atomic_write_json(path, payload)
     except OSError as exc:
         _logger.warning("Failed to save cell overrides to %s: %s", path, exc)
 
@@ -59,7 +58,9 @@ def load_from_data_dir(app) -> None:
     overrides = data.get("overrides") if isinstance(data, dict) else None
     if not isinstance(overrides, list):
         return
-    app._review_included_overrides.clear()
+    # Build the new map locally — only commit to in-memory state on success
+    # so a broken / empty file doesn't wipe unsaved edits.
+    new_map: dict = {}
     for entry in overrides:
         if not isinstance(entry, dict):
             continue
@@ -70,14 +71,17 @@ def load_from_data_dir(app) -> None:
         inc = str(entry.get("included", "1")).strip() or "1"
         if not (well and fov and tp and nid):
             continue
-        # Re-normalize so keys match the form ``_set_review_cell_included``
-        # produces on subsequent toggles.
         fov_n, tp_n, nid_n = app._review_row_keys(
             {"fov": fov, "tp": tp, "nucleus_id": nid}
         )
         if not (fov_n and tp_n and nid_n):
             continue
-        app._review_included_overrides[(well, fov_n, tp_n, nid_n)] = inc
+        new_map[(well, fov_n, tp_n, nid_n)] = inc
+    if not new_map:
+        # Refuse to wipe a populated in-memory state with a no-op load.
+        return
+    app._review_included_overrides.clear()
+    app._review_included_overrides.update(new_map)
     app._review_image_override_version += 1
 
 
