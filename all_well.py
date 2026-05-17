@@ -304,19 +304,21 @@ class AllWellApp(QMainWindow):
 
     def _install_app_icon(self) -> None:
         """96-well plate icon whose lit wells spell A W across the fluorescence spectrum."""
-        C_BG_TOP   = QColor("#1b2740")
-        C_BG_BOT   = QColor("#0b1220")
-        C_BG_STROKE = QColor("#2f3e63")
-        C_PLATE    = QColor("#eef2f8")
-        C_PLATE_EDGE = QColor("#c2ccda")
-        C_NOTCH    = QColor("#dde3ed")
-        C_EMPTY    = QColor("#2a3858")
-        C_BLUE     = QColor("#5aa0ff")
-        C_CYAN     = QColor("#3dd6d6")
-        C_GREEN    = QColor("#6fd672")
-        C_YELLOW   = QColor("#f0d042")
-        C_RED      = QColor("#ff7a7a")
-        C_WHITE    = QColor("#ffffff")
+        # Dark-field fluorescence aesthetic: dark plate body so glowing wells pop.
+        C_BG_TOP    = QColor("#0c1728")
+        C_BG_BOT    = QColor("#050c18")
+        C_BG_STROKE = QColor("#1c2e50")
+        C_PLATE     = QColor("#16223a")   # dark slate plate body
+        C_PLATE_EDGE = QColor("#253550")
+        C_NOTCH     = QColor("#0f1a2c")
+        C_EMPTY     = QColor("#0a1220")   # near-black empty wells
+        # Vivid, saturated fluorescence colours for lit wells.
+        C_BLUE   = QColor("#4d9cff")
+        C_CYAN   = QColor("#00e0e0")
+        C_GREEN  = QColor("#3de870")
+        C_YELLOW = QColor("#ffe033")
+        C_RED    = QColor("#ff4444")
+        C_WHITE  = QColor("#c8e4ff")   # cool blue-white crossbar
 
         # 1-indexed (row, col). Same design as _Docs/icons/icon_1_plate_grid.svg.
         pattern = {
@@ -339,18 +341,18 @@ class AllWellApp(QMainWindow):
             p = QPainter(pm)
             p.setRenderHint(QPainter.Antialiasing, True)
 
-            s = size / 1024.0  # SVG is authored on a 1024×1024 grid
+            s = size / 1024.0  # authored on a 1024×1024 grid
 
-            # Rounded squircle background with vertical gradient.
+            # Rounded squircle background.
             bg_rect = QRectF(72 * s, 72 * s, 880 * s, 880 * s)
-            bg_grad = QRadialGradient(bg_rect.center(), bg_rect.height())
+            bg_grad = QRadialGradient(bg_rect.center(), bg_rect.height() * 0.65)
             bg_grad.setColorAt(0.0, C_BG_TOP)
             bg_grad.setColorAt(1.0, C_BG_BOT)
             p.setBrush(QBrush(bg_grad))
             p.setPen(QPen(C_BG_STROKE, max(1.0, 3 * s)))
             p.drawRoundedRect(bg_rect, 200 * s, 200 * s)
 
-            # Plate body with notched corner.
+            # Dark plate body with notched corner.
             plate_rect = QRectF(140 * s, 220 * s, 744 * s, 584 * s)
             p.setBrush(QBrush(C_PLATE))
             p.setPen(QPen(C_PLATE_EDGE, max(1.0, 4 * s)))
@@ -367,15 +369,29 @@ class AllWellApp(QMainWindow):
                 for col in range(1, 13):
                     cx = xs[col - 1] * s
                     cy = ys[row - 1] * s
-                    colour = pattern.get((row, col), C_EMPTY)
-                    # Centre-hot radial gradient gives wells a fluorescent glow.
-                    grad = QRadialGradient(cx, cy - 0.2 * r_well, r_well * 1.2)
-                    grad.setColorAt(0.0, colour.lighter(135))
-                    grad.setColorAt(1.0, colour)
-                    p.setBrush(QBrush(grad))
-                    p.setPen(Qt.NoPen)
-                    p.drawEllipse(QRectF(cx - r_well, cy - r_well,
-                                         r_well * 2, r_well * 2))
+                    colour = pattern.get((row, col))
+                    if colour is None:
+                        # Empty well: dark pit with a faint top-left specular hint.
+                        grad = QRadialGradient(
+                            cx - 0.3 * r_well, cy - 0.3 * r_well, r_well * 1.3
+                        )
+                        grad.setColorAt(0.0, C_EMPTY.lighter(160))
+                        grad.setColorAt(0.4, C_EMPTY)
+                        grad.setColorAt(1.0, C_EMPTY.darker(120))
+                        p.setBrush(QBrush(grad))
+                        p.setPen(Qt.NoPen)
+                        p.drawEllipse(QRectF(cx - r_well, cy - r_well,
+                                             r_well * 2, r_well * 2))
+                    else:
+                        # Lit well: white-hot centre radiating to vivid fluorescent colour.
+                        grad = QRadialGradient(cx, cy - 0.25 * r_well, r_well * 1.05)
+                        grad.setColorAt(0.0, Qt.white)
+                        grad.setColorAt(0.30, colour.lighter(160))
+                        grad.setColorAt(1.0, colour)
+                        p.setBrush(QBrush(grad))
+                        p.setPen(Qt.NoPen)
+                        p.drawEllipse(QRectF(cx - r_well, cy - r_well,
+                                             r_well * 2, r_well * 2))
 
             p.end()
             return pm
