@@ -119,6 +119,7 @@ FC_STATE_OFF: Tuple[bool, str, bool] = (False, "", False)
 def collect_bar_items(
     app, target_t: float, *,
     fc_state: Optional[Tuple[bool, str, bool]] = None,
+    miss_sink: Optional[set] = None,
 ) -> Tuple[bool, List[BarItem], str]:
     """Compute the bar-plot ``BarItem``s for the active mode (rep-set or per-well).
 
@@ -133,6 +134,11 @@ def collect_bar_items(
     aggregation helpers are cached so a second call is cheap, which is how
     the on-tab CSV emits the additive (raw + fold-change) schema.
 
+    *miss_sink* — optional set the caller passes in; the function adds
+    *target_t* to it when fold-change-vs-control is requested but the
+    control has no sample at *target_t* (so the caller can surface the
+    drop via ``_set_status`` rather than emit silently empty bars).
+
     Returns ``(use_groups, items, band_lbl)``. ``use_groups`` is True when
     replicate sets are active (drives a slightly wider bar style in the
     renderer); the items themselves carry display labels and colours so
@@ -146,23 +152,36 @@ def collect_bar_items(
 
     # Fold-change normalization (vs control well/group, vs t0, or both).
     # Resolved once here so we don't re-aggregate the control per bar.
+    # Numerator (each bar) and denominator (control / t0) use the SAME
+    # stat — see ``fold_change.member_mean_series`` for the rationale.
     if fc_state is None:
         fc_state = _fc.fold_change_state(app)
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
+    cell_area_threshold = app._get_cell_area_threshold()
+    fluor_gates = app._get_all_fluor_gates()
+    per_fov_spread = app._use_fov_spread_active()
     fc_control_mean_at_t = None
     if fc_vs_ctrl and fc_ctrl_lbl:
-        fc_control_mean_at_t = _fc.control_mean_at(
+        fc_control_mean_at_t = _fc.control_mean_at_for_bar(
             app, fc_ctrl_lbl, target_t,
             threshold=threshold, val_col=app._active_val_col,
-            cell_area_threshold=app._get_cell_area_threshold(),
-            fluor_gates=app._get_all_fluor_gates(),
+            use_sem=use_sem, per_fov_spread=per_fov_spread,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
         )
+        if fc_control_mean_at_t is None and miss_sink is not None:
+            # Control couldn't be resolved at target_t — record the
+            # miss so the caller can surface a status warning. Bars
+            # below will be forced to NaN by ``fc_force_nan`` so the
+            # plot doesn't silently fall back to raw values while the
+            # axis title still claims fold-change normalization.
+            miss_sink.add(float(target_t))
+    fc_force_nan = fc_vs_ctrl and fc_ctrl_lbl and fc_control_mean_at_t is None
 
     ordered_keys = app._bar_current_keys()
     items: List[BarItem] = []
 
     if use_groups:
-        per_fov_spread = app._use_fov_spread_active()
         rset_by_name = {r.name: r for r in active_rsets}
         for key in ordered_keys:
             rset = rset_by_name.get(key)
@@ -184,13 +203,17 @@ def collect_bar_items(
                 n_above_err = 0.0
             t0_mean = None
             if fc_vs_t0:
-                t0_mean = _fc.first_tp_value(app._aggregate_group(
-                    list(rset.wells), threshold=threshold, use_sem=False,
-                    val_col=app._active_val_col,
-                    cell_area_threshold=app._get_cell_area_threshold(),
-                    fluor_gates=app._get_all_fluor_gates(),
-                ))
-            if fc_vs_ctrl or fc_vs_t0:
+                t0_mean = _fc.member_first_tp_value(
+                    app, rset.name,
+                    threshold=threshold, val_col=app._active_val_col,
+                    use_sem=use_sem, per_fov_spread=per_fov_spread,
+                    cell_area_threshold=cell_area_threshold,
+                    fluor_gates=fluor_gates,
+                )
+            if fc_force_nan:
+                gm = float("nan")
+                g_err_m = 0.0
+            elif fc_vs_ctrl or fc_vs_t0:
                 gm, g_err_m = _fc.scale_bar_value(
                     gm, g_err_m,
                     control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
@@ -210,9 +233,6 @@ def collect_bar_items(
         return True, items, band_lbl
 
     # Per-well branch — iterate the same drag order, look up cell data.
-    cell_area_threshold = app._get_cell_area_threshold()
-    fluor_gates = app._get_all_fluor_gates()
-    per_fov_spread = app._use_fov_spread_active()
     for label in ordered_keys:
         if label not in app._well_paths:
             continue
@@ -240,7 +260,13 @@ def collect_bar_items(
             fs = float(pt[6]) if len(pt) >= 7 else 0.0
             n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
             n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
-            if fc_vs_ctrl or fc_vs_t0:
+            if fc_force_nan:
+                m = float("nan")
+                s = 0.0
+            elif fc_vs_ctrl or fc_vs_t0:
+                # t0 baseline = the well's own mean at its earliest tp.
+                # ``pts`` is the well's full time series, so the first
+                # finite mean there is the baseline we want.
                 t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
                 m, s = _fc.scale_bar_value(
                     m, s,
@@ -305,6 +331,13 @@ def collect_bar_items_for_group(
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
     fc_control_mean_at_t = None
     if fc_vs_ctrl and fc_ctrl_lbl:
+        # Batch path uses ``_aggregate_group`` (pool-of-cells) for the
+        # bar numerator, so the control denominator stays on the
+        # pool-of-cells stat too — keeps the ratio internally
+        # consistent. (The plot tab uses ``_compute_rep_stats``
+        # mean-of-means and pairs with ``control_mean_at_for_bar`` to
+        # match. The cross-path numerator difference is a pre-existing
+        # issue out of scope here.)
         fc_control_mean_at_t = _fc.control_mean_at(
             app, fc_ctrl_lbl, target_t,
             threshold=threshold, val_col=val_col,

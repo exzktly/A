@@ -63,19 +63,24 @@ def redraw_line_plots(
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
 
-    # Fold-change normalization — pulled once per redraw. ``control_means``
-    # caches the control series' {t: mean} so each member only consults it
-    # rather than re-aggregating.
+    # Fold-change normalization — pulled once per redraw. The control
+    # series uses the SAME stat the line plot's traces use:
+    # mean-of-per-well-means for rep-set controls (matching
+    # ``_compute_rep_stats``), per-FOV pool when Aggregate-FOVs is on
+    # (``_compute_rep_per_fov_stats``), single-well aggregation for
+    # well controls. Mismatching stats was the original math bug.
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
     fc_control_means: dict = {}
+    fc_misses: set = set()
+    _per_fov_line = app._use_fov_spread_active() if app._rep_sets_active() else False
     if fc_vs_ctrl and fc_ctrl_lbl:
-        ctrl_pts = _fc.control_pts_for_line(
-            app, fc_ctrl_lbl, threshold=threshold,
-            val_col=app._active_val_col,
+        fc_control_means = _fc.member_mean_series(
+            app, fc_ctrl_lbl,
+            threshold=threshold, val_col=app._active_val_col,
+            use_sem=use_sem, per_fov_spread=_per_fov_line,
             cell_area_threshold=app._get_cell_area_threshold(),
             fluor_gates=app._get_all_fluor_gates(),
         )
-        fc_control_means = _fc.pts_to_mean_by_t(ctrl_pts)
     # Theme-aware chrome colors (track the active PlotCard's Publication/Screen
     # state) — the renderer's *trace* colours stay rank-based.
     from well_viewer.plot_style import tokens_for as _tokens_for_ax
@@ -167,6 +172,7 @@ def redraw_line_plots(
                     _raw_pts,
                     control_means=fc_control_means or None,
                     use_t0=fc_vs_t0,
+                    miss_sink=fc_misses,
                 )
             for pt in _raw_pts:
                 t, m, e, fr = pt[0], pt[1], pt[2], pt[3]
@@ -214,6 +220,7 @@ def redraw_line_plots(
                     pts,
                     control_means=fc_control_means or None,
                     use_t0=fc_vs_t0,
+                    miss_sink=fc_misses,
                 )
             if pts:
                 times, means, spreads, fracs, *_ = zip(*pts)
@@ -268,7 +275,15 @@ def redraw_line_plots(
     else:
         app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
 
-    if active_rsets:
+    if fc_misses:
+        # Tell the user which timepoints lost their bars/points to a
+        # missing control sample, so an unexpectedly empty plot isn't a
+        # silent surprise.
+        _tps = ", ".join(f"{t:g}" for t in sorted(fc_misses))
+        app._set_status(
+            f"Fold change: control missing at t={_tps} — those points dropped."
+        )
+    elif active_rsets:
         n_wells = sum(sum(1 for w in r.wells if w in app._well_paths) for r in active_rsets)
         app._set_status(f"{len(active_rsets)} replicate set(s)  ·  {n_wells} well(s)  |  threshold={threshold:.2f}  |  band={band_lbl}")
     else:

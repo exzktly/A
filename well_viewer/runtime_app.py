@@ -5804,10 +5804,12 @@ class WellViewerApp(QWidget):
         target_t: float,
         tp_str: str,
         threshold: float,
+        *,
+        cell_scale=None,
     ) -> None:
         from well_viewer.barplot_renderer import draw_violin
         draw_violin(self, ax_mean, ax_frac, wells, colors, xlabels,
-                    target_t, tp_str, threshold)
+                    target_t, tp_str, threshold, cell_scale=cell_scale)
 
     def _draw_beeswarm(
         self,
@@ -5819,10 +5821,12 @@ class WellViewerApp(QWidget):
         target_t: float,
         tp_str: str,
         threshold: float,
+        *,
+        cell_scale=None,
     ) -> None:
         from well_viewer.barplot_renderer import draw_beeswarm
         draw_beeswarm(self, ax_mean, ax_frac, wells, colors, xlabels,
-                      target_t, tp_str, threshold)
+                      target_t, tp_str, threshold, cell_scale=cell_scale)
 
     def _redraw_bars(self) -> None:
         from well_viewer.barplot_renderer import redraw_bars
@@ -5936,19 +5940,35 @@ class WellViewerApp(QWidget):
         if _debug_flags.review_bar_debug_enabled():
             mode = "violin" if self._bar_violin else "beeswarm"
             print(f"DEBUG runtime_app: per-cell mode={mode} wells={plot_wells!r} labels={plot_labels!r}")
+        # Build the per-well scale dict ONCE — same denominator each well
+        # uses for its cell values. Pass through to violin / beeswarm so
+        # fold-change participation no longer ends at the bar renderer.
+        from well_viewer import fold_change as _fc
+        _fc_state = _fc.fold_change_state(self)
+        if _fc_state[0] or _fc_state[2]:
+            cell_scale = _fc.build_cell_scaling(
+                self, plot_wells, fc_state=_fc_state, target_t=target_t,
+                threshold=threshold, val_col=self._active_val_col,
+                use_sem=self._use_sem,
+                per_fov_spread=self._use_fov_spread_active(),
+                cell_area_threshold=self._get_cell_area_threshold(),
+                fluor_gates=self._get_all_fluor_gates(),
+            )
+        else:
+            cell_scale = None
         if plot_wells:
             if self._bar_violin:
-                self._draw_violin(ax_mean, ax_frac, plot_wells, plot_colors, plot_labels, target_t, tp_str, threshold)
+                self._draw_violin(
+                    ax_mean, ax_frac, plot_wells, plot_colors, plot_labels,
+                    target_t, tp_str, threshold,
+                    cell_scale=cell_scale,
+                )
             else:
                 self._draw_beeswarm(
-                    ax_mean,
-                    ax_frac,
-                    plot_wells,
-                    plot_colors,
-                    plot_labels,
-                    target_t,
-                    tp_str,
-                    threshold,
+                    ax_mean, ax_frac,
+                    plot_wells, plot_colors, plot_labels,
+                    target_t, tp_str, threshold,
+                    cell_scale=cell_scale,
                 )
             self._apply_bar_ylims(
                 ax_mean,
@@ -6356,22 +6376,20 @@ class WellViewerApp(QWidget):
         self._stats_cache[cache_key] = result
         return result
 
-    def _collect_bar_items(self, target_t: float) -> tuple:
-        """
-        Return (use_groups, bar_items_or_well_data, band_lbl) for *target_t*.
+    def _collect_bar_items(self, target_t: float, *,
+                           fc_state=None, miss_sink=None) -> tuple:
+        """Return ``(use_groups, list[BarItem], band_lbl)`` for *target_t*.
 
-        Mirrors the computation in _redraw_bars so that export and on-screen
-        rendering always produce identical numbers.
-
-        Returns
-        -------
-        use_groups : bool
-        items      : list
-            Grouped mode  → list of (name, mean, err_mean, frac, err_frac, has, color)
-            Per-well mode → list of (label, mean, spread, frac, has)
-        band_lbl   : str
+        Thin wrapper around :func:`barplot_controller.collect_bar_items`.
+        ``fc_state`` lets the on-tab CSV exporter request raw items (pass
+        ``FC_STATE_OFF``) alongside the normalized items the renderer
+        consumes. ``miss_sink`` collects timepoints where a vs-control
+        denominator couldn't be resolved so the caller can surface a
+        single status warning at the end of the redraw.
         """
-        return _bar_collect_items(self, target_t)
+        return _bar_collect_items(
+            self, target_t, fc_state=fc_state, miss_sink=miss_sink,
+        )
 
     def _render_bar_figure(self, target_t: float, tp_str: str) -> "Figure":
         """
