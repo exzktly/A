@@ -513,30 +513,48 @@ that opens a small demo window so you can iterate visually with
 
 ## 8. Theming
 
-There are two theme surfaces:
+The app has two complementary theme surfaces. The previous version of this
+doc claimed `ui/theme/` was "dormant scaffolding"; that was wrong — both
+systems are load-bearing, and they cover different concerns:
 
-1. **`theme.py`** (repo root) — Python-side design tokens. `Colors`,
-   `Typography`, `Spacing`, `Radii`, plus a `qss()` builder that produces
-   the full application stylesheet by string-templating the tokens into
-   `theme.qss`'s inline template. Widget code reads from `theme.Colors.xxx`,
-   never hardcoded.
-2. **`ui/theme/`** — the *other* theme system, kept for the per-theme QSS
-   files (`dark.qss` / `light.qss` / `amber.qss` / `beige.qss`) and a small
-   `ThemeManager` that swaps them at runtime. The matplotlib-side
-   "publication" preview palette also lives here (`theme.CPub`).
+1. **`theme.py`** (repo root) — Python-side design tokens for the v2
+   redesign. `Colors`, `Typography`, `Spacing`, `Radii`, plus a `qss()`
+   builder that produces the full application stylesheet by
+   string-templating the tokens into `theme.qss`'s inline template. The
+   `widgets/` package and most of the app shell read from
+   `theme.Colors.*`; the v2 dark palette is hardcoded here.
+2. **`ui/theme/`** — a separate palette + QSS-template system used by
+   matplotlib-side plot styling, the Analyze tab, a handful of
+   batch-export panels, and the per-theme `.qss` files for an
+   in-progress theme switcher (`dark.qss` / `light.qss` / `amber.qss` /
+   `beige.qss`). Plot tokens live here (`PLOT_BG`, `TXT_PRI`, `TXT_MUT`,
+   `FM_UI`, `WELL_COLOR_1..48`); call `get_color("ACCENT")` for the
+   active theme's value. The well palette is sourced from
+   `theme.WELL_COLORS_TUPLE` so both systems hand out identical
+   per-well colours.
 
-In practice the app ships one dark theme (the v2 design) and the
-`ui/theme/*.qss` files are dormant scaffolding for a future theme switcher.
+**Why two:** the v2 design (theme.py) was added on top of an existing
+palette system (ui/theme). The two stabilised side-by-side rather than
+being merged — overlapping conceptual tokens (panel / text-primary /
+accent) have *different* hex values in each system, picked
+independently for each palette's aesthetic. They are not currently
+reconciled.
 
 When you add a colour or size:
 
-- Add it to `theme.Colors` / `theme.Spacing` / etc.
-- Reference it from QSS via `${TOKEN_NAME}` in the relevant `.qss` template.
+- For widgets in `widgets/`, the app shell, or the v2-styled chrome:
+  add to `theme.Colors` / `theme.Spacing` / etc.
+- For plot styling, the Analyze tab, or anything reading via
+  `get_color()`: add to `ui/theme/styles._DARK_THEME` (and the other
+  palettes when relevant) and reference it from QSS via
+  `${TOKEN_NAME}` in the `.qss` template.
 - **Do not** hardcode hex / px values inline.
 
-The publication-export plot surface is in `theme.CPub` and feeds matplotlib
-`rcParams` (`figure.facecolor`, `axes.facecolor`, etc.) when a `PlotCard`
-flips into Publication mode.
+The publication-export plot surface uses `theme.CPub` and feeds the
+target figure's axes (`figure.facecolor`, `axes.facecolor`, etc.) when
+a `PlotCard` flips into Publication mode. (PR #249 changed this from a
+global `matplotlib.rcParams.update` to per-figure styling so toggling
+one PlotCard no longer changes the rcParams seen by later figures.)
 
 ---
 
