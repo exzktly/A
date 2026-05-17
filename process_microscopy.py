@@ -1049,76 +1049,17 @@ def _segment_stardist_seeded_watershed_cell(
 # merged into ``pipeline_info.json``'s ``cell_gating.thresh_frac_on`` block
 # (preserving any user-set values).
 #
-# Mirrors the original ``well_viewer.auto_threshold`` implementation but uses
-# only modules ``process_microscopy.py`` already imports (numpy / skimage /
-# tifffile / zipfile / pathlib / json / random), so the pipeline can produce
-# auto-thresholds even on a host where ``well_viewer`` is not installed.
+# The per-image sampler and timepoint helpers live in
+# ``auto_threshold_core`` so the GUI's Cell Gating tab and this pipeline
+# run produce identical defaults on the same dataset. ``auto_threshold_core``
+# depends only on ``numpy`` + ``random`` so the pipeline-only deployment
+# story is preserved.
 
-_AUTO_THRESHOLD_CELLS_PER_IMAGE_CAP = 800
-
-
-def _sample_cell_and_bg(
-    labels: np.ndarray,
-    fluor: np.ndarray,
-    *,
-    cap: int,
-    rng,
-) -> "tuple[list[float], list[float]]":
-    """Return ``(cell_means, bg_pixels)`` sampled from one (labels, fluor) pair.
-
-    For every distinct cell label in ``labels`` (excluding background ``0``),
-    one mean intensity is added to ``cell_means`` plus one random outside-cell
-    pixel value to ``bg_pixels``. Both lists are capped to ``cap`` entries.
-    """
-    if labels.shape != fluor.shape:
-        return [], []
-    flat_labels = labels.ravel().astype(np.int64, copy=False)
-    flat_fluor = fluor.ravel().astype(np.float64, copy=False)
-    nonzero = flat_labels > 0
-    if not nonzero.any():
-        return [], []
-    bg_indices = np.flatnonzero(~nonzero)
-    if bg_indices.size == 0:
-        return [], []
-    n_labels = int(flat_labels.max()) + 1
-    sums = np.bincount(flat_labels, weights=flat_fluor, minlength=n_labels)
-    counts = np.bincount(flat_labels, minlength=n_labels)
-    valid = np.arange(1, n_labels)
-    valid_counts = counts[1:]
-    keep = valid_counts > 0
-    valid = valid[keep]
-    if valid.size == 0:
-        return [], []
-    means = (sums[valid] / counts[valid]).astype(np.float64)
-    if means.size > cap:
-        idx = np.array(rng.sample(range(means.size), cap), dtype=np.int64)
-        means = means[idx]
-    n = int(means.size)
-    bg_pick = rng.choices(bg_indices.tolist(), k=n)
-    bg_values = flat_fluor[np.asarray(bg_pick, dtype=np.int64)]
-    return means.tolist(), bg_values.tolist()
-
-
-def _pick_endpoint_timepoints(tps) -> "list[str]":
-    """First / middle / last from *tps* (deduplicated, parsed-as-float-if-possible)."""
-    def _key(t: str):
-        s = str(t or "").strip()
-        try:
-            return (0, float(s))
-        except ValueError:
-            return (1, s)
-
-    sorted_tps = sorted({str(t).strip() for t in tps if str(t).strip()}, key=_key)
-    if not sorted_tps:
-        return []
-    if len(sorted_tps) <= 2:
-        return list(sorted_tps)
-    mid = sorted_tps[len(sorted_tps) // 2]
-    picked: list[str] = []
-    for tp in (sorted_tps[0], mid, sorted_tps[-1]):
-        if tp not in picked:
-            picked.append(tp)
-    return picked
+from auto_threshold_core import (
+    DEFAULT_CELLS_PER_IMAGE_CAP as _AUTO_THRESHOLD_CELLS_PER_IMAGE_CAP,
+    pick_endpoint_timepoints as _pick_endpoint_timepoints,
+    sample_cell_and_bg as _sample_cell_and_bg,
+)
 
 
 def _estimate_thresholds_standalone(
@@ -1184,14 +1125,14 @@ def _estimate_thresholds_standalone(
                     stem = base[: -len("_labels")]
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
-                    tp = (fields.get("tp") or fields.get("timepoint") or "").strip()
+                    tp = (fields.get("timepoint") or "").strip()
                     if fov and tp:
                         label_members[(fov, tp)] = name
                 elif base.endswith("_tophat"):
                     stem = base[: -len("_tophat")]
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
-                    tp = (fields.get("tp") or fields.get("timepoint") or "").strip()
+                    tp = (fields.get("timepoint") or "").strip()
                     ch = (fields.get("channel") or "").strip().lower()
                     if fov and tp and ch in per_channel:
                         tophat_members[(ch, fov, tp)] = name
