@@ -96,10 +96,11 @@ _STARDIST_MODEL: "StarDist2D | None" = None
 #   2. A crash mid-write leaves a partial file on disk; the next run picks
 #      it up and fails with cryptic decode errors.
 #
-# ``_safe_imwrite`` writes to ``<path>.pid<N>.tmp``, fsyncs the bytes, and
-# then renames atomically. Any caller that subsequently sees ``path`` reads
-# either a complete file or no file at all. Likewise ``_safe_atomic_write``
-# wraps the per-well CSV write with the same guarantee.
+# ``_safe_imwrite`` writes to ``__aw_tmp_<stem>.pid<N><ext>``, fsyncs the
+# bytes, and then renames atomically. Any caller that subsequently sees
+# ``path`` reads either a complete file or no file at all. Likewise
+# ``_safe_atomic_write`` wraps the per-well CSV write with the same
+# guarantee.
 # ---------------------------------------------------------------------------
 
 
@@ -129,14 +130,18 @@ def _safe_imwrite(out_path: "Path | str", data: "np.ndarray") -> None:
     failure so the well's output directory never carries partial bytes
     that a later zip-up step would pack into a corrupt archive.
 
-    The tmp file is named ``.<stem>.pid<N>.tmp<ext>`` (leading dot, so it
-    sorts away from the real outputs and so directory listers used by the
-    zip-up step skip it; trailing original extension preserved so the
-    codec auto-detects the format from the path).
+    The tmp file is named ``__aw_tmp_<stem>.pid<N><ext>`` — a unique
+    prefix the zip-up step's listers explicitly exclude. The trailing
+    original extension is preserved so the codec auto-detects the
+    format from the path.
     """
     out_path = Path(out_path)
+    # `__aw_tmp_` prefix is unique enough that the scratch-file
+    # exclusion can match on it without false positives from user
+    # filenames (a TIF named `exp.pidgin.A01.tif` previously matched
+    # the `.pid` substring check below).
     tmp = out_path.with_name(
-        f".{out_path.stem}.pid{os.getpid()}.tmp{out_path.suffix}"
+        f"__aw_tmp_{out_path.stem}.pid{os.getpid()}{out_path.suffix}"
     )
     suffix = out_path.suffix.lower()
     try:
@@ -168,7 +173,7 @@ def _safe_atomic_text_write(out_path: "Path | str") -> "_AtomicTextHandle":
 class _AtomicTextHandle:
     def __init__(self, out_path: Path) -> None:
         self._out_path = out_path
-        self._tmp = out_path.with_name(out_path.name + f".pid{os.getpid()}.tmp")
+        self._tmp = out_path.with_name(f"__aw_tmp_{out_path.name}.pid{os.getpid()}")
         self._fh: "io.TextIOBase | None" = None
 
     def __enter__(self):
@@ -636,7 +641,11 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
         and p.suffix.lower() in include_exts
         and p.suffix.lower() not in exclude_exts
         and not p.name.endswith(".tmp")
-        and ".pid" not in p.name  # stale _safe_imwrite scratch files
+        # Stale _safe_imwrite / _AtomicTextHandle scratch files. The
+        # `__aw_tmp_` prefix is unique enough that user filenames
+        # don't false-positive (the old `.pid` substring would drop
+        # e.g. `exp.pidgin.A01.tif`).
+        and not p.name.startswith("__aw_tmp_")
     )
     image_files = _verify_files_complete(candidate_files)
 
@@ -648,7 +657,7 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
     # Build the zip via the same atomic-rename pattern the imwrite helper
     # uses: stage at <out_zip>.tmp, fsync, replace. Any caller that sees
     # *out_zip* gets either the complete archive or the previous one.
-    tmp_zip = out_zip.with_name(out_zip.name + f".pid{os.getpid()}.tmp")
+    tmp_zip = out_zip.with_name(f"__aw_tmp_{out_zip.name}.pid{os.getpid()}")
     try:
         with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for img_path in image_files:
