@@ -351,8 +351,16 @@ class ColorPickerPopover(Popover):
     def _on_alpha_edited(self) -> None:
         if self._updating:
             return
+        text = self._alpha.text().strip()
+        if not text:
+            # Treat blank as "no change yet" — silently snapping to 255
+            # (the old behaviour) re-emits colorPicked for what was a
+            # typo. Re-sync from the current colour so the field shows
+            # the live value on next focus.
+            self._sync_from_color_keep_committed()
+            return
         try:
-            a = max(0, min(255, int(self._alpha.text() or "255")))
+            a = max(0, min(255, int(text)))
         except ValueError:
             return
         if a != self._color.alpha():

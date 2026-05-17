@@ -439,8 +439,16 @@ def find_well_images_and_masks(
         [data_dir] if data_dir and data_dir.is_dir() else []
     )
     if not fluor and search_dirs:
+        # Cap rglob recursion depth so a user who accidentally points
+        # the viewer at their home directory or a project root doesn't
+        # trigger a full filesystem scan. 3 levels covers the canonical
+        # data-dir / well-subdir / channel-subdir layout with headroom.
+        _MAX_DEPTH = 3
         for search_root in search_dirs:
+            search_root_parts = len(search_root.parts)
             for p in sorted(search_root.rglob("*")):
+                if (len(p.parts) - search_root_parts) > _MAX_DEPTH:
+                    continue
                 if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
                     continue
                 kind, fov, tp = classify_member(

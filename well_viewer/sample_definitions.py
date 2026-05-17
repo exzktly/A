@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,14 +105,36 @@ def _backup_pre_v2(info_path: Path) -> None:
     No-clobber: the *first* backup is the precious one; a second migration goes
     to a timestamped sibling. Raises OSError if the backup can't be written
     (the caller must then abort the save rather than destroy the only old copy).
+
+    Implemented with ``os.O_CREAT | os.O_EXCL`` for the timestamped fallback
+    so two threads / processes racing through migration can't both think
+    they're writing the "first" backup and overwrite each other's.
     """
-    backup = info_path.with_name(info_path.name + PRE_V2_BACKUP_SUFFIX)
-    if backup.exists():
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup = info_path.with_name(f"{info_path.name}{PRE_V2_BACKUP_SUFFIX}.{ts}")
-        if backup.exists():
-            return  # already have a backup from this same second; good enough
-    shutil.copy2(info_path, backup)
+    primary = info_path.with_name(info_path.name + PRE_V2_BACKUP_SUFFIX)
+    if not primary.exists():
+        shutil.copy2(info_path, primary)
+        _logger.info("sample_definitions: migrated v1→v2; backup written to %s", primary)
+        return
+    # Timestamped fallback: open with O_EXCL so a race doesn't clobber a
+    # backup another process just wrote.
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = info_path.with_name(f"{info_path.name}{PRE_V2_BACKUP_SUFFIX}.{ts}")
+    try:
+        fd = os.open(str(backup), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        # Another writer beat us to it within the same second — that backup
+        # is just as good as the one we would have written.
+        return
+    try:
+        with os.fdopen(fd, "wb") as dst, open(info_path, "rb") as src:
+            shutil.copyfileobj(src, dst)
+    except Exception:
+        # Best-effort cleanup of an incomplete backup file.
+        try:
+            backup.unlink()
+        except OSError:
+            pass
+        raise
     _logger.info("sample_definitions: migrated v1→v2; backup written to %s", backup)
 
 
