@@ -18,6 +18,46 @@ from PySide6.QtWidgets import (
 
 
 _NONE_LABEL = "— none —"
+_SCOPES = ("bar", "line")
+
+
+def _sync_widgets_to_state(app, *, skip_scope: str = "") -> None:
+    """Mirror ``app._fc_*`` state into every installed widget set.
+
+    Called after a toggle / combo change so the OTHER tab's widgets reflect
+    the new state — the per-tab widgets are independent instances but the
+    underlying state is shared, so without this sync the user sees stale
+    UI on whichever tab they didn't interact with last. Also called from
+    each tab's ``showEvent``-equivalent hook.
+
+    *skip_scope* is the tab that just initiated the change — its widgets
+    already hold the new state (it's how they wrote it), so re-applying
+    would be a no-op at best and a recursion hazard at worst. Passing the
+    empty string syncs every installed scope.
+    """
+    vs_ctrl = bool(getattr(app, "_fc_vs_control_on", False))
+    vs_t0 = bool(getattr(app, "_fc_vs_t0_on", False))
+    for scope in _SCOPES:
+        if scope == skip_scope:
+            continue
+        cb = getattr(app, f"_fc_ctrl_cb_{scope}", None)
+        combo = getattr(app, f"_fc_ctrl_combo_{scope}", None)
+        t0 = getattr(app, f"_fc_t0_cb_{scope}", None)
+        if cb is not None:
+            blocked = cb.blockSignals(True)
+            try:
+                cb.setChecked(vs_ctrl)
+            finally:
+                cb.blockSignals(blocked)
+        if combo is not None:
+            combo.setEnabled(vs_ctrl)
+            _repopulate_control_combo(app, combo)
+        if t0 is not None:
+            blocked = t0.blockSignals(True)
+            try:
+                t0.setChecked(vs_t0)
+            finally:
+                t0.blockSignals(blocked)
 
 
 class _ControlCombo(QComboBox):
@@ -122,16 +162,19 @@ def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) ->
     def _on_ctrl_toggled(checked: bool) -> None:
         app._fc_vs_control_on = bool(checked)
         ctrl_combo.setEnabled(checked)
+        _sync_widgets_to_state(app, skip_scope=scope)
         _redraw_all()
 
     def _on_ctrl_changed(_idx: int) -> None:
         text = ctrl_combo.currentText()
         app._fc_control_label = "" if text == _NONE_LABEL else text
+        _sync_widgets_to_state(app, skip_scope=scope)
         if app._fc_vs_control_on:
             _redraw_all()
 
     def _on_t0_toggled(checked: bool) -> None:
         app._fc_vs_t0_on = bool(checked)
+        _sync_widgets_to_state(app, skip_scope=scope)
         _redraw_all()
 
     ctrl_cb.toggled.connect(_on_ctrl_toggled)
