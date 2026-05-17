@@ -166,6 +166,58 @@ The audit was thorough but the sub-agents had short read windows;
   …" the recommended size is a single new module plus thin shims; not
   a redesign.
 
+### 0.7.5 What has already been implemented
+
+A first implementation pass closed a large fraction of the audit. The
+commits below all sit on `claude/review-app-architecture-Sj0rr` *after*
+the §0 handoff commit (`506a53a`) and *after* PR #247 was merged. A
+fresh session can pick up where this left off by reading `git log
+506a53a..HEAD --reverse` and the corresponding finding sections below.
+
+Each completed finding still appears in its section so a future
+re-audit can see the original analysis; the **STATUS** line on each one
+calls out the fix commit.
+
+**Done (in this branch, post-merge):**
+
+| Finding | Commit | One-line |
+|---|---|---|
+| C1, C6, H15, H17, L19 | `4c870c2` | Atomic JSON / CSV writes via shared helper |
+| C2 | `d50da9a` | `auto_threshold_core.py` — pipeline + GUI share helpers |
+| C3, L3, L4 | `b71c149` | Cap analyze-tab log + queue; drop dead code |
+| C7, H12, H16, H18, H19 | `2842f46` | Mixed v1+v2 reject; style on line/scatter; gating warn; fluor-column warn; ratio denom clamp |
+| L8, L11, L12, L13, L18, L23, M21 | `24656e2` | Dead Movie Montage; NaN-area; heatmap reorder; scatter imports; tp/fov sanity; opacity no-op; pipeline_info partial parse |
+| M2, M18, M19 | `2e7a146` | Well-zip predicate; palette collisions; canonical "tophat" name |
+| C5, H13, M3, M14 | `9e053b6` | Segmentation fingerprint on cell_overrides; BH-FDR; tf_threads clamp; heatmap content-keyed cache |
+| H1, H2 | `2e9af7b` | Stop reaches zipper; PID-reuse-safe SIGKILL |
+| C4, M22 | `e57eb95` | Process-wide ZipFile LRU cache |
+| H14 | `17d1857` | smFISH worker cancellation + dataset-swap safety |
+| H11 | `75f220f` | Sample SD (ddof=1) across aggregator / rep stats / scatter |
+| H6 | `679998b` | Coalesce plate-paint commits via QTimer |
+| H8 | `cf649c3` | `_set_selected_wells` single mutator |
+| H3, M5 | `3879423` | Single-pass walk + schema validation in WellPlateZipper |
+| L6, L7, M4 | `024300d` | Deferred icon render; status balance; warning dedup |
+| H9 (partial) | `743c33c` | Lazy-build guards in line / scatter controllers |
+| M8 | `b0fa79b` | Debounce ratios + heatmap-layouts saves |
+| L24, M23, M24 | `040c402` | Alpha edit blank; backup TOCTOU; rglob depth cap |
+
+**Major remaining items** (see also §7 must-fix shortlist):
+
+- **H4** — `WellPlateZipper` copies instead of moving — left alone; behavioural change requiring user opt-in.
+- **H5** — Frozen-bundle `-c` argv matching — left alone; not exploitable in practice and the existing startswith check is the actual guard.
+- **H7** — `_set_active_channel` double redraws — touches the most entangled methods on the god-object; left for a focused follow-up.
+- **H10** — `_active_channel` written without combo-sync at three sites — same cluster as H7; needs the extraction in §6.3.
+- **H20** — `theme.py` vs `ui/theme/` reconciliation — sizable; not attempted.
+- **M1** — Three different well-token parsers — partially addressed (the `_is_well_named` helper in `services/input_resolution_service.py` is shared with the new well-zip predicate); the canonicaliser still has three copies. Refactor wasn't worth the blast radius without tests.
+- **M6, M7** — `plot_orchestrator` unification — touches many redraw paths; left for focused follow-up.
+- **M9** — CSV load on UI thread — left; needs a `QThread` worker plumbed through the load progress signal.
+- **M10** — Tab-switch redraw fan-out — same cluster as H7.
+- **M11, M12, M13** — Bar-plot fold-change duplication / scatter-agg threshold path / fold-change CSV shape — semantic; needs careful review of every downstream consumer.
+- **M15, M16, M17** — Heatmap concat hot path; controllers → runtime_app; distribution `fig.clear()` — left for focused follow-up.
+- **M20** — Legacy fov/tp regex hardcoded to `_` — left; needs the schema-aware fallback to be plumbed.
+- **M25–M30** — Widget items (mpl callback disconnect, PlotCard rcParams, line-recolour-by-index, hardcoded pixels, per-instance QSS) — not attempted.
+- **L1, L2, L5, L9, L14, L15, L16, L17, L20–L22** — Various Low items not touched.
+
 ### 0.8 Suggested workflow for a fresh session
 
 1. `git status` — confirm clean tree, confirm you're on
@@ -1133,23 +1185,37 @@ In rough order:
 1. **C1** atomic + merging writes to `pipeline_info.json`.
 2. **C2 / H1 (controller side)** factor out the shared auto-threshold
    helpers; pipeline and GUI must agree.
-3. **C3** bound the Analyze-tab log and queue.
-4. **C4** zip-handle caching for the Image Table (and incidentally
-   smFISH).
-5. **C5** segmentation-run fingerprint in `cell_overrides.json`.
-6. **C6** atomic JSON helper across every persistence module.
-7. **C7** reject mixed v1+v2 selections.
-8. **H1 / H2** Stop button reaches the zipper and survives PID reuse.
+3. ~~**C3** bound the Analyze-tab log and queue.~~ → `b71c149`
+4. ~~**C4** zip-handle caching for the Image Table (and incidentally
+   smFISH).~~ → `e57eb95`
+5. ~~**C5** segmentation-run fingerprint in `cell_overrides.json`.~~
+   → `9e053b6`
+6. ~~**C6** atomic JSON helper across every persistence module.~~
+   → `4c870c2`
+7. ~~**C7** reject mixed v1+v2 selections.~~ → `2842f46`
+8. ~~**H1 / H2** Stop button reaches the zipper and survives PID reuse.~~
+   → `2e9af7b`
 9. **H6 / H7 / H8 / H10** the selection + channel-state churn — the
-   user-visible perf and "dropdown out of sync" cluster.
-10. **H11** unify SD ddof choice across stats / aggregator / scatter.
-11. **H12** apply export style on line / scatter redraws.
-12. **H13** add multiple-comparison correction to the Statistics tab.
-13. **H14 / H15** smFISH worker cancellation + atomic CSV write.
-14. **H20** reconcile `theme.py` vs `ui/theme/` colour values.
+   user-visible perf and "dropdown out of sync" cluster. **H6 and H8 done**
+   (`679998b`, `cf649c3`). H7 / H10 still pending — they sit inside the
+   most entangled methods on the god-object and want extraction into a
+   new `channel_state_controller.py` first.
+10. ~~**H11** unify SD ddof choice across stats / aggregator / scatter.~~
+    → `75f220f`
+11. ~~**H12** apply export style on line / scatter redraws.~~ → `2842f46`
+12. ~~**H13** add multiple-comparison correction to the Statistics
+    tab.~~ → `9e053b6`
+13. ~~**H14 / H15** smFISH worker cancellation + atomic CSV write.~~
+    → `17d1857` + `4c870c2`
+14. **H20** reconcile `theme.py` vs `ui/theme/` colour values. *Not
+    yet done.* Theme reconciliation is sizable and touches every
+    widget that imports either system; left for a focused follow-up.
 
 The rest (M-series and L-series) is hygiene worth scheduling but does
 not, on its own, change user outcomes today.
+
+**Items 1–8, 10–13 are merged on this branch; items 9 (partial), 14
+remain.** See §0.7.5 for the full status table.
 
 ---
 
