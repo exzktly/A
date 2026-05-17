@@ -17,7 +17,172 @@ tagged by severity:
   use.
 - **L — Low:** hygiene, dead code, cosmetic correctness, docstring drift.
 
-A "must-fix-before-next-release" shortlist sits at the bottom.
+A "must-fix-before-next-release" shortlist sits at the bottom (§7).
+
+---
+
+## 0. Handoff — for a fresh chat session picking this up
+
+If you're a new Claude instance starting from zero on this branch, read
+this section first. It tells you what state the repository is in, how
+this document was produced, what hasn't been done, and where to begin.
+
+### 0.1 Current state
+
+- **Branch:** `claude/review-app-architecture-Sj0rr` (pushed to
+  `origin`). The audit lives in **`_Docs/Planning.md`** (this file)
+  and is the only change on the branch.
+- **No code changes have been made.** Every finding below is analysis
+  only. The repo still builds and behaves exactly as it did when the
+  audit started.
+- **No tests were added.** §6.8 recommends a test scaffold but none
+  exists yet.
+- **No PR has been opened.** Do not open one without the user's
+  explicit request.
+
+### 0.2 How this document was produced
+
+The previous session read `Markdowns/README_WellViewer.md` and
+`Markdowns/ARCHITECTURE.md` end-to-end, then dispatched **five
+parallel `general-purpose` audit agents**, each scoped to one slice of
+the codebase. Their reports were synthesised here. The slices:
+
+1. **Analyze side** — `all_well.py`, `all_well_launcher.py`,
+   `analyze_tab.py`, `process_microscopy.py` (3312 lines),
+   `WellPlateZipper.py`, `services/*.py`. Produced findings C1–C3,
+   H1–H5, M1–M5, L1–L7. Mapped to §1 below.
+2. **Review-side shell** — `well_viewer/runtime_app.py` (7140 lines),
+   `views/centre_view.py`, `views/sidebar_view.py`,
+   `plot_orchestrator.py`, `load_controller.py`,
+   `selection_controller.py`, `figure_export_editor.py`,
+   `status_signal.py`, `debug_flags.py`, `ui_helpers.py`. Produced
+   H6–H10, M6–M10, L8–L10. Mapped to §2.
+3. **Controllers / renderers** — lineplot, barplot, scatter,
+   distribution, heatmap, stats, fold_change, data_loading,
+   export_service, auto_threshold, plot_style, metric_labels,
+   grouping, preview controllers. Produced H11–H13, M11–M17, L11–L15.
+   Mapped to §3.
+4. **Data + image + persistence** — data_loading, image_discovery,
+   image_resolver, viewer_state, plate_layout, selections_model,
+   sample_definitions, batch_models, ratio_models, gating_state,
+   image_table_controller (1798 lines), review_image_*, smfish_*,
+   montage_controller, crop_tool, every file under
+   `well_viewer/persistence/`. Produced C4–C7, H14–H19, M18–M24,
+   L16–L20. Mapped to §4.
+5. **Widgets + theming** — every file under `widgets/`, `theme.py`,
+   `ui/theme/`, `well_viewer/ui_helpers.py`, sample tab views.
+   Produced H20–H23, M25–M30, L21–L24. Mapped to §5.
+
+If a section number is wrong because new findings shifted the
+numbering, **don't renumber retroactively** — append new findings at
+the end of the relevant section and use the next free number. Cross-
+references (e.g. "see C5") elsewhere in this document assume stable
+IDs.
+
+### 0.3 Severity ID conventions
+
+The C/H/M/L letter is followed by a sequential number that is **global
+across the document**, not per-section. So C1–C7 are seven critical
+findings *anywhere*; H1–H23 are 23 high-severity findings across all
+audit areas. This means future additions claim the next free number,
+not a per-section number.
+
+### 0.4 How to start implementing
+
+The recommended order is the **must-fix shortlist in §7**, but the
+single highest-leverage starting point is:
+
+1. **Create the shared atomic-write helper** described in §6.1.
+   File suggestion: `well_viewer/persistence/_io.py` exporting
+   `atomic_write_json(path: Path, data: object) -> None`. Convert all
+   persistence modules (`ratios.py`, `heatmap_layouts.py`,
+   `bar_groups.py`, `cell_overrides.py`, `line_order.py`,
+   `sample_definitions.py`) to use it. Then point `smfish_worker.py`
+   at it for CSV writes (H15) and `process_microscopy.write_pipeline_info`
+   too (C1). Single low-risk PR; closes C1, C6, H15.
+2. **Factor out the auto-threshold helpers** (C2). Create
+   `well_viewer/auto_threshold_core.py` with stdlib + numpy + skimage
+   only; have both `process_microscopy.py` and
+   `well_viewer/auto_threshold.py` import from it. The pipeline
+   contract (no imports from `well_viewer/`) is preserved because the
+   new module has no Qt or GUI dependencies. Pipeline-only deployments
+   already have numpy + skimage. Single-file change with broad
+   correctness payoff.
+3. **Cap the analyze-tab log** (C3) — three-line fix:
+   `document().setMaximumBlockCount(10000)`, `Queue(maxsize=10000)`,
+   drop-with-warning policy.
+
+After those three, the "selection paint→commit" cluster
+(H6/H8/H10/M7/L9) is the next coherent piece of work and the largest
+user-visible perf win. It wants extracting into a new
+`channel_state_controller.py`; the plan is in §2 and §6.3.
+
+### 0.5 Verifying findings before acting on them
+
+Several findings reference specific line numbers. Line numbers may
+shift if anyone has edited the files between audit and
+implementation. Before changing code:
+
+- `git log --oneline -- <file>` to confirm the file hasn't moved.
+- Open the file at the cited range. If the snippet matches the
+  finding's description, the line numbers are still valid. If the
+  snippet has moved, grep for a stable identifier mentioned in the
+  finding (function name, variable name, distinctive string) and
+  update mentally.
+- For findings that claim something is missing (e.g. "no atomic
+  write"), confirm by reading the file rather than trusting the
+  finding — atomic-write helpers may have been added since.
+
+The audit was thorough but the sub-agents had short read windows;
+**spot-check critical findings before committing fixes**.
+
+### 0.6 Repo layout reminders (in case you skip ARCHITECTURE.md)
+
+- `all_well.py` — app entry + shell.
+- `analyze_tab.py` — Analyze pane.
+- `process_microscopy.py` — the pipeline; **must run with no
+  `well_viewer/` imports** (CI / headless workers).
+- `well_viewer/` — Review pane. `runtime_app.WellViewerApp` is a
+  deliberate god-object; controllers are pure functions of `(app, …)`.
+- `widgets/` — reusable Qt widgets; must not import from
+  `well_viewer/` or `all_well`.
+- `services/` — Analyze-side service modules.
+- `ui/theme/` — claimed-dormant theme system that is actually
+  load-bearing (see H20).
+- `_Docs/` — installer + requirements + **this file**.
+- `Markdowns/` — the two live docs (ARCHITECTURE.md, README_WellViewer.md).
+- `tests/` — does not exist yet. §6.8 recommends creating it.
+
+### 0.7 What this document is NOT
+
+- It is not a design doc for a new feature.
+- It is not a refactor plan for the whole codebase — most findings are
+  surgical.
+- It is not exhaustive — the sub-agents flagged genuine issues and
+  skipped nits; a fresh pass would likely find more, especially in
+  files not opened (`batch_export/`, every individual `tabs/*.py`,
+  every individual `views/*.py`).
+- It does not recommend rewrites. Where a finding says "extract into
+  …" the recommended size is a single new module plus thin shims; not
+  a redesign.
+
+### 0.8 Suggested workflow for a fresh session
+
+1. `git status` — confirm clean tree, confirm you're on
+   `claude/review-app-architecture-Sj0rr`.
+2. Read this §0, then skim §7 (the shortlist), then read whichever §1–§5
+   subsections cover the work you're picking up.
+3. Pick the smallest item from §7 that fits your time budget. The
+   first three are explicitly ordered for that.
+4. Verify the cited locations (see §0.5).
+5. Implement, test (manually if no test scaffold exists yet), commit
+   on this branch.
+6. When committing, reference the finding ID(s) in the commit message
+   (e.g. "Fix C1, C6, H15: introduce atomic_write_json helper").
+7. **Do not delete findings from this document when you fix them.**
+   Strike them with `~~strikethrough~~` and append a
+   `→ Fixed in <commit-sha>` note. Keeps the audit trail intact.
+8. Do not open a PR unless asked.
 
 ---
 
