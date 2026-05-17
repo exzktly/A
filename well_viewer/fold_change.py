@@ -208,15 +208,30 @@ def fold_change_suffix(vs_control_on: bool, vs_t0_on: bool,
 
 # ── Control-series helpers ──────────────────────────────────────────────────
 
+_WELL_DISAMBIG_SUFFIX = " (well)"
+
+
 def resolve_control_wells(app, control_label: str) -> List[str]:
     """Translate a control selection string into a list of loaded well tokens.
 
-    The control may identify either a ReplicateSet (by name, taking precedence
-    when there's a name clash) or a single well token. Unknown / empty
-    selections return an empty list so callers can short-circuit.
+    Resolution order:
+      1. Suffixed " (well)" — explicit "this is a well token". The suffix
+         is stripped and the bare token is looked up in ``_well_paths``.
+      2. ReplicateSet name match in ``_selections``.
+      3. Bare well token in ``_well_paths``.
+
+    The suffix exists for the rep-set-name-vs-well-token collision case
+    (someone named a rep-set "A01"): the UI combo emits the suffixed
+    form for the well entry, so picking it bypasses the rep-set
+    precedence in (2). Unknown / empty selections return ``[]``.
     """
     label = str(control_label or "").strip()
     if not label:
+        return []
+    if label.endswith(_WELL_DISAMBIG_SUFFIX):
+        bare = label[: -len(_WELL_DISAMBIG_SUFFIX)]
+        if bare in (getattr(app, "_well_paths", None) or {}):
+            return [bare]
         return []
     for s in (getattr(app, "_selections", []) or []):
         if s.get("name") == label:
