@@ -6199,6 +6199,68 @@ class WellViewerApp(QWidget):
                 out.append(ReplicateSet(s.get("name") or "", list(wells)))
         return out
 
+    def _well_aggregate_stats(
+        self,
+        wells,
+        target_t: float,
+        *,
+        threshold: float,
+        val_col: str,
+        cell_area_threshold: float,
+        fluor_gates: Dict[str, float],
+        use_sem: bool,
+    ) -> tuple[float, float, float, float]:
+        """Pool per-well means and fractions at *target_t* and return
+        ``(mean, mean_err, frac, frac_err)``.
+
+        Each loaded well contributes one mean / fraction value (per the
+        active gating); sample SD (ddof=1) is taken across those values
+        and divided by √n when ``use_sem`` is True. Shared between
+        :meth:`_compute_rep_stats` (line / bar plot rep-set stats) and
+        ``scatter_controller._agg_wells`` (scatter aggregate plot) so the
+        three paths agree on what "mean across wells under active
+        gating" means.
+        """
+        well_means: List[float] = []
+        well_fracs: List[float] = []
+        for lbl in wells:
+            if lbl not in self._well_paths:
+                continue
+            pts = self._aggregate_well(
+                lbl, threshold=threshold, use_sem=False,
+                val_col=val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            for pt in pts:
+                if abs(pt[0] - target_t) < 1e-6:
+                    _, m, _sd, f, *_ = pt
+                    if not math.isnan(m):
+                        well_means.append(m)
+                    if not math.isnan(f):
+                        well_fracs.append(f)
+                    break
+
+        if well_means:
+            arr = np.asarray(well_means, dtype=float)
+            gm = float(arr.mean())
+            n = arr.size
+            gsd = float(arr.std(ddof=1)) if n > 1 else 0.0
+            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
+        else:
+            gm, gerr = float("nan"), 0.0
+
+        if well_fracs:
+            arr = np.asarray(well_fracs, dtype=float)
+            gf = float(arr.mean())
+            nf = arr.size
+            fsd = float(arr.std(ddof=1)) if nf > 1 else 0.0
+            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
+        else:
+            gf, ferr = float("nan"), 0.0
+
+        return gm, gerr, gf, ferr
+
     def _compute_rep_stats(
         self,
         rset: "ReplicateSet",
@@ -6212,6 +6274,12 @@ class WellViewerApp(QWidget):
         Statistics are computed across the loaded wells of the set.
         Each well contributes one mean-fluor value; SD/SEM is across those values.
         Results are cached in _stats_cache.
+
+        Thin wrapper over :meth:`_well_aggregate_stats` which carries the
+        shared per-well aggregation + ddof=1 stats logic. ``_agg_wells``
+        in scatter_controller delegates to the same helper so all three
+        plot paths (line / bar / scatter-agg) compute the "mean across
+        wells under active gating" identically.
         """
         if not hasattr(self, "_stats_cache"):
             self._stats_cache = {}
@@ -6222,43 +6290,14 @@ class WellViewerApp(QWidget):
         if cache_key in self._stats_cache:
             return self._stats_cache[cache_key]
 
-        well_means: List[float] = []
-        well_fracs: List[float] = []
-        for lbl in rset.wells:
-            if lbl not in self._well_paths:
-                continue
-            pts = self._aggregate_well(
-                lbl, threshold=threshold, use_sem=False,
-                val_col=self._active_val_col,
-                cell_area_threshold=cell_area_threshold,
-                fluor_gates=fluor_gates,
-            )
-            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            if matched:
-                _, m, _sd, f, *_ = matched[0]
-                if not math.isnan(m): well_means.append(m)
-                if not math.isnan(f): well_fracs.append(f)
-
-        if well_means:
-            arr = np.asarray(well_means, dtype=float)
-            gm  = float(arr.mean())
-            n   = arr.size
-            # Sample SD (ddof=1) across wells — each well is treated as
-            # one biological replicate. Matches the Stats tab's
-            # statistics.stdev (ddof=1) on the same group.
-            gsd = float(arr.std(ddof=1)) if n > 1 else 0.0
-            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
-        else:
-            gm, gerr = float("nan"), 0.0
-
-        if well_fracs:
-            arr = np.asarray(well_fracs, dtype=float)
-            gf  = float(arr.mean())
-            nf  = arr.size
-            fsd = float(arr.std(ddof=1)) if nf > 1 else 0.0
-            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
-        else:
-            gf, ferr = float("nan"), 0.0
+        gm, gerr, gf, ferr = self._well_aggregate_stats(
+            rset.wells, target_t,
+            threshold=threshold,
+            val_col=self._active_val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            use_sem=use_sem,
+        )
 
         result = (gm, gerr, gf, ferr)
         self._stats_cache[cache_key] = result
