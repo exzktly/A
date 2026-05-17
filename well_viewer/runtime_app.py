@@ -4935,6 +4935,11 @@ class WellViewerApp(QWidget):
         # the empty state via its own no-data branch.
         from well_viewer import status_signal as _status_signal
         self._refresh_plot_empty_states()
+        # `_plot_redraw_orchestrator` fans out across the default-scope
+        # tabs (line / distribution / heat map). Bar / scatter /
+        # scatter-aggregate are scope-specific and re-render through
+        # their own per-tab shims — see `plot_orchestrator.redraw`'s
+        # docstring for the contract.
         with _status_signal.warn_scope():
             try:
                 _plot_redraw_orchestrator(
@@ -4949,24 +4954,7 @@ class WellViewerApp(QWidget):
                 _status_signal.signal_failed()
                 raise
         from well_viewer.figure_export_editor import apply_export_style_to_current
-
         apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
-
-        # Redraw the Distribution and Heat Map tabs if they have been built —
-        # both follow the active channel/metric/threshold so they need to track
-        # the same state changes that drive the line plot.
-        if hasattr(self, "_distribution_canvas"):
-            try:
-                from well_viewer.distribution_controller import redraw_distribution
-                redraw_distribution(self)
-            except Exception:
-                _logger.exception("Distribution redraw failed")
-        if hasattr(self, "_heatmap_canvas"):
-            try:
-                from well_viewer.heatmap_controller import redraw_heatmap
-                redraw_heatmap(self)
-            except Exception:
-                _logger.exception("Heat map redraw failed")
 
         # Keep the Export Configurator's line-order lists in sync with the
         # current selection / replicate sets when the sidebar is open.

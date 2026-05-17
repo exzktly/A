@@ -77,6 +77,10 @@ def load_directory(app, d: Path, label=None) -> None:
     app._last_sel = None
     app._prev_sel = set()
     app._bar_order = None
+    # Drop the per-channel threshold (min, max) cache; the new dataset's
+    # ranges may be completely different.
+    if hasattr(app, "_threshold_range_cache"):
+        app._threshold_range_cache.clear()
     if hasattr(app, "_invalidate_review_image_frame_cache"):
         app._invalidate_review_image_frame_cache()
     # Drop every cached ZipFile handle on dataset swap so the new

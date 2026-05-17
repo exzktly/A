@@ -115,16 +115,31 @@ def recalculate_threshold(app) -> None:
         except Exception:
             _logger.exception("Heatmap timepoint refresh failed")
 
-    chunks = [
-        _all_fluor_values(app._get_rows(lbl), val_col=app._active_val_col)
-        for lbl in app._well_paths
-    ]
-    all_vals = np.concatenate(chunks) if chunks else np.empty(0)
-    if all_vals.size == 0:
-        return
-    lo, hi = float(all_vals.min()), float(all_vals.max())
-    if hi <= lo:
-        hi = lo + 1.0
+    # Per-channel (min, max) cache — keyed on val_col so a channel toggle
+    # reuses the previous channel's range when the user flips back. Audit
+    # M7: the unconditional concat across every loaded well × every cell
+    # was the hot loop on channel switch (~3.5M float scans for 96 wells
+    # × 12 tp × 3k cells). Cache is invalidated by `load_directory` on
+    # dataset swap (`app._threshold_range_cache.clear()`).
+    cache = getattr(app, "_threshold_range_cache", None)
+    if cache is None:
+        cache = {}
+        app._threshold_range_cache = cache
+    cached = cache.get(app._active_val_col)
+    if cached is None:
+        chunks = [
+            _all_fluor_values(app._get_rows(lbl), val_col=app._active_val_col)
+            for lbl in app._well_paths
+        ]
+        all_vals = np.concatenate(chunks) if chunks else np.empty(0)
+        if all_vals.size == 0:
+            return
+        lo, hi = float(all_vals.min()), float(all_vals.max())
+        if hi <= lo:
+            hi = lo + 1.0
+        cache[app._active_val_col] = (lo, hi)
+    else:
+        lo, hi = cached
     app._threshold_min = lo
     app._threshold_max = hi
 
