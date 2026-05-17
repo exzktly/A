@@ -70,15 +70,12 @@ class ProgressTracker:
         events: list[Tuple[str, object]] = []
         if line.startswith("[zipper]"):
             return events
-        if (
-            ("Zip mode:" in line or "Zip mode complete" in line)
-            and not self.zip_mode_warning_logged
-        ):
+        # The "Zip mode detected" warning is emitted up-front in
+        # _run_pipeline_thread (before the pipeline launches) so it
+        # arrives even on early failures. No second emission needed
+        # when the pipeline echoes the same banner via stdout.
+        if "Zip mode:" in line or "Zip mode complete" in line:
             self.zip_mode_warning_logged = True
-            events.append((
-                "line",
-                "[warn] Zip mode detected; folder-mode compression options do not apply.\n",
-            ))
         m = _RE_TF_WORKERS.search(line)
         if m:
             events.append(("workers", int(m.group(1))))
