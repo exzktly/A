@@ -3849,17 +3849,6 @@ class WellViewerApp(QWidget):
             metric = "mean_intensity"
         self._set_active_metric(metric)
 
-    def _on_heatmap_property_change(self) -> None:
-        """Heatmap tab's per-tab Property combo → propagate to global state."""
-        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
-        cb = getattr(self, "_heatmap_property_cb", None)
-        if cb is None:
-            return
-        metric = METRIC_LABEL_TO_KEY.get(str(cb.currentText() or ""), "mean_intensity")
-        if metric == "smfish_count" and self._active_channel not in self._smfish_channels:
-            metric = "mean_intensity"
-        self._set_active_metric(metric)
-
     def _on_stats_property_change(self) -> None:
         """Stats tab's per-tab Property combo → propagate to global state."""
         from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
@@ -3882,11 +3871,10 @@ class WellViewerApp(QWidget):
             self._active_val_col = f"{self._active_channel}_{self._active_metric}"
         label = METRIC_KEY_TO_LABEL.get(metric, "Mean Intensity")
         # Sync every metric combo (per-tab hidden legacy combos + the
-        # global ctxbar combo + the heatmap per-tab Property combo) without
+        # global ctxbar combo + the stats per-tab Property combo) without
         # retriggering this handler.
         for attr in ("_metric_var", "_metric_cb", "_metric_cb_bar",
-                     "_plotting_metric_cb", "_heatmap_property_cb",
-                     "_stats_property_cb"):
+                     "_plotting_metric_cb", "_stats_property_cb"):
             cb = getattr(self, attr, None)
             if cb is None:
                 continue
@@ -4031,8 +4019,7 @@ class WellViewerApp(QWidget):
         except Exception:
             channel_label = ""
         smfish_chan = self._active_channel
-        for attr in ("_plotting_metric_cb", "_metric_cb", "_metric_cb_bar",
-                     "_heatmap_property_cb"):
+        for attr in ("_plotting_metric_cb", "_metric_cb", "_metric_cb_bar"):
             self._populate_metric_combo(
                 getattr(self, attr, None),
                 channel_entry=channel_label,

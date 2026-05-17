@@ -58,22 +58,10 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     )
     app._chan_cb_heatmap.hide()
 
-    # Per-tab Property combo — picks which CSV column drives the heatmap.
-    # Mirrors the global ctxbar Property combo's state but lives in the
-    # tab so it's directly visible when the heatmap is the active subtab.
-    from well_viewer.metric_labels import METRIC_ORDER as _HM_METRIC_ORDER
-    cl1.addWidget(QLabel("Property:", ctrl1))
-    app._heatmap_property_cb = QComboBox(ctrl1)
-    app._heatmap_property_cb.addItems(_HM_METRIC_ORDER)
-    app._heatmap_property_cb.currentIndexChanged.connect(
-        lambda _i: app._on_heatmap_property_change()
-    )
-    cl1.addWidget(app._heatmap_property_cb)
-
-    # "Aggregation" rather than "Metric" — the Property combo above picks
-    # which intensity column drives the heatmap; this combo picks how
-    # cells in each grid square are aggregated (mean / mean above
-    # threshold / fraction above threshold / cell count).
+    # The global ctxbar Property combo is the single source of truth for
+    # which CSV column drives the heatmap — the per-tab Property combo
+    # used to live here, but the duplicate (one in the ctxbar, one in
+    # this row) was confusing. Only the Aggregation combo stays local.
     cl1.addWidget(QLabel("Aggregation:", ctrl1))
     app._heatmap_metric_cb = QComboBox(ctrl1)
     app._heatmap_metric_cb.addItems(METRIC_OPTIONS)
@@ -205,6 +193,10 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     app._heatmap_card = card
     app._heatmap_fig = card.figure
     app._heatmap_ax = app._heatmap_fig.add_subplot(1, 1, 1)
+    # Reserve top margin for the (sometimes long) title so it doesn't get
+    # cropped — the default ``top=0.9`` clipped titles like
+    # "MCHERRY Mean Intensity — Mean above threshold — t = 12 h".
+    app._heatmap_fig.subplots_adjust(top=0.88, bottom=0.10, left=0.10, right=0.94)
     # Reserve a persistent colorbar axes via make_axes_locatable so each
     # redraw can refill it in place. Letting fig.colorbar(im, ax=ax)
     # allocate a fresh axes every redraw was the cause of the heatmap
@@ -214,7 +206,11 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     divider = make_axes_locatable(app._heatmap_ax)
     app._heatmap_cax = divider.append_axes("right", size="4%", pad=0.08)
     app._heatmap_canvas = card.canvas
-    card.setControlsWidget(make_band_controls(app, card, with_fov=False))
+    # Heatmap never draws error bands or per-FOV spread — it shows a
+    # single aggregated value per grid cell. The shared band controls
+    # would only mislead the user, so leave the card's controls row
+    # empty.
+    card.setControlsWidget(None)
     # NOTE: don't trigger a redraw on theme change — heatmap_controller doesn't
     # use plot_style.apply_ax_style (it has its own inline ax styling), so a
     # redraw would wipe the widget-side theme styling that setPlotTheme already
@@ -244,30 +240,28 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     except Exception:
         pass
 
-    # Reshape the per-tab Property combo for the active channel (ratio
-    # channels collapse to ``Calculated Val``); then sync the selection
-    # to the canonical ``_active_metric`` and refresh the aggregation
-    # enable state.
+    # Refresh the global Property combo + heatmap aggregation enable
+    # state so the heatmap's first render reflects the canonical
+    # ``_active_metric`` (ratio channels disable the global combo and
+    # collapse it to ``Calculated Val``; non-MFI properties grey out
+    # threshold-based aggregations).
     try:
         if hasattr(app, "_refresh_metric_combo_for_channel"):
             app._refresh_metric_combo_for_channel()
-        from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
-        prop_cb = getattr(app, "_heatmap_property_cb", None)
-        if prop_cb is not None:
-            label = METRIC_KEY_TO_LABEL.get(
-                getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity"
-            )
-            idx = prop_cb.findText(label)
-            if idx >= 0:
-                blocked = prop_cb.blockSignals(True)
-                try:
-                    prop_cb.setCurrentIndex(idx)
-                finally:
-                    prop_cb.blockSignals(blocked)
         if hasattr(app, "_refresh_heatmap_aggregation_options"):
             app._refresh_heatmap_aggregation_options()
     except Exception:
         pass
+    # Bust any caches that might hold a stale "no values" result from
+    # before the tab was fully built (data load timing can leave the
+    # global colormap range cache populated with NaNs, which produced
+    # empty cells until the user wiggled the channel).
+    app._heatmap_global_range_cache = None
+    if hasattr(app, "_invalidate_stats_cache"):
+        try:
+            app._invalidate_stats_cache()
+        except Exception:
+            pass
     _redraw(app)
 
 

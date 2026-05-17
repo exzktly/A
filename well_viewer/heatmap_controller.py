@@ -521,7 +521,10 @@ def redraw_heatmap(app) -> None:
         f"{app._active_channel_label() if hasattr(app, '_active_channel_label') else app._active_channel.upper()}"
         f" — {metric} — t = {tp:g} h"
     )
-    ax.set_title(title, fontsize=9, color=_title_fg)
+    # ``pad`` lifts the title away from the heatmap rows so the descenders
+    # never overlap the top row of cells; the figure's top=0.88 margin
+    # reserves enough room for the lifted title.
+    ax.set_title(title, fontsize=9, color=_title_fg, pad=8)
 
     # Apply the Export Style sidebar prefs (font sizes, grid, log scale, …)
     # so toggling those in the configurator survives a redraw.

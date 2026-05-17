@@ -1115,7 +1115,8 @@ class BatchExportPanel(QWidget):
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="best", fontsize=legend_fontsize, framealpha=0.0, facecolor="none")
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(loc="best", fontsize=legend_fontsize, framealpha=0.0, facecolor="none")
         self._save_figure(fig, fig_path, fmt)
 
     def _groups_for_export(self) -> List[BarGroup]:
@@ -1397,8 +1398,15 @@ class BatchExportPanel(QWidget):
 
         if any_ts:
             ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.8)
-            ax_mean.legend(**legend_kw)
-            ax_frac.legend(**legend_kw)
+            # Skip the legend call entirely when no labeled artists were
+            # plotted (e.g. all NaN means for a non-MFI property + a
+            # threshold that filters every cell) — matplotlib otherwise
+            # emits the noisy "No artists with labels found to put in
+            # legend" UserWarning to stderr.
+            if ax_mean.get_legend_handles_labels()[0]:
+                ax_mean.legend(**legend_kw)
+            if ax_frac.get_legend_handles_labels()[0]:
+                ax_frac.legend(**legend_kw)
         if any_cdf:
             ax_cdf.axvline(threshold, color=WARN, lw=1.2, ls="--",
                            label=f"threshold={threshold:.2f}", zorder=5)
@@ -1406,7 +1414,8 @@ class BatchExportPanel(QWidget):
                 lo, hi = min(all_fluor_vals), max(all_fluor_vals)
                 ax_cdf.axvspan(threshold, hi, alpha=0.05, color=WARN, zorder=1)
                 ax_cdf.set_xlim(lo, hi)
-            ax_cdf.legend(**legend_kw)
+            if ax_cdf.get_legend_handles_labels()[0]:
+                ax_cdf.legend(**legend_kw)
 
         return fig
 
