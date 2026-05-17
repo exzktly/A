@@ -929,7 +929,15 @@ def parse_filename(
         token = parts[i] if i < len(parts) else ""
         if field == "timepoint":
             result["timepoint"]       = token
-            result["timepoint_hours"] = _parse_timepoint_hours(token)
+            # Empty timepoint slot — common when the schema includes
+            # "timepoint" but the dataset is single-timepoint and the
+            # filenames don't carry a timepoint token. NaN would
+            # propagate into the CSV's timepoint_hours column and
+            # break every downstream comparison. Treat as t=0.
+            result["timepoint_hours"] = (
+                0.0 if not token.strip()
+                else _parse_timepoint_hours(token)
+            )
         else:
             result[field] = token
 
@@ -1142,6 +1150,14 @@ def _estimate_thresholds_standalone(
                     # fallback (PR #247 C2 fix) silently produced zero
                     # samples for every channel on those datasets.
                     tp = (fields.get("timepoint") or fields.get("tp") or "").strip()
+                    # Single-timepoint datasets: when the filename has
+                    # fewer tokens than the schema has fields, the
+                    # timepoint slot parses as "" and `if fov and tp`
+                    # below would drop every label silently. Use a
+                    # synthetic "0" sentinel so the auto-threshold
+                    # still aggregates per-fov samples.
+                    if fov and not tp:
+                        tp = "0"
                     if fov and tp:
                         label_members[(fov, tp)] = name
                 elif base.endswith("_tophat"):
@@ -1149,6 +1165,8 @@ def _estimate_thresholds_standalone(
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
                     tp = (fields.get("timepoint") or fields.get("tp") or "").strip()
+                    if fov and not tp:
+                        tp = "0"
                     ch = (fields.get("channel") or "").strip().lower()
                     if fov and tp and ch in per_channel:
                         tophat_members[(ch, fov, tp)] = name
