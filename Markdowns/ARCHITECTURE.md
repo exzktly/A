@@ -270,6 +270,15 @@ The split between `tabs/` and `views/` is deliberate:
 In one sentence: if it's the body of a centre page, it's a `tabs/` module;
 if it's any other panel-shaped composition, it's a `views/` module.
 
+One `tabs/` module is a shared widget helper rather than a centre-page
+builder: `tabs/fold_change_controls.py` exposes
+`install_fold_change_controls(app, parent, layout, scope=…)` — the
+Control + Baseline dropdown pair installed on both the Bar Plots and
+Line Graphs control rows. It owns the cross-tab widget sync
+(`_sync_widgets_to_state`) that mirrors each state change into the
+other tab's widget instances, so the shared `app._fc_*` state stays
+visually in lockstep across tab switches.
+
 ### 5.4 The left sidebar
 
 `views/sidebar_view.build_sidebar(app, parent)` builds the well picker
@@ -317,6 +326,7 @@ The current list (with a one-line role each):
 | `figure_export_editor.py` | The floating Export Style sidebar's prefs + apply pipeline + `launch_export_editor`. |
 | `grouping_controller.py` | Sample-Definitions group editor logic. |
 | `auto_threshold.py` | Otsu-based per-channel default threshold estimator. |
+| `fold_change.py` | Fold-change normalization helpers (vs control well/rep-set, vs each member's first timepoint). Consumed by the line / bar plot controllers, their renderers, the batch-export panels, and `export_service.py`. |
 
 ### 5.6 The data layer
 
@@ -637,7 +647,57 @@ from `plot_orchestrator.redraw` — they have their own entry points
 selection / channel / tab-change paths.
 ```
 
-### 9.5 Running the pipeline
+### 9.5 Applying fold-change normalization
+
+Two independent axes, both optional, both stacking. State lives on the
+`WellViewerApp` so the Bar Plots and Line Graphs tabs share it; the
+batch-export panels keep their own panel-local mirror so a batch job
+isn't tied to whatever the plot tab has set.
+
+```
+                            app._fc_vs_control_on   ─┐
+User → Control combo  ─→    app._fc_control_label   ─┼─→ fold_change.fold_change_state(app)
+                            app._fc_vs_t0_on        ─┘
+User → Baseline combo ─→ (sets _fc_vs_t0_on)
+
+fold_change_state(app)
+        │
+        ▼
+Line tab — lineplot_controller.redraw_line_plots(…)
+   1. control_pts_for_line(app, label, …) → AggPoint list pooled
+      across the control's wells (via app._aggregate_group).
+   2. pts_to_mean_by_t(control_pts) → {t: control_mean}.
+   3. For each member trace, normalize_pts(pts, control_means=…,
+      use_t0=…) divides mean & spread by the control's mean at the
+      matching timepoint and/or by the member's earliest finite mean.
+
+Bar tab — barplot_controller.collect_bar_items(app, target_t)
+          + barplot_renderer.draw_grouped_bar_mode (rep-set rebuild)
+   1. control_mean_at(app, label, target_t, …) → single float.
+   2. For each bar's (mean, spread): scale_bar_value(mean, spread,
+      control_mean=…, t0_mean=…).
+   3. t0_mean comes from first_tp_value(_aggregate_group([…])) for
+      rep-sets, or first_tp_value(pts) for per-well bars.
+
+Both renderers append a "(fold change vs <ctrl>, vs t0)" suffix to the
+mean axis title / ylabel via fold_change.fold_change_suffix; the batch
+line renderer also suppresses the raw-fluorescence threshold axhline
+when fold-change is active.
+
+CSV output:
+   export_service.export_plot_data / export_bar_plot_data
+   batch_export/base_panel _run_group (line)
+   batch_export/bar_panel  _run_batch  (bar)
+   When fold-change is active, the writers append:
+       fold_change_mean, fold_change_<sd|sem>,
+       fold_change_mode  ("control" | "t0" | "control+t0"),
+       fold_change_control  (the chosen well / rep-set name)
+   The bar CSV stores normalized values in the existing mean / spread
+   columns (matching what's drawn) and only adds the mode/control
+   annotation columns.
+```
+
+### 9.6 Running the pipeline
 
 ```
 Analyze tab Run button

@@ -324,7 +324,7 @@ The left-rail "SECTION" navigator selects one of the centre tabs:
 
 | Tab | What it shows |
 |-----|---------------|
-| **Plotting** | Five sub-tabs: **Line Graphs** (mean ± SD/SEM + fraction above threshold + CDF), **Bar Plots** (bar / beeswarm / violin, drag-to-reorder), **Scatter Plot** (per-cell scatter and aggregate scatter), **Distribution** (histogram / KDE / violin of per-cell values at one timepoint), **Heat Map** (custom layout heatmap). |
+| **Plotting** | Five sub-tabs: **Line Graphs** (mean ± SD/SEM + fraction above threshold + CDF), **Bar Plots** (bar / beeswarm / violin, drag-to-reorder), **Scatter Plot** (per-cell scatter and aggregate scatter), **Distribution** (histogram / KDE / violin of per-cell values at one timepoint), **Heat Map** (custom layout heatmap). Line Graphs and Bar Plots additionally support **Fold-change normalization** — divide every bar / curve by a control well or replicate set, by each member's own t0, or both (see [Fold-change normalization](#fold-change-normalization)). |
 | **Statistics** | Pairwise tests across saved selections (t-test, Mann-Whitney, KS) with KS CDF. |
 | **Image Table** | Grid of per-FOV image thumbnails; configurable rows/columns/channels; bulk export. |
 | **Segmentation** | Two sub-tabs: **Segmentation** (per-FOV overlay viewer; click a nucleus to flag/unflag it for inclusion in stats) and **smFISH** (spot detection, parameter sweep, "Apply to All"). |
@@ -347,6 +347,41 @@ a well to toggle it; drag across wells to multi-toggle; click a row letter
 or column number to toggle the whole row / column; **Select all** /
 **Select none** clear or fill in one click. The selection survives across
 tabs and is what every plot / aggregate / export consumes.
+
+### Fold-change normalization
+
+The Bar Plots and Line Graphs tabs (and their Batch Export panels) carry
+two parallel dropdowns on the controls row:
+
+```
+Fold change:  Control [— ▾]   Baseline [— ▾]
+```
+
+- **Control** — pick a loaded well or replicate set to divide every bar
+  / curve by its mean at the matching timepoint. `—` disables this
+  axis. (The Bar Plots control combo also includes any replicate sets
+  defined in Sample Definitions.)
+- **Baseline** — pick `t0 (first timepoint)` to divide every bar / curve
+  by its own value at the earliest available timepoint, so each
+  member's first point becomes 1.0. `—` disables this axis.
+
+Both axes are independent and may be combined (delta-delta-style
+normalization). State is shared between the Bar Plots and Line Graphs
+tabs — toggling on one is reflected on the other when you switch back.
+The batch-export panels keep their own copies so a batch job isn't
+tied to whatever the on-screen plot has set.
+
+Normalized figures gain a "(fold change vs …)" suffix on the mean
+axis title / label, and the batch-export figure suppresses the raw
+threshold reference line on the mean panel (it's in raw-fluorescence
+units and would be misleading on a normalized axis; the CDF panel's
+threshold line stays because per-cell distributions aren't
+normalized).
+
+The CSV exporters append `fold_change_mean`, `fold_change_<sd|sem>`,
+`fold_change_mode` (`control` / `t0` / `control+t0`), and
+`fold_change_control` columns when either axis is active, so the
+normalization parameters are recorded alongside the numbers.
 
 ### Properties (figure styling)
 
@@ -373,7 +408,10 @@ Define one or more groups (replicate sets + solo wells), pick a set of
 timepoints, and the Batch Export tab generates one figure + one CSV per
 group per timepoint into a folder of your choosing. Useful for paper
 figures where every condition needs the same plot at the same time
-points.
+points. The bar and line batch panels also expose the same
+[Fold-change normalization](#fold-change-normalization) dropdowns, with
+panel-local state so a batch run isn't tied to whatever the on-screen
+plot has set.
 
 ---
 
