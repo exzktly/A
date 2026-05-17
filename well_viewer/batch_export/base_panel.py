@@ -440,6 +440,24 @@ class BatchExportPanel(QWidget):
         # Fallback for older app versions.
         return f"{channel}_{metric_key}"
 
+    def _resolved_channel_key(self, channel_entry: str) -> str:
+        """Resolve a channel-combo entry to the key the rest of the app uses.
+
+        The combo lists real fluor channels by their bare token ("gfp")
+        and ratios by their display label ("GFP/MCHERRY"). Cell Gating
+        thresholds and fluor gates are keyed by the bare token / full
+        ratio key (``ratio:<name>``), not the display label, so any
+        threshold or gate lookup needs to translate the display form
+        back to its canonical key first — otherwise the lookup misses,
+        the helper falls back to its default (50.0 for ThreshFracOn),
+        and a ratio batch ends up filtering every cell out.
+        """
+        mapping = getattr(self._app, "_label_to_channel_key", None) or {}
+        resolved = mapping.get(channel_entry)
+        if resolved:
+            return resolved
+        return channel_entry
+
     def _refresh_channel_combos(self) -> None:
         """Repopulate channel combo-boxes from the current app state.
 
@@ -1141,7 +1159,14 @@ class BatchExportPanel(QWidget):
             return
 
         _ch_selected = self._selected_export_channel() or self._app._active_channel
-        threshold = self._app._get_thresh_frac_on(_ch_selected)
+        # ``_get_thresh_frac_on`` looks up by the canonical key (bare
+        # channel token or ``ratio:<name>``), not by the dropdown's
+        # display label \u2014 translate ratio labels first so the user's
+        # configured ThreshFracOn is honoured instead of the 50.0
+        # default that empties out the ratio plot.
+        threshold = self._app._get_thresh_frac_on(
+            self._resolved_channel_key(_ch_selected)
+        )
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
