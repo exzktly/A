@@ -771,6 +771,14 @@ Cross-tab widget sync:
    clear-and-readd cycle when the combo's popup is currently
    visible, so user interaction is never yanked out of focus.
 
+   Scope registry. Each tab that owns a fold-change combo set
+   declares itself via a FoldChangeScope (name, ctrl combo attr,
+   baseline combo attr, redraw method). The two scopes today are
+   bar and line; adding a third (e.g. distribution / scatter) is a
+   single register_fold_change_scope call — _sync_widgets_to_state
+   and set_fold_change_state iterate the registry rather than
+   hard-coding scope names.
+
 When a rep-set name collides with a loaded well token, the well's
 combo entry is suffixed with " (well)"; resolve_control_wells
 accepts both bare and suffixed forms, and set_fold_change_state

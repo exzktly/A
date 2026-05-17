@@ -14,6 +14,8 @@ shared ``app._fc_*`` state so the same selection applies to both tabs.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QWidget,
 )
@@ -21,7 +23,63 @@ from PySide6.QtWidgets import (
 
 _NONE_LABEL = "—"
 _T0_LABEL = "t0 (first timepoint)"
-_SCOPES = ("bar", "line")
+
+
+# ── Scope registry ──────────────────────────────────────────────────────────
+#
+# A "scope" is a tab that owns its own fold-change combo widgets but
+# shares state with every other scope via ``app._fc_*``. Each scope
+# entry declares how to find that tab's widgets and which redraw
+# method drives its plot. ``install_fold_change_controls(scope=…)``
+# stashes the per-tab QComboBox refs on the app under the names the
+# scope's descriptor specifies; ``_sync_widgets_to_state`` and
+# ``set_fold_change_state`` iterate the registry instead of hard-
+# coding scope-specific names.
+#
+# Adding a third tab (e.g. distribution / scatter) is a one-liner —
+# register it with the dropdown attribute pattern and redraw method.
+
+
+@dataclass(frozen=True)
+class FoldChangeScope:
+    """Per-tab description used by the cross-tab sync + redraw glue."""
+    name: str
+    ctrl_combo_attr: str
+    baseline_combo_attr: str
+    redraw_method: str  # method name on ``WellViewerApp``
+
+
+_REGISTERED_SCOPES: "dict[str, FoldChangeScope]" = {}
+
+
+def register_fold_change_scope(scope: FoldChangeScope) -> None:
+    """Add a tab to the cross-tab fold-change sync set.
+
+    Idempotent — registering the same scope twice replaces the prior
+    entry. Call before any combo handler in the new tab fires.
+    """
+    _REGISTERED_SCOPES[scope.name] = scope
+
+
+def registered_scopes() -> "tuple[FoldChangeScope, ...]":
+    return tuple(_REGISTERED_SCOPES.values())
+
+
+# Default registrations — the two scopes that exist today. Kept here
+# (rather than at each tab's import site) so the registry is populated
+# even when only one tab has been instantiated.
+register_fold_change_scope(FoldChangeScope(
+    name="bar",
+    ctrl_combo_attr="_fc_ctrl_combo_bar",
+    baseline_combo_attr="_fc_baseline_combo_bar",
+    redraw_method="_redraw_bars",
+))
+register_fold_change_scope(FoldChangeScope(
+    name="line",
+    ctrl_combo_attr="_fc_ctrl_combo_line",
+    baseline_combo_attr="_fc_baseline_combo_line",
+    redraw_method="_redraw",
+))
 
 # Disambiguation suffix appended to a well-token combo entry when there is
 # a replicate set with the same name. Without this, picking the entry
@@ -140,13 +198,14 @@ def _sync_widgets_to_state(app, *, skip_scope: str = "") -> None:
 
     Called after a state mutation so the other tab's widgets reflect the
     new state — the per-tab combos are independent QWidget instances, so
-    without this sync the inactive tab's UI would go stale.
+    without this sync the inactive tab's UI would go stale. Iterates the
+    scope registry, so adding a third tab only requires registering it.
     """
-    for scope in _SCOPES:
-        if scope == skip_scope:
+    for scope in registered_scopes():
+        if scope.name == skip_scope:
             continue
-        ctrl = getattr(app, f"_fc_ctrl_combo_{scope}", None)
-        base = getattr(app, f"_fc_baseline_combo_{scope}", None)
+        ctrl = getattr(app, scope.ctrl_combo_attr, None)
+        base = getattr(app, scope.baseline_combo_attr, None)
         if ctrl is not None:
             _repopulate_control_combo(app, ctrl)
         if base is not None:
@@ -188,14 +247,15 @@ def set_fold_change_state(
 
     _sync_widgets_to_state(app, skip_scope=initiating_scope)
 
-    if hasattr(app, "_redraw_bars"):
+    # Redraw every registered scope's plot. Exceptions are surfaced via
+    # traceback so a failing redraw doesn't silently look like the
+    # toggle did nothing.
+    for scope in registered_scopes():
+        method = getattr(app, scope.redraw_method, None)
+        if method is None:
+            continue
         try:
-            app._redraw_bars()
-        except Exception:
-            traceback.print_exc()
-    if hasattr(app, "_redraw"):
-        try:
-            app._redraw()
+            method()
         except Exception:
             traceback.print_exc()
 
@@ -254,6 +314,14 @@ def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) ->
     ctrl_combo.currentIndexChanged.connect(_on_ctrl_changed)
     baseline_combo.currentIndexChanged.connect(_on_baseline_changed)
 
-    # Stash references so the cross-tab sync helper can reach them.
-    setattr(app, f"_fc_ctrl_combo_{scope}", ctrl_combo)
-    setattr(app, f"_fc_baseline_combo_{scope}", baseline_combo)
+    # Stash references using the scope descriptor's attribute names so
+    # the cross-tab sync helper picks them up via the registry. Falls
+    # back to the standard naming pattern when the scope isn't
+    # registered (e.g. a test stub).
+    descriptor = _REGISTERED_SCOPES.get(scope)
+    ctrl_attr = (descriptor.ctrl_combo_attr if descriptor
+                 else f"_fc_ctrl_combo_{scope}")
+    baseline_attr = (descriptor.baseline_combo_attr if descriptor
+                     else f"_fc_baseline_combo_{scope}")
+    setattr(app, ctrl_attr, ctrl_combo)
+    setattr(app, baseline_attr, baseline_combo)
