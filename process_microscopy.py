@@ -320,6 +320,86 @@ def _ensure_stardist_runtime_deps() -> None:
 # Logging
 # ---------------------------------------------------------------------------
 
+def _ensure_pipeline_io_ready() -> None:
+    """Re-bind ``sys.stdout`` / ``sys.stderr`` when the frozen-launcher's
+    windowed PyInstaller bootloader leaves one or both set to ``None``.
+
+    The bundled launcher is invoked from the GUI as
+    ``subprocess.Popen([sys.executable, "--run-pipeline"],
+    stdout=PIPE, stderr=STDOUT, ...)`` (see
+    ``services/pipeline_service.spawn_pipeline``). The parent attaches a
+    pipe to the child's fd 1, and the child's fd 2 is duped to fd 1 by
+    ``stderr=STDOUT``. In source mode both file descriptors carry a
+    valid Python text wrapper, so ``logging.basicConfig`` below attaches
+    its ``StreamHandler`` to a writable ``sys.stderr`` and every
+    ``log.info(...)`` reaches the GUI's progress queue.
+
+    In a frozen windowed (``console=False``) build the PyInstaller
+    bootloader still detaches Python from the absent terminal — it
+    leaves ``sys.stdout = None`` / ``sys.stderr = None`` even though
+    the underlying file descriptors are perfectly fine. The
+    ``StreamHandler`` then either binds to ``None`` (every emit raises
+    ``AttributeError`` and the message is silently dropped) or stays
+    bound to a broken stream. Symptom: the GUI progress bar freezes
+    immediately after the pipeline launches and only "thaws" once the
+    job finishes by other means.
+
+    This shim restores a working text wrapper around fd 1 / fd 2 when
+    needed, so the module-level ``logging.basicConfig`` below picks up
+    a valid sink and every subsequent ``log.<level>(...)`` reaches the
+    parent's pipe.
+    """
+    import sys
+    import io
+
+    def _fd_ok(fd: int) -> bool:
+        try:
+            os.fstat(fd)
+            return True
+        except OSError:
+            return False
+
+    def _wrap_fd(fd: int):
+        # ``closefd=False`` is critical — the StreamHandler outlives the
+        # main script, but we must not close the parent's pipe end when
+        # GC eventually drops this wrapper.
+        try:
+            raw = os.fdopen(fd, "wb", buffering=0, closefd=False)
+            return io.TextIOWrapper(
+                raw, encoding="utf-8", errors="replace",
+                line_buffering=True, write_through=True,
+            )
+        except OSError:
+            return None
+
+    def _probe(stream) -> bool:
+        if stream is None:
+            return False
+        try:
+            stream.write("")
+            stream.flush()
+            return True
+        except Exception:  # noqa: BLE001 — broken streams raise anything
+            return False
+
+    if not _probe(sys.stdout):
+        wrapper = _wrap_fd(1) if _fd_ok(1) else None
+        if wrapper is not None:
+            sys.stdout = wrapper
+    if not _probe(sys.stderr):
+        # Prefer fd 2 if it's live; otherwise alias to sys.stdout so the
+        # logging StreamHandler still has somewhere to write. The parent
+        # spawns us with ``stderr=STDOUT`` so the two streams merge
+        # downstream anyway.
+        wrapper = _wrap_fd(2) if _fd_ok(2) else None
+        if wrapper is None:
+            wrapper = sys.stdout
+        sys.stderr = wrapper
+
+
+_ensure_pipeline_io_ready()
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -603,13 +683,75 @@ def compress_folder_images_to_zip_and_remove(folder: Path, out_zip: Path) -> int
     return n
 
 
-def remove_directory(path: Path) -> None:
-    """Remove *path* and all its contents, logging any errors."""
-    try:
-        shutil.rmtree(path)
-        log.debug("Removed temporary directory: %s", path)
-    except Exception as exc:          # noqa: BLE001
-        log.warning("Could not remove %s: %s", path, exc)
+def remove_directory(path: Path, *, retries: int = 4, backoff: float = 0.5) -> None:
+    """Remove *path* and all its contents, with retries for remote filesystems.
+
+    Networked / remote filesystems (SMB / NFS / AppleShare) routinely fail
+    ``shutil.rmtree`` on the first attempt because:
+
+    * The OS hasn't yet released file handles that backed recently-written
+      files (lazy close on the server side).
+    * macOS Finder reinjects ``.DS_Store`` sidecars and ``._<file>``
+      AppleDouble metadata into the directory while it's being deleted.
+    * Server-side indexers and antivirus scanners briefly hold scanned
+      files open.
+
+    The previous implementation logged a single warning and gave up,
+    leaving stale ``_tmp_extract_<well>`` / ``_tmp_images_<well>``
+    directories behind on every pipeline run. The retry loop here:
+
+    1. Strips the read-only bit on individual files that raise
+       ``PermissionError`` and retries that file.
+    2. Sleeps with a linear backoff between full ``rmtree`` attempts so
+       the kernel / server has time to release lazy handles.
+    3. Logs at WARNING only after every attempt fails — so a transient
+       remote-FS hiccup no longer pollutes the GUI log.
+    """
+    import stat as _stat
+
+    if not path.exists():
+        return
+
+    def _on_rm_error(func, target, exc_info):
+        # ``onerror`` runs per-file. PermissionError typically means a
+        # read-only attribute set (common on Windows / SMB shares); flip
+        # it and retry. Anything else: propagate so the outer attempt
+        # falls through to the retry/backoff path.
+        exc = exc_info[1] if exc_info else None
+        if isinstance(exc, PermissionError):
+            try:
+                os.chmod(target, _stat.S_IWRITE | _stat.S_IREAD)
+                func(target)
+                return
+            except OSError:
+                pass
+        if exc is not None:
+            raise exc
+        raise OSError(f"unknown rmtree error on {target!r}")
+
+    last_exc: Exception | None = None
+    for attempt in range(max(1, retries)):
+        try:
+            shutil.rmtree(path, onerror=_on_rm_error)
+            if attempt > 0:
+                log.info(
+                    "Removed %s after %d retry(ies) (remote-FS lazy release).",
+                    path, attempt,
+                )
+            else:
+                log.debug("Removed temporary directory: %s", path)
+            return
+        except Exception as exc:  # noqa: BLE001 — every Errno → keep trying
+            last_exc = exc
+            if attempt + 1 < retries:
+                time.sleep(backoff * (attempt + 1))
+
+    if last_exc is not None:
+        log.warning(
+            "Could not remove %s after %d attempts: %s — leftover files "
+            "can be removed manually.",
+            path, retries, last_exc,
+        )
 
 # ---------------------------------------------------------------------------
 # Filename schema helpers
@@ -1741,27 +1883,37 @@ def _worker_init(force_cpu: bool = False, threads_per_worker: int = 0) -> None:
         # the bump isn't permitted.
         pass
 
+    # Restore stdout/stderr before configuring logging — the worker may
+    # have inherited a windowed-PyInstaller-bootloader-detached
+    # sys.stdout / sys.stderr (see ``_ensure_pipeline_io_ready`` for the
+    # full rationale). Otherwise ``logging.basicConfig`` binds its
+    # StreamHandler to ``None`` and every log line vanishes.
+    _ensure_pipeline_io_ready()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  [worker %(process)d]  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    # Defensive: if the worker's stderr was broken before this point (rare,
-    # but observed when the parent's pipe to a GUI log queue gets closed),
-    # try fd 1 instead. Both ends of the GUI's pipe receive the same merged
-    # stream, so this just dodges a stale stderr handle. Wrap in a try so any
-    # platform-specific oddity doesn't sink the worker before it does work.
+    # Belt-and-braces: even after the shim above, an existing handler
+    # bound to ``None`` (from ``logging.basicConfig`` having run at
+    # module import before we got a chance to repair sys.stderr) needs
+    # to be repointed at the live stream so the worker's logs actually
+    # reach the parent's pipe.
     try:
         import sys as _sys2
-        _sys2.stderr.write("")
-        _sys2.stderr.flush()
-    except OSError:
+        if _sys2.stderr is not None and not getattr(_sys2.stderr, "closed", False):
+            _sys2.stderr.write("")
+            _sys2.stderr.flush()
+        else:
+            raise OSError("sys.stderr is None or closed")
+    except (OSError, AttributeError):
         try:
             import os as _os2
             _os2.dup2(1, 2)
             _sys2.stderr = _sys2.stdout                     # noqa: F841
             for _h in list(logging.getLogger().handlers):
-                if isinstance(_h, logging.StreamHandler) and getattr(_h, "stream", None) is not None:
+                if isinstance(_h, logging.StreamHandler):
                     _h.stream = _sys2.stdout
         except Exception:
             pass
