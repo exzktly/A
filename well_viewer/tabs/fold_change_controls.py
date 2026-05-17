@@ -82,9 +82,6 @@ def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) ->
     references stored on ``app``. The toggles themselves write straight to
     the shared ``app._fc_*`` state so both tabs stay in lockstep.
     """
-    sep = QFrame(parent); sep.setFrameShape(QFrame.VLine)
-    layout.addWidget(sep)
-
     fc_lbl = QLabel("Fold change:", parent)
     f = fc_lbl.font(); f.setBold(True); fc_lbl.setFont(f)
     layout.addWidget(fc_lbl)

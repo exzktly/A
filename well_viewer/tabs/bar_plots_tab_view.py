@@ -103,10 +103,6 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())
     cl.addWidget(app._bar_reset_order_btn)
 
-    # Fold-change normalization controls (shared with line plots via app state).
-    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
-    install_fold_change_controls(app, bar_ctrl, cl, scope="bar")
-
     cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data,
                              icon="download"))
     cl.addWidget(btn_secondary(bar_ctrl, "Copy SVG",
@@ -125,6 +121,18 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     style_btn.setToolTip("Show / hide the figure properties panel")
     cl.addWidget(style_btn)
     right_l.addWidget(bar_ctrl)
+
+    # Fold-change normalization gets its own row below the main controls —
+    # the controls row is already crowded enough that sharing would force
+    # widgets to overlap on common window widths.
+    bar_fc_ctrl = QWidget(bar_right)
+    bar_fc_ctrl.setObjectName("TabCtrl")
+    fc_cl = QHBoxLayout(bar_fc_ctrl)
+    fc_cl.setContentsMargins(10, 2, 10, 6)
+    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
+    install_fold_change_controls(app, bar_fc_ctrl, fc_cl, scope="bar")
+    fc_cl.addStretch(1)
+    right_l.addWidget(bar_fc_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
     card = PlotCard(bar_right, figsize=(_FIG_W, _FIG_H), constrained=False)
