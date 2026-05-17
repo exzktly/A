@@ -1080,6 +1080,17 @@ class AnalyzeTab(QWidget):
     def closeEvent(self, event) -> None:
         if self._runner.is_running:
             self._runner.stop()
+        # Mirror the cleanup branch in _poll_log so closing the app
+        # mid-run doesn't leave the status_signal warn-scope
+        # unbalanced (the in-memory ref count would otherwise carry
+        # across a re-build of the tab without a fresh QApplication).
+        if getattr(self, "_status_signal_pushed", False):
+            try:
+                from well_viewer import status_signal as _status_signal
+                _status_signal.warn_pop()
+            except Exception:
+                pass
+            self._status_signal_pushed = False
         super().closeEvent(event)
 
 
