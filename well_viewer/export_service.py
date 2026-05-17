@@ -351,21 +351,25 @@ def export_bar_plot_data(app) -> None:
     well_labels = _well_labels_map(app)
     well_paths = _well_paths_keys(app)
     rows_out = []
+    # ``items`` is a list of ``BarItem`` records emitted by
+    # ``collect_bar_items``. Per-bar values are post-normalization (the on-
+    # screen plot and this CSV stay in lockstep). PR 2 will switch the bar
+    # CSV to the additive schema; for now keep the existing
+    # overwrite-and-annotate behaviour.
     if use_groups:
         id_cols = ["name", "well_name"]
         for item in items:
-            # Rep-set items are (name, gm, g_err_m, gf, g_err_f, has, color[, n_above[, n_above_spread]]).
-            name, gm, g_err_m, gf, g_err_f, has, _color = item[:7]
-            n_above = float(item[7]) if len(item) >= 8 else 0.0
-            n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
             row = {
-                "name": name,
-                "well_name": well_name_for(name, well_labels,
+                "name": item.key,
+                "well_name": well_name_for(item.key, well_labels,
                                            well_paths=well_paths, strict=True),
             }
             row.update(bar_metric_row(
-                mean=gm, spread=g_err_m, frac=gf, frac_spread=g_err_f,
-                has=has, n_above=n_above, n_above_spread=n_above_spread,
+                mean=item.mean, spread=item.spread,
+                frac=item.frac, frac_spread=item.frac_spread,
+                has=item.has_mean,
+                n_above=float(item.n_above),
+                n_above_spread=float(item.n_above_spread),
                 ch=ch, metric=metric, tp_str=tp_str,
                 threshold=threshold, band_lbl=band_lbl,
             ))
@@ -373,33 +377,16 @@ def export_bar_plot_data(app) -> None:
     else:
         id_cols = ["well", "well_name"]
         for item in items:
-            # Per-well items are (label, mean, spread, frac, frac_spread, has[, n_above[, n_above_spread]]);
-            # tolerate older 5-/6-/7-tuple shapes that predated the trailing
-            # event-count fields.
-            if len(item) >= 8:
-                label, mean, spread, frac, frac_spread, has, n_above, n_above_spread = item[:8]
-                n_above = float(n_above)
-                n_above_spread = float(n_above_spread)
-            elif len(item) == 7:
-                label, mean, spread, frac, frac_spread, has, n_above = item[:7]
-                n_above = float(n_above)
-                n_above_spread = 0.0
-            elif len(item) == 6:
-                label, mean, spread, frac, frac_spread, has = item
-                n_above = 0.0
-                n_above_spread = 0.0
-            else:
-                label, mean, spread, frac, has = item
-                frac_spread = 0.0
-                n_above = 0.0
-                n_above_spread = 0.0
             row = {
-                "well": label,
-                "well_name": well_name_for(label, well_labels),
+                "well": item.key,
+                "well_name": well_name_for(item.key, well_labels),
             }
             row.update(bar_metric_row(
-                mean=mean, spread=spread, frac=frac, frac_spread=frac_spread,
-                has=has, n_above=n_above, n_above_spread=n_above_spread,
+                mean=item.mean, spread=item.spread,
+                frac=item.frac, frac_spread=item.frac_spread,
+                has=item.has_mean,
+                n_above=float(item.n_above),
+                n_above_spread=float(item.n_above_spread),
                 ch=ch, metric=metric, tp_str=tp_str,
                 threshold=threshold, band_lbl=band_lbl,
             ))

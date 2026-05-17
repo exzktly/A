@@ -6371,11 +6371,7 @@ class WellViewerApp(QWidget):
             Per-well mode → list of (label, mean, spread, frac, has)
         band_lbl   : str
         """
-        return _bar_collect_items(
-            self,
-            target_t,
-            well_colors=WELL_COLORS,
-        )
+        return _bar_collect_items(self, target_t)
 
     def _render_bar_figure(self, target_t: float, tp_str: str) -> "Figure":
         """
@@ -6409,32 +6405,13 @@ class WellViewerApp(QWidget):
         ax_frac.set_ylim(-0.05, 1.05)
 
         use_groups, items, _ = self._collect_bar_items(target_t)
-        if use_groups:
-            rep_by_name = {r.name: r for r in self._rep_sets_active()}
-            xlabels = [self._replicate_display_label(rep_by_name[name]) if name in rep_by_name else name for name, *_ in items]
-            draw_items = []
-            for item, xlbl in zip(items, xlabels):
-                # collect_bar_items rep-set items are 9-tuples
-                # (name, gm, g_err_m, gf, g_err_f, has, color, n_above, n_above_spread).
-                # Older callers may still emit 7-/8-tuples without trailing
-                # event-count fields.
-                name, gm, g_err_m, gf, g_err_f, has, color = item[:7]
-                n_above = float(item[7]) if len(item) >= 8 else 0.0
-                n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
-                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_above, n_above_spread))
-        else:
-            draw_items = items
-            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
-
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
             ax_n=ax_n,
             use_groups=use_groups,
-            items=draw_items,
-            xlabels=xlabels,
+            items=items,
             threshold=threshold,
-            well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color=BORDER,
             placeholder_color=CLR_PLACEHOLDER,

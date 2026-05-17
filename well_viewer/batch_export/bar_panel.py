@@ -382,8 +382,8 @@ class BarBatchExportPanel(BatchExportPanel):
 
         _cell_area_threshold = self._app._get_cell_area_threshold()
         _fluor_gates = self._app._get_all_fluor_gates()
-        draw_items: List[tuple] = []
-        xlabels: List[str] = []
+        from well_viewer.barplot_controller import BarItem as _BarItem
+        draw_items: List[_BarItem] = []
         for i, (name, wells) in enumerate(members):
             color = WELL_COLORS[i % len(WELL_COLORS)]
             pts = self._app._aggregate_group(
@@ -394,7 +394,6 @@ class BarBatchExportPanel(BatchExportPanel):
                 per_fov_spread=self._app._use_fov_spread_active(),
             )
             matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            xlabels.append(name)
             if matched:
                 pt = matched[0]
                 _t, m, s, f = pt[0], pt[1], pt[2], pt[3]
@@ -420,10 +419,21 @@ class BarBatchExportPanel(BatchExportPanel):
                         control_mean=fc_control_mean,
                         t0_mean=t0_mean if fc_vs_t0 else None,
                     )
-                has_data = not math.isnan(m)
-                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_above, n_above_spread))
+                has_mean = not math.isnan(m)
+                has_frac = has_mean and not math.isnan(f)
+                draw_items.append(_BarItem(
+                    key=name, display=name, color=color,
+                    mean=m, spread=s, has_mean=has_mean,
+                    frac=f, frac_spread=frac_spread, has_frac=has_frac,
+                    n_above=n_above, n_above_spread=n_above_spread,
+                ))
             else:
-                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color, 0.0, 0.0))
+                draw_items.append(_BarItem(
+                    key=name, display=name, color=color,
+                    mean=float("nan"), spread=0.0, has_mean=False,
+                    frac=float("nan"), frac_spread=0.0, has_frac=False,
+                    n_above=0.0, n_above_spread=0.0,
+                ))
 
         _bar_render_items(
             ax_mean=ax_mean,
@@ -431,9 +441,7 @@ class BarBatchExportPanel(BatchExportPanel):
             ax_n=ax_n,
             use_groups=True,
             items=draw_items,
-            xlabels=xlabels,
             threshold=threshold,
-            well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color="#333",
             placeholder_color=_CLR_PLACEHOLDER,
