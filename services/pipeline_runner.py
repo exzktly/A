@@ -29,9 +29,6 @@ from typing import Callable, Optional, Tuple
 from services.pipeline_service import build_pipeline_args, spawn_pipeline
 
 
-_LOG_LEVELS = ("INFO", "WARNING", "ERROR", "DONE")
-
-
 def classify_log_line(line: str) -> str:
     """Return the severity tag for a single pipeline stdout line."""
     ll = line.lower()
@@ -112,11 +109,38 @@ class PipelineRunner:
     (the GUI) consume events via :meth:`poll` and call :meth:`stop` to cancel.
     """
 
+    # Cap the log queue so a stalled UI thread can't let the reader stuff
+    # unbounded lines into memory. Overflow drops are surfaced to the GUI
+    # via a single warning line — the ring buffer in all_well captures
+    # everything for the help-drawer log tab.
+    _LOG_QUEUE_MAXSIZE = 10000
+
     def __init__(self) -> None:
-        self.log_q: "queue.Queue[Tuple[str, object]]" = queue.Queue()
+        self.log_q: "queue.Queue[Tuple[str, object]]" = queue.Queue(
+            maxsize=self._LOG_QUEUE_MAXSIZE,
+        )
         self._proc: Optional[subprocess.Popen] = None
         self._thread: Optional[threading.Thread] = None
         self._last_output_dir: Optional[Path] = None
+        self._log_overflow_warned: bool = False
+
+    def _enqueue(self, event: "Tuple[str, object]") -> None:
+        """Non-blocking enqueue; drops the message on overflow with a
+        one-shot warning rather than blocking the reader thread."""
+        try:
+            self.log_q.put_nowait(event)
+        except queue.Full:
+            if not self._log_overflow_warned:
+                self._log_overflow_warned = True
+                try:
+                    self.log_q.put_nowait((
+                        "line",
+                        "[warn] log queue full — dropping further "
+                        "lines from the live view. Subsequent output is "
+                        "still captured in the help-drawer log tab.\n",
+                    ))
+                except queue.Full:
+                    pass
 
     @property
     def is_running(self) -> bool:
@@ -182,38 +206,38 @@ class PipelineRunner:
                 return
             input_dir, output_dir = resolved
             if any(input_dir.glob("*.zip")):
-                self.log_q.put((
+                self._enqueue((
                     "line",
                     "[warn] Zip mode detected; folder-mode compression options do not apply.\n",
                 ))
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
-                self.log_q.put(("error", f"Cannot create output dir: {exc}\n"))
+                self._enqueue(("error", f"Cannot create output dir: {exc}\n"))
                 return
             self._last_output_dir = output_dir
             args = build_pipeline_args(pipeline, input_dir, output_dir, opts)
-            self.log_q.put(("line", f"$ {' '.join(args)}\n"))
-            self.log_q.put((
+            self._enqueue(("line", f"$ {' '.join(args)}\n"))
+            self._enqueue((
                 "line",
                 f"Input  : {input_dir}\nOutput : {output_dir}\n"
                 f"Schema : {opts['filename_schema']}  sep={opts['filename_sep']!r}\n\n",
             ))
             self._run_pipeline_subprocess(args)
         finally:
-            self.log_q.put(("finished", None))
+            self._enqueue(("finished", None))
 
     def _run_pipeline_subprocess(self, args: list[str]) -> None:
         try:
             self._proc = spawn_pipeline(args)
             assert self._proc.stdout is not None
             for line in self._proc.stdout:
-                self.log_q.put(("line", line))
+                self._enqueue(("line", line))
             self._proc.wait()
             rc = self._proc.returncode
             if rc == 0:
-                self.log_q.put(("done", "Pipeline completed successfully.\n"))
+                self._enqueue(("done", "Pipeline completed successfully.\n"))
             else:
-                self.log_q.put(("error", f"Pipeline exited with code {rc}.\n"))
+                self._enqueue(("error", f"Pipeline exited with code {rc}.\n"))
         except Exception as exc:  # noqa: BLE001 — surface any failure to the GUI
-            self.log_q.put(("error", f"Failed to start pipeline: {exc}\n"))
+            self._enqueue(("error", f"Failed to start pipeline: {exc}\n"))
