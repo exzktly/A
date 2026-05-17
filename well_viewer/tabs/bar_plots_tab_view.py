@@ -63,13 +63,12 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl.addWidget(app._metric_selector_frame_bar)
     app._metric_selector_frame_bar.hide()
 
-    cl.addStretch(1)
-
-    # Fold-change normalization is back on the main controls row — the
-    # plot-shape controls (Timepoint / Beeswarm / Violin / Smooth) have
-    # been pulled into their own row below, which freed enough room.
+    # Fold-change normalization sits on the main controls row, left-aligned;
+    # the stretch below pushes the action buttons to the right.
     from well_viewer.tabs.fold_change_controls import install_fold_change_controls
     install_fold_change_controls(app, bar_ctrl, cl, scope="bar")
+
+    cl.addStretch(1)
 
     app._bar_reset_order_btn = QPushButton("Reset Order", bar_ctrl)
     app._bar_reset_order_btn.setProperty("variant", "toggle_muted")
