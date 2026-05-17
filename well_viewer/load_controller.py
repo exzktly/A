@@ -61,6 +61,15 @@ def load_directory(app, d: Path, label=None) -> None:
     app._bar_order = None
     if hasattr(app, "_invalidate_review_image_frame_cache"):
         app._invalidate_review_image_frame_cache()
+    # Drop every cached ZipFile handle on dataset swap so the new
+    # dataset's per-well zips aren't read through a previous
+    # dataset's handle (or, worse, a handle pointing at a since-
+    # deleted file).
+    try:
+        from well_viewer.zipfile_cache import invalidate as _invalidate_zip_cache
+        _invalidate_zip_cache()
+    except Exception:
+        pass
     n = len(csvs)
     app._show_progress(n, f"Loading {n} CSV file(s)…")
     for i, p in enumerate(csvs, 1):
