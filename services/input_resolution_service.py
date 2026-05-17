@@ -24,11 +24,31 @@ def tif_files_in(folder: Path) -> list[Path]:
     return files
 
 
-def _has_well_content(folder: Path) -> bool:
-    """Return True if *folder* contains zip files OR well-named subdirectories."""
-    if any(folder.glob("*.zip")):
-        return True
+def _is_well_named(p: Path) -> bool:
+    """Match `A1` / `A01` … `H12` against the well-token regex."""
+    m = _WELL_NAME_RE.match(p.stem)
+    if not m:
+        return False
     try:
+        col = int(m.group(2))
+    except ValueError:
+        return False
+    return 1 <= col <= 12
+
+
+def _has_well_content(folder: Path) -> bool:
+    """Return True iff *folder* contains *well-named* zip files OR
+    well-named subdirectories.
+
+    A stray ``archive.zip`` used to be enough to short-circuit the zipper
+    even though the pipeline would then warn on every non-well zip — the
+    user saw a flood of skipped-file warnings and concluded the pipeline
+    was broken. Match the well-token regex on the basename to avoid that.
+    """
+    try:
+        for p in folder.glob("*.zip"):
+            if _is_well_named(p):
+                return True
         return any(_WELL_NAME_RE.match(p.name) for p in folder.iterdir() if p.is_dir())
     except OSError:
         return False

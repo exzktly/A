@@ -26,7 +26,11 @@ def classify_member(
     is_mask = kind == "mask" or bool(mask_re.search(name))
     is_overlay = kind == "overlay" or bool(overlay_re.search(name))
     is_smfish = kind == "smfish"
-    is_tophat_fluor = kind == "fluor_processed" or bool(tophat_fluor_re.search(name))
+    # ``classify_filename_kind`` returns ``"tophat"`` for the canonical
+    # name; the legacy ``"fluor_processed"`` alias is kept for the suffix
+    # lookup but is never produced as an output. The regex is the legacy
+    # fallback when the suffix-table miss.
+    is_tophat_fluor = kind == "tophat" or bool(tophat_fluor_re.search(name))
     if not stem:
         stem = Path(name).stem
 
@@ -54,10 +58,10 @@ def classify_member(
         # prefer schema-derived channel when available, else token-in-stem fallback.
         if channel_field:
             if channel_field == fluor_lower:
-                return "tophat_fluor", fov, tp
+                return "tophat", fov, tp
             return "", fov, tp
         if re.search(rf"(?:^|_)({re.escape(fluor_lower)})(?:_|$)", stem, re.I):
-            return "tophat_fluor", fov, tp
+            return "tophat", fov, tp
         return "", fov, tp
 
     if channel_field:
@@ -145,7 +149,7 @@ def scan_zip_members(
                 if kind == "fluor" and key not in fluor:
                     fluor[key] = ref
                     logger.info("  + FLUOR      fov=%s tp=%s  %s", fov, tp, full)
-                elif kind == "tophat_fluor" and key not in tophat:
+                elif kind == "tophat" and key not in tophat:
                     tophat[key] = ref
                     logger.info("  + TOPHAT     fov=%s tp=%s  %s", fov, tp, full)
                 elif kind == "overlay" and key not in overlay:

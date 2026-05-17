@@ -169,7 +169,7 @@ def classify_member(
     _fov_tp_extractor=None,
     _pipeline_info: Optional[dict] = None,
 ) -> Tuple[str, str, str]:
-    """Return (kind, fov, tp) where kind is fluor/tophat_fluor/mask/overlay/''."""
+    """Return (kind, fov, tp) where kind is fluor/tophat/mask/overlay/smfish/''."""
     kind, fov, tp = _preview_classify_member(
         name=name,
         fluor_lower=fluor_lower,
@@ -281,7 +281,7 @@ def scan_folder_members(
             ref = ImgRef(disk_path=p)
             if kind == "fluor":
                 fluor.setdefault(key, ref)
-            elif kind == "tophat_fluor":
+            elif kind == "tophat":
                 tophat_fluor.setdefault(key, ref)
             elif kind == "overlay":
                 overlay.setdefault(key, ref)
@@ -486,7 +486,7 @@ def find_well_images_and_masks(
                 ref = ImgRef(disk_path=p)
                 if kind == "fluor":
                     fluor.setdefault((fov, tp), ref)
-                elif kind == "tophat_fluor":
+                elif kind == "tophat":
                     tophat_fluor.setdefault((fov, tp), ref)
                 elif kind == "overlay":
                     overlay.setdefault((fov, tp), ref)
