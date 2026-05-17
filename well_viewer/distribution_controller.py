@@ -110,11 +110,77 @@ def _apply_card_style(app, ax) -> None:
     apply_axes_style(ax, mode)
 
 
+def _shared_bin_edges(
+    values_lists: Iterable[Sequence[float]], bins: int, log_x: bool,
+) -> np.ndarray:
+    """Compute a single set of bin edges spanning every group's data.
+
+    Histograms previously called ``ax.hist(vals, bins=N)`` per group;
+    matplotlib then picked edges from each group's own min/max, so the
+    bars across groups didn't line up and comparison was meaningless.
+    Pool every group's values once, derive ``bins + 1`` edges from the
+    combined range, then pass the edge array to every per-group hist
+    call so the same x-axis bins are shared across groups.
+    """
+    chunks = [np.asarray(vs, dtype=float) for vs in values_lists]
+    if not chunks:
+        return np.linspace(0.0, 1.0, max(2, bins) + 1)
+    pooled = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
+    pooled = pooled[np.isfinite(pooled)]
+    n_edges = max(2, int(bins)) + 1
+    if pooled.size == 0:
+        return np.linspace(0.0, 1.0, n_edges)
+    lo = float(pooled.min())
+    hi = float(pooled.max())
+    if hi <= lo:
+        hi = lo + 1.0
+    if log_x and lo > 0:
+        return np.logspace(math.log10(lo), math.log10(hi), n_edges)
+    return np.linspace(lo, hi, n_edges)
+
+
+def _setup_axes(app, n_axes: int):
+    """Reconfigure the distribution figure to host *n_axes* stacked subplots.
+
+    Reuses the existing axes when the count already matches (avoids the
+    expensive ``fig.clear()`` + figure-canvas resize on every redraw);
+    otherwise wipes the figure and lays out ``n_axes`` stacked subplots
+    with ``hspace=0.02`` so the faceted layout reads as one connected
+    chart instead of a list of separate panels. The first axis is
+    aliased back onto ``app._distribution_ax`` for back-compat with
+    older code paths that pluck the single axis directly.
+    """
+    fig = app._distribution_fig
+    existing = list(fig.axes)
+    if len(existing) == n_axes:
+        for ax in existing:
+            ax.clear()
+        axes = existing
+    else:
+        fig.clear()
+        if n_axes == 1:
+            axes = [fig.add_subplot(1, 1, 1)]
+            fig.subplots_adjust(top=0.93, bottom=0.12, left=0.10, right=0.97)
+        else:
+            axes = list(fig.subplots(n_axes, 1, sharex=True))
+            # Minimal vertical padding so the stacked histograms read as
+            # one chart rather than ``n`` disconnected panels; the
+            # outer margins leave enough room for a suptitle + x-label.
+            fig.subplots_adjust(
+                top=0.93, bottom=0.10, left=0.10, right=0.97, hspace=0.02,
+            )
+    for ax in axes:
+        _apply_card_style(app, ax)
+    app._distribution_ax = axes[0]
+    app._distribution_axes = axes
+    return axes
+
+
 def redraw_distribution(app) -> None:
     """Redraw the Distribution tab."""
-    ax = getattr(app, "_distribution_ax", None)
     canvas = getattr(app, "_distribution_canvas", None)
-    if ax is None or canvas is None:
+    fig = getattr(app, "_distribution_fig", None)
+    if canvas is None or fig is None:
         return
 
     val_col = app._active_val_col
@@ -134,6 +200,11 @@ def redraw_distribution(app) -> None:
             else "Histogram + KDE")
     bins = int(getattr(app, "_distribution_bins", 40) or 40)
     log_x = bool(getattr(app, "_distribution_log_x", False))
+    layout_choice = (
+        getattr(app, "_distribution_layout_var", None).currentText()
+        if getattr(app, "_distribution_layout_var", None) is not None
+        else "Overlay"
+    )
 
     groups: List[Tuple[str, str, np.ndarray]] = []
     for name, color, df in iter_plot_groups(app, fallback_to_all=False):
@@ -148,16 +219,37 @@ def redraw_distribution(app) -> None:
         if vals.size:
             groups.append((name, color, vals))
 
-    ax.clear()
-    _apply_card_style(app, ax)
     if not groups:
-        _empty_msg(ax)
+        axes = _setup_axes(app, 1)
+        _empty_msg(axes[0])
         _apply_export_style(app)
         canvas.draw_idle()
         return
 
-    ax.set_axis_on()
+    # Faceted layout only makes sense for histogram modes — KDE-only
+    # curves are thin and read fine overlaid, CDF curves are monotone
+    # so overlap isn't an issue, and Violin already groups visually by
+    # its own design. Other modes silently ignore the layout combo.
+    is_faceted = (
+        layout_choice.startswith("Faceted")
+        and mode in ("Histogram", "Histogram + KDE")
+        and len(groups) > 1
+    )
 
+    if is_faceted:
+        _render_faceted_histograms(app, groups, mode, bins, log_x, tp_h)
+    else:
+        axes = _setup_axes(app, 1)
+        ax = axes[0]
+        ax.set_axis_on()
+        _render_overlay(app, ax, groups, mode, bins, log_x, tp_h)
+
+    _apply_export_style(app)
+    canvas.draw_idle()
+
+
+def _render_overlay(app, ax, groups, mode, bins, log_x, tp_h) -> None:
+    """Single-axis renderer covering every mode (Hist / Hist+KDE / KDE / CDF / Violin)."""
     if mode == "Violin (per group)":
         data = [vals for _, _, vals in groups]
         labels = [name for name, _, _ in groups]
@@ -170,10 +262,6 @@ def redraw_distribution(app) -> None:
         ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
         ax.set_ylabel("Value")
     elif mode == "CDF":
-        # Empirical CDF per group: x = sorted values, y = (k+1)/n.
-        # ``step(..., where="post")`` matches the existing CDF panel on
-        # the Line Graphs and Statistics tabs so the visual style stays
-        # consistent across the app.
         for name, color, vals in groups:
             arr = np.asarray(vals, dtype=float)
             arr = arr[np.isfinite(arr)]
@@ -200,11 +288,14 @@ def redraw_distribution(app) -> None:
             except Exception:
                 pass
     else:
+        # Histogram / Histogram + KDE / KDE only — shared bin edges so
+        # every group's bars line up on the same x-grid.
+        edges = _shared_bin_edges((vs for _, _, vs in groups), bins, log_x)
         grid = _grid_for((vs for _, _, vs in groups), log_x=log_x)
         for name, color, vals in groups:
             if mode in ("Histogram", "Histogram + KDE"):
                 ax.hist(
-                    vals, bins=bins, density=True, alpha=0.45,
+                    vals, bins=edges, density=True, alpha=0.45,
                     color=color, label=f"{name} (n={int(vals.size)})",
                 )
             if mode in ("KDE only", "Histogram + KDE"):
@@ -225,7 +316,7 @@ def redraw_distribution(app) -> None:
             except Exception:
                 pass
 
-    # Threshold marker for non-violin modes (vertical dashed line).
+    # Threshold marker for non-violin modes.
     if mode != "Violin (per group)":
         try:
             threshold = app._get_thresh_frac_on(app._active_channel)
@@ -236,8 +327,71 @@ def redraw_distribution(app) -> None:
 
     title = _title_for(app, tp_h, int(sum(int(vs.size) for _, _, vs in groups)), len(groups))
     ax.set_title(title, fontsize=9)
-    _apply_export_style(app)
-    canvas.draw_idle()
+
+
+def _render_faceted_histograms(app, groups, mode, bins, log_x, tp_h) -> None:
+    """One axis per group, stacked vertically with minimal padding.
+
+    Shared x-axis (``sharex=True`` via ``_setup_axes``) + shared bin
+    edges means every panel reads on the same grid; the user can scan
+    vertically to compare distributions without per-axis re-binning
+    differences swamping the comparison.
+    """
+    axes = _setup_axes(app, len(groups))
+    edges = _shared_bin_edges((vs for _, _, vs in groups), bins, log_x)
+    grid = _grid_for((vs for _, _, vs in groups), log_x=log_x)
+
+    try:
+        threshold = app._get_thresh_frac_on(app._active_channel)
+    except Exception:
+        threshold = float("nan")
+    show_threshold = math.isfinite(threshold)
+
+    last_idx = len(groups) - 1
+    for i, ((name, color, vals), ax) in enumerate(zip(groups, axes)):
+        ax.set_axis_on()
+        if mode in ("Histogram", "Histogram + KDE"):
+            ax.hist(
+                vals, bins=edges, density=True, alpha=0.55,
+                color=color,
+            )
+        if mode == "Histogram + KDE":
+            kde = _gaussian_kde(vals, grid)
+            if np.any(kde > 0):
+                ax.plot(grid, kde, color=color, lw=1.4)
+        if show_threshold:
+            ax.axvline(threshold, color="orange", linestyle="--", linewidth=1.0, alpha=0.8)
+        if log_x:
+            try:
+                ax.set_xscale("log")
+            except Exception:
+                pass
+        # Annotate group name on the right edge of each panel so the
+        # vertical stack reads top-to-bottom without consuming a slot
+        # in a legend or stretching the layout horizontally.
+        ax.text(
+            0.99, 0.92, f"{name} (n={int(vals.size):,})",
+            transform=ax.transAxes,
+            ha="right", va="top", fontsize=8, color=color,
+            fontweight="bold",
+        )
+        # Trim per-axis chrome — hspace=0.02 means consecutive axes touch,
+        # so the top axes shouldn't show x-tick labels (handled by
+        # ``sharex=True``) and intermediate y-tick labels can stay since
+        # density values differ per group.
+        if i != last_idx:
+            ax.tick_params(axis="x", labelbottom=False)
+    # Shared x-label on the bottom axis only.
+    axes[last_idx].set_xlabel(_xlabel_for(app))
+    # Single shared y-label across the middle axis; "Density" is the
+    # same unit for every panel because each hist uses density=True.
+    axes[len(axes) // 2].set_ylabel("Density")
+    # Use a figure-level suptitle so the title isn't duplicated per axis.
+    fig = app._distribution_fig
+    title = _title_for(
+        app, tp_h, int(sum(int(vs.size) for _, _, vs in groups)), len(groups),
+    )
+    fig.suptitle(title, fontsize=9)
 
 
 def _xlabel_for(app) -> str:
