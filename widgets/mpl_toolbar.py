@@ -97,11 +97,40 @@ if _HAVE_MPL:
             self._coords.setObjectName("MplToolbarCoords")
             lay.addWidget(self._coords)
 
+            # Store the cid so we can mpl_disconnect on destroy — without
+            # that the closure outlives the QLabel it updates and emits
+            # ``RuntimeError: wrapped C/C++ object … deleted`` in stderr
+            # when the toolbar is destroyed but the canvas survives
+            # (e.g. lazy tab rebuild).
+            self._motion_cid = None
             try:
-                self.canvas.mpl_connect("motion_notify_event", self._on_mouse_move)
+                self._motion_cid = self.canvas.mpl_connect(
+                    "motion_notify_event", self._on_mouse_move
+                )
             except Exception:
                 pass
             self.setStyleSheet(self._qss())
+
+        def closeEvent(self, event):  # noqa: N802 — Qt naming
+            self._detach_canvas()
+            try:
+                super().closeEvent(event)
+            except Exception:
+                pass
+
+        def deleteLater(self):  # noqa: N802 — Qt naming
+            self._detach_canvas()
+            super().deleteLater()
+
+        def _detach_canvas(self) -> None:
+            cid = getattr(self, "_motion_cid", None)
+            if cid is None:
+                return
+            self._motion_cid = None
+            try:
+                self.canvas.mpl_disconnect(cid)
+            except Exception:
+                pass
 
         # ── proxy the matplotlib handlers ───────────────────────────────────
         @property

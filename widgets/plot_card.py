@@ -365,19 +365,16 @@ if _HAVE_MPL:
                 return
             self._plot_theme = mode
             self._apply_rcparams()
-            palette = _plot_palette(mode)
             bg = _plot_tokens(mode)[0]
             self.figure.set_facecolor(bg)
             for ax in self.figure.axes:
                 apply_axes_style(ax, mode)
-                # best-effort: recolour the visible traces with the new cycle
-                idx = 0
-                for line in ax.get_lines():
-                    lbl = line.get_label() or ""
-                    if isinstance(lbl, str) and lbl.startswith("_"):
-                        continue
-                    line.set_color(palette[idx % len(palette)])
-                    idx += 1
+                # Don't recolour lines by their iteration order — the
+                # controllers assign rank-based colours (so "well A01"
+                # → palette[0] *everywhere*); recolouring by enumeration
+                # broke that invariant on Screen↔Pub toggle. Just style
+                # the chrome; the next redraw repaints lines with the
+                # correct rank colour.
                 leg = ax.get_legend()
                 if leg is not None:
                     fg = _plot_tokens(mode)[1]

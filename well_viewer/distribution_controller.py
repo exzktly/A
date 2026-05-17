@@ -157,7 +157,17 @@ def _setup_axes(app, n_axes: int):
             ax.clear()
         axes = existing
     else:
+        # ``fig.clear()`` resets figure-level attributes, which can wipe
+        # the ``_plot_card`` back-ref that ``plot_style.tokens_for``
+        # consults — re-attach it after rebuilding axes so the next
+        # ``_apply_card_style`` reads the right palette.
+        card = getattr(fig, "_plot_card", None)
         fig.clear()
+        if card is not None:
+            try:
+                fig._plot_card = card
+            except Exception:
+                pass
         if n_axes == 1:
             axes = [fig.add_subplot(1, 1, 1)]
             fig.subplots_adjust(top=0.93, bottom=0.12, left=0.10, right=0.97)

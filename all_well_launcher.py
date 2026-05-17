@@ -104,13 +104,17 @@ def _dispatch_multiprocessing_child() -> None:
             kwds[name] = int(value)
         spawn_main(**kwds)
         sys.exit()
-    if "-c" in argv:
-        ci = argv.index("-c")
-        if ci + 1 < len(argv) and argv[ci + 1].startswith(
-            "from multiprocessing.resource_tracker import main"
-        ):
-            exec(argv[ci + 1], {"__name__": "__main__"})
-            sys.exit()
+    # multiprocessing's resource_tracker is re-exec'd as ``<bundle> -c
+    # 'from multiprocessing.resource_tracker import main;main(<fd>)'`` —
+    # gate on ``argv[1] == "-c"`` (not "anywhere in argv") so a user
+    # path that happens to contain ``-c`` doesn't redirect into this
+    # branch. The startswith-check on argv[2] is the existing safety
+    # net; we keep it.
+    if len(argv) >= 3 and argv[1] == "-c" and argv[2].startswith(
+        "from multiprocessing.resource_tracker import main"
+    ):
+        exec(argv[2], {"__name__": "__main__"})
+        sys.exit()
 
 
 _dispatch_multiprocessing_child()
