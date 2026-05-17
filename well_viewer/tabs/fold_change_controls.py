@@ -105,16 +105,19 @@ def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) ->
 
     def _redraw_all():
         # Both tabs share the state; redraw whichever is currently mounted.
+        # We log exceptions instead of swallowing them — if a redraw fails the
+        # toggle appears to do nothing, and the user has no way to know why.
+        import traceback
         if hasattr(app, "_redraw_bars"):
             try:
                 app._redraw_bars()
             except Exception:
-                pass
+                traceback.print_exc()
         if hasattr(app, "_redraw"):
             try:
                 app._redraw()
             except Exception:
-                pass
+                traceback.print_exc()
 
     def _on_ctrl_toggled(checked: bool) -> None:
         app._fc_vs_control_on = bool(checked)
