@@ -654,48 +654,121 @@ Two independent axes, both optional, both stacking. State lives on the
 batch-export panels keep their own panel-local mirror so a batch job
 isn't tied to whatever the plot tab has set.
 
+The math has one important invariant: the **numerator** (each bar's /
+curve's value) and the **denominator** (control mean and t0 baseline)
+use the **same statistic**. For a rep-set member that's
+"mean-of-per-well-means" (`_compute_rep_stats`), or per-FOV pool when
+Aggregate-FOVs is on (`_compute_rep_per_fov_stats`); for a single-well
+member it's `_aggregate_well`. Mixing statistics gave biased ratios in
+the original implementation. The helpers in `fold_change.py` enforce
+this — see `member_mean_series` for the dispatch.
+
+Stacking when both axes are active is **ΔΔCt-style**:
+```
+   Y(t) = (X(t) / C(t)) / (X(0) / C(0))
+```
+because `vs t0` is applied to the post-control values. This is not the
+same as `(X(t)/X(0)) / (C(t)/C(0))` in general. Documented on
+`normalize_pts`.
+
+Error propagation: the current code treats control and baseline
+denominators as exact constants — error bars divide by the same
+factor rather than going through the full
+`σ_Y/Y = √((σ_X/X)² + (σ_C/C)²)`. Acknowledged limitation, follow-up.
+
 ```
                             app._fc_vs_control_on   ─┐
 User → Control combo  ─→    app._fc_control_label   ─┼─→ fold_change.fold_change_state(app)
                             app._fc_vs_t0_on        ─┘
 User → Baseline combo ─→ (sets _fc_vs_t0_on)
 
-fold_change_state(app)
-        │
+tabs/fold_change_controls.set_fold_change_state(app, *, …, initiating_scope)
+        │   mirrors the shape of runtime_app._set_active_channel:
+        │   updates state → _sync_widgets_to_state → _redraw_bars + _redraw
         ▼
 Line tab — lineplot_controller.redraw_line_plots(…)
-   1. control_pts_for_line(app, label, …) → AggPoint list pooled
-      across the control's wells (via app._aggregate_group).
-   2. pts_to_mean_by_t(control_pts) → {t: control_mean}.
-   3. For each member trace, normalize_pts(pts, control_means=…,
-      use_t0=…) divides mean & spread by the control's mean at the
-      matching timepoint and/or by the member's earliest finite mean.
+   1. fold_change.member_mean_series(app, fc_ctrl_lbl, …) →
+      {t: control_mean}  (mean-of-per-well-means for rep-set controls,
+      per-FOV pool when Aggregate-FOVs is on, single-well agg for
+      well controls — matches each member trace's own stat).
+   2. For each member trace, normalize_pts(pts, control_means=…,
+      use_t0=…, miss_sink=fc_misses) divides mean & spread by the
+      control's mean at the matching timepoint and/or by the member's
+      earliest finite mean.
+   3. After redraw, app._set_status(…) surfaces a one-line warning
+      naming any timepoints where the control had no sample.
 
-Bar tab — barplot_controller.collect_bar_items(app, target_t)
-          + barplot_renderer.draw_grouped_bar_mode (rep-set rebuild)
-   1. control_mean_at(app, label, target_t, …) → single float.
-   2. For each bar's (mean, spread): scale_bar_value(mean, spread,
-      control_mean=…, t0_mean=…).
-   3. t0_mean comes from first_tp_value(_aggregate_group([…])) for
-      rep-sets, or first_tp_value(pts) for per-well bars.
+Bar tab — barplot_controller.collect_bar_items(app, target_t,
+                                                miss_sink=fc_misses)
+          → list[BarItem]  (single source of truth)
+   1. fold_change.control_mean_at_for_bar(app, label, target_t, …)
+      → single float (or None). Uses the same stat as the bar's
+      numerator (mean-of-per-well-means for rep-set, per-FOV pool
+      when Aggregate-FOVs is on).
+   2. For each bar's (mean, spread): scale_bar_value(…).
+   3. t0 baseline = member_first_tp_value(app, member_label, …) for
+      rep-sets (same stat) or first_tp_value(pts) for per-well bars.
+   4. If vs-control was requested but the resolver returned None,
+      every bar is forced to NaN (no silent fall-back to raw values)
+      and the target_t is recorded in miss_sink for the status
+      warning surfaced by barplot_renderer.draw_grouped_bar_mode.
+
+Bar tab violin / beeswarm — runtime_app._draw_per_cell_bar_mode →
+fold_change.build_cell_scaling(…) → {well: factor}, where each cell
+value is divided by factor before plotting. factor = control_mean ×
+t0_mean (per-well). NaN factor → that well's column rendered as a
+placeholder. Title gains the suffix when scaling is active.
 
 Both renderers append a "(fold change vs <ctrl>, vs t0)" suffix to the
-mean axis title / ylabel via fold_change.fold_change_suffix; the batch
-line renderer also suppresses the raw-fluorescence threshold axhline
-when fold-change is active.
+mean axis title / ylabel via fold_change.fold_change_suffix.
 
-CSV output:
-   export_service.export_plot_data / export_bar_plot_data
-   batch_export/base_panel _run_group (line)
-   batch_export/bar_panel  _run_batch  (bar)
-   When fold-change is active, the writers append:
-       fold_change_mean, fold_change_<sd|sem>,
-       fold_change_mode  ("control" | "t0" | "control+t0"),
-       fold_change_control  (the chosen well / rep-set name)
-   The bar CSV stores normalized values in the existing mean / spread
-   columns (matching what's drawn) and only adds the mode/control
-   annotation columns.
-```
+Float-tolerance: _match_control_mean uses relative tolerance
+abs(a-b) < 1e-3 · max(1, |a|, |b|) — the bar tp combo formats with
+:.4g so a fractional tp like 2/3 ≈ 0.6667 parses back ~3e-5 off the
+original float, which the prior absolute 1e-6 tolerance missed.
+
+CSV output (additive in both line and bar paths):
+   On-tab:
+     export_service.export_plot_data        (line)
+     export_service.export_bar_plot_data    (bar)
+   Batch:
+     batch_export/base_panel._run_group     (line)
+     batch_export/bar_panel._run_batch      (bar)
+
+   The mean_<ch>_<metric> / err_<band>_<ch>_<metric> columns always
+   carry the RAW values. When fold-change is active, four columns are
+   appended:
+       fold_change_mean             — normalized mean
+       fold_change_<sd|sem>         — normalized spread
+       fold_change_mode             — "control" | "t0" | "control+t0"
+       fold_change_control          — the chosen well / rep-set name
+
+   The bar CSV is implemented via two calls to collect_bar_items
+   (or collect_bar_items_for_group): one with FC_STATE_OFF for the
+   raw columns and one with the active state for the fold-change
+   columns. The aggregation helpers are cached so the second call
+   is cheap. Pre-refactor the bar CSV used to overwrite the raw mean
+   column with the normalized value when fold-change was active —
+   that was inconsistent with the line CSV's additive schema and
+   has been corrected.
+
+Cross-tab widget sync:
+   Each tab installs its own QComboBox instances via
+   tabs/fold_change_controls.install_fold_change_controls(scope=…).
+   The combo handlers funnel every state mutation through
+   set_fold_change_state, which calls _sync_widgets_to_state to
+   mirror the new state into the other tab's widget set (with
+   signals blocked). The smart-repopulation check skips the
+   clear-and-readd cycle when the combo's popup is currently
+   visible, so user interaction is never yanked out of focus.
+
+When a rep-set name collides with a loaded well token, the well's
+combo entry is suffixed with " (well)"; resolve_control_wells
+accepts both bare and suffixed forms, and set_fold_change_state
+strips the suffix before storage so the underlying state stays a
+bare token. This is the only collision-resolution mechanism — the
+Sample Definitions UI does not currently prevent the collision at
+input time.
 
 ### 9.6 Running the pipeline
 

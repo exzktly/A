@@ -360,16 +360,27 @@ Fold change:  Control [— ▾]   Baseline [— ▾]
 - **Control** — pick a loaded well or replicate set to divide every bar
   / curve by its mean at the matching timepoint. `—` disables this
   axis. (The Bar Plots control combo also includes any replicate sets
-  defined in Sample Definitions.)
+  defined in Sample Definitions.) When a rep-set name happens to match
+  a well token, the well's combo entry is suffixed with `(well)` so
+  the two are unambiguous.
 - **Baseline** — pick `t0 (first timepoint)` to divide every bar / curve
   by its own value at the earliest available timepoint, so each
   member's first point becomes 1.0. `—` disables this axis.
 
-Both axes are independent and may be combined (delta-delta-style
-normalization). State is shared between the Bar Plots and Line Graphs
-tabs — toggling on one is reflected on the other when you switch back.
-The batch-export panels keep their own copies so a batch job isn't
-tied to whatever the on-screen plot has set.
+Both axes are independent and may be combined. With both active the
+math is ΔΔCt-style: `(X(t)/C(t)) / (X(0)/C(0))` — each member's value
+normalized to the control at the same timepoint, then re-normalized to
+its own pre-control baseline at t0.
+
+The Bar Plots tab applies normalization in all three view modes — bar,
+violin, and beeswarm. In violin and beeswarm, each well's per-cell
+values are divided by the resolved denominator before plotting, so the
+distribution lives on the fold-change axis.
+
+State is shared between the Bar Plots and Line Graphs tabs — toggling
+on one is reflected on the other when you switch back. The
+batch-export panels keep their own copies so a batch job isn't tied
+to whatever the on-screen plot has set.
 
 Normalized figures gain a "(fold change vs …)" suffix on the mean
 axis title / label, and the batch-export figure suppresses the raw
@@ -378,10 +389,32 @@ units and would be misleading on a normalized axis; the CDF panel's
 threshold line stays because per-cell distributions aren't
 normalized).
 
-The CSV exporters append `fold_change_mean`, `fold_change_<sd|sem>`,
-`fold_change_mode` (`control` / `t0` / `control+t0`), and
-`fold_change_control` columns when either axis is active, so the
-normalization parameters are recorded alongside the numbers.
+When a control is requested but has no sample at one of the plotted
+timepoints, the affected bars / points are rendered as dashed
+placeholders and the status bar names the missing timepoints — no
+silent NaN drops.
+
+**CSV exports — additive schema.** Both the line and bar exporters
+keep the standard `mean_<ch>_<metric>` and `err_<band>_<ch>_<metric>`
+columns carrying the RAW values, and append four columns when
+fold-change is active:
+
+* `fold_change_mean` — normalized mean
+* `fold_change_<sd|sem>` — normalized spread
+* `fold_change_mode` — `control`, `t0`, or `control+t0`
+* `fold_change_control` — the chosen well / rep-set name
+
+(Earlier versions of the bar CSV overwrote the raw mean column with
+the normalized value; downstream tools that depended on that behaviour
+should switch to reading the `fold_change_mean` column.)
+
+**Statistical consistency.** The control denominator uses the same
+averaging statistic as the displayed bar / curve — mean-of-per-well-means
+for rep-set controls, single-well aggregation for solo wells, per-FOV
+pool when the Aggregate-FOVs toggle is on. Earlier versions mixed
+statistics across numerator and denominator, which produced biased
+ratios; bar / curve values for fold-change vs multi-well controls may
+shift slightly after this fix.
 
 ### Properties (figure styling)
 
