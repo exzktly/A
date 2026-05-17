@@ -214,6 +214,7 @@ calls out the fix commit.
 | H20 (doc) | `a371d15` | ARCHITECTURE §8 rewritten to describe the actual two-theme split |
 | M1 | `964d584` | New top-level `well_token.py` (stdlib-only) — `WellPlateZipper`, `process_microscopy`, `services/input_resolution_service` all delegate to it |
 | H20 (values), M28, M29, M30 | `eb02dcc` | `ui/theme/_DARK_THEME` sources overlapping tokens from `theme.Colors`; new `Colors.ink_light` / `ink_dark` replace hardcoded `#FFFFFF` / `#000000` in 6 widgets; fontMetrics-derived sizes in `PreviewStrip` / `RailNavRow` / `CollapsibleRail` / `ColorPickerPopover`; `install_qss_refresh` helper + PlotCard adoption for runtime theme rebuilds |
+| M10 (verified), M12 | `c244739` | New `WellViewerApp._well_aggregate_stats` shared by `_compute_rep_stats` (line/bar rep-set stats) and `scatter_controller._agg_wells` (scatter-aggregate); M10 traced and confirmed already-closed by PR #248's scope-aware redraw |
 
 **Already closed upstream by PR #248** (so the audit's analysis is now stale):
 
@@ -226,8 +227,6 @@ calls out the fix commit.
 - **H4** — `WellPlateZipper` copies instead of moving — left alone; behavioural change requiring user opt-in (a `--keep-originals` flag default True + Analyze tab checkbox would be the right shape).
 - **M6, M7** — `plot_orchestrator` unification — partly addressed by PR #248's scope-aware redraw; the bar / scatter / scatter-agg branches still bypass the orchestrator.
 - **M9** — CSV load on UI thread — left; `_step_progress` already calls `QApplication.processEvents()` between files so it's not as bad as the audit suggested. Full off-thread load wants a `QThread` worker plumbed through the load progress signal.
-- **M10** — Tab-switch redraw fan-out — also partly addressed by PR #248 (one redraw per tab now); the remaining fan-out is from lazy builders that call `_recalculate_threshold` on first build.
-- **M12** — Scatter-agg threshold path duplicates `_compute_rep_stats` — numerical agreement reached after H11; deduplication needs a shared helper signature.
 - **L1, L2, L9, L10, L16, L17, L20, L21, L22** — Various Low items. L21 / L22 (keyboard accessibility) are the most worthwhile; both want a focused UI PR. L9 (god-object hoist into `channel_state_controller.py`) is the largest refactor still on the table.
 
 **M30 follow-up:** `install_qss_refresh` is wired into PlotCard only. The other ~23 widgets with per-instance QSS (`chip_group`, `popover`, `stepper`, `range_pair`, …) should adopt it when the runtime theme switcher actually ships — until then, the global QSS is static so they don't need it.
