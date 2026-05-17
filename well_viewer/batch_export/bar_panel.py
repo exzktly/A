@@ -65,6 +65,22 @@ from well_viewer.batch_export.base_panel import BatchExportPanel
 from well_viewer.batch_export.well_grid_button import _WellGridButton
 
 
+def _attach_fc_mode_columns(row: dict, vs_control: bool, vs_t0: bool,
+                            control_label: str) -> None:
+    """Annotate a bar-mode CSV row with the active fold-change mode/control.
+
+    The numeric mean/spread already reflect the normalization, so only the
+    mode descriptor needs to be appended.
+    """
+    parts: list = []
+    if vs_control:
+        parts.append("control")
+    if vs_t0:
+        parts.append("t0")
+    row["fold_change_mode"] = "+".join(parts) or "off"
+    row["fold_change_control"] = control_label if vs_control else ""
+
+
 class BarBatchExportPanel(BatchExportPanel):
     """Bar-plot batch export — same group editor + timepoint multi-select."""
 
@@ -146,6 +162,8 @@ class BarBatchExportPanel(BatchExportPanel):
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
+        fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = self._fc_state()
+        fc_active = fc_vs_ctrl or fc_vs_t0
         jobs = [(grp, tp_str) for grp in groups_with_data for tp_str in selected_tps]
 
         def _progress(job, step: int, total: int) -> str:
@@ -164,6 +182,7 @@ class BarBatchExportPanel(BatchExportPanel):
             base = out_dir / f"bar_{safe_grp}_t{safe_tp}"
 
             try:
+                from well_viewer import fold_change as _fc
                 from well_viewer.export_service import (
                     _well_labels_map, aggpoint_at, aggpoint_bar_fields,
                     bar_metric_fieldnames, bar_metric_row,
@@ -178,7 +197,36 @@ class BarBatchExportPanel(BatchExportPanel):
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
                 _per_fov_spread = self._app._use_fov_spread_active()
+                # Control mean at target_t — pooled across all wells in the
+                # control selection. Reused for every member of the group.
+                _fc_control_mean = None
+                if fc_vs_ctrl and fc_ctrl_lbl:
+                    _fc_control_mean = _fc.control_mean_at(
+                        self._app, fc_ctrl_lbl, target_t,
+                        threshold=threshold, val_col=_val_col,
+                        cell_area_threshold=_cell_area_threshold,
+                        fluor_gates=_fluor_gates,
+                    )
                 rows_csv: List[dict] = []
+                def _apply_fc(fields: dict, pts) -> dict:
+                    """Optionally rescale the (mean, spread) pair before
+                    handing it to ``bar_metric_row``. The non-mean fields
+                    (frac, n_above, ...) pass through unchanged."""
+                    if not fc_active:
+                        return fields
+                    t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+                    new_mean, new_spread = _fc.scale_bar_value(
+                        fields["mean"], fields["spread"],
+                        control_mean=_fc_control_mean if fc_vs_ctrl else None,
+                        t0_mean=t0_mean if fc_vs_t0 else None,
+                    )
+                    new_fields = dict(fields)
+                    new_fields["mean"] = new_mean
+                    new_fields["spread"] = new_spread
+                    import math as _math
+                    new_fields["has"] = not _math.isnan(new_mean)
+                    return new_fields
+
                 for rset in grp.members:
                     valid = [w for w in rset.wells if w in self._app._well_paths]
                     if not valid:
@@ -194,6 +242,7 @@ class BarBatchExportPanel(BatchExportPanel):
                     if pt is None:
                         continue
                     fields = aggpoint_bar_fields(pt, use_fov_spread=_per_fov_spread)
+                    fields = _apply_fc(fields, pts)
                     wells_str = ";".join(valid)
                     row = {
                         "group": grp.name,
@@ -207,6 +256,8 @@ class BarBatchExportPanel(BatchExportPanel):
                         ch=_ch, metric=_metric, tp_str=tp_str,
                         threshold=threshold, band_lbl=band_lbl, **fields,
                     ))
+                    if fc_active:
+                        _attach_fc_mode_columns(row, fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
                     rows_csv.append(row)
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
@@ -222,6 +273,7 @@ class BarBatchExportPanel(BatchExportPanel):
                     if pt is None:
                         continue
                     fields = aggpoint_bar_fields(pt, use_fov_spread=_per_fov_spread)
+                    fields = _apply_fc(fields, pts)
                     row = {
                         "group": grp.name,
                         "member": w,
@@ -234,6 +286,8 @@ class BarBatchExportPanel(BatchExportPanel):
                         ch=_ch, metric=_metric, tp_str=tp_str,
                         threshold=threshold, band_lbl=band_lbl, **fields,
                     ))
+                    if fc_active:
+                        _attach_fc_mode_columns(row, fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
                     rows_csv.append(row)
                 if rows_csv:
                     fnames = (
@@ -241,6 +295,8 @@ class BarBatchExportPanel(BatchExportPanel):
                          "wells", "well_names", "n_wells"]
                         + bar_metric_fieldnames(_ch, _metric, band_lbl)
                     )
+                    if fc_active:
+                        fnames += ["fold_change_mode", "fold_change_control"]
                     with open(str(base) + ".csv", "w", newline="") as fh:
                         wrt = csv.DictWriter(fh, fieldnames=fnames)
                         wrt.writeheader()
@@ -256,6 +312,9 @@ class BarBatchExportPanel(BatchExportPanel):
                 with self._app_val_col_scope(_val_col):
                     fig = self._render_bar_group_figure(
                         grp, target_t, tp_str, threshold, use_sem, band_lbl,
+                        fc_control_mean=_fc_control_mean if fc_vs_ctrl else None,
+                        fc_vs_t0=fc_vs_t0,
+                        fc_control_label=fc_ctrl_lbl,
                     )
                 self._save_figure(fig, Path(str(base) + f".{fmt}"), fmt)
             except Exception as exc:
@@ -273,9 +332,15 @@ class BarBatchExportPanel(BatchExportPanel):
     def _render_bar_group_figure(
         self, grp: BarGroup, target_t: float, tp_str: str,
         threshold: float, use_sem: bool, band_lbl: str,
+        *,
+        fc_control_mean: Optional[float] = None,
+        fc_vs_t0: bool = False,
+        fc_control_label: str = "",
     ):
         from matplotlib.figure import Figure as _Figure
+        from well_viewer import fold_change as _fc
 
+        fc_active = (fc_control_mean is not None) or fc_vs_t0
         fig = _Figure(figsize=(8, 10), dpi=300, facecolor=PLOT_BG)
         ax_mean = fig.add_subplot(3, 1, 1)
         ax_frac = fig.add_subplot(3, 1, 2)
@@ -288,9 +353,12 @@ class BarBatchExportPanel(BatchExportPanel):
         from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
         _metric_key = self._selected_export_metric_key("_bar_channel_cb")
         _metric_label = _MLB.get(_metric_key, "Mean Intensity")
+        _fc_suffix = _fc.fold_change_suffix(
+            fc_control_mean is not None, fc_vs_t0, fc_control_label,
+        ) if fc_active else ""
         apply_ax_style(ax_mean,
-                       f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}",
-                       f"{_ch} {_metric_label}")
+                       f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}{_fc_suffix}",
+                       f"{_ch} {_metric_label}{_fc_suffix}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         if self._app._use_fov_spread_active():
             apply_ax_style(ax_n, f"Mean events above threshold per FOV ± {band_lbl}", "N(above)/FOV")
@@ -345,6 +413,13 @@ class BarBatchExportPanel(BatchExportPanel):
                 else:
                     n_above = float(n_above_total)
                     n_above_spread = 0.0
+                if fc_active:
+                    t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+                    m, s = _fc.scale_bar_value(
+                        m, s,
+                        control_mean=fc_control_mean,
+                        t0_mean=t0_mean if fc_vs_t0 else None,
+                    )
                 has_data = not math.isnan(m)
                 draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_above, n_above_spread))
             else:

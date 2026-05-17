@@ -67,6 +67,11 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     cl.addWidget(app._metric_selector_frame)
     app._metric_selector_frame.hide()
 
+    # Fold-change normalization sits on the main controls row, left-aligned;
+    # the stretch below pushes the action buttons to the right.
+    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
+    install_fold_change_controls(app, line_ctrl, cl, scope="line")
+
     cl.addStretch(1)
 
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data,

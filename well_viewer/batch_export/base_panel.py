@@ -66,6 +66,28 @@ from well_viewer.batch_export._common import (
 from well_viewer.batch_export.well_grid_button import _WellGridButton
 
 
+def _attach_fc_row(row: dict, npt: tuple, band_lbl: str,
+                   vs_control: bool, vs_t0: bool, control_label: str) -> None:
+    """Add the four fold-change columns to a per-timepoint CSV row.
+
+    Used by both the line and bar batch exporters so the column shape stays
+    identical across paths.
+    """
+    fmean = npt[1] if len(npt) > 1 else float("nan")
+    fspread = npt[2] if len(npt) > 2 else 0.0
+    has_mean = isinstance(fmean, (int, float)) and not (isinstance(fmean, float) and math.isnan(fmean))
+    has_spread = isinstance(fspread, (int, float)) and not (isinstance(fspread, float) and math.isnan(fspread))
+    row["fold_change_mean"] = f"{fmean:.6f}" if has_mean else ""
+    row[f"fold_change_{band_lbl.lower()}"] = f"{fspread:.6f}" if has_spread else ""
+    parts: list = []
+    if vs_control:
+        parts.append("control")
+    if vs_t0:
+        parts.append("t0")
+    row["fold_change_mode"] = "+".join(parts) or "off"
+    row["fold_change_control"] = control_label if vs_control else ""
+
+
 class BatchExportPanel(QWidget):
     """Batch export panel — defines export groups and runs the export."""
 
@@ -91,6 +113,14 @@ class BatchExportPanel(QWidget):
         self._fmt_value: str = default_fmt
         self._export_profile_value: str = default_profile
         self._active_grp = -1
+
+        # Panel-local fold-change normalization state. Independent of the
+        # plot-tab state so a batch run isn't tied to whatever the on-screen
+        # plot has set. Defaults inherited from the app at panel-creation
+        # time so opening the panel "feels like" the active plot tab.
+        self._fc_vs_control_on: bool = bool(getattr(app, "_fc_vs_control_on", False))
+        self._fc_control_label: str = str(getattr(app, "_fc_control_label", "") or "")
+        self._fc_vs_t0_on: bool = bool(getattr(app, "_fc_vs_t0_on", False))
 
         self._groups: List[BarGroup] = self._groups_from_rep_sets()
         self._auto_named_group_ids: set[int] = set()
@@ -321,6 +351,15 @@ class BatchExportPanel(QWidget):
         row.addStretch(1)
         layout.addLayout(row)
 
+        # Fold-change controls get their own row below the Channel/Property
+        # row — keeping them on the same line caused widget overlap on
+        # narrower panel widths.
+        fc_row = QHBoxLayout()
+        fc_row.setContentsMargins(12, 2, 12, 2)
+        self._build_fold_change_widgets(fc_row)
+        fc_row.addStretch(1)
+        layout.addLayout(fc_row)
+
     def _all_export_channels(self) -> List[str]:
         """Fluorescence channels + ratio metrics available for batch export."""
         channels = list(getattr(self._app, "_fluor_channels", None) or [])
@@ -486,6 +525,8 @@ class BatchExportPanel(QWidget):
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         self._refresh_channel_combos()
+        if hasattr(self, "_fc_ctrl_combo"):
+            self._repopulate_fc_control_combo()
 
     def _selected_export_channel(self) -> str:
         """Return the channel currently picked in the channel row, falling
@@ -634,6 +675,106 @@ class BatchExportPanel(QWidget):
 
     def _selected_tps(self) -> List[str]:
         return [it.text() for it in self._tp_lb.selectedItems()]
+
+    _FC_NONE_LABEL = "—"
+    _FC_T0_LABEL = "t0 (first timepoint)"
+
+    def _build_fold_change_widgets(self, row: QHBoxLayout) -> None:
+        """Append the Control + Baseline dropdowns to *row*.
+
+        Two parallel combos — Control selects the well / rep-set whose
+        mean each bar is divided by, Baseline picks a per-member
+        reference timepoint. ``—`` in either combo disables that axis.
+        """
+        fc_lbl = QLabel("Fold change:")
+        f = fc_lbl.font(); f.setBold(True); fc_lbl.setFont(f)
+        row.addWidget(fc_lbl)
+
+        row.addWidget(QLabel("Control"))
+        self._fc_ctrl_combo = QComboBox()
+        self._fc_ctrl_combo.setMinimumWidth(160)
+        self._fc_ctrl_combo.setToolTip(
+            "Divide each bar / curve by the picked well or replicate "
+            "set's mean at the same timepoint. — disables this axis."
+        )
+        self._repopulate_fc_control_combo()
+        row.addWidget(self._fc_ctrl_combo)
+
+        row.addWidget(QLabel("Baseline"))
+        self._fc_baseline_combo = QComboBox()
+        self._fc_baseline_combo.setMinimumWidth(160)
+        self._fc_baseline_combo.setToolTip(
+            "Divide each bar / curve by its own value at the reference "
+            "timepoint. — disables this axis."
+        )
+        self._fc_baseline_combo.addItem(self._FC_NONE_LABEL)
+        self._fc_baseline_combo.addItem(self._FC_T0_LABEL)
+        self._fc_baseline_combo.setCurrentIndex(1 if self._fc_vs_t0_on else 0)
+        row.addWidget(self._fc_baseline_combo)
+
+        def _on_ctrl_change(_i: int) -> None:
+            text = self._fc_ctrl_combo.currentText()
+            if text == self._FC_NONE_LABEL or not text:
+                self._fc_vs_control_on = False
+                self._fc_control_label = ""
+            else:
+                self._fc_vs_control_on = True
+                self._fc_control_label = text
+
+        def _on_baseline_change(_i: int) -> None:
+            self._fc_vs_t0_on = (
+                self._fc_baseline_combo.currentText() == self._FC_T0_LABEL
+            )
+
+        self._fc_ctrl_combo.currentIndexChanged.connect(_on_ctrl_change)
+        self._fc_baseline_combo.currentIndexChanged.connect(_on_baseline_change)
+
+    def _repopulate_fc_control_combo(self) -> None:
+        combo = getattr(self, "_fc_ctrl_combo", None)
+        if combo is None:
+            return
+        members: List[str] = []
+        seen: set = set()
+        for grp in self._groups_for_export() if hasattr(self, "_groups_for_export") else self._groups:
+            for rset in grp.members:
+                if rset.name and rset.name not in seen:
+                    members.append(rset.name)
+                    seen.add(rset.name)
+            for w in grp.solo_wells:
+                if w and w not in seen:
+                    members.append(w)
+                    seen.add(w)
+        # Fall back to plate-loaded wells when no groups are defined yet —
+        # users may want to pick a control before they've finished building
+        # the group editor.
+        if not members:
+            for w in sorted((getattr(self._app, "_well_paths", None) or {})):
+                members.append(w)
+        saved = self._fc_control_label
+        blocked = combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem(self._FC_NONE_LABEL)
+            for m in members:
+                combo.addItem(m)
+            if saved:
+                idx = combo.findText(saved)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+        finally:
+            combo.blockSignals(blocked)
+
+    def _fc_state(self) -> tuple:
+        """Return ``(vs_control_on, control_label, vs_t0_on)`` for this panel."""
+        return (
+            bool(self._fc_vs_control_on),
+            str(self._fc_control_label or ""),
+            bool(self._fc_vs_t0_on),
+        )
+
+    def _fc_active(self) -> bool:
+        v, _, t0 = self._fc_state()
+        return v or t0
 
     def _build_timepoints_section(self, layout: QVBoxLayout) -> None:
         """TIMEPOINTS header + multi-select list (shared by Bar/Scatter)."""
@@ -1174,14 +1315,20 @@ class BatchExportPanel(QWidget):
         def _progress(grp: BarGroup, step: int, total: int) -> str:
             return f"Exporting '{grp.name}' ({step}/{total})\u2026"
 
+        fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = self._fc_state()
+        fc_active = fc_vs_ctrl or fc_vs_t0
+
         def _run_group(grp: BarGroup) -> Optional[str]:
+            from well_viewer import fold_change as _fc
+
             safe = re.sub(r"[^A-Za-z0-9_\-]", "_", grp.name)
             csv_path = out_dir / f"batch_{safe}.csv"
             fig_path = out_dir / f"batch_{safe}.{fmt}"
 
             try:
                 from well_viewer.export_service import (
-                    _well_labels_map, line_metric_fieldnames, line_metric_row,
+                    _well_labels_map, _fc_mode_str,
+                    line_metric_fieldnames, line_metric_row,
                     well_name_for, well_names_joined,
                 )
                 # Resolve the panel's (Channel, Property) selection into a
@@ -1193,6 +1340,18 @@ class BatchExportPanel(QWidget):
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
                 _well_labels = _well_labels_map(self._app)
+                # Control series resolved once per group; the same {t: mean}
+                # is reused across every member of the group.
+                fc_control_means: dict = {}
+                if fc_vs_ctrl and fc_ctrl_lbl:
+                    fc_control_means = _fc.pts_to_mean_by_t(
+                        _fc.control_pts_for_line(
+                            self._app, fc_ctrl_lbl, threshold=threshold,
+                            val_col=_val_col,
+                            cell_area_threshold=_cell_area_threshold,
+                            fluor_gates=_fluor_gates,
+                        )
+                    )
                 rows_out: List[dict] = []
                 for rset in grp.members:
                     valid_wells = [w for w in rset.wells if w in self._app._well_paths]
@@ -1206,7 +1365,13 @@ class BatchExportPanel(QWidget):
                     )
                     wells_str = ";".join(valid_wells)
                     well_names_str = well_names_joined(wells_str, _well_labels)
-                    for pt in pts:
+                    norm_pts = (
+                        _fc.normalize_pts(
+                            pts, control_means=fc_control_means or None,
+                            use_t0=fc_vs_t0,
+                        ) if fc_active else None
+                    )
+                    for i, pt in enumerate(pts):
                         row = {
                             "group": grp.name,
                             "member": rset.name,
@@ -1219,6 +1384,9 @@ class BatchExportPanel(QWidget):
                             pt, ch=_ch, metric=_metric,
                             threshold=threshold, band_lbl=band_lbl,
                         ))
+                        if fc_active and norm_pts is not None and i < len(norm_pts):
+                            _attach_fc_row(row, norm_pts[i], band_lbl,
+                                           fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
                         rows_out.append(row)
                 for w in grp.solo_wells:
                     if w not in self._app._well_paths:
@@ -1230,7 +1398,13 @@ class BatchExportPanel(QWidget):
                         fluor_gates=_fluor_gates,
                     )
                     _well_name = well_name_for(w, _well_labels)
-                    for pt in pts:
+                    norm_pts = (
+                        _fc.normalize_pts(
+                            pts, control_means=fc_control_means or None,
+                            use_t0=fc_vs_t0,
+                        ) if fc_active else None
+                    )
+                    for i, pt in enumerate(pts):
                         row = {
                             "group": grp.name,
                             "member": w,
@@ -1243,6 +1417,9 @@ class BatchExportPanel(QWidget):
                             pt, ch=_ch, metric=_metric,
                             threshold=threshold, band_lbl=band_lbl,
                         ))
+                        if fc_active and norm_pts is not None and i < len(norm_pts):
+                            _attach_fc_row(row, norm_pts[i], band_lbl,
+                                           fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
                         rows_out.append(row)
                 if rows_out:
                     fieldnames = (
@@ -1250,6 +1427,13 @@ class BatchExportPanel(QWidget):
                          "wells", "well_names", "n_wells"]
                         + line_metric_fieldnames(_ch, _metric, band_lbl)
                     )
+                    if fc_active:
+                        fieldnames += [
+                            "fold_change_mean",
+                            f"fold_change_{band_lbl.lower()}",
+                            "fold_change_mode",
+                            "fold_change_control",
+                        ]
                     with open(csv_path, "w", newline="") as fh:
                         writer = csv.DictWriter(fh, fieldnames=fieldnames)
                         writer.writeheader()
@@ -1264,7 +1448,11 @@ class BatchExportPanel(QWidget):
                 # batch export against a ratio column or a non-MFI
                 # property draws the correct curves.
                 with self._app_val_col_scope(_val_col):
-                    fig = self._render_group_figure(grp, threshold, use_sem, band_lbl)
+                    fig = self._render_group_figure(
+                        grp, threshold, use_sem, band_lbl,
+                        fc_control_means=fc_control_means,
+                        fc_vs_t0=fc_vs_t0,
+                    )
                 self._save_figure(fig, fig_path, fmt)
             except Exception as exc:
                 return f"{grp.name} figure: {exc}"
@@ -1291,9 +1479,14 @@ class BatchExportPanel(QWidget):
 
     def _render_group_figure(
         self, grp: BarGroup, threshold: float, use_sem: bool, band_lbl: str,
+        *,
+        fc_control_means: Optional[Dict[float, float]] = None,
+        fc_vs_t0: bool = False,
     ):
         from matplotlib.figure import Figure as _Figure
+        from well_viewer import fold_change as _fc
 
+        fc_active = bool(fc_control_means) or bool(fc_vs_t0)
         fig = _Figure(figsize=(10, 11), dpi=300, facecolor=PLOT_BG)
         ax_mean = fig.add_subplot(3, 1, 1)
         ax_frac = fig.add_subplot(3, 1, 2, sharex=ax_mean)
@@ -1307,7 +1500,10 @@ class BatchExportPanel(QWidget):
         from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
         _metric_key = self._selected_export_metric_key("_line_channel_cb")
         _metric_label = _MLB.get(_metric_key, "Mean Intensity")
-        apply_ax_style(ax_mean, f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}", f"{_ch} {_metric_label}")
+        _fc_suffix = _fc.fold_change_suffix(
+            bool(fc_control_means), bool(fc_vs_t0), self._fc_control_label,
+        ) if fc_active else ""
+        apply_ax_style(ax_mean, f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}{_fc_suffix}", f"{_ch} {_metric_label}{_fc_suffix}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         apply_ax_style(ax_cdf, f"{_ch} {_metric_label} CDF", "Cumulative fraction")
         ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)
@@ -1351,12 +1547,25 @@ class BatchExportPanel(QWidget):
                     if df is None or df.empty:
                         continue
                     fluor_chunks.append(_all_fluor_values(df, val_col=_val_col))
-                agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
+                _raw = []
                 for t in all_tps:
                     gm, gerr, gf, _ = self._app._compute_rep_stats(rset, t, threshold, use_sem)
                     if not math.isnan(gm):
-                        agg_times.append(t); agg_means.append(gm)
-                        agg_errs.append(gerr); agg_fracs.append(gf)
+                        _raw.append((t, gm, gerr, gf))
+                if _raw and fc_active:
+                    _raw = _fc.normalize_pts(
+                        _raw,
+                        control_means=fc_control_means or None,
+                        use_t0=fc_vs_t0,
+                    )
+                agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
+                for pt in _raw:
+                    t2, m2, e2, fr2 = pt[0], pt[1], pt[2], pt[3]
+                    if not (isinstance(m2, float) and math.isnan(m2)):
+                        agg_times.append(t2)
+                        agg_means.append(m2)
+                        agg_errs.append(e2)
+                        agg_fracs.append(fr2)
 
                 if agg_times:
                     ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o",
@@ -1386,6 +1595,12 @@ class BatchExportPanel(QWidget):
                     cell_area_threshold=_cell_area_threshold,
                     fluor_gates=_fluor_gates,
                 )
+                if pts and fc_active:
+                    pts = _fc.normalize_pts(
+                        pts,
+                        control_means=fc_control_means or None,
+                        use_t0=fc_vs_t0,
+                    )
                 if pts:
                     times, means, spreads, fracs, *_ = zip(*pts)
                     vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
@@ -1422,7 +1637,11 @@ class BatchExportPanel(QWidget):
                 any_cdf = True
 
         if any_ts:
-            ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.8)
+            # Threshold is in raw-fluorescence units; once fold-change scaling
+            # is applied the curves no longer live on that axis, so the line
+            # would be misleading. Suppress it in that case.
+            if not fc_active:
+                ax_mean.axhline(threshold, color=WARN, lw=1.0, ls="--", alpha=0.8)
             # Skip the legend call entirely when no labeled artists were
             # plotted (e.g. all NaN means for a non-MFI property + a
             # threshold that filters every cell) — matplotlib otherwise

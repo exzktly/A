@@ -250,6 +250,23 @@ def draw_grouped_bar_mode(
         # decision #1: a rep-set's bar is coloured by its lowest well's rank.
         color_by_key = {r.name: app._rank_color_rset(r) for r in active_rsets}
         per_fov_spread = app._use_fov_spread_active()
+        # Fold-change normalization — resolved once and applied to each
+        # rep-set bar. ``_collect_bar_items`` already does this for its
+        # output, but the rep-set draw path re-fetches stats below for the
+        # drag-order + display-label shape it needs, so the scaling has to
+        # repeat here. The expensive helpers consulted are cached, so this
+        # second pass is cheap.
+        from well_viewer import fold_change as _fc
+        fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+        fc_control_mean = None
+        if fc_vs_ctrl and fc_ctrl_lbl:
+            fc_control_mean = _fc.control_mean_at(
+                app, fc_ctrl_lbl, target_t,
+                threshold=threshold, val_col=app._active_val_col,
+                cell_area_threshold=app._get_cell_area_threshold(),
+                fluor_gates=app._get_all_fluor_gates(),
+            )
+        fc_active = fc_vs_ctrl or fc_vs_t0
         ordered = []
         for key in app._bar_current_keys():
             rset = by_key.get(key)
@@ -264,6 +281,20 @@ def draw_grouped_bar_mode(
                 gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
                 n_above = app._compute_rep_n_above(rset, target_t)
                 trailing = (int(n_above), 0.0)
+            if fc_active:
+                t0_mean = None
+                if fc_vs_t0:
+                    t0_mean = _fc.first_tp_value(app._aggregate_group(
+                        list(rset.wells), threshold=threshold, use_sem=False,
+                        val_col=app._active_val_col,
+                        cell_area_threshold=app._get_cell_area_threshold(),
+                        fluor_gates=app._get_all_fluor_gates(),
+                    ))
+                gm, g_err_m = _fc.scale_bar_value(
+                    gm, g_err_m,
+                    control_mean=fc_control_mean if fc_vs_ctrl else None,
+                    t0_mean=t0_mean if fc_vs_t0 else None,
+                )
             base_lbl = app._replicate_display_label(rset)
             display = base_lbl
             ordered.append(
@@ -310,12 +341,15 @@ def draw_grouped_bar_mode(
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     _ch = app._active_channel.upper()
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    from well_viewer import fold_change as _fc
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
+    _fc_v, _fc_lbl, _fc_t0 = _fc.fold_change_state(app)
+    _fc_suffix = _fc.fold_change_suffix(_fc_v, _fc_t0, _fc_lbl)
     ax_mean.set_title(
-        f"{_ch} {_metric_label} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
+        f"{_ch} {_metric_label} (above threshold) ± {band_lbl}{_fc_suffix}  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
     )
-    ax_mean.set_ylabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
+    ax_mean.set_ylabel(f"{_ch} {_metric_label}{_fc_suffix}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
@@ -357,10 +391,13 @@ def redraw_bars(app) -> None:
 
     _ch = app._active_channel.upper()
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    from well_viewer import fold_change as _fc
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
+    _fc_v, _fc_lbl, _fc_t0 = _fc.fold_change_state(app)
+    _fc_suffix = _fc.fold_change_suffix(_fc_v, _fc_t0, _fc_lbl)
     apply_ax_style(ax_mean,
-                   f"{_ch} {_metric_label} (above threshold) ± {band_lbl}",
-                   f"{_ch} {_metric_label}")
+                   f"{_ch} {_metric_label} (above threshold) ± {band_lbl}{_fc_suffix}",
+                   f"{_ch} {_metric_label}{_fc_suffix}")
     apply_ax_style(ax_frac,
                    "Fraction of Cells Above Threshold",
                    "Fraction")
