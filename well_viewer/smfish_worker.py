@@ -124,10 +124,27 @@ def apply_global_threshold_async(
     status_cb: Callable[[str], None],
     done_cb: Callable[[str], None],
     after_csv_cb: Callable[[], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    expected_data_dir: Path | None = None,
 ) -> threading.Thread:
-    """Launch the apply-to-all worker on a daemon thread."""
+    """Launch the apply-to-all worker on a daemon thread.
+
+    ``cancel_event`` (when supplied) is polled between wells and before
+    the write loop so a Cancel button / dataset-swap / app-shutdown can
+    abort the in-flight run before it overwrites CSVs.
+
+    ``expected_data_dir`` is the data directory the request was issued
+    against. If, by the time the writer reaches the CSV phase, the
+    caller has swapped to a different dataset, we refuse to write —
+    the wrong dataset's CSVs would otherwise receive these counts.
+    """
 
     column = f"{channel}_smfish_count"
+    out_dir = Path(out_dir)
+    expected = Path(expected_data_dir) if expected_data_dir is not None else out_dir
+
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
 
     def _run() -> None:
         if not channel:
@@ -162,7 +179,25 @@ def apply_global_threshold_async(
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("smFISH global threshold failed for %s: %s", well, exc)
                     status_cb(f"Processed {well} ({completed}/{len(wells)})...")
+                    if _cancelled():
+                        status_cb("Apply to All cancelled.")
+                        done_cb("Apply to All cancelled before CSV write.")
+                        return
 
+        if _cancelled():
+            status_cb("Apply to All cancelled.")
+            done_cb("Apply to All cancelled before CSV write.")
+            return
+        # Verify the data directory hasn't changed under us. The
+        # writer rewrites per-well CSVs in `out_dir`; if the caller
+        # swapped to a different dataset while the worker was
+        # running, those CSVs belong to the wrong dataset.
+        if expected != out_dir or not out_dir.exists():
+            done_cb(
+                "Apply to All aborted: target directory changed since "
+                "the run was started."
+            )
+            return
         _write_counts_to_csvs(out_dir, well_to_zip, counts, column)
         if after_csv_cb is not None:
             after_csv_cb()
