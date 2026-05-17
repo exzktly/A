@@ -13,10 +13,12 @@ import pytest
 
 from well_viewer import fold_change as fc
 from well_viewer.fold_change import (
-    _match_control_mean, _TP_REL_TOL,
+    _match_control_mean, _TP_REL_TOL, _rel_err_sq, _propagate_spread,
     build_cell_scaling,
-    control_mean_at_for_bar, fold_change_state, fold_change_suffix,
-    member_first_tp_value, member_mean_series,
+    control_mean_at_for_bar, control_stats_at_for_bar,
+    fold_change_state, fold_change_suffix,
+    member_first_tp_stats, member_first_tp_value,
+    member_mean_series, member_stats_series,
     normalize_pts, pts_to_mean_by_t, resolve_control_wells,
     scale_bar_value, first_tp_value,
 )
@@ -308,3 +310,130 @@ def test_build_cell_scaling_control_missing_yields_nan(mock_app):
         mock_app, ["B01"], fc_state=fc_state, target_t=99.0, **_kw(),
     )
     assert math.isnan(scale["B01"])
+
+
+# ── Error propagation ───────────────────────────────────────────────────────
+
+def test_rel_err_sq_basic():
+    # (10% relative error)² = 0.01
+    assert math.isclose(_rel_err_sq(100.0, 10.0), 0.01)
+
+
+def test_rel_err_sq_safe_for_zero_value():
+    assert _rel_err_sq(0.0, 1.0) == 0.0
+
+
+def test_rel_err_sq_safe_for_nan_spread():
+    assert _rel_err_sq(10.0, float("nan")) == 0.0
+
+
+def test_propagate_spread_no_denom_error_matches_simple_divide():
+    # With denom_rel_err_sq=0, the propagated spread equals |spread/factor|
+    # — the legacy behaviour. new_mean = 50, mean = 100, spread = 10
+    # → simple divide: 10/2 = 5; quadrature: 50 * |10/100| = 5. Match.
+    assert math.isclose(_propagate_spread(50.0, 100.0, 10.0, 0.0), 5.0)
+
+
+def test_propagate_spread_with_denom_error():
+    # X/C = 100/2 = 50. σ_X/X = 0.1, σ_C/C = 0.2.
+    # σ_Y/Y = sqrt(0.01 + 0.04) = sqrt(0.05) ≈ 0.2236
+    # σ_Y = 50 * 0.2236 ≈ 11.18
+    out = _propagate_spread(50.0, 100.0, 10.0, 0.04)
+    assert math.isclose(out, 50.0 * math.sqrt(0.05))
+
+
+def test_scale_bar_value_backwards_compat_exact_denom():
+    """No control_spread → matches the legacy behaviour exactly."""
+    m, s = scale_bar_value(100.0, 10.0, control_mean=2.0)
+    assert (m, s) == (50.0, 5.0)
+
+
+def test_scale_bar_value_with_control_spread_propagates():
+    """Control's 10% relative error joins the numerator's 10% in quadrature."""
+    m, s = scale_bar_value(100.0, 10.0, control_mean=2.0, control_spread=0.2)
+    assert math.isclose(m, 50.0)
+    # σ_Y = 50 * sqrt((10/100)² + (0.2/2)²) = 50 * sqrt(0.02) ≈ 7.071
+    assert math.isclose(s, 50.0 * math.sqrt(0.02))
+
+
+def test_scale_bar_value_both_axes_with_spreads():
+    """All three relative errors stack in quadrature."""
+    m, s = scale_bar_value(
+        100.0, 10.0,
+        control_mean=2.0, control_spread=0.2,
+        t0_mean=5.0, t0_spread=0.5,
+    )
+    # mean: 100 / 2 / 5 = 10
+    assert math.isclose(m, 10.0)
+    # σ_Y/Y = sqrt(0.01 + 0.01 + 0.01) = sqrt(0.03)
+    assert math.isclose(s, 10.0 * math.sqrt(0.03))
+
+
+def test_scale_bar_value_spread_always_nonneg():
+    """Negative inputs don't yield a negative spread."""
+    m, s = scale_bar_value(100.0, 10.0, control_mean=-2.0, control_spread=0.2)
+    assert math.isclose(m, -50.0)
+    # Spread is always |new_mean| * sqrt(...) — non-negative.
+    assert s >= 0
+
+
+def test_normalize_pts_control_only_with_stats_propagates():
+    """control_stats path threads the control's spread through."""
+    pts = [(0.0, 100.0, 10.0, 0.5, 5, 10), (1.0, 200.0, 20.0, 0.5, 5, 10)]
+    stats = {0.0: (100.0, 10.0), 1.0: (100.0, 10.0)}
+    out = normalize_pts(pts, control_stats=stats)
+    # Means: 1.0 and 2.0 (X/C).
+    assert math.isclose(out[0][1], 1.0)
+    assert math.isclose(out[1][1], 2.0)
+    # Spreads include the control's 10% relative error.
+    # σ_Y[0] = 1.0 * sqrt(0.01 + 0.01) = sqrt(0.02)
+    assert math.isclose(out[0][2], math.sqrt(0.02))
+    # σ_Y[1] = 2.0 * sqrt(0.01 + 0.01) = 2*sqrt(0.02)
+    assert math.isclose(out[1][2], 2.0 * math.sqrt(0.02))
+
+
+def test_normalize_pts_t0_with_baseline_spread_propagates():
+    """vs-t0 picks up the baseline's spread from the AggPoint."""
+    pts = [(0.0, 50.0, 5.0, 0.5, 5, 10), (1.0, 100.0, 10.0, 0.5, 5, 10)]
+    out = normalize_pts(pts, use_t0=True)
+    # Baseline: (50, 5) → rel err 0.1.
+    # out[0]: mean = 50/50 = 1; spread = 1 * sqrt(0.01 + 0.01) = sqrt(0.02)
+    assert math.isclose(out[0][1], 1.0)
+    assert math.isclose(out[0][2], math.sqrt(0.02))
+    # out[1]: mean = 100/50 = 2; spread = 2 * sqrt(0.01 + 0.01) = 2*sqrt(0.02)
+    assert math.isclose(out[1][1], 2.0)
+    assert math.isclose(out[1][2], 2.0 * math.sqrt(0.02))
+
+
+def test_normalize_pts_control_means_still_works():
+    """Legacy control_means parameter path treats denominator as exact."""
+    pts = [(0.0, 100.0, 10.0, 0.5, 5, 10)]
+    out = normalize_pts(pts, control_means={0.0: 100.0})
+    # No control spread → simple divide.
+    assert math.isclose(out[0][1], 1.0)
+    assert math.isclose(out[0][2], 0.1)
+
+
+def test_member_stats_series_returns_means_and_spreads(mock_app):
+    series = member_stats_series(mock_app, "TREAT", **_kw())
+    # MockApp._compute_rep_stats returns (mean, 0.0, frac, 0.0) — spread
+    # is 0 here, but the shape we care about is (mean, spread).
+    for t, (m, s) in series.items():
+        assert isinstance(m, float)
+        assert isinstance(s, float)
+        assert s >= 0
+
+
+def test_control_stats_at_for_bar_returns_tuple(mock_app):
+    stats = control_stats_at_for_bar(mock_app, "CTRL", 1.0, **_kw())
+    assert stats is not None
+    mean, spread = stats
+    assert math.isclose(mean, 100.0)
+    assert spread >= 0
+
+
+def test_member_first_tp_stats_returns_tuple(mock_app):
+    stats = member_first_tp_stats(mock_app, "C01", **_kw())
+    assert stats is not None
+    mean, spread = stats
+    assert math.isclose(mean, 50.0)

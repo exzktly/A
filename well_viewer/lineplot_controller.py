@@ -69,12 +69,15 @@ def redraw_line_plots(
     # ``_compute_rep_stats``), per-FOV pool when Aggregate-FOVs is on
     # (``_compute_rep_per_fov_stats``), single-well aggregation for
     # well controls. Mismatching stats was the original math bug.
+    # ``fc_control_stats`` carries (mean, spread) per tp so the
+    # control's uncertainty propagates through normalize_pts via
+    # quadrature, not the old "treat denominator as exact" simplification.
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
-    fc_control_means: dict = {}
+    fc_control_stats: dict = {}
     fc_misses: set = set()
     _per_fov_line = app._use_fov_spread_active() if app._rep_sets_active() else False
     if fc_vs_ctrl and fc_ctrl_lbl:
-        fc_control_means = _fc.member_mean_series(
+        fc_control_stats = _fc.member_stats_series(
             app, fc_ctrl_lbl,
             threshold=threshold, val_col=app._active_val_col,
             use_sem=use_sem, per_fov_spread=_per_fov_line,
@@ -167,10 +170,10 @@ def redraw_line_plots(
                     gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
                 if not math.isnan(gm):
                     _raw_pts.append((t, gm, gerr, gf))
-            if _raw_pts and (fc_control_means or fc_vs_t0):
+            if _raw_pts and (fc_control_stats or fc_vs_t0):
                 _raw_pts = _fc.normalize_pts(
                     _raw_pts,
-                    control_means=fc_control_means or None,
+                    control_stats=fc_control_stats or None,
                     use_t0=fc_vs_t0,
                     miss_sink=fc_misses,
                 )
@@ -215,10 +218,10 @@ def redraw_line_plots(
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
             pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
-            if pts and (fc_control_means or fc_vs_t0):
+            if pts and (fc_control_stats or fc_vs_t0):
                 pts = _fc.normalize_pts(
                     pts,
-                    control_means=fc_control_means or None,
+                    control_stats=fc_control_stats or None,
                     use_t0=fc_vs_t0,
                     miss_sink=fc_misses,
                 )

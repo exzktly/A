@@ -671,10 +671,19 @@ because `vs t0` is applied to the post-control values. This is not the
 same as `(X(t)/X(0)) / (C(t)/C(0))` in general. Documented on
 `normalize_pts`.
 
-Error propagation: the current code treats control and baseline
-denominators as exact constants — error bars divide by the same
-factor rather than going through the full
-`σ_Y/Y = √((σ_X/X)² + (σ_C/C)²)`. Acknowledged limitation, follow-up.
+Error propagation: each fold-change denominator (control mean, t0
+baseline) is divided through with its own spread, and the resulting
+relative error combines in quadrature:
+
+```
+   (σ_Y / Y)² = (σ_X / X)² + (σ_C / C)² + (σ_B / B)²
+```
+
+`scale_bar_value` and `normalize_pts` accept the denominator spreads
+via `control_spread` / `t0_spread` / `control_stats`. Callers that
+don't have a meaningful denominator uncertainty can omit them; that
+recovers the legacy "treat denominator as exact" `spread / factor`
+behaviour and is the backwards-compatible default.
 
 ```
                             app._fc_vs_control_on   ─┐

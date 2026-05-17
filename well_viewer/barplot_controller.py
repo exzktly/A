@@ -161,21 +161,25 @@ def collect_bar_items(
     fluor_gates = app._get_all_fluor_gates()
     per_fov_spread = app._use_fov_spread_active()
     fc_control_mean_at_t = None
+    fc_control_spread_at_t = None
     if fc_vs_ctrl and fc_ctrl_lbl:
-        fc_control_mean_at_t = _fc.control_mean_at_for_bar(
+        ctrl_stats = _fc.control_stats_at_for_bar(
             app, fc_ctrl_lbl, target_t,
             threshold=threshold, val_col=app._active_val_col,
             use_sem=use_sem, per_fov_spread=per_fov_spread,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
         )
-        if fc_control_mean_at_t is None and miss_sink is not None:
-            # Control couldn't be resolved at target_t — record the
-            # miss so the caller can surface a status warning. Bars
-            # below will be forced to NaN by ``fc_force_nan`` so the
-            # plot doesn't silently fall back to raw values while the
-            # axis title still claims fold-change normalization.
-            miss_sink.add(float(target_t))
+        if ctrl_stats is None:
+            if miss_sink is not None:
+                # Control couldn't be resolved at target_t — record the
+                # miss so the caller can surface a status warning. Bars
+                # below will be forced to NaN by ``fc_force_nan`` so the
+                # plot doesn't silently fall back to raw values while
+                # the axis title still claims fold-change normalization.
+                miss_sink.add(float(target_t))
+        else:
+            fc_control_mean_at_t, fc_control_spread_at_t = ctrl_stats
     fc_force_nan = fc_vs_ctrl and fc_ctrl_lbl and fc_control_mean_at_t is None
 
     ordered_keys = app._bar_current_keys()
@@ -202,14 +206,17 @@ def collect_bar_items(
                 n_above_val = float(app._compute_rep_n_above(rset, target_t))
                 n_above_err = 0.0
             t0_mean = None
+            t0_spread = None
             if fc_vs_t0:
-                t0_mean = _fc.member_first_tp_value(
+                stats = _fc.member_first_tp_stats(
                     app, rset.name,
                     threshold=threshold, val_col=app._active_val_col,
                     use_sem=use_sem, per_fov_spread=per_fov_spread,
                     cell_area_threshold=cell_area_threshold,
                     fluor_gates=fluor_gates,
                 )
+                if stats is not None:
+                    t0_mean, t0_spread = stats
             if fc_force_nan:
                 gm = float("nan")
                 g_err_m = 0.0
@@ -217,7 +224,9 @@ def collect_bar_items(
                 gm, g_err_m = _fc.scale_bar_value(
                     gm, g_err_m,
                     control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    control_spread=fc_control_spread_at_t if fc_vs_ctrl else None,
                     t0_mean=t0_mean if fc_vs_t0 else None,
+                    t0_spread=t0_spread if fc_vs_t0 else None,
                 )
             has_mean = not math.isnan(gm)
             # Preserve the legacy grouped-mode behaviour: when the mean is
@@ -264,14 +273,32 @@ def collect_bar_items(
                 m = float("nan")
                 s = 0.0
             elif fc_vs_ctrl or fc_vs_t0:
-                # t0 baseline = the well's own mean at its earliest tp.
-                # ``pts`` is the well's full time series, so the first
-                # finite mean there is the baseline we want.
-                t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+                # t0 baseline = the well's own (mean, spread) at its
+                # earliest tp. ``pts`` is the well's full time series,
+                # so the first finite mean there is the baseline; the
+                # spread at the same row feeds the error propagation.
+                t0_mean = None
+                t0_spread = None
+                if fc_vs_t0:
+                    for _pt in sorted(pts, key=lambda p: p[0]):
+                        _m = _pt[1]
+                        if (isinstance(_m, (int, float))
+                                and math.isfinite(_m) and _m != 0):
+                            t0_mean = float(_m)
+                            _sp = _pt[2] if len(_pt) > 2 else 0.0
+                            t0_spread = (
+                                float(_sp) if (
+                                    isinstance(_sp, (int, float))
+                                    and math.isfinite(_sp)
+                                ) else 0.0
+                            )
+                            break
                 m, s = _fc.scale_bar_value(
                     m, s,
                     control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    control_spread=fc_control_spread_at_t if fc_vs_ctrl else None,
                     t0_mean=t0_mean if fc_vs_t0 else None,
+                    t0_spread=t0_spread if fc_vs_t0 else None,
                 )
             has_mean = not math.isnan(m)
             has_frac = not math.isnan(f)
@@ -330,20 +357,23 @@ def collect_bar_items_for_group(
 
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
     fc_control_mean_at_t = None
+    fc_control_spread_at_t = None
     if fc_vs_ctrl and fc_ctrl_lbl:
         # Batch path uses ``_aggregate_group`` (pool-of-cells) for the
         # bar numerator, so the control denominator stays on the
         # pool-of-cells stat too — keeps the ratio internally
         # consistent. (The plot tab uses ``_compute_rep_stats``
-        # mean-of-means and pairs with ``control_mean_at_for_bar`` to
+        # mean-of-means and pairs with ``control_stats_at_for_bar`` to
         # match. The cross-path numerator difference is a pre-existing
         # issue out of scope here.)
-        fc_control_mean_at_t = _fc.control_mean_at(
+        ctrl_stats = _fc.control_stats_at(
             app, fc_ctrl_lbl, target_t,
             threshold=threshold, val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
         )
+        if ctrl_stats is not None:
+            fc_control_mean_at_t, fc_control_spread_at_t = ctrl_stats
 
     items: List[BarItem] = []
     members: List[Tuple[str, str, list[str]]] = []  # (key, display, wells)
@@ -387,11 +417,32 @@ def collect_bar_items_for_group(
                 n_above_val = float(n_above_total)
                 n_above_err = 0.0
             if fc_vs_ctrl or fc_vs_t0:
-                t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+                # Batch t0 baseline: pool-of-cells stat (matches the
+                # batch numerator). Spread comes from the same AggPoint
+                # at the earliest tp so error propagation has the right
+                # uncertainty for the baseline.
+                t0_mean = None
+                t0_spread = None
+                if fc_vs_t0:
+                    for _pt in sorted(pts, key=lambda p: p[0]):
+                        _m = _pt[1]
+                        if (isinstance(_m, (int, float))
+                                and math.isfinite(_m) and _m != 0):
+                            t0_mean = float(_m)
+                            _sp = _pt[2] if len(_pt) > 2 else 0.0
+                            t0_spread = (
+                                float(_sp) if (
+                                    isinstance(_sp, (int, float))
+                                    and math.isfinite(_sp)
+                                ) else 0.0
+                            )
+                            break
                 m, s = _fc.scale_bar_value(
                     m, s,
                     control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    control_spread=fc_control_spread_at_t if fc_vs_ctrl else None,
                     t0_mean=t0_mean if fc_vs_t0 else None,
+                    t0_spread=t0_spread if fc_vs_t0 else None,
                 )
             has_mean = not math.isnan(m)
             has_frac = has_mean and not math.isnan(f)
