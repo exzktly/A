@@ -762,6 +762,13 @@ class WellViewerApp(QWidget):
         self._bar_ylim_frac_lo_edit = None
         self._bar_ylim_frac_hi_edit = None
         self._bar_order: Optional[List] = None
+        # Fold-change normalization state (shared by Bar / Line tabs). Two
+        # independent toggles — they may be combined. The Bar / Line batch
+        # export panels keep their own per-panel mirror of this state so
+        # batch jobs aren't tied to whatever the on-screen plot has set.
+        self._fc_vs_control_on: bool = False
+        self._fc_control_label: str = ""
+        self._fc_vs_t0_on: bool = False
         # Unified saved-selections model (Phase 8.0) — THE in-memory source of
         # truth. See well_viewer/selections_model.py for the schema.
         self._selections:               list = []

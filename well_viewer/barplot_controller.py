@@ -8,6 +8,7 @@ from typing import Callable, List, Optional, Tuple
 
 from .batch_models import BarGroup, ReplicateSet
 from . import debug_flags
+from . import fold_change as _fc
 
 
 def _bar_debug(msg: str) -> None:
@@ -76,6 +77,18 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
     threshold = app._get_thresh_frac_on(app._active_channel)
     active_rsets = app._rep_sets_active()
 
+    # Fold-change normalization (vs control well/group, vs t0, or both).
+    # Resolved once here so we don't re-aggregate the control per bar.
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+    fc_control_mean_at_t = None
+    if fc_vs_ctrl and fc_ctrl_lbl:
+        fc_control_mean_at_t = _fc.control_mean_at(
+            app, fc_ctrl_lbl, target_t,
+            threshold=threshold, val_col=app._active_val_col,
+            cell_area_threshold=app._get_cell_area_threshold(),
+            fluor_gates=app._get_all_fluor_gates(),
+        )
+
     if active_rsets:
         from well_viewer.lineplot_controller import _apply_order as _apply_rs_order
         active_rsets = _apply_rs_order(
@@ -94,13 +107,32 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
                 gm, g_err_m, gf, g_err_f, n_above_pf_mean, n_above_pf_spread = (
                     app._compute_rep_per_fov_stats(rset, target_t, threshold, use_sem)
                 )
-                items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color,
-                              float(n_above_pf_mean), float(n_above_pf_spread)))
+                n_above_val = float(n_above_pf_mean)
+                n_above_err = float(n_above_pf_spread)
             else:
                 gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-                n_above = app._compute_rep_n_above(rset, target_t)
-                items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color,
-                              int(n_above), 0.0))
+                n_above_val = float(app._compute_rep_n_above(rset, target_t))
+                n_above_err = 0.0
+            t0_mean = None
+            if fc_vs_t0:
+                t0_mean = _fc.first_tp_value(app._aggregate_group(
+                    list(rset.wells), threshold=threshold, use_sem=False,
+                    val_col=app._active_val_col,
+                    cell_area_threshold=app._get_cell_area_threshold(),
+                    fluor_gates=app._get_all_fluor_gates(),
+                ))
+            if fc_vs_ctrl or fc_vs_t0:
+                gm, g_err_m = _fc.scale_bar_value(
+                    gm, g_err_m,
+                    control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    t0_mean=t0_mean if fc_vs_t0 else None,
+                )
+            n_above_pair = (
+                (n_above_val, n_above_err) if per_fov_spread
+                else (int(n_above_val), 0.0)
+            )
+            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color,
+                          n_above_pair[0], n_above_pair[1]))
         return True, items, band_lbl
 
     from well_viewer.lineplot_controller import _apply_order as _apply_well_order
@@ -134,10 +166,18 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
             fs = float(pt[6]) if len(pt) >= 7 else 0.0
             n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
             n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
+            if fc_vs_ctrl or fc_vs_t0:
+                t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+                m, s = _fc.scale_bar_value(
+                    m, s,
+                    control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    t0_mean=t0_mean if fc_vs_t0 else None,
+                )
+            has_data = not math.isnan(m)
             if per_fov_spread:
-                items.append((label, m, s, f, fs, True, n_above_pf_mean, n_above_pf_spread))
+                items.append((label, m, s, f, fs, has_data, n_above_pf_mean, n_above_pf_spread))
             else:
-                items.append((label, m, s, f, fs, True, float(n_above_total), 0.0))
+                items.append((label, m, s, f, fs, has_data, float(n_above_total), 0.0))
         else:
             items.append((label, float("nan"), 0.0, float("nan"), 0.0, False, 0.0, 0.0))
     return False, items, band_lbl

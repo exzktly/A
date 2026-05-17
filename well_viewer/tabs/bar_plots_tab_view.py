@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
     QSlider, QVBoxLayout, QWidget,
 )
 
@@ -102,6 +102,10 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_reset_order_btn.setProperty("variant", "toggle_muted")
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())
     cl.addWidget(app._bar_reset_order_btn)
+
+    # Fold-change normalization controls (shared with line plots via app state).
+    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
+    install_fold_change_controls(app, bar_ctrl, cl, scope="bar")
 
     cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data,
                              icon="download"))

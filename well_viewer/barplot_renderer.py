@@ -310,12 +310,15 @@ def draw_grouped_bar_mode(
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     _ch = app._active_channel.upper()
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    from well_viewer import fold_change as _fc
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
+    _fc_v, _fc_lbl, _fc_t0 = _fc.fold_change_state(app)
+    _fc_suffix = _fc.fold_change_suffix(_fc_v, _fc_t0, _fc_lbl)
     ax_mean.set_title(
-        f"{_ch} {_metric_label} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
+        f"{_ch} {_metric_label} (above threshold) ± {band_lbl}{_fc_suffix}  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
     )
-    ax_mean.set_ylabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
+    ax_mean.set_ylabel(f"{_ch} {_metric_label}{_fc_suffix}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
@@ -357,10 +360,13 @@ def redraw_bars(app) -> None:
 
     _ch = app._active_channel.upper()
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    from well_viewer import fold_change as _fc
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
+    _fc_v, _fc_lbl, _fc_t0 = _fc.fold_change_state(app)
+    _fc_suffix = _fc.fold_change_suffix(_fc_v, _fc_t0, _fc_lbl)
     apply_ax_style(ax_mean,
-                   f"{_ch} {_metric_label} (above threshold) ± {band_lbl}",
-                   f"{_ch} {_metric_label}")
+                   f"{_ch} {_metric_label} (above threshold) ± {band_lbl}{_fc_suffix}",
+                   f"{_ch} {_metric_label}{_fc_suffix}")
     apply_ax_style(ax_frac,
                    "Fraction of Cells Above Threshold",
                    "Fraction")

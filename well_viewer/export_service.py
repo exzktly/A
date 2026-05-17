@@ -165,6 +165,16 @@ def bar_metric_row(
     }
 
 
+def _fc_mode_str(vs_control: bool, vs_t0: bool) -> str:
+    """Compact textual mode for the fold-change CSV columns."""
+    parts: list = []
+    if vs_control:
+        parts.append("control")
+    if vs_t0:
+        parts.append("t0")
+    return "+".join(parts) or "off"
+
+
 def aggpoint_at(pts, target_t: float, tol: float = 1e-6):
     """Return the AggPoint whose time matches *target_t* within tol, or None."""
     for pt in pts or ():
@@ -213,6 +223,8 @@ def _error(app, title: str, msg: str) -> None:
 
 
 def export_plot_data(app) -> None:
+    from well_viewer import fold_change as _fc
+
     selected = list(app._selected_labels())
     well_to_repset: dict = {}
     if not selected:
@@ -241,6 +253,20 @@ def export_plot_data(app) -> None:
     fluor_gates = app._get_all_fluor_gates()
     well_labels = _well_labels_map(app)
     include_repset_col = bool(well_to_repset)
+
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+    fc_control_means: dict = {}
+    if fc_vs_ctrl and fc_ctrl_lbl:
+        fc_control_means = _fc.pts_to_mean_by_t(
+            _fc.control_pts_for_line(
+                app, fc_ctrl_lbl, threshold=threshold,
+                val_col=app._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+        )
+    fc_active = fc_vs_ctrl or fc_vs_t0
+
     rows_out = []
     for label in selected:
         pts = app._aggregate_well(
@@ -249,7 +275,12 @@ def export_plot_data(app) -> None:
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
         )
-        for pt in pts:
+        norm_pts = (
+            _fc.normalize_pts(pts, control_means=fc_control_means or None,
+                              use_t0=fc_vs_t0)
+            if fc_active else None
+        )
+        for i, pt in enumerate(pts):
             row = {
                 "well": label,
                 "well_name": well_name_for(label, well_labels),
@@ -258,6 +289,18 @@ def export_plot_data(app) -> None:
                 row["replicate_set"] = well_to_repset.get(label, "")
             row.update(line_metric_row(pt, ch=ch, metric=metric,
                                        threshold=threshold, band_lbl=band_lbl))
+            if fc_active and norm_pts is not None and i < len(norm_pts):
+                npt = norm_pts[i]
+                fmean = npt[1] if not (isinstance(npt[1], float) and math.isnan(npt[1])) else float("nan")
+                row["fold_change_mean"] = (
+                    f"{fmean:.6f}" if isinstance(fmean, (int, float)) and not math.isnan(fmean) else ""
+                )
+                fspread = npt[2]
+                row[f"fold_change_{band_lbl.lower()}"] = (
+                    f"{fspread:.6f}" if isinstance(fspread, (int, float)) and not math.isnan(fspread) else ""
+                )
+                row["fold_change_mode"] = _fc_mode_str(fc_vs_ctrl, fc_vs_t0)
+                row["fold_change_control"] = fc_ctrl_lbl if fc_vs_ctrl else ""
             rows_out.append(row)
     if not rows_out:
         _warn(app, "Export", "No data to export for the current selection.")
@@ -267,6 +310,13 @@ def export_plot_data(app) -> None:
         return
     base_cols = ["well", "well_name"] + (["replicate_set"] if include_repset_col else [])
     fieldnames = base_cols + line_metric_fieldnames(ch, metric, band_lbl)
+    if fc_active:
+        fieldnames += [
+            "fold_change_mean",
+            f"fold_change_{band_lbl.lower()}",
+            "fold_change_mode",
+            "fold_change_control",
+        ]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -278,6 +328,8 @@ def export_plot_data(app) -> None:
 
 
 def export_bar_plot_data(app) -> None:
+    from well_viewer import fold_change as _fc
+
     tp_str = app._bar_tp_cb.currentText()
     if tp_str in ("—", ""):
         _warn(app, "Export", "Select a timepoint first.")
@@ -286,7 +338,13 @@ def export_bar_plot_data(app) -> None:
         target_t = float(tp_str)
     except ValueError:
         return
+    # ``_collect_bar_items`` already applies the active fold-change to the
+    # mean / spread columns, so the CSV mirrors the on-screen bars. We
+    # surface the mode / control as separate columns when active so the
+    # numbers aren't ambiguous downstream.
     use_groups, items, band_lbl = app._collect_bar_items(target_t)
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+    fc_active = fc_vs_ctrl or fc_vs_t0
     ch = app._active_channel
     metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
@@ -346,6 +404,11 @@ def export_bar_plot_data(app) -> None:
                 threshold=threshold, band_lbl=band_lbl,
             ))
             rows_out.append(row)
+    if fc_active:
+        mode_str = _fc_mode_str(fc_vs_ctrl, fc_vs_t0)
+        for row in rows_out:
+            row["fold_change_mode"] = mode_str
+            row["fold_change_control"] = fc_ctrl_lbl if fc_vs_ctrl else ""
     if not rows_out:
         _warn(app, "Export", "No data to export.")
         return
@@ -353,6 +416,8 @@ def export_bar_plot_data(app) -> None:
     if not out_path:
         return
     fieldnames = id_cols + bar_metric_fieldnames(ch, metric, band_lbl)
+    if fc_active:
+        fieldnames += ["fold_change_mode", "fold_change_control"]
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)

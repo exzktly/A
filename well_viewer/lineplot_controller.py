@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from . import fold_change as _fc
+
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 NO_DATA_MSG = "Load a directory.\nUse the Open button at the top-right (⌘O) to pick a folder."
@@ -60,6 +62,20 @@ def redraw_line_plots(
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
+
+    # Fold-change normalization — pulled once per redraw. ``control_means``
+    # caches the control series' {t: mean} so each member only consults it
+    # rather than re-aggregating.
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+    fc_control_means: dict = {}
+    if fc_vs_ctrl and fc_ctrl_lbl:
+        ctrl_pts = _fc.control_pts_for_line(
+            app, fc_ctrl_lbl, threshold=threshold,
+            val_col=app._active_val_col,
+            cell_area_threshold=app._get_cell_area_threshold(),
+            fluor_gates=app._get_all_fluor_gates(),
+        )
+        fc_control_means = _fc.pts_to_mean_by_t(ctrl_pts)
     # Theme-aware chrome colors (track the active PlotCard's Publication/Screen
     # state) — the renderer's *trace* colours stay rank-based.
     from well_viewer.plot_style import tokens_for as _tokens_for_ax
@@ -70,7 +86,8 @@ def redraw_line_plots(
     legend_kw = dict(fontsize=7, framealpha=0.0, facecolor="none", edgecolor=_spine, labelcolor=_title_fg)
 
     _ch = app._active_channel.upper()
-    apply_ax_style(app._line_ax_mean, f"{_ch} {metric_label} (above threshold) ± {band_lbl}", metric_label)
+    _fc_suffix = _fc.fold_change_suffix(fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
+    apply_ax_style(app._line_ax_mean, f"{_ch} {metric_label} (above threshold) ± {band_lbl}{_fc_suffix}", metric_label + _fc_suffix)
     apply_ax_style(app._line_ax_frac, "Fraction of Cells Above Threshold", "Fraction")
     cdf_lbl = (f"{_ch} {metric_label} CDF (all wells per replicate set)" if app._rep_sets_active() else f"{_ch} {metric_label} CDF (all selected wells)")
     apply_ax_style(app._line_ax_cdf, cdf_lbl, "Cumulative fraction")
@@ -137,16 +154,27 @@ def redraw_line_plots(
                     all_tps.add(t)
                 all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
             agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
+            _raw_pts = []
             for t in sorted(all_tps):
                 if rep_per_fov:
                     gm, gerr, gf, _, _, _ = app._compute_rep_per_fov_stats(rset, t, threshold, use_sem)
                 else:
                     gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
                 if not math.isnan(gm):
+                    _raw_pts.append((t, gm, gerr, gf))
+            if _raw_pts and (fc_control_means or fc_vs_t0):
+                _raw_pts = _fc.normalize_pts(
+                    _raw_pts,
+                    control_means=fc_control_means or None,
+                    use_t0=fc_vs_t0,
+                )
+            for pt in _raw_pts:
+                t, m, e, fr = pt[0], pt[1], pt[2], pt[3]
+                if not (isinstance(m, float) and math.isnan(m)):
                     agg_times.append(t)
-                    agg_means.append(gm)
-                    agg_errs.append(gerr)
-                    agg_fracs.append(gf)
+                    agg_means.append(m)
+                    agg_errs.append(e)
+                    agg_fracs.append(fr)
             n_wells = len(valid_wells)
             lbl_str = f"{rset.name} (n={n_wells})" if n_wells != 1 else rset.name
             if agg_times:
@@ -181,6 +209,12 @@ def redraw_line_plots(
             rows = app._get_rows(label)
             disp = app._well_display_label(label)
             pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
+            if pts and (fc_control_means or fc_vs_t0):
+                pts = _fc.normalize_pts(
+                    pts,
+                    control_means=fc_control_means or None,
+                    use_t0=fc_vs_t0,
+                )
             if pts:
                 times, means, spreads, fracs, *_ = zip(*pts)
                 vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
