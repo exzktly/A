@@ -676,50 +676,58 @@ class BatchExportPanel(QWidget):
     def _selected_tps(self) -> List[str]:
         return [it.text() for it in self._tp_lb.selectedItems()]
 
-    def _build_fold_change_widgets(self, row: QHBoxLayout) -> None:
-        """Append the two fold-change toggles + control combo to *row*.
+    _FC_NONE_LABEL = "—"
+    _FC_T0_LABEL = "t0 (first timepoint)"
 
-        The control combo lists every member exposed by the current export
-        groups (rep-set names + solo wells). The combo is repopulated
-        whenever the panel is shown so changes to the group editor are
-        reflected without a panel rebuild.
+    def _build_fold_change_widgets(self, row: QHBoxLayout) -> None:
+        """Append the Control + Baseline dropdowns to *row*.
+
+        Two parallel combos — Control selects the well / rep-set whose
+        mean each bar is divided by, Baseline picks a per-member
+        reference timepoint. ``—`` in either combo disables that axis.
         """
         fc_lbl = QLabel("Fold change:")
         f = fc_lbl.font(); f.setBold(True); fc_lbl.setFont(f)
         row.addWidget(fc_lbl)
 
-        self._fc_ctrl_cb = QCheckBox("vs control")
-        self._fc_ctrl_cb.setChecked(self._fc_vs_control_on)
-        row.addWidget(self._fc_ctrl_cb)
-
+        row.addWidget(QLabel("Control"))
         self._fc_ctrl_combo = QComboBox()
         self._fc_ctrl_combo.setMinimumWidth(160)
+        self._fc_ctrl_combo.setToolTip(
+            "Divide each bar / curve by the picked well or replicate "
+            "set's mean at the same timepoint. — disables this axis."
+        )
         self._repopulate_fc_control_combo()
         row.addWidget(self._fc_ctrl_combo)
 
-        self._fc_t0_cb = QCheckBox("vs t0")
-        self._fc_t0_cb.setChecked(self._fc_vs_t0_on)
-        self._fc_t0_cb.setToolTip(
-            "Normalize each member to its own value at the earliest "
-            "available timepoint (each member's first point becomes 1.0)."
+        row.addWidget(QLabel("Baseline"))
+        self._fc_baseline_combo = QComboBox()
+        self._fc_baseline_combo.setMinimumWidth(160)
+        self._fc_baseline_combo.setToolTip(
+            "Divide each bar / curve by its own value at the reference "
+            "timepoint. — disables this axis."
         )
-        row.addWidget(self._fc_t0_cb)
-
-        def _on_ctrl_tog(c: bool) -> None:
-            self._fc_vs_control_on = bool(c)
-            self._fc_ctrl_combo.setEnabled(c)
+        self._fc_baseline_combo.addItem(self._FC_NONE_LABEL)
+        self._fc_baseline_combo.addItem(self._FC_T0_LABEL)
+        self._fc_baseline_combo.setCurrentIndex(1 if self._fc_vs_t0_on else 0)
+        row.addWidget(self._fc_baseline_combo)
 
         def _on_ctrl_change(_i: int) -> None:
             text = self._fc_ctrl_combo.currentText()
-            self._fc_control_label = "" if text == "— none —" else text
+            if text == self._FC_NONE_LABEL or not text:
+                self._fc_vs_control_on = False
+                self._fc_control_label = ""
+            else:
+                self._fc_vs_control_on = True
+                self._fc_control_label = text
 
-        def _on_t0_tog(c: bool) -> None:
-            self._fc_vs_t0_on = bool(c)
+        def _on_baseline_change(_i: int) -> None:
+            self._fc_vs_t0_on = (
+                self._fc_baseline_combo.currentText() == self._FC_T0_LABEL
+            )
 
-        self._fc_ctrl_cb.toggled.connect(_on_ctrl_tog)
         self._fc_ctrl_combo.currentIndexChanged.connect(_on_ctrl_change)
-        self._fc_t0_cb.toggled.connect(_on_t0_tog)
-        self._fc_ctrl_combo.setEnabled(self._fc_vs_control_on)
+        self._fc_baseline_combo.currentIndexChanged.connect(_on_baseline_change)
 
     def _repopulate_fc_control_combo(self) -> None:
         combo = getattr(self, "_fc_ctrl_combo", None)
@@ -746,7 +754,7 @@ class BatchExportPanel(QWidget):
         blocked = combo.blockSignals(True)
         try:
             combo.clear()
-            combo.addItem("— none —")
+            combo.addItem(self._FC_NONE_LABEL)
             for m in members:
                 combo.addItem(m)
             if saved:
