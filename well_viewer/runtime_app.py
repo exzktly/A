@@ -3365,6 +3365,27 @@ class WellViewerApp(QWidget):
         self._plate_commit_pending = False
         self._on_plate_sel_change()
 
+    def _set_selected_wells(self, new_set, *, commit: bool = True) -> None:
+        """Single mutation point for ``_selected_wells``.
+
+        Callers that mutated the set directly (heatmap drag, smFISH tab
+        activation, batch-export panels) bypassed ``_prev_sel`` tracking
+        and the redraw fan-out, so the next selection diff in
+        ``selection_controller.on_plate_sel_change`` mis-attributed
+        additions / removals across tabs. Funnel everything through here.
+        """
+        new_set = set(new_set or [])
+        if new_set == self._selected_wells:
+            return
+        # Snapshot the previous selection so on_plate_sel_change can
+        # compute an accurate diff if it runs after this.
+        self._prev_sel = set(self._selected_wells)
+        self._selected_wells = new_set
+        if hasattr(self, "_refresh_sidebar_map"):
+            self._refresh_sidebar_map()
+        if commit and hasattr(self, "_on_plate_sel_change"):
+            self._on_plate_sel_change()
+
     def _on_sidebar_plate_drag_finished(self) -> None:
         try:
             tab_name = self._current_centre_tab()
@@ -5371,7 +5392,11 @@ class WellViewerApp(QWidget):
             self._sidebar_main_frame.setVisible(True)
             if len(self._selected_wells) > 1:
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
-                self._selected_wells = {keep}
+                # Route through the central mutator so _prev_sel is
+                # snapshotted properly — bypassing it left the next
+                # selection diff in selection_controller mis-attributing
+                # cross-tab additions / removals.
+                self._set_selected_wells({keep}, commit=False)
             self._refresh_sidebar_map()
             from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
             smfish_sync_from_app(self)

@@ -115,9 +115,17 @@ def select_review_csv_row_for_cell(app, fov: str, tp: str, nucleus_id: str, logg
             and preview_well in getattr(app, "_well_paths", {})
             and preview_well not in app._selected_wells
         ):
-            app._selected_wells.add(preview_well)
-            if hasattr(app, "_refresh_sidebar_map"):
-                app._refresh_sidebar_map()
+            # Go through the single mutation helper so _prev_sel is
+            # snapshotted properly. commit=False because we're about to
+            # switch tabs anyway — the tab-change handler will trigger
+            # the redraw.
+            if hasattr(app, "_set_selected_wells"):
+                new_sel = set(app._selected_wells) | {preview_well}
+                app._set_selected_wells(new_sel, commit=False)
+            else:
+                app._selected_wells.add(preview_well)
+                if hasattr(app, "_refresh_sidebar_map"):
+                    app._refresh_sidebar_map()
         # If the Review CSV tab is already built, pre-point its FOV/TP combos
         # at the target *before* switching tabs. The tab-switch fires
         # _refresh_review_csv, which would otherwise rebuild the table for
