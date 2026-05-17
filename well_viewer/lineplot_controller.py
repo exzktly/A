@@ -91,26 +91,28 @@ def _apply_order(items, saved_order, key):
     if not saved_order:
         return list(items)
     items = list(items)
-    by_key: dict[str, list] = {}
-    natural_order: list = []
-    for it in items:
+    by_key: dict[str, list[int]] = {}  # str-key -> indices into items
+    for idx, it in enumerate(items):
         try:
             k = str(key(it))
         except Exception:
             k = ""
-        by_key.setdefault(k, []).append(it)
-        natural_order.append(it)
-    seen_objs: set = set()
+        by_key.setdefault(k, []).append(idx)
+    # Track which item *indices* have already been emitted. id()-based
+    # dedup was unsafe for small interned strings or any items the
+    # iterator might compare equal — distinct list positions could
+    # share an id, producing spurious dedup.
+    seen_indices: set[int] = set()
     out: list = []
     for k in saved_order:
         bucket = by_key.get(str(k))
         if not bucket:
             continue
-        for it in bucket:
-            out.append(it)
-            seen_objs.add(id(it))
-    for it in natural_order:
-        if id(it) not in seen_objs:
+        for idx in bucket:
+            out.append(items[idx])
+            seen_indices.add(idx)
+    for idx, it in enumerate(items):
+        if idx not in seen_indices:
             out.append(it)
     return out
 

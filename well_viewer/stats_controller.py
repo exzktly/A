@@ -86,7 +86,10 @@ def collect_group_values(
             fov_raw = (df["fov"].fillna("").astype(str).str.strip()
                        if "fov" in df.columns
                        else pd.Series([""] * len(df), index=df.index))
-            fov = fov_raw.where(fov_raw != "", "_").to_numpy()
+            # Empty FOV → "1" to match aggregate_with_threshold_df. The
+            # earlier "_" sentinel bucketed missing-FOV cells differently
+            # from the bar / line aggregator on the same dataset.
+            fov = fov_raw.where(fov_raw != "", "1").to_numpy()
             sub = pd.DataFrame({"key": fov[mask], "v": val[mask]})
             for _, group_vals in sub.groupby("key", sort=False)["v"]:
                 stat = _compute_statistic_arr(group_vals.to_numpy(), statistic, threshold)
