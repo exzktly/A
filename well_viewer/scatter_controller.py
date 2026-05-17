@@ -5,8 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
+import matplotlib
 import numpy as np
 import pandas as pd
 
@@ -400,7 +399,7 @@ def collect_scatter_agg_data(
 
     # Create color gradient for timepoints using a colormap
     if timepoints_h:
-        cmap = cm.get_cmap('viridis')
+        cmap = matplotlib.colormaps['viridis']
         normalized_tps = np.linspace(0, 1, len(timepoints_h))
         tp_to_color = {tp: cmap(norm_val) for tp, norm_val in zip(sorted(timepoints_h), normalized_tps)}
     else:

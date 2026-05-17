@@ -4187,9 +4187,7 @@ class WellViewerApp(QWidget):
         # Back-compat sync: follow the active tab's selector instead of forcing plot labels.
         if hasattr(self, "_chan_var"):
             tab_label = self._current_centre_tab()
-            if tab_label == "Movie Montage":
-                self._chan_var.setCurrentText(montage_label)
-            elif tab_label == "Segmentation":
+            if tab_label == "Segmentation":
                 self._chan_var.setCurrentText(review_label)
             else:
                 self._chan_var.setCurrentText(plot_label)
@@ -5319,13 +5317,7 @@ class WellViewerApp(QWidget):
         # mouse handlers.
         self._sync_heatmap_well_drag_mode(tab == "Heat Map")
 
-        if tab == "Movie Montage":
-            self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.setVisible(True)
-            self._refresh_preview_picker()
-            self._update_preview(self._preview_selected_well)
-
-        elif tab == "Segmentation":
+        if tab == "Segmentation":
             self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()

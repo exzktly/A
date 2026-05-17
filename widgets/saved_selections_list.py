@@ -315,10 +315,11 @@ class _SelectionRow(QFrame):
         self._eye.blockSignals(False)
         self.setProperty("current", "true" if current else "false")
         self._name.setProperty("hiddenRow", "true" if hidden else "false")
-        op = 0.55 if hidden else 1.0
+        # Hidden rows look dimmed via the RowName[hiddenRow="true"] QSS
+        # selector (colour swap). Per-widget ``opacity:`` in QSS is a no-op
+        # on QLabel — Qt only honours opacity via QGraphicsOpacityEffect —
+        # so don't try to set it here.
         self.setStyleSheet(self._qss())
-        for w in (self._name, self._chip, self._handle, self._chev):
-            w.setStyleSheet(f"opacity: {op};")
         if self._expanded:
             self._fill_chips()
         self.style().unpolish(self); self.style().polish(self)
