@@ -64,18 +64,29 @@ def install_qss_refresh(widget, qss_factory) -> None:
 
     class _Filter(QObject):
         """Event filter must subclass QObject — Qt rejects plain Python
-        classes passed to ``installEventFilter`` with a TypeError."""
+        classes passed to ``installEventFilter`` with a TypeError.
+
+        Two safety guards on top of the basic filter:
+
+        1. Skip non-QEvent dispatches (PySide6 occasionally routes a
+           QStandardItem from a QCompleter through eventFilter).
+        2. Skip when ``setStyleSheet`` would set the same string the
+           widget already carries. Without this guard, the filter's
+           own ``setStyleSheet`` call fires *another* StyleChange,
+           which re-enters this filter, which re-applies the QSS, etc.
+           Qt rebuilds the entire QSS-driven style on every cycle —
+           load-time stalls of ~20s observed before the guard.
+        """
 
         def eventFilter(self, obj, event):  # noqa: N802 — Qt naming
-            # PySide6 occasionally dispatches non-QEvent objects (e.g. a
-            # QStandardItem from a completer) through eventFilter. Guard
-            # before calling .type() so a stray event doesn't crash the
-            # filter and disable the widget.
             if not isinstance(event, QEvent):
                 return False
             if event.type() == QEvent.StyleChange:
                 try:
-                    obj.setStyleSheet(qss_factory())
+                    new = qss_factory()
+                    current = obj.styleSheet()
+                    if new != current:
+                        obj.setStyleSheet(new)
                 except Exception:
                     pass
             return False

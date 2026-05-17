@@ -161,13 +161,17 @@ if _HAVE_MPL:
             root.addWidget(self.toolbar)
 
             self.setStyleSheet(self._build_qss())
-            # Re-apply per-instance QSS when the global theme changes
-            # (Qt fires StyleChange on every widget when QApplication's
-            # stylesheet is rebuilt). Without this, the per-instance
-            # `_build_qss()` cache from construction time would freeze
-            # the dark-mode tokens even after a Light-theme switch.
-            from widgets._support import install_qss_refresh
-            install_qss_refresh(self, lambda: self._build_qss())
+            # NB: a previous revision installed a `QEvent.StyleChange`
+            # event filter here so the per-instance QSS would track a
+            # future runtime-theme switcher. That filter routed *every*
+            # Qt event sent to the PlotCard through Python and — worse —
+            # called `setStyleSheet` from inside the filter, which
+            # re-fires `StyleChange`, which re-fires the filter. The
+            # cascading rebuilds added ~20s to the dataset-load path
+            # and made interactive use sluggish. Reverted until the
+            # theme switcher actually ships and is exercised under perf
+            # measurement; the `install_qss_refresh` helper is still
+            # available in `widgets/_support.py` for opt-in use.
             self._sync_theme_ui()
 
         # ── public API ───────────────────────────────────────────────────
