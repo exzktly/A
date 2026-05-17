@@ -348,12 +348,17 @@ class BatchExportPanel(QWidget):
         cb.currentIndexChanged.connect(
             lambda _i, _a=attr: self._refresh_property_combo_for(_a)
         )
-        # Fold-change controls sit on the far right of the same row so
-        # they're visible alongside the Channel / Property selectors that
-        # govern what gets normalized.
         row.addStretch(1)
-        self._build_fold_change_widgets(row)
         layout.addLayout(row)
+
+        # Fold-change controls get their own row below the Channel/Property
+        # row — keeping them on the same line caused widget overlap on
+        # narrower panel widths.
+        fc_row = QHBoxLayout()
+        fc_row.setContentsMargins(12, 2, 12, 2)
+        self._build_fold_change_widgets(fc_row)
+        fc_row.addStretch(1)
+        layout.addLayout(fc_row)
 
     def _all_export_channels(self) -> List[str]:
         """Fluorescence channels + ratio metrics available for batch export."""
