@@ -216,6 +216,7 @@ calls out the fix commit.
 | H20 (values), M28, M29, M30 | `eb02dcc` | `ui/theme/_DARK_THEME` sources overlapping tokens from `theme.Colors`; new `Colors.ink_light` / `ink_dark` replace hardcoded `#FFFFFF` / `#000000` in 6 widgets; fontMetrics-derived sizes in `PreviewStrip` / `RailNavRow` / `CollapsibleRail` / `ColorPickerPopover`; `install_qss_refresh` helper + PlotCard adoption for runtime theme rebuilds |
 | M10 (verified), M12 | `c244739` | New `WellViewerApp._well_aggregate_stats` shared by `_compute_rep_stats` (line/bar rep-set stats) and `scatter_controller._agg_wells` (scatter-aggregate); M10 traced and confirmed already-closed by PR #248's scope-aware redraw |
 | L9 | `62287e2` | Hoist `_recalculate_threshold` / `_set_active_channel` / `_update_channel_selector` / `_refresh_metric_combo_for_channel` (~360 lines of god-object methods) into new `well_viewer/channel_state_controller.py`. Runtime_app methods become 2-line delegating shims; `_set_combo_values` moves to `ui_helpers.set_combo_values` to break the circular import |
+| M6, M7 | `85b7f8a` | `plot_orchestrator.redraw` now fans out across line + distribution + heatmap (one place to add a new default-scope tab); `recalculate_threshold` caches per-channel `(min, max)` so the 3.5M-float scan only runs once per channel |
 
 **Already closed upstream by PR #248** (so the audit's analysis is now stale):
 
@@ -226,7 +227,7 @@ calls out the fix commit.
 **Major remaining items:**
 
 - **H4** — `WellPlateZipper` copies instead of moving — left alone; behavioural change requiring user opt-in (a `--keep-originals` flag default True + Analyze tab checkbox would be the right shape).
-- **M6, M7** — `plot_orchestrator` unification — partly addressed by PR #248's scope-aware redraw; the bar / scatter / scatter-agg branches still bypass the orchestrator.
+- *(M6, M7 closed in `85b7f8a` — orchestrator now fans out across line/distribution/heatmap; threshold scan now cached per-channel)*
 - **M9** — CSV load on UI thread — left; `_step_progress` already calls `QApplication.processEvents()` between files so it's not as bad as the audit suggested. Full off-thread load wants a `QThread` worker plumbed through the load progress signal.
 - **L1, L2, L10, L16, L17, L20, L21, L22** — Various Low items. L21 / L22 (keyboard accessibility) are the most worthwhile; both want a focused UI PR. L9 closed in `62287e2`.
 
