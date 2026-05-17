@@ -952,13 +952,11 @@ class AnalyzeTab(QWidget):
             self._eta_lbl.setText("")
             return
         if total > 0 and done >= total:
-            # All wells finished but the pipeline isn't done yet — the
-            # auto-threshold pass scans every output zip after the last
-            # well_done event fires, and on a multi-channel dataset
-            # that's measurable (sometimes longer than the per-well
-            # work itself). Showing a stale ETA or blank when we're
-            # actually still finalizing reads as "the app hung". Show
-            # an explicit finalizing state instead.
+            # All wells finished. The pipeline still has post-well work
+            # (write pipeline_info.json, run the auto-threshold pass)
+            # before the "finished" event fires; surface that state
+            # explicitly so the user doesn't see a stale ETA / blank
+            # while the progress bar sits at 100%.
             self._eta_lbl.setText("Finalizing…")
             return
         deadline = getattr(self, "_eta_deadline", None)
