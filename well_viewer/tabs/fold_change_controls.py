@@ -14,8 +14,6 @@ shared ``app._fc_*`` state so the same selection applies to both tabs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QWidget,
 )
@@ -25,61 +23,20 @@ _NONE_LABEL = "—"
 _T0_LABEL = "t0 (first timepoint)"
 
 
-# ── Scope registry ──────────────────────────────────────────────────────────
-#
-# A "scope" is a tab that owns its own fold-change combo widgets but
-# shares state with every other scope via ``app._fc_*``. Each scope
-# entry declares how to find that tab's widgets and which redraw
-# method drives its plot. ``install_fold_change_controls(scope=…)``
-# stashes the per-tab QComboBox refs on the app under the names the
-# scope's descriptor specifies; ``_sync_widgets_to_state`` and
-# ``set_fold_change_state`` iterate the registry instead of hard-
-# coding scope-specific names.
-#
-# Adding a third tab (e.g. distribution / scatter) is a one-liner —
-# register it with the dropdown attribute pattern and redraw method.
-
-
-@dataclass(frozen=True)
-class FoldChangeScope:
-    """Per-tab description used by the cross-tab sync + redraw glue."""
-    name: str
-    ctrl_combo_attr: str
-    baseline_combo_attr: str
-    redraw_method: str  # method name on ``WellViewerApp``
-
-
-_REGISTERED_SCOPES: "dict[str, FoldChangeScope]" = {}
-
-
-def register_fold_change_scope(scope: FoldChangeScope) -> None:
-    """Add a tab to the cross-tab fold-change sync set.
-
-    Idempotent — registering the same scope twice replaces the prior
-    entry. Call before any combo handler in the new tab fires.
-    """
-    _REGISTERED_SCOPES[scope.name] = scope
-
-
-def registered_scopes() -> "tuple[FoldChangeScope, ...]":
-    return tuple(_REGISTERED_SCOPES.values())
-
-
-# Default registrations — the two scopes that exist today. Kept here
-# (rather than at each tab's import site) so the registry is populated
-# even when only one tab has been instantiated.
-register_fold_change_scope(FoldChangeScope(
-    name="bar",
-    ctrl_combo_attr="_fc_ctrl_combo_bar",
-    baseline_combo_attr="_fc_baseline_combo_bar",
-    redraw_method="_redraw_bars",
-))
-register_fold_change_scope(FoldChangeScope(
-    name="line",
-    ctrl_combo_attr="_fc_ctrl_combo_line",
-    baseline_combo_attr="_fc_baseline_combo_line",
-    redraw_method="_redraw",
-))
+# Re-export the scope registry + dirty-flag helpers from the pure-logic
+# module. They live there so the unit tests can import them without
+# pulling in PySide6; callers below use the same names as if they were
+# defined here.
+from well_viewer.fold_change_scopes import (  # noqa: E402
+    FoldChangeScope,
+    _DIRTY_ATTR,
+    current_scope_name,
+    flush_dirty_scopes,
+    get_scope as _get_scope,
+    redraw_scopes_or_defer,
+    register_fold_change_scope,
+    registered_scopes,
+)
 
 # Disambiguation suffix appended to a well-token combo entry when there is
 # a replicate set with the same name. Without this, picking the entry
@@ -229,8 +186,6 @@ def set_fold_change_state(
     into the widget that just wrote the value (it already holds it,
     and re-applying could yank an open popup).
     """
-    import traceback
-
     if vs_control_on is not None:
         app._fc_vs_control_on = bool(vs_control_on)
     if control_label is not None:
@@ -247,17 +202,12 @@ def set_fold_change_state(
 
     _sync_widgets_to_state(app, skip_scope=initiating_scope)
 
-    # Redraw every registered scope's plot. Exceptions are surfaced via
-    # traceback so a failing redraw doesn't silently look like the
-    # toggle did nothing.
-    for scope in registered_scopes():
-        method = getattr(app, scope.redraw_method, None)
-        if method is None:
-            continue
-        try:
-            method()
-        except Exception:
-            traceback.print_exc()
+    # Redraw only the visible scope; mark others dirty for redraw on
+    # tab switch. The runtime_app's tab-change handler calls
+    # ``flush_dirty_scopes`` so the deferred work fires the moment the
+    # user looks at the other tab. Closes the deferred 'redraw only
+    # visible tab' item from the refactor plan.
+    redraw_scopes_or_defer(app)
 
 
 def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) -> None:
@@ -318,7 +268,7 @@ def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) ->
     # the cross-tab sync helper picks them up via the registry. Falls
     # back to the standard naming pattern when the scope isn't
     # registered (e.g. a test stub).
-    descriptor = _REGISTERED_SCOPES.get(scope)
+    descriptor = _get_scope(scope)
     ctrl_attr = (descriptor.ctrl_combo_attr if descriptor
                  else f"_fc_ctrl_combo_{scope}")
     baseline_attr = (descriptor.baseline_combo_attr if descriptor

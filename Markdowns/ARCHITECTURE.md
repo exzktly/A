@@ -773,11 +773,24 @@ Cross-tab widget sync:
 
    Scope registry. Each tab that owns a fold-change combo set
    declares itself via a FoldChangeScope (name, ctrl combo attr,
-   baseline combo attr, redraw method). The two scopes today are
-   bar and line; adding a third (e.g. distribution / scatter) is a
-   single register_fold_change_scope call — _sync_widgets_to_state
-   and set_fold_change_state iterate the registry rather than
-   hard-coding scope names.
+   baseline combo attr, redraw method, tab name). The two scopes
+   today are bar and line; adding a third (e.g. distribution /
+   scatter) is a single register_fold_change_scope call —
+   _sync_widgets_to_state and set_fold_change_state iterate the
+   registry rather than hard-coding scope names. The registry lives
+   in the pure-logic ``well_viewer.fold_change_scopes`` module so
+   the helpers can be unit-tested without Qt.
+
+   Redraw deferral. State mutations route through
+   ``redraw_scopes_or_defer(app)``: the currently-visible scope's
+   redraw method runs immediately, every other scope is marked
+   dirty. ``_on_notebook_current_changed`` calls
+   ``flush_dirty_scopes(app)``, which redraws any dirty scope whose
+   tab just became visible. ``WellViewerApp._set_active_channel``
+   uses the same chokepoint, so the two former 'redraw both
+   eagerly' paths now share one consistent visibility-aware
+   policy. The dirty set is stored on the app under
+   ``_fc_dirty_scopes`` (auto-created on first use).
 
 When a rep-set name collides with a loaded well token, the well's
 combo entry is suffixed with " (well)"; resolve_control_wells

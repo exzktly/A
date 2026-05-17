@@ -1172,6 +1172,16 @@ class WellViewerApp(QWidget):
                 nav.setCurrentKey(title)
             finally:
                 self._section_nav_building = False
+        # Drain any redraws that were deferred while this tab was
+        # off-screen — fold-change state mutations (and active-channel
+        # changes) now mark non-visible scopes dirty rather than
+        # eagerly redrawing both.
+        try:
+            from well_viewer.tabs.fold_change_controls import flush_dirty_scopes
+            flush_dirty_scopes(self)
+        except Exception:
+            import traceback
+            traceback.print_exc()
         # Record the visit in the tab-history stack so ⌘← / ⌘→ can walk
         # through it. ``_tab_history_replaying`` is set by the back/forward
         # shortcuts to suppress appending while they replay an entry.
@@ -3706,9 +3716,13 @@ class WellViewerApp(QWidget):
         self._recalculate_threshold()
         self._invalidate_stats_cache()
         self._refresh_metric_combo_for_channel()
-        self._redraw()
-        if hasattr(self, "_bar_tp_cb"):
-            self._redraw_bars()
+        # Redraw the visible plot scope only; mark the other one dirty
+        # so it picks up the channel change when the user switches
+        # tabs. Mirrors the fold-change setter's behaviour — the two
+        # used to redraw both eagerly, which wasted work for the
+        # non-visible tab.
+        from well_viewer.tabs.fold_change_controls import redraw_scopes_or_defer
+        redraw_scopes_or_defer(self)
         if hasattr(self, "_cdf_chan_lbl"):
             self._cdf_chan_lbl.setText(f"({target_label} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
