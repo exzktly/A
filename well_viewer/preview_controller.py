@@ -12,6 +12,26 @@ from well_viewer.image_resolver import classify_filename_kind
 from well_viewer import debug_flags
 
 
+class _NullContext:
+    """Context manager that yields and then closes a pre-built ZipFile.
+
+    Used by scan_zip_members for nested zips (where we don't have a
+    file path to feed to the shared cache).
+    """
+
+    def __init__(self, zf: zipfile.ZipFile) -> None:
+        self._zf = zf
+
+    def __enter__(self) -> zipfile.ZipFile:
+        return self._zf
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            self._zf.close()
+        except Exception:
+            pass
+
+
 def classify_member(
     *,
     name: str,
@@ -79,7 +99,13 @@ def read_member_bytes(
     member: str,
     logger,
 ) -> Optional[bytes]:
-    """Read a member from zip, supporting one nested level via outer::inner."""
+    """Read a member from zip, supporting one nested level via outer::inner.
+
+    Routes through the process-wide ZipFile LRU so multiple reads on the
+    same zip share an open file handle (avoids re-parsing the central
+    directory on every read, which dominates latency on network mounts).
+    """
+    from well_viewer.zipfile_cache import with_zipfile
     if "::" in member:
         outer, inner = member.split("::", 1)
         outer_bytes = read_member_bytes(zip_path=zip_path, member=outer, logger=logger)
@@ -90,7 +116,9 @@ def read_member_bytes(
                 return zf.read(inner)
             except KeyError:
                 return None
-    with zipfile.ZipFile(zip_path, "r") as zf:
+    with with_zipfile(zip_path) as zf:
+        if zf is None:
+            return None
         try:
             return zf.read(member)
         except KeyError:
@@ -114,18 +142,22 @@ def scan_zip_members(
     mask: Dict[Tuple[str, str], object] = {}
     tophat: Dict[Tuple[str, str], object] = {}
     smfish: Dict[Tuple[str, str], object] = {}
+    from well_viewer.zipfile_cache import with_zipfile
     try:
         if member_prefix:
             raw = read_member_bytes(zip_path=zip_path, member=member_prefix, logger=logger)
             if raw is None:
                 logger.warning("Cannot read nested zip member %r from %s", member_prefix, zip_path)
                 return fluor, overlay, mask, tophat, smfish
-            zf_src = zipfile.ZipFile(io.BytesIO(raw), "r")
+            nested_handle = zipfile.ZipFile(io.BytesIO(raw), "r")
+            scan_ctx = _NullContext(nested_handle)
         else:
-            zf_src = zipfile.ZipFile(zip_path, "r")
+            scan_ctx = with_zipfile(zip_path)
 
-        logger.info("Scanning %s%s  (%d members)", zip_path.name, f" >> {member_prefix}" if member_prefix else "", len(zf_src.infolist()))
-        with zf_src:
+        with scan_ctx as zf_src:
+            if zf_src is None:
+                return fluor, overlay, mask, tophat, smfish
+            logger.info("Scanning %s%s  (%d members)", zip_path.name, f" >> {member_prefix}" if member_prefix else "", len(zf_src.infolist()))
             for info in zf_src.infolist():
                 iname = Path(info.filename).name
                 if not iname or iname.startswith("."):
