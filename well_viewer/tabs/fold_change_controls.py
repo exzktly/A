@@ -21,12 +21,48 @@ from PySide6.QtWidgets import (
 
 _NONE_LABEL = "—"
 _T0_LABEL = "t0 (first timepoint)"
-_SCOPES = ("bar", "line")
+
+
+# Re-export the scope registry + dirty-flag helpers from the pure-logic
+# module. They live there so the unit tests can import them without
+# pulling in PySide6; callers below use the same names as if they were
+# defined here.
+from well_viewer.fold_change_scopes import (  # noqa: E402
+    FoldChangeScope,
+    _DIRTY_ATTR,
+    current_scope_name,
+    flush_dirty_scopes,
+    get_scope as _get_scope,
+    redraw_scopes_or_defer,
+    register_fold_change_scope,
+    registered_scopes,
+)
+
+# Disambiguation suffix appended to a well-token combo entry when there is
+# a replicate set with the same name. Without this, picking the entry
+# would silently resolve to the replicate set (see resolve_control_wells)
+# leaving the user no way to address the bare well. The suffix is stripped
+# before the label is stored / dispatched, so existing saved selections
+# without collisions are unaffected.
+_WELL_DISAMBIG_SUFFIX = " (well)"
+
+
+def _strip_well_suffix(label: str) -> str:
+    """Remove the well-disambiguation suffix if present."""
+    if label.endswith(_WELL_DISAMBIG_SUFFIX):
+        return label[: -len(_WELL_DISAMBIG_SUFFIX)]
+    return label
 
 
 def _all_member_labels(app) -> list[str]:
-    """Replicate-set names + selected well tokens currently plotted."""
+    """Replicate-set names + selected well tokens currently plotted.
+
+    When a well token collides with a rep-set name (e.g. someone named a
+    rep-set "A01"), the well entry is suffixed with " (well)" so the
+    user can pick either unambiguously.
+    """
     names: list[str] = []
+    repset_names: set[str] = set()
     seen: set[str] = set()
     for s in (getattr(app, "_selections", []) or []):
         if s.get("hidden"):
@@ -38,25 +74,52 @@ def _all_member_labels(app) -> list[str]:
         if any(w in (getattr(app, "_well_paths", None) or {}) for w in wells):
             names.append(name)
             seen.add(name)
+            repset_names.add(name)
     well_paths = getattr(app, "_well_paths", None) or {}
     for w in sorted(getattr(app, "_selected_wells", []) or [], key=lambda x: x):
         if w in well_paths and w not in seen:
-            names.append(w)
+            entry = w + _WELL_DISAMBIG_SUFFIX if w in repset_names else w
+            names.append(entry)
             seen.add(w)
     return names
 
 
 def _repopulate_control_combo(app, combo: QComboBox) -> None:
-    """Refresh the Control combo's item list from current selections."""
+    """Refresh the Control combo's item list from current selections.
+
+    Skips the clear-and-repopulate if (a) the combo's popup is currently
+    visible (don't yank the dropdown out from under the user) or (b) the
+    candidate list is identical to what the combo already shows. The
+    selected index is still re-synced from app state.
+    """
     members = _all_member_labels(app)
     saved = getattr(app, "_fc_control_label", "") or ""
+    # If the saved label matches a bare well token AND there's a
+    # collision-suffixed entry in the candidate list, prefer the suffixed
+    # form so the user-visible state is unambiguous.
+    if saved and saved in members:
+        saved_display = saved
+    elif saved + _WELL_DISAMBIG_SUFFIX in members:
+        saved_display = saved + _WELL_DISAMBIG_SUFFIX
+    else:
+        saved_display = saved
+
+    candidate_items = [_NONE_LABEL, *members]
+    current_items = [combo.itemText(i) for i in range(combo.count())]
+    popup_visible = False
+    try:
+        view = combo.view()
+        popup_visible = bool(view is not None and view.isVisible())
+    except Exception:
+        pass
+
     blocked = combo.blockSignals(True)
     try:
-        combo.clear()
-        combo.addItem(_NONE_LABEL)
-        for m in members:
-            combo.addItem(m)
-        idx = combo.findText(saved) if saved else 0
+        if current_items != candidate_items and not popup_visible:
+            combo.clear()
+            for m in candidate_items:
+                combo.addItem(m)
+        idx = combo.findText(saved_display) if saved_display else 0
         combo.setCurrentIndex(idx if idx >= 0 else 0)
     finally:
         combo.blockSignals(blocked)
@@ -92,17 +155,59 @@ def _sync_widgets_to_state(app, *, skip_scope: str = "") -> None:
 
     Called after a state mutation so the other tab's widgets reflect the
     new state — the per-tab combos are independent QWidget instances, so
-    without this sync the inactive tab's UI would go stale.
+    without this sync the inactive tab's UI would go stale. Iterates the
+    scope registry, so adding a third tab only requires registering it.
     """
-    for scope in _SCOPES:
-        if scope == skip_scope:
+    for scope in registered_scopes():
+        if scope.name == skip_scope:
             continue
-        ctrl = getattr(app, f"_fc_ctrl_combo_{scope}", None)
-        base = getattr(app, f"_fc_baseline_combo_{scope}", None)
+        ctrl = getattr(app, scope.ctrl_combo_attr, None)
+        base = getattr(app, scope.baseline_combo_attr, None)
         if ctrl is not None:
             _repopulate_control_combo(app, ctrl)
         if base is not None:
             _repopulate_baseline_combo(app, base)
+
+
+def set_fold_change_state(
+    app, *,
+    vs_control_on: "bool | None" = None,
+    control_label: "str | None" = None,
+    vs_t0_on: "bool | None" = None,
+    initiating_scope: str = "",
+) -> None:
+    """Single entry point for fold-change state mutations.
+
+    Mirrors the shape of ``runtime_app._set_active_channel`` — every
+    combo handler funnels through here so state mutation, widget sync,
+    and redraw fire in a fixed order regardless of which tab initiated
+    the change. ``None`` arguments leave the corresponding field
+    unchanged. ``initiating_scope`` lets the caller skip syncing back
+    into the widget that just wrote the value (it already holds it,
+    and re-applying could yank an open popup).
+    """
+    if vs_control_on is not None:
+        app._fc_vs_control_on = bool(vs_control_on)
+    if control_label is not None:
+        # Normalize: drop the disambiguation suffix in storage so the
+        # underlying state stays a bare well token / rep-set name.
+        # ``resolve_control_wells`` would handle the suffix too, but
+        # we'd rather not push the UI artefact down the stack.
+        label = control_label
+        if label.endswith(_WELL_DISAMBIG_SUFFIX):
+            label = label[: -len(_WELL_DISAMBIG_SUFFIX)]
+        app._fc_control_label = label
+    if vs_t0_on is not None:
+        app._fc_vs_t0_on = bool(vs_t0_on)
+
+    _sync_widgets_to_state(app, skip_scope=initiating_scope)
+
+    # Redraw only the visible scope; mark others dirty for redraw on
+    # tab switch. The runtime_app's tab-change handler calls
+    # ``flush_dirty_scopes`` so the deferred work fires the moment the
+    # user looks at the other tab. Closes the deferred 'redraw only
+    # visible tab' item from the refactor plan.
+    redraw_scopes_or_defer(app)
 
 
 def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) -> None:
@@ -136,42 +241,37 @@ def install_fold_change_controls(app, parent: QWidget, layout, *, scope: str) ->
     _repopulate_baseline_combo(app, baseline_combo)
     layout.addWidget(baseline_combo)
 
-    def _redraw_all():
-        # Both tabs share the state; redraw whichever is currently mounted.
-        # Exceptions are surfaced via traceback so a failing redraw doesn't
-        # silently look like the toggle did nothing.
-        import traceback
-        if hasattr(app, "_redraw_bars"):
-            try:
-                app._redraw_bars()
-            except Exception:
-                traceback.print_exc()
-        if hasattr(app, "_redraw"):
-            try:
-                app._redraw()
-            except Exception:
-                traceback.print_exc()
-
     def _on_ctrl_changed(_idx: int) -> None:
         text = ctrl_combo.currentText()
         if text == _NONE_LABEL or not text:
-            app._fc_vs_control_on = False
-            app._fc_control_label = ""
+            set_fold_change_state(
+                app, vs_control_on=False, control_label="",
+                initiating_scope=scope,
+            )
         else:
-            app._fc_vs_control_on = True
-            app._fc_control_label = text
-        _sync_widgets_to_state(app, skip_scope=scope)
-        _redraw_all()
+            set_fold_change_state(
+                app, vs_control_on=True, control_label=text,
+                initiating_scope=scope,
+            )
 
     def _on_baseline_changed(_idx: int) -> None:
         text = baseline_combo.currentText()
-        app._fc_vs_t0_on = (text == _T0_LABEL)
-        _sync_widgets_to_state(app, skip_scope=scope)
-        _redraw_all()
+        set_fold_change_state(
+            app, vs_t0_on=(text == _T0_LABEL),
+            initiating_scope=scope,
+        )
 
     ctrl_combo.currentIndexChanged.connect(_on_ctrl_changed)
     baseline_combo.currentIndexChanged.connect(_on_baseline_changed)
 
-    # Stash references so the cross-tab sync helper can reach them.
-    setattr(app, f"_fc_ctrl_combo_{scope}", ctrl_combo)
-    setattr(app, f"_fc_baseline_combo_{scope}", baseline_combo)
+    # Stash references using the scope descriptor's attribute names so
+    # the cross-tab sync helper picks them up via the registry. Falls
+    # back to the standard naming pattern when the scope isn't
+    # registered (e.g. a test stub).
+    descriptor = _get_scope(scope)
+    ctrl_attr = (descriptor.ctrl_combo_attr if descriptor
+                 else f"_fc_ctrl_combo_{scope}")
+    baseline_attr = (descriptor.baseline_combo_attr if descriptor
+                     else f"_fc_baseline_combo_{scope}")
+    setattr(app, ctrl_attr, ctrl_combo)
+    setattr(app, baseline_attr, baseline_combo)

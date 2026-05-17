@@ -3,12 +3,82 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
+from typing import List, Optional, Set, Tuple
 
 from . import fold_change as _fc
+from .barplot_controller import FC_STATE_OFF
 
 
 NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left panel or define groups to plot."
 NO_DATA_MSG = "Load a directory.\nUse the Open button at the top-right (⌘O) to pick a folder."
+
+
+# ── LineSeries data model ───────────────────────────────────────────────────
+#
+# Single source of truth for the line-plot pipeline — mirrors the role
+# ``BarItem`` plays for the bar plot. ``LinePoint`` carries the full
+# AggPoint shape so the renderer (uses t/mean/spread/frac) and the CSV
+# writers (also need n_above / n_total / frac_spread) consume the same
+# value without converting back and forth.
+
+
+@dataclass
+class LinePoint:
+    """One timepoint of a :class:`LineSeries`, post-normalization.
+
+    Holds the full AggPoint shape returned by ``_aggregate_well`` /
+    ``_aggregate_group``: the renderer reads (t, mean, spread, frac),
+    the CSV writers read those plus n_above / n_total / frac_spread.
+    ``has_mean`` / ``has_frac`` mirror the bar plot's NaN-vs-real
+    distinction so renderers don't second-guess what to draw.
+    """
+    t: float
+    mean: float
+    spread: float
+    frac: float
+    n_above: int = 0
+    n_total: int = 0
+    frac_spread: float = 0.0
+    n_above_pf_mean: float = 0.0
+    n_above_pf_spread: float = 0.0
+    has_mean: bool = True
+    has_frac: bool = True
+
+    def as_aggpoint(self) -> tuple:
+        """Convert back to the AggPoint tuple shape ``line_metric_row`` expects."""
+        return (
+            self.t, self.mean, self.spread, self.frac,
+            int(self.n_above), int(self.n_total), self.frac_spread,
+            self.n_above_pf_mean, self.n_above_pf_spread,
+        )
+
+
+@dataclass
+class LineSeries:
+    """One member's curve on the line plot (rep-set or well).
+
+    Fields:
+      * ``key`` — drag-order identity. Rep-set name for grouped mode,
+        well token ("A01") for per-well mode.
+      * ``display`` — legend label.
+      * ``color`` — trace colour, already resolved.
+      * ``kind`` — ``"repset"`` or ``"well"``. CSV writers branch on
+        this for the wells / well_names / n_wells columns.
+      * ``wells`` — contributing well tokens (1 for ``kind="well"``).
+      * ``points`` — post-normalization :class:`LinePoint`\ s in
+        chronological order. Empty when no usable data.
+      * ``cdf_vals`` — raw per-cell values for the CDF panel (the
+        distribution panel doesn't fold-change-normalize naturally;
+        always raw).
+    """
+    key: str
+    display: str
+    color: str
+    kind: str
+    wells: List[str]
+    points: List[LinePoint] = field(default_factory=list)
+    cdf_vals: List[float] = field(default_factory=list)
 
 
 def _apply_order(items, saved_order, key):
@@ -45,6 +115,191 @@ def _apply_order(items, saved_order, key):
     return out
 
 
+def _aggpoint_to_linepoint(pt) -> LinePoint:
+    """Lift a raw AggPoint tuple into a :class:`LinePoint`."""
+    t = float(pt[0])
+    mean = float(pt[1]) if isinstance(pt[1], (int, float)) else float("nan")
+    spread = float(pt[2]) if isinstance(pt[2], (int, float)) else 0.0
+    frac = float(pt[3]) if (len(pt) > 3 and isinstance(pt[3], (int, float))) else float("nan")
+    n_above = int(pt[4]) if len(pt) > 4 else 0
+    n_total = int(pt[5]) if len(pt) > 5 else 0
+    frac_spread = float(pt[6]) if len(pt) > 6 else 0.0
+    n_above_pf_mean = float(pt[7]) if len(pt) > 7 else 0.0
+    n_above_pf_spread = float(pt[8]) if len(pt) > 8 else 0.0
+    return LinePoint(
+        t=t, mean=mean, spread=spread, frac=frac,
+        n_above=n_above, n_total=n_total, frac_spread=frac_spread,
+        n_above_pf_mean=n_above_pf_mean, n_above_pf_spread=n_above_pf_spread,
+        has_mean=not (isinstance(mean, float) and math.isnan(mean)),
+        has_frac=not (isinstance(frac, float) and math.isnan(frac)),
+    )
+
+
+def collect_line_series(
+    app,
+    *,
+    threshold: float,
+    use_sem: bool,
+    val_col: Optional[str] = None,
+    fc_state: Optional[Tuple[bool, str, bool]] = None,
+    miss_sink: Optional[Set[float]] = None,
+    include_cdf: bool = True,
+    all_fluor_values_filtered=None,
+) -> Tuple[List[LineSeries], str]:
+    """Build :class:`LineSeries` for the currently-active line-plot mode.
+
+    Single source of truth for the line-plot pipeline (mirrors
+    :func:`barplot_controller.collect_bar_items` for the bar tab). The
+    on-screen renderer, the on-tab CSV exporter, and the batch CSV /
+    figure all consume the same shape — fold-change normalization
+    applied exactly once, here.
+
+    *fc_state* — pass :data:`barplot_controller.FC_STATE_OFF` to skip
+    normalization (used by the additive CSV path to emit raw rows
+    alongside fold-change rows). ``None`` defaults to the app's
+    current state.
+
+    *include_cdf* — set False to skip per-cell CDF aggregation when
+    the caller doesn't need it (CSV writers, off-screen exports).
+
+    *all_fluor_values_filtered* — callable used by the renderer to
+    pre-compute the CDF panel's per-cell value list; optional for
+    callers that only want the time-series.
+
+    Returns ``(series, band_lbl)``. ``band_lbl`` is "SEM" or "SD"
+    matching ``use_sem``.
+    """
+    band_lbl = "SEM" if use_sem else "SD"
+
+    if fc_state is None:
+        fc_state = _fc.fold_change_state(app)
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
+    if val_col is None:
+        val_col = app._active_val_col
+
+    cell_area_threshold = app._get_cell_area_threshold()
+    fluor_gates = app._get_all_fluor_gates()
+    active_rsets = app._rep_sets_active()
+    rep_per_fov = app._use_fov_spread_active() if active_rsets else False
+    per_fov_spread = app._use_fov_spread_active() if not active_rsets else False
+
+    # Control series — mean-of-per-well-means / per-FOV / per-well agg
+    # matching each member's own stat (post-PR-3). Pass {t: (mean, spread)}
+    # so error propagation through normalize_pts has the right
+    # denominator uncertainty.
+    fc_control_stats: dict = {}
+    if fc_vs_ctrl and fc_ctrl_lbl:
+        fc_control_stats = _fc.member_stats_series(
+            app, fc_ctrl_lbl,
+            threshold=threshold, val_col=val_col,
+            use_sem=use_sem, per_fov_spread=rep_per_fov or per_fov_spread,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+        )
+
+    series_out: List[LineSeries] = []
+
+    if active_rsets:
+        ordered_rsets = _apply_order(
+            active_rsets,
+            list(getattr(app, "_line_order_rsets", []) or []),
+            key=lambda r: getattr(r, "name", ""),
+        )
+        for rset in ordered_rsets:
+            color = app._rank_color_rset(rset)
+            valid_wells = [w for w in rset.wells if w in app._well_paths]
+            all_tps: set = set()
+            cdf_vals: list = []
+            for lbl in valid_wells:
+                for t, *_ in app._aggregate_well(
+                    lbl, threshold=threshold, use_sem=False,
+                    val_col=val_col,
+                    cell_area_threshold=cell_area_threshold,
+                    fluor_gates=fluor_gates,
+                ):
+                    all_tps.add(t)
+                if include_cdf and all_fluor_values_filtered is not None:
+                    rows = app._get_rows(lbl)
+                    cdf_vals.extend(all_fluor_values_filtered(
+                        rows, val_col=val_col,
+                        cell_area_threshold=cell_area_threshold,
+                        fluor_gates=fluor_gates,
+                        ratios=getattr(app, "_ratio_index", None),
+                    ))
+            _raw_pts: list = []
+            for t in sorted(all_tps):
+                if rep_per_fov:
+                    gm, gerr, gf, _, _, _ = app._compute_rep_per_fov_stats(
+                        rset, t, threshold, use_sem,
+                    )
+                else:
+                    gm, gerr, gf, _ = app._compute_rep_stats(
+                        rset, t, threshold, use_sem,
+                    )
+                if not (isinstance(gm, float) and math.isnan(gm)):
+                    _raw_pts.append((t, gm, gerr, gf, 0, 0, 0.0, 0.0, 0.0))
+            if _raw_pts and (fc_control_stats or fc_vs_t0):
+                _raw_pts = _fc.normalize_pts(
+                    _raw_pts,
+                    control_stats=fc_control_stats or None,
+                    use_t0=fc_vs_t0,
+                    miss_sink=miss_sink,
+                )
+            points = [_aggpoint_to_linepoint(pt) for pt in _raw_pts]
+            n_wells = len(valid_wells)
+            display = (
+                f"{rset.name} (n={n_wells})" if n_wells != 1 else rset.name
+            )
+            series_out.append(LineSeries(
+                key=rset.name, display=display, color=color, kind="repset",
+                wells=valid_wells, points=points, cdf_vals=cdf_vals,
+            ))
+        return series_out, band_lbl
+
+    # Per-well branch.
+    selected = sorted(
+        (lbl for lbl in app._selected_wells if lbl in app._well_paths),
+        key=lambda lbl: app._parse_rc(lbl),
+    )
+    ordered_selected = _apply_order(
+        selected,
+        list(getattr(app, "_line_order_wells", []) or []),
+        key=lambda x: x,
+    )
+    for label in ordered_selected:
+        color = app._rank_color_well(label)
+        pts = app._aggregate_well(
+            label, threshold=threshold, use_sem=use_sem,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            per_fov_spread=per_fov_spread,
+        )
+        if pts and (fc_control_stats or fc_vs_t0):
+            pts = _fc.normalize_pts(
+                pts,
+                control_stats=fc_control_stats or None,
+                use_t0=fc_vs_t0,
+                miss_sink=miss_sink,
+            )
+        points = [_aggpoint_to_linepoint(pt) for pt in (pts or [])]
+        cdf_vals: list = []
+        if include_cdf and all_fluor_values_filtered is not None:
+            rows = app._get_rows(label)
+            cdf_vals = list(all_fluor_values_filtered(
+                rows, val_col=val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+                ratios=getattr(app, "_ratio_index", None),
+            ))
+        display = app._well_display_label(label)
+        series_out.append(LineSeries(
+            key=label, display=display, color=color, kind="well",
+            wells=[label], points=points, cdf_vals=cdf_vals,
+        ))
+    return series_out, band_lbl
+
+
 def redraw_line_plots(
     app,
     *,
@@ -63,19 +318,12 @@ def redraw_line_plots(
     threshold = app._get_thresh_frac_on(app._active_channel)
     selected = app._selected_labels()
 
-    # Fold-change normalization — pulled once per redraw. ``control_means``
-    # caches the control series' {t: mean} so each member only consults it
-    # rather than re-aggregating.
+    # Fold-change state read once for the axis title suffix. The actual
+    # control-series resolution + per-trace normalization happens inside
+    # ``collect_line_series`` (single source of truth, mirrors the
+    # bar plot's ``collect_bar_items``).
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
-    fc_control_means: dict = {}
-    if fc_vs_ctrl and fc_ctrl_lbl:
-        ctrl_pts = _fc.control_pts_for_line(
-            app, fc_ctrl_lbl, threshold=threshold,
-            val_col=app._active_val_col,
-            cell_area_threshold=app._get_cell_area_threshold(),
-            fluor_gates=app._get_all_fluor_gates(),
-        )
-        fc_control_means = _fc.pts_to_mean_by_t(ctrl_pts)
+    fc_misses: set = set()
     # Theme-aware chrome colors (track the active PlotCard's Publication/Screen
     # state) — the renderer's *trace* colours stay rank-based.
     from well_viewer.plot_style import tokens_for as _tokens_for_ax
@@ -132,107 +380,54 @@ def redraw_line_plots(
         return
 
     any_ts = any_cdf = False
-    rep_per_fov = app._use_fov_spread_active() if active_rsets else False
-    if active_rsets:
-        ordered_rsets = _apply_order(
-            active_rsets,
-            list(getattr(app, "_line_order_rsets", []) or []),
-            key=lambda r: getattr(r, "name", ""),
-        )
-        for idx, rset in enumerate(ordered_rsets):
-            # decision #1: line-plot trace colour = the rep-set's well-position
-            # rank colour, so it matches the sidebar plate and the bar plot.
-            color = app._rank_color_rset(rset)
-            valid_wells = [w for w in rset.wells if w in app._well_paths]
-            all_tps: set = set()
-            all_fluor_vals_rset = []
-            cell_area_threshold = app._get_cell_area_threshold()
-            fluor_gates = app._get_all_fluor_gates()
-            for lbl in valid_wells:
-                rows = app._get_rows(lbl)
-                for t, *_ in app._aggregate_well(lbl, threshold=threshold, use_sem=False, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates):
-                    all_tps.add(t)
-                all_fluor_vals_rset.extend(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
-            agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
-            _raw_pts = []
-            for t in sorted(all_tps):
-                if rep_per_fov:
-                    gm, gerr, gf, _, _, _ = app._compute_rep_per_fov_stats(rset, t, threshold, use_sem)
-                else:
-                    gm, gerr, gf, _ = app._compute_rep_stats(rset, t, threshold, use_sem)
-                if not math.isnan(gm):
-                    _raw_pts.append((t, gm, gerr, gf))
-            if _raw_pts and (fc_control_means or fc_vs_t0):
-                _raw_pts = _fc.normalize_pts(
-                    _raw_pts,
-                    control_means=fc_control_means or None,
-                    use_t0=fc_vs_t0,
+    # Single source of truth: ask ``collect_line_series`` for the
+    # fully-normalized series in legend order, then iterate to paint.
+    series_list, _ = collect_line_series(
+        app,
+        threshold=threshold, use_sem=use_sem,
+        miss_sink=fc_misses, include_cdf=True,
+        all_fluor_values_filtered=all_fluor_values_filtered,
+    )
+    for series in series_list:
+        color = series.color
+        agg_times = [p.t for p in series.points if p.has_mean]
+        agg_means = [p.mean for p in series.points if p.has_mean]
+        agg_errs = [p.spread for p in series.points if p.has_mean]
+        if agg_times:
+            app._line_ax_mean.plot(
+                agg_times, agg_means, color=color, lw=2,
+                marker="o", markersize=4, label=series.display, zorder=3,
+            )
+            app._line_ax_mean.fill_between(
+                agg_times,
+                [m - e for m, e in zip(agg_means, agg_errs)],
+                [m + e for m, e in zip(agg_means, agg_errs)],
+                color=color, alpha=0.15, zorder=2,
+            )
+            vf = [(p.t, p.frac) for p in series.points if p.has_frac]
+            if vf:
+                vt2, vf2 = zip(*vf)
+                app._line_ax_frac.plot(
+                    vt2, vf2, color=color, lw=2,
+                    marker="s", markersize=3, label=series.display, zorder=3,
                 )
-            for pt in _raw_pts:
-                t, m, e, fr = pt[0], pt[1], pt[2], pt[3]
-                if not (isinstance(m, float) and math.isnan(m)):
-                    agg_times.append(t)
-                    agg_means.append(m)
-                    agg_errs.append(e)
-                    agg_fracs.append(fr)
-            n_wells = len(valid_wells)
-            lbl_str = f"{rset.name} (n={n_wells})" if n_wells != 1 else rset.name
-            if agg_times:
-                app._line_ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o", markersize=4, label=lbl_str, zorder=3)
-                app._line_ax_mean.fill_between(agg_times, [m - e for m, e in zip(agg_means, agg_errs)], [m + e for m, e in zip(agg_means, agg_errs)], color=color, alpha=0.15, zorder=2)
-                vf = [(t, f) for t, f in zip(agg_times, agg_fracs) if not math.isnan(f)]
-                if vf:
-                    vt2, vf2 = zip(*vf)
-                    app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=lbl_str, zorder=3)
-                    app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
-                any_ts = True
-            if all_fluor_vals_rset:
-                fluor_s = sorted(all_fluor_vals_rset)
-                n = len(fluor_s)
-                app._line_ax_cdf.plot(fluor_s, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{lbl_str} (n={n:,})", zorder=3)
-                any_cdf = True
-        # The earlier "solo wells alongside groups" path (PR 152) was
-        # reverted: stale ``_selected_wells`` from before group creation
-        # was surfacing as a phantom A01 trace whenever the plate was in
-        # passive rep_mode.
-    else:
-        cell_area_threshold = app._get_cell_area_threshold()
-        fluor_gates = app._get_all_fluor_gates()
-        per_fov_spread = app._use_fov_spread_active()
-        ordered_selected = _apply_order(
-            selected,
-            list(getattr(app, "_line_order_wells", []) or []),
-            key=lambda x: x,
-        )
-        for i, label in enumerate(ordered_selected):
-            color = app._rank_color_well(label)  # decision #1: colour by well-position rank
-            rows = app._get_rows(label)
-            disp = app._well_display_label(label)
-            pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
-            if pts and (fc_control_means or fc_vs_t0):
-                pts = _fc.normalize_pts(
-                    pts,
-                    control_means=fc_control_means or None,
-                    use_t0=fc_vs_t0,
+                app._line_ax_frac.fill_between(
+                    vt2, 0, vf2, color=color, alpha=0.10, zorder=2,
                 )
-            if pts:
-                times, means, spreads, fracs, *_ = zip(*pts)
-                vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
-                if vm:
-                    vt, vmm, vs = zip(*vm)
-                    app._line_ax_mean.plot(vt, vmm, color=color, lw=2, marker="o", markersize=4, label=disp, zorder=3)
-                    app._line_ax_mean.fill_between(vt, [m - s for m, s in zip(vmm, vs)], [m + s for m, s in zip(vmm, vs)], color=color, alpha=0.15, zorder=2)
-                vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
-                if vf:
-                    vt2, vf2 = zip(*vf)
-                    app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=disp, zorder=3)
-                    app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
-                any_ts = True
-            vals = sorted(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
-            if vals:
-                n = len(vals)
-                app._line_ax_cdf.plot(vals, [(k + 1) / n for k in range(n)], color=color, lw=1.8, label=f"{disp} (n={n:,})", zorder=3)
-                any_cdf = True
+            any_ts = True
+        if series.cdf_vals:
+            fluor_s = sorted(series.cdf_vals)
+            n = len(fluor_s)
+            cdf_label = (
+                f"{series.display} (n={n:,})"
+                if series.kind == "repset"
+                else f"{series.display} (n={n:,})"
+            )
+            app._line_ax_cdf.plot(
+                fluor_s, [(k + 1) / n for k in range(n)],
+                color=color, lw=1.8, label=cdf_label, zorder=3,
+            )
+            any_cdf = True
 
     def _has_labeled(ax) -> bool:
         handles, labels = ax.get_legend_handles_labels()
@@ -268,7 +463,15 @@ def redraw_line_plots(
     else:
         app._line_ax_cdf.text(0.5, 0.5, f"No {app._active_channel.upper()} data found.", transform=app._line_ax_cdf.transAxes, ha="center", va="center", color=_muted_fg, fontsize=10)
 
-    if active_rsets:
+    if fc_misses:
+        # Tell the user which timepoints lost their bars/points to a
+        # missing control sample, so an unexpectedly empty plot isn't a
+        # silent surprise.
+        _tps = ", ".join(f"{t:g}" for t in sorted(fc_misses))
+        app._set_status(
+            f"Fold change: control missing at t={_tps} — those points dropped."
+        )
+    elif active_rsets:
         n_wells = sum(sum(1 for w in r.wells if w in app._well_paths) for r in active_rsets)
         app._set_status(f"{len(active_rsets)} replicate set(s)  ·  {n_wells} well(s)  |  threshold={threshold:.2f}  |  band={band_lbl}")
     else:

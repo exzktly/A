@@ -65,22 +65,6 @@ from well_viewer.batch_export.base_panel import BatchExportPanel
 from well_viewer.batch_export.well_grid_button import _WellGridButton
 
 
-def _attach_fc_mode_columns(row: dict, vs_control: bool, vs_t0: bool,
-                            control_label: str) -> None:
-    """Annotate a bar-mode CSV row with the active fold-change mode/control.
-
-    The numeric mean/spread already reflect the normalization, so only the
-    mode descriptor needs to be appended.
-    """
-    parts: list = []
-    if vs_control:
-        parts.append("control")
-    if vs_t0:
-        parts.append("t0")
-    row["fold_change_mode"] = "+".join(parts) or "off"
-    row["fold_change_control"] = control_label if vs_control else ""
-
-
 class BarBatchExportPanel(BatchExportPanel):
     """Bar-plot batch export — same group editor + timepoint multi-select."""
 
@@ -182,9 +166,12 @@ class BarBatchExportPanel(BatchExportPanel):
             base = out_dir / f"bar_{safe_grp}_t{safe_tp}"
 
             try:
-                from well_viewer import fold_change as _fc
+                from well_viewer.barplot_controller import (
+                    FC_STATE_OFF, collect_bar_items_for_group,
+                )
                 from well_viewer.export_service import (
-                    _well_labels_map, aggpoint_at, aggpoint_bar_fields,
+                    _well_labels_map, attach_bar_fold_change_columns,
+                    bar_fold_change_fieldnames,
                     bar_metric_fieldnames, bar_metric_row,
                     well_name_for, well_names_joined,
                 )
@@ -197,97 +184,77 @@ class BarBatchExportPanel(BatchExportPanel):
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
                 _per_fov_spread = self._app._use_fov_spread_active()
-                # Control mean at target_t — pooled across all wells in the
-                # control selection. Reused for every member of the group.
-                _fc_control_mean = None
-                if fc_vs_ctrl and fc_ctrl_lbl:
-                    _fc_control_mean = _fc.control_mean_at(
-                        self._app, fc_ctrl_lbl, target_t,
-                        threshold=threshold, val_col=_val_col,
+
+                panel_fc_state = (fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0)
+                items_raw = collect_bar_items_for_group(
+                    self._app, grp, target_t,
+                    val_col=_val_col, threshold=threshold,
+                    use_sem=use_sem, per_fov_spread=_per_fov_spread,
+                    fc_state=FC_STATE_OFF,
+                    cell_area_threshold=_cell_area_threshold,
+                    fluor_gates=_fluor_gates,
+                )
+                if fc_active:
+                    items_fc = collect_bar_items_for_group(
+                        self._app, grp, target_t,
+                        val_col=_val_col, threshold=threshold,
+                        use_sem=use_sem, per_fov_spread=_per_fov_spread,
+                        fc_state=panel_fc_state,
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
                     )
-                rows_csv: List[dict] = []
-                def _apply_fc(fields: dict, pts) -> dict:
-                    """Optionally rescale the (mean, spread) pair before
-                    handing it to ``bar_metric_row``. The non-mean fields
-                    (frac, n_above, ...) pass through unchanged."""
-                    if not fc_active:
-                        return fields
-                    t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
-                    new_mean, new_spread = _fc.scale_bar_value(
-                        fields["mean"], fields["spread"],
-                        control_mean=_fc_control_mean if fc_vs_ctrl else None,
-                        t0_mean=t0_mean if fc_vs_t0 else None,
-                    )
-                    new_fields = dict(fields)
-                    new_fields["mean"] = new_mean
-                    new_fields["spread"] = new_spread
-                    import math as _math
-                    new_fields["has"] = not _math.isnan(new_mean)
-                    return new_fields
+                    fc_by_key = {it.key: it for it in items_fc}
+                else:
+                    fc_by_key = {}
 
+                # Build a (key → member metadata) map so each row can pick
+                # up its wells / member_type without a second pass.
+                _meta_by_key: Dict[str, tuple] = {}
                 for rset in grp.members:
                     valid = [w for w in rset.wells if w in self._app._well_paths]
-                    if not valid:
-                        continue
-                    pts = self._app._aggregate_group(
-                        valid, threshold=threshold, use_sem=use_sem,
-                        val_col=_val_col,
-                        cell_area_threshold=_cell_area_threshold,
-                        fluor_gates=_fluor_gates,
-                        per_fov_spread=_per_fov_spread,
-                    )
-                    pt = aggpoint_at(pts, target_t)
-                    if pt is None:
-                        continue
-                    fields = aggpoint_bar_fields(pt, use_fov_spread=_per_fov_spread)
-                    fields = _apply_fc(fields, pts)
-                    wells_str = ";".join(valid)
-                    row = {
-                        "group": grp.name,
-                        "member": rset.name,
-                        "member_type": "replicate_set",
-                        "wells": wells_str,
-                        "well_names": well_names_joined(wells_str, _well_labels),
-                        "n_wells": len(valid),
-                    }
-                    row.update(bar_metric_row(
-                        ch=_ch, metric=_metric, tp_str=tp_str,
-                        threshold=threshold, band_lbl=band_lbl, **fields,
-                    ))
-                    if fc_active:
-                        _attach_fc_mode_columns(row, fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
-                    rows_csv.append(row)
+                    if valid:
+                        _meta_by_key[rset.name] = (
+                            "replicate_set", ";".join(valid), len(valid),
+                        )
                 for w in grp.solo_wells:
-                    if w not in self._app._well_paths:
+                    if w in self._app._well_paths:
+                        _meta_by_key[w] = ("solo_well", w, 1)
+
+                rows_csv: List[dict] = []
+                for item in items_raw:
+                    meta = _meta_by_key.get(item.key)
+                    if meta is None:
                         continue
-                    pts = self._app._aggregate_well(
-                        w, threshold=threshold, use_sem=use_sem,
-                        val_col=_val_col,
-                        cell_area_threshold=_cell_area_threshold,
-                        fluor_gates=_fluor_gates,
-                        per_fov_spread=_per_fov_spread,
-                    )
-                    pt = aggpoint_at(pts, target_t)
-                    if pt is None:
-                        continue
-                    fields = aggpoint_bar_fields(pt, use_fov_spread=_per_fov_spread)
-                    fields = _apply_fc(fields, pts)
+                    member_type, wells_str, n_wells = meta
+                    if member_type == "replicate_set":
+                        well_names_str = well_names_joined(wells_str, _well_labels)
+                    else:
+                        well_names_str = well_name_for(wells_str, _well_labels)
                     row = {
                         "group": grp.name,
-                        "member": w,
-                        "member_type": "solo_well",
-                        "wells": w,
-                        "well_names": well_name_for(w, _well_labels),
-                        "n_wells": 1,
+                        "member": item.key,
+                        "member_type": member_type,
+                        "wells": wells_str,
+                        "well_names": well_names_str,
+                        "n_wells": n_wells,
                     }
                     row.update(bar_metric_row(
+                        mean=item.mean, spread=item.spread,
+                        frac=item.frac, frac_spread=item.frac_spread,
+                        has=item.has_mean,
+                        n_above=float(item.n_above),
+                        n_above_spread=float(item.n_above_spread),
                         ch=_ch, metric=_metric, tp_str=tp_str,
-                        threshold=threshold, band_lbl=band_lbl, **fields,
+                        threshold=threshold, band_lbl=band_lbl,
                     ))
-                    if fc_active:
-                        _attach_fc_mode_columns(row, fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
+                    if fc_active and item.key in fc_by_key:
+                        fc_item = fc_by_key[item.key]
+                        attach_bar_fold_change_columns(
+                            row, fc_mean=fc_item.mean, fc_spread=fc_item.spread,
+                            fc_has=fc_item.has_mean, band_lbl=band_lbl,
+                            vs_control=fc_vs_ctrl, vs_t0=fc_vs_t0,
+                            control_label=fc_ctrl_lbl,
+                        )
                     rows_csv.append(row)
                 if rows_csv:
                     fnames = (
@@ -296,7 +263,7 @@ class BarBatchExportPanel(BatchExportPanel):
                         + bar_metric_fieldnames(_ch, _metric, band_lbl)
                     )
                     if fc_active:
-                        fnames += ["fold_change_mode", "fold_change_control"]
+                        fnames += bar_fold_change_fieldnames(band_lbl)
                     with open(str(base) + ".csv", "w", newline="") as fh:
                         wrt = csv.DictWriter(fh, fieldnames=fnames)
                         wrt.writeheader()
@@ -312,9 +279,7 @@ class BarBatchExportPanel(BatchExportPanel):
                 with self._app_val_col_scope(_val_col):
                     fig = self._render_bar_group_figure(
                         grp, target_t, tp_str, threshold, use_sem, band_lbl,
-                        fc_control_mean=_fc_control_mean if fc_vs_ctrl else None,
-                        fc_vs_t0=fc_vs_t0,
-                        fc_control_label=fc_ctrl_lbl,
+                        fc_state=panel_fc_state,
                     )
                 self._save_figure(fig, Path(str(base) + f".{fmt}"), fmt)
             except Exception as exc:
@@ -333,14 +298,14 @@ class BarBatchExportPanel(BatchExportPanel):
         self, grp: BarGroup, target_t: float, tp_str: str,
         threshold: float, use_sem: bool, band_lbl: str,
         *,
-        fc_control_mean: Optional[float] = None,
-        fc_vs_t0: bool = False,
-        fc_control_label: str = "",
+        fc_state: tuple = (False, "", False),
     ):
         from matplotlib.figure import Figure as _Figure
         from well_viewer import fold_change as _fc
+        from well_viewer.barplot_controller import collect_bar_items_for_group
 
-        fc_active = (fc_control_mean is not None) or fc_vs_t0
+        fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
+        fc_active = fc_vs_ctrl or fc_vs_t0
         fig = _Figure(figsize=(8, 10), dpi=300, facecolor=PLOT_BG)
         ax_mean = fig.add_subplot(3, 1, 1)
         ax_frac = fig.add_subplot(3, 1, 2)
@@ -354,7 +319,7 @@ class BarBatchExportPanel(BatchExportPanel):
         _metric_key = self._selected_export_metric_key("_bar_channel_cb")
         _metric_label = _MLB.get(_metric_key, "Mean Intensity")
         _fc_suffix = _fc.fold_change_suffix(
-            fc_control_mean is not None, fc_vs_t0, fc_control_label,
+            fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl,
         ) if fc_active else ""
         apply_ax_style(ax_mean,
                        f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}{_fc_suffix}",
@@ -366,64 +331,25 @@ class BarBatchExportPanel(BatchExportPanel):
             apply_ax_style(ax_n, "Events above threshold (N)", "N(above)")
         ax_frac.set_ylim(-0.05, 1.05)
 
-        members: List[tuple] = []
-        for rset in grp.members:
-            valid = [w for w in rset.wells if w in self._app._well_paths]
-            if not valid:
-                continue
-            members.append((self._app._replicate_display_label(rset), valid))
-        for w in grp.solo_wells:
-            if w not in self._app._well_paths:
-                continue
-            members.append((w, [w]))
+        draw_items = collect_bar_items_for_group(
+            self._app, grp, target_t,
+            val_col=self._export_val_col_for("_bar_channel_cb"),
+            threshold=threshold, use_sem=use_sem,
+            per_fov_spread=self._app._use_fov_spread_active(),
+            fc_state=fc_state,
+        )
+        # Restore replicate-set display labels (the batch collector emits
+        # the bare rset.name; preserve the prior batch-figure convention
+        # of using ``_replicate_display_label`` for the visible x-tick).
+        rset_display_by_name = {
+            r.name: self._app._replicate_display_label(r)
+            for r in grp.members
+        }
+        for item in draw_items:
+            item.display = rset_display_by_name.get(item.key, item.display)
 
-        if not members:
+        if not draw_items:
             return fig
-
-        _cell_area_threshold = self._app._get_cell_area_threshold()
-        _fluor_gates = self._app._get_all_fluor_gates()
-        draw_items: List[tuple] = []
-        xlabels: List[str] = []
-        for i, (name, wells) in enumerate(members):
-            color = WELL_COLORS[i % len(WELL_COLORS)]
-            pts = self._app._aggregate_group(
-                wells, threshold=threshold, use_sem=use_sem,
-                val_col=self._export_val_col_for("_bar_channel_cb"),
-                cell_area_threshold=_cell_area_threshold,
-                fluor_gates=_fluor_gates,
-                per_fov_spread=self._app._use_fov_spread_active(),
-            )
-            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            xlabels.append(name)
-            if matched:
-                pt = matched[0]
-                _t, m, s, f = pt[0], pt[1], pt[2], pt[3]
-                # AggPoint shape is (t, mean, spread, frac, n_above, n_total,
-                # frac_spread, n_above_per_fov_mean, n_above_per_fov_spread).
-                # The events panel mirrors the on-screen bar plot: total
-                # n_above by default, mean ± SD/SEM per FOV when batch export
-                # is run with the Aggregate-FOVs toggle on.
-                n_above_total = int(pt[4]) if len(pt) >= 5 else 0
-                frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
-                n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
-                n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
-                if self._app._use_fov_spread_active():
-                    n_above = n_above_pf_mean
-                    n_above_spread = n_above_pf_spread
-                else:
-                    n_above = float(n_above_total)
-                    n_above_spread = 0.0
-                if fc_active:
-                    t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
-                    m, s = _fc.scale_bar_value(
-                        m, s,
-                        control_mean=fc_control_mean,
-                        t0_mean=t0_mean if fc_vs_t0 else None,
-                    )
-                has_data = not math.isnan(m)
-                draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_above, n_above_spread))
-            else:
-                draw_items.append((name, name, float("nan"), 0.0, float("nan"), 0.0, False, color, 0.0, 0.0))
 
         _bar_render_items(
             ax_mean=ax_mean,
@@ -431,9 +357,7 @@ class BarBatchExportPanel(BatchExportPanel):
             ax_n=ax_n,
             use_groups=True,
             items=draw_items,
-            xlabels=xlabels,
             threshold=threshold,
-            well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color="#333",
             placeholder_color=_CLR_PLACEHOLDER,

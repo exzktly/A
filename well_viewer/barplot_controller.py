@@ -4,11 +4,50 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
 from .batch_models import BarGroup, ReplicateSet
 from . import debug_flags
 from . import fold_change as _fc
+
+
+@dataclass
+class BarItem:
+    """One bar in the bar-plot view, post-normalization.
+
+    A single shape consumed by every downstream renderer (on-screen,
+    off-screen export, CSV emitter). Replaces the loose-tuple-with-
+    backwards-compat-positional-unpacking pattern that grew during the
+    fold-change PR.
+
+    Fields:
+      * ``key``       — drag-order identity. Replicate-set name for
+        grouped mode, well token ("A01") for per-well mode.
+      * ``display``   — x-tick label shown on the chart.
+      * ``color``     — bar fill colour, already resolved per item
+        (rank colour for rep-set, well-rank colour for per-well).
+      * ``mean`` / ``spread`` — post-normalization values. NaN /
+        ``has_mean=False`` means render as the dashed placeholder.
+      * ``frac`` / ``frac_spread`` / ``has_frac`` — fraction-above-
+        threshold panel. Always raw (fractions don't get fold-changed).
+      * ``n_above`` / ``n_above_spread`` — events-above-threshold panel.
+        ``n_above_spread > 0`` indicates per-FOV spread mode; in that
+        case ``n_above`` is the per-FOV mean (float), otherwise it's
+        the total count (kept as float for storage uniformity, cast on
+        display).
+    """
+    key: str
+    display: str
+    color: str
+    mean: float
+    spread: float
+    has_mean: bool
+    frac: float
+    frac_spread: float
+    has_frac: bool
+    n_above: float
+    n_above_spread: float
 
 
 def _bar_debug(msg: str) -> None:
@@ -70,37 +109,90 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
     return rep_sets, bar_groups
 
 
-def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
-    """Compute bar items for the active bar-plot mode (rep-set or per-well)."""
+#: Fold-change "off" state — pass to ``collect_bar_items`` or
+#: ``collect_bar_items_for_group`` when you want the raw (unscaled) values,
+#: e.g. to emit the un-normalized columns of an additive CSV alongside the
+#: fold-change columns.
+FC_STATE_OFF: Tuple[bool, str, bool] = (False, "", False)
+
+
+def collect_bar_items(
+    app, target_t: float, *,
+    fc_state: Optional[Tuple[bool, str, bool]] = None,
+    miss_sink: Optional[set] = None,
+) -> Tuple[bool, List[BarItem], str]:
+    """Compute the bar-plot ``BarItem``s for the active mode (rep-set or per-well).
+
+    Single source of truth — every consumer of bar data (on-screen renderer,
+    off-screen figure exporter, CSV emitter) receives the same ``BarItem``
+    list in the same order. Fold-change normalization is applied exactly
+    once, here. The order follows ``app._bar_current_keys()`` so drag-
+    reorder state is honoured by every consumer without a rebuild.
+
+    When *fc_state* is None (default) the app's current state is used.
+    Callers that want raw values can pass :data:`FC_STATE_OFF` — the
+    aggregation helpers are cached so a second call is cheap, which is how
+    the on-tab CSV emits the additive (raw + fold-change) schema.
+
+    *miss_sink* — optional set the caller passes in; the function adds
+    *target_t* to it when fold-change-vs-control is requested but the
+    control has no sample at *target_t* (so the caller can surface the
+    drop via ``_set_status`` rather than emit silently empty bars).
+
+    Returns ``(use_groups, items, band_lbl)``. ``use_groups`` is True when
+    replicate sets are active (drives a slightly wider bar style in the
+    renderer); the items themselves carry display labels and colours so
+    callers don't need to re-resolve them.
+    """
     use_sem = app._use_sem
     band_lbl = "SEM" if use_sem else "SD"
     threshold = app._get_thresh_frac_on(app._active_channel)
     active_rsets = app._rep_sets_active()
+    use_groups = bool(active_rsets)
 
     # Fold-change normalization (vs control well/group, vs t0, or both).
     # Resolved once here so we don't re-aggregate the control per bar.
-    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+    # Numerator (each bar) and denominator (control / t0) use the SAME
+    # stat — see ``fold_change.member_mean_series`` for the rationale.
+    if fc_state is None:
+        fc_state = _fc.fold_change_state(app)
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
+    cell_area_threshold = app._get_cell_area_threshold()
+    fluor_gates = app._get_all_fluor_gates()
+    per_fov_spread = app._use_fov_spread_active()
     fc_control_mean_at_t = None
+    fc_control_spread_at_t = None
     if fc_vs_ctrl and fc_ctrl_lbl:
-        fc_control_mean_at_t = _fc.control_mean_at(
+        ctrl_stats = _fc.control_stats_at_for_bar(
             app, fc_ctrl_lbl, target_t,
             threshold=threshold, val_col=app._active_val_col,
-            cell_area_threshold=app._get_cell_area_threshold(),
-            fluor_gates=app._get_all_fluor_gates(),
+            use_sem=use_sem, per_fov_spread=per_fov_spread,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
         )
+        if ctrl_stats is None:
+            if miss_sink is not None:
+                # Control couldn't be resolved at target_t — record the
+                # miss so the caller can surface a status warning. Bars
+                # below will be forced to NaN by ``fc_force_nan`` so the
+                # plot doesn't silently fall back to raw values while
+                # the axis title still claims fold-change normalization.
+                miss_sink.add(float(target_t))
+        else:
+            fc_control_mean_at_t, fc_control_spread_at_t = ctrl_stats
+    fc_force_nan = fc_vs_ctrl and fc_ctrl_lbl and fc_control_mean_at_t is None
 
-    if active_rsets:
-        from well_viewer.lineplot_controller import _apply_order as _apply_rs_order
-        active_rsets = _apply_rs_order(
-            active_rsets,
-            list(getattr(app, "_line_order_rsets", []) or []),
-            key=lambda r: getattr(r, "name", ""),
-        )
-        items: list = []
-        per_fov_spread = app._use_fov_spread_active()
-        for idx, rset in enumerate(active_rsets):
+    ordered_keys = app._bar_current_keys()
+    items: List[BarItem] = []
+
+    if use_groups:
+        rset_by_name = {r.name: r for r in active_rsets}
+        for key in ordered_keys:
+            rset = rset_by_name.get(key)
+            if rset is None:
+                continue
             color = app._rank_color_rset(rset)  # decision #1: colour by well-position rank
-            label = app._replicate_display_label(rset)
+            display = app._replicate_display_label(rset)
             if per_fov_spread:
                 # Pool every FOV across all wells in the rep set; SD/SEM is
                 # across that pooled set of per-FOV means/fractions/counts.
@@ -114,43 +206,54 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
                 n_above_val = float(app._compute_rep_n_above(rset, target_t))
                 n_above_err = 0.0
             t0_mean = None
+            t0_spread = None
             if fc_vs_t0:
-                t0_mean = _fc.first_tp_value(app._aggregate_group(
-                    list(rset.wells), threshold=threshold, use_sem=False,
-                    val_col=app._active_val_col,
-                    cell_area_threshold=app._get_cell_area_threshold(),
-                    fluor_gates=app._get_all_fluor_gates(),
-                ))
-            if fc_vs_ctrl or fc_vs_t0:
+                stats = _fc.member_first_tp_stats(
+                    app, rset.name,
+                    threshold=threshold, val_col=app._active_val_col,
+                    use_sem=use_sem, per_fov_spread=per_fov_spread,
+                    cell_area_threshold=cell_area_threshold,
+                    fluor_gates=fluor_gates,
+                )
+                if stats is not None:
+                    t0_mean, t0_spread = stats
+            if fc_force_nan:
+                gm = float("nan")
+                g_err_m = 0.0
+            elif fc_vs_ctrl or fc_vs_t0:
                 gm, g_err_m = _fc.scale_bar_value(
                     gm, g_err_m,
                     control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    control_spread=fc_control_spread_at_t if fc_vs_ctrl else None,
                     t0_mean=t0_mean if fc_vs_t0 else None,
+                    t0_spread=t0_spread if fc_vs_t0 else None,
                 )
-            n_above_pair = (
-                (n_above_val, n_above_err) if per_fov_spread
-                else (int(n_above_val), 0.0)
-            )
-            items.append((label, gm, g_err_m, gf, g_err_f, not math.isnan(gm), color,
-                          n_above_pair[0], n_above_pair[1]))
+            has_mean = not math.isnan(gm)
+            # Preserve the legacy grouped-mode behaviour: when the mean is
+            # NaN, the fraction panel also renders as a placeholder. The
+            # per-well branch below evaluates frac independently.
+            has_frac = has_mean and not math.isnan(gf)
+            items.append(BarItem(
+                key=rset.name, display=display, color=color,
+                mean=gm, spread=g_err_m, has_mean=has_mean,
+                frac=gf, frac_spread=g_err_f, has_frac=has_frac,
+                n_above=n_above_val, n_above_spread=n_above_err,
+            ))
         return True, items, band_lbl
 
-    from well_viewer.lineplot_controller import _apply_order as _apply_well_order
-    bar_selected = sorted(
-        (lbl for lbl in app._selected_wells if lbl in app._well_paths),
-        key=lambda lbl: app._parse_rc(lbl),
-    )
-    bar_selected = _apply_well_order(
-        bar_selected,
-        list(getattr(app, "_line_order_wells", []) or []),
-        key=lambda x: x,
-    )
-    items = []
-    cell_area_threshold = app._get_cell_area_threshold()
-    fluor_gates = app._get_all_fluor_gates()
-    per_fov_spread = app._use_fov_spread_active()
-    for label in bar_selected:
-        pts = app._aggregate_well(label, threshold=threshold, use_sem=use_sem, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, per_fov_spread=per_fov_spread)
+    # Per-well branch — iterate the same drag order, look up cell data.
+    for label in ordered_keys:
+        if label not in app._well_paths:
+            continue
+        color = app._rank_color_well(label)
+        display = app._bar_well_display_label(label)
+        pts = app._aggregate_well(
+            label, threshold=threshold, use_sem=use_sem,
+            val_col=app._active_val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            per_fov_spread=per_fov_spread,
+        )
         # AggPoint: (t, mean, mean_spread, frac, n_above, n_total, frac_spread,
         #            n_above_per_fov_mean, n_above_per_fov_spread).
         # When the Aggregate FOVs toggle is on, the events panel reports
@@ -166,21 +269,197 @@ def collect_bar_items(app, target_t: float, *, well_colors) -> tuple:
             fs = float(pt[6]) if len(pt) >= 7 else 0.0
             n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
             n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
-            if fc_vs_ctrl or fc_vs_t0:
-                t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+            if fc_force_nan:
+                m = float("nan")
+                s = 0.0
+            elif fc_vs_ctrl or fc_vs_t0:
+                # t0 baseline = the well's own (mean, spread) at its
+                # earliest tp. ``pts`` is the well's full time series,
+                # so the first finite mean there is the baseline; the
+                # spread at the same row feeds the error propagation.
+                t0_mean = None
+                t0_spread = None
+                if fc_vs_t0:
+                    for _pt in sorted(pts, key=lambda p: p[0]):
+                        _m = _pt[1]
+                        if (isinstance(_m, (int, float))
+                                and math.isfinite(_m) and _m != 0):
+                            t0_mean = float(_m)
+                            _sp = _pt[2] if len(_pt) > 2 else 0.0
+                            t0_spread = (
+                                float(_sp) if (
+                                    isinstance(_sp, (int, float))
+                                    and math.isfinite(_sp)
+                                ) else 0.0
+                            )
+                            break
                 m, s = _fc.scale_bar_value(
                     m, s,
                     control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    control_spread=fc_control_spread_at_t if fc_vs_ctrl else None,
                     t0_mean=t0_mean if fc_vs_t0 else None,
+                    t0_spread=t0_spread if fc_vs_t0 else None,
                 )
-            has_data = not math.isnan(m)
+            has_mean = not math.isnan(m)
+            has_frac = not math.isnan(f)
             if per_fov_spread:
-                items.append((label, m, s, f, fs, has_data, n_above_pf_mean, n_above_pf_spread))
+                n_above_val = n_above_pf_mean
+                n_above_err = n_above_pf_spread
             else:
-                items.append((label, m, s, f, fs, has_data, float(n_above_total), 0.0))
+                n_above_val = float(n_above_total)
+                n_above_err = 0.0
+            items.append(BarItem(
+                key=label, display=display, color=color,
+                mean=m, spread=s, has_mean=has_mean,
+                frac=f, frac_spread=fs, has_frac=has_frac,
+                n_above=n_above_val, n_above_spread=n_above_err,
+            ))
         else:
-            items.append((label, float("nan"), 0.0, float("nan"), 0.0, False, 0.0, 0.0))
+            items.append(BarItem(
+                key=label, display=display, color=color,
+                mean=float("nan"), spread=0.0, has_mean=False,
+                frac=float("nan"), frac_spread=0.0, has_frac=False,
+                n_above=0.0, n_above_spread=0.0,
+            ))
     return False, items, band_lbl
+
+
+def collect_bar_items_for_group(
+    app,
+    group: BarGroup,
+    target_t: float,
+    *,
+    val_col: str,
+    threshold: float,
+    use_sem: bool,
+    per_fov_spread: bool,
+    fc_state: Tuple[bool, str, bool],
+    cell_area_threshold: Optional[float] = None,
+    fluor_gates: Optional[dict] = None,
+) -> List[BarItem]:
+    """Build ``BarItem``s for a batch-export ``BarGroup`` (members + solo wells).
+
+    This is the batch-side analogue of :func:`collect_bar_items`. The plot
+    tab's collector reads from ``app._rep_sets_active()`` / ``_selected_wells``
+    and ``app._fc_*`` state; the batch path needs to operate on arbitrary
+    ``BarGroup`` instances with a panel-local fold-change state — so
+    everything is passed in explicitly. The batch panel maintains its own
+    ``_fc_*`` mirror (intentionally decoupled from the plot tab) and
+    forwards it via ``fc_state``.
+
+    Pass :data:`FC_STATE_OFF` to skip fold-change scaling and get raw
+    aggregated values (used by the additive CSV emitter).
+    """
+    if cell_area_threshold is None:
+        cell_area_threshold = app._get_cell_area_threshold()
+    if fluor_gates is None:
+        fluor_gates = app._get_all_fluor_gates()
+
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
+    fc_control_mean_at_t = None
+    fc_control_spread_at_t = None
+    if fc_vs_ctrl and fc_ctrl_lbl:
+        # Batch path uses ``_aggregate_group`` (pool-of-cells) for the
+        # bar numerator, so the control denominator stays on the
+        # pool-of-cells stat too — keeps the ratio internally
+        # consistent. (The plot tab uses ``_compute_rep_stats``
+        # mean-of-means and pairs with ``control_stats_at_for_bar`` to
+        # match. The cross-path numerator difference is a pre-existing
+        # issue out of scope here.)
+        ctrl_stats = _fc.control_stats_at(
+            app, fc_ctrl_lbl, target_t,
+            threshold=threshold, val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+        )
+        if ctrl_stats is not None:
+            fc_control_mean_at_t, fc_control_spread_at_t = ctrl_stats
+
+    items: List[BarItem] = []
+    members: List[Tuple[str, str, list[str]]] = []  # (key, display, wells)
+    for rset in group.members:
+        valid = [w for w in rset.wells if w in app._well_paths]
+        if not valid:
+            continue
+        members.append((rset.name, rset.name, valid))
+    for w in group.solo_wells:
+        if w not in app._well_paths:
+            continue
+        members.append((w, w, [w]))
+
+    # Use the batch-export palette by position rank — matches the prior
+    # behaviour of ``_render_bar_group_figure`` before consolidation. Each
+    # caller may override the colour by mutating ``item.color`` after the
+    # call if needed.
+    from well_viewer.plate_layout import WELL_COLORS as _WELL_COLORS
+
+    for i, (key, display, wells) in enumerate(members):
+        color = _WELL_COLORS[i % len(_WELL_COLORS)]
+        pts = app._aggregate_group(
+            wells, threshold=threshold, use_sem=use_sem,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            per_fov_spread=per_fov_spread,
+        )
+        matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+        if matched:
+            pt = matched[0]
+            m, s, f = pt[1], pt[2], pt[3]
+            n_above_total = int(pt[4]) if len(pt) >= 5 else 0
+            frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
+            n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
+            n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
+            if per_fov_spread:
+                n_above_val = n_above_pf_mean
+                n_above_err = n_above_pf_spread
+            else:
+                n_above_val = float(n_above_total)
+                n_above_err = 0.0
+            if fc_vs_ctrl or fc_vs_t0:
+                # Batch t0 baseline: pool-of-cells stat (matches the
+                # batch numerator). Spread comes from the same AggPoint
+                # at the earliest tp so error propagation has the right
+                # uncertainty for the baseline.
+                t0_mean = None
+                t0_spread = None
+                if fc_vs_t0:
+                    for _pt in sorted(pts, key=lambda p: p[0]):
+                        _m = _pt[1]
+                        if (isinstance(_m, (int, float))
+                                and math.isfinite(_m) and _m != 0):
+                            t0_mean = float(_m)
+                            _sp = _pt[2] if len(_pt) > 2 else 0.0
+                            t0_spread = (
+                                float(_sp) if (
+                                    isinstance(_sp, (int, float))
+                                    and math.isfinite(_sp)
+                                ) else 0.0
+                            )
+                            break
+                m, s = _fc.scale_bar_value(
+                    m, s,
+                    control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    control_spread=fc_control_spread_at_t if fc_vs_ctrl else None,
+                    t0_mean=t0_mean if fc_vs_t0 else None,
+                    t0_spread=t0_spread if fc_vs_t0 else None,
+                )
+            has_mean = not math.isnan(m)
+            has_frac = has_mean and not math.isnan(f)
+            items.append(BarItem(
+                key=key, display=display, color=color,
+                mean=m, spread=s, has_mean=has_mean,
+                frac=f, frac_spread=frac_spread, has_frac=has_frac,
+                n_above=n_above_val, n_above_spread=n_above_err,
+            ))
+        else:
+            items.append(BarItem(
+                key=key, display=display, color=color,
+                mean=float("nan"), spread=0.0, has_mean=False,
+                frac=float("nan"), frac_spread=0.0, has_frac=False,
+                n_above=0.0, n_above_spread=0.0,
+            ))
+    return items
 
 
 def ordered_bar_keys(app) -> list:
@@ -206,10 +485,8 @@ def render_bar_items(
     ax_mean,
     ax_frac,
     use_groups: bool,
-    items: list,
-    xlabels: list[str],
+    items: List[BarItem],
     threshold: float,
-    well_colors: list[str],
     warn_color: str,
     border_color: str,
     placeholder_color: str,
@@ -219,106 +496,59 @@ def render_bar_items(
 ) -> None:
     """Draw mean / fraction / events-above-threshold bar panels.
 
-    When ``ax_n`` is provided, a third panel is populated with the number of
-    events above threshold (``n_above``), pulled from the trailing field
-    appended by ``collect_bar_items``. Items missing the field render as
-    zero bars.
+    Consumes ``BarItem`` records emitted by :func:`collect_bar_items`. All
+    per-bar state (display label, colour, value, spread, has-flags) lives on
+    the item, so the renderer doesn't second-guess what to draw. ``use_groups``
+    only governs the bar-width preset — grouped mode draws slightly wider
+    bars to differentiate visually from the per-well view.
     """
     n = len(items)
-    if len(xlabels) != n:
-        if use_groups:
-            xlabels = [str(display) for _key, display, *_ in items]
-        else:
-            xlabels = [str(label) for label, *_ in items]
-    else:
-        xlabels = [str(lbl) for lbl in xlabels]
-
-    if use_groups:
-        keys = [str(key) for key, *_ in items]
-    else:
-        keys = [str(label) for label, *_ in items]
+    xlabels = [item.display for item in items]
+    keys = [item.key for item in items]
     _bar_debug(
         f"render_bar_items use_groups={use_groups} n={n} keys={keys!r} xlabels={xlabels!r}"
     )
 
-    if use_groups:
-        bar_w = min(0.65, 5.0 / max(n, 1))
-        for i, item in enumerate(items):
-            # Use-groups items: (key, display, gm, g_err_m, gf, g_err_f, has,
-            #                    color[, n_above[, n_above_spread]]).
-            # The two trailing fields are optional so any caller still
-            # emitting the older 8-tuple shape keeps working.
-            _key, _display, gm, g_err_m, gf, g_err_f, has, color = item[:8]
-            n_above = float(item[8]) if len(item) >= 9 else 0.0
-            n_above_spread = float(item[9]) if len(item) >= 10 else 0.0
-            if has:
-                ax_mean.bar(i, gm, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-                if g_err_m > 0:
-                    ax_mean.errorbar(i, gm, yerr=g_err_m, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-                if not math.isnan(gf):
-                    ax_frac.bar(i, gf, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-                    if g_err_f > 0:
-                        ax_frac.errorbar(i, gf, yerr=g_err_f, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-                else:
-                    ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
-                if ax_n is not None:
-                    if n_above > 0:
-                        ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-                        if n_above_spread > 0:
-                            ax_n.errorbar(i, n_above, yerr=n_above_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-                    else:
-                        ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
+    bar_w = min(0.65 if use_groups else 0.6, 5.0 / max(n, 1))
+    for i, item in enumerate(items):
+        color = item.color
+        # Mean panel.
+        if item.has_mean and not math.isnan(item.mean):
+            ax_mean.bar(i, item.mean, width=bar_w, color=color, alpha=0.85,
+                        zorder=3, linewidth=0)
+            if item.spread > 0:
+                ax_mean.errorbar(i, item.mean, yerr=item.spread, fmt="none",
+                                 ecolor=err_bar_color, elinewidth=1.4,
+                                 capsize=4, zorder=4)
+        else:
+            ax_mean.bar(i, 0, width=bar_w, color=placeholder_color,
+                        linewidth=1, edgecolor=disabled_well_color,
+                        linestyle="--", zorder=3)
+        # Fraction panel.
+        if item.has_frac and not math.isnan(item.frac):
+            ax_frac.bar(i, item.frac, width=bar_w, color=color, alpha=0.85,
+                        zorder=3, linewidth=0)
+            if item.frac_spread > 0:
+                ax_frac.errorbar(i, item.frac, yerr=item.frac_spread,
+                                 fmt="none", ecolor=err_bar_color,
+                                 elinewidth=1.4, capsize=4, zorder=4)
+        else:
+            ax_frac.bar(i, 0, width=bar_w, color=placeholder_color,
+                        linewidth=1, edgecolor=disabled_well_color,
+                        linestyle="--", zorder=3)
+        # Events-above-threshold panel (optional).
+        if ax_n is not None:
+            if item.has_mean and item.n_above > 0:
+                ax_n.bar(i, item.n_above, width=bar_w, color=color,
+                         alpha=0.85, zorder=3, linewidth=0)
+                if item.n_above_spread > 0:
+                    ax_n.errorbar(i, item.n_above, yerr=item.n_above_spread,
+                                  fmt="none", ecolor=err_bar_color,
+                                  elinewidth=1.4, capsize=4, zorder=4)
             else:
-                for ax in (ax_mean, ax_frac):
-                    ax.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
-                if ax_n is not None:
-                    ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
-    else:
-        bar_w = min(0.6, 5.0 / max(n, 1))
-        for i, item in enumerate(items):
-            # Per-well items are
-            #   (label, mean, spread, frac, frac_spread, has_data[, n_above[, n_above_spread]]).
-            # n_above is the events-above-threshold value for the third panel;
-            # n_above_spread is non-zero only when the Aggregate FOVs toggle is
-            # on and the value reflects the per-FOV mean. Both trailing fields
-            # are optional so older 5- / 6- / 7-tuple shapes keep working.
-            if len(item) >= 8:
-                _label, mean, spread, frac, frac_spread, has_data, n_above, n_above_spread = item[:8]
-                n_above = float(n_above)
-                n_above_spread = float(n_above_spread)
-            elif len(item) == 7:
-                _label, mean, spread, frac, frac_spread, has_data, n_above = item[:7]
-                n_above = float(n_above)
-                n_above_spread = 0.0
-            elif len(item) == 6:
-                _label, mean, spread, frac, frac_spread, has_data = item
-                n_above = 0.0
-                n_above_spread = 0.0
-            else:
-                _label, mean, spread, frac, has_data = item
-                frac_spread = 0.0
-                n_above = 0.0
-                n_above_spread = 0.0
-            color = well_colors[i % len(well_colors)]
-            if has_data and not math.isnan(mean):
-                ax_mean.bar(i, mean, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-                if spread > 0:
-                    ax_mean.errorbar(i, mean, yerr=spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-            else:
-                ax_mean.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
-            if has_data and not math.isnan(frac):
-                ax_frac.bar(i, frac, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-                if frac_spread > 0:
-                    ax_frac.errorbar(i, frac, yerr=frac_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-            else:
-                ax_frac.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
-            if ax_n is not None:
-                if has_data and n_above > 0:
-                    ax_n.bar(i, n_above, width=bar_w, color=color, alpha=0.85, zorder=3, linewidth=0)
-                    if n_above_spread > 0:
-                        ax_n.errorbar(i, n_above, yerr=n_above_spread, fmt="none", ecolor=err_bar_color, elinewidth=1.4, capsize=4, zorder=4)
-                else:
-                    ax_n.bar(i, 0, width=bar_w, color=placeholder_color, linewidth=1, edgecolor=disabled_well_color, linestyle="--", zorder=3)
+                ax_n.bar(i, 0, width=bar_w, color=placeholder_color,
+                         linewidth=1, edgecolor=disabled_well_color,
+                         linestyle="--", zorder=3)
 
     ax_frac.axhline(0.5, color=border_color, lw=0.8, ls="--", alpha=0.5, zorder=1)
     # Add threshold context label to fraction axis

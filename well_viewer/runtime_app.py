@@ -1172,6 +1172,16 @@ class WellViewerApp(QWidget):
                 nav.setCurrentKey(title)
             finally:
                 self._section_nav_building = False
+        # Drain any redraws that were deferred while this tab was
+        # off-screen — fold-change state mutations (and active-channel
+        # changes) now mark non-visible scopes dirty rather than
+        # eagerly redrawing both.
+        try:
+            from well_viewer.tabs.fold_change_controls import flush_dirty_scopes
+            flush_dirty_scopes(self)
+        except Exception:
+            import traceback
+            traceback.print_exc()
         # Record the visit in the tab-history stack so ⌘← / ⌘→ can walk
         # through it. ``_tab_history_replaying`` is set by the back/forward
         # shortcuts to suppress appending while they replay an entry.
@@ -3706,9 +3716,13 @@ class WellViewerApp(QWidget):
         self._recalculate_threshold()
         self._invalidate_stats_cache()
         self._refresh_metric_combo_for_channel()
-        self._redraw()
-        if hasattr(self, "_bar_tp_cb"):
-            self._redraw_bars()
+        # Redraw the visible plot scope only; mark the other one dirty
+        # so it picks up the channel change when the user switches
+        # tabs. Mirrors the fold-change setter's behaviour — the two
+        # used to redraw both eagerly, which wasted work for the
+        # non-visible tab.
+        from well_viewer.tabs.fold_change_controls import redraw_scopes_or_defer
+        redraw_scopes_or_defer(self)
         if hasattr(self, "_cdf_chan_lbl"):
             self._cdf_chan_lbl.setText(f"({target_label} x range)")
         if hasattr(self, "_bar_ylim_chan_lbl"):
@@ -5804,10 +5818,12 @@ class WellViewerApp(QWidget):
         target_t: float,
         tp_str: str,
         threshold: float,
+        *,
+        cell_scale=None,
     ) -> None:
         from well_viewer.barplot_renderer import draw_violin
         draw_violin(self, ax_mean, ax_frac, wells, colors, xlabels,
-                    target_t, tp_str, threshold)
+                    target_t, tp_str, threshold, cell_scale=cell_scale)
 
     def _draw_beeswarm(
         self,
@@ -5819,10 +5835,12 @@ class WellViewerApp(QWidget):
         target_t: float,
         tp_str: str,
         threshold: float,
+        *,
+        cell_scale=None,
     ) -> None:
         from well_viewer.barplot_renderer import draw_beeswarm
         draw_beeswarm(self, ax_mean, ax_frac, wells, colors, xlabels,
-                      target_t, tp_str, threshold)
+                      target_t, tp_str, threshold, cell_scale=cell_scale)
 
     def _redraw_bars(self) -> None:
         from well_viewer.barplot_renderer import redraw_bars
@@ -5936,19 +5954,35 @@ class WellViewerApp(QWidget):
         if _debug_flags.review_bar_debug_enabled():
             mode = "violin" if self._bar_violin else "beeswarm"
             print(f"DEBUG runtime_app: per-cell mode={mode} wells={plot_wells!r} labels={plot_labels!r}")
+        # Build the per-well scale dict ONCE — same denominator each well
+        # uses for its cell values. Pass through to violin / beeswarm so
+        # fold-change participation no longer ends at the bar renderer.
+        from well_viewer import fold_change as _fc
+        _fc_state = _fc.fold_change_state(self)
+        if _fc_state[0] or _fc_state[2]:
+            cell_scale = _fc.build_cell_scaling(
+                self, plot_wells, fc_state=_fc_state, target_t=target_t,
+                threshold=threshold, val_col=self._active_val_col,
+                use_sem=self._use_sem,
+                per_fov_spread=self._use_fov_spread_active(),
+                cell_area_threshold=self._get_cell_area_threshold(),
+                fluor_gates=self._get_all_fluor_gates(),
+            )
+        else:
+            cell_scale = None
         if plot_wells:
             if self._bar_violin:
-                self._draw_violin(ax_mean, ax_frac, plot_wells, plot_colors, plot_labels, target_t, tp_str, threshold)
+                self._draw_violin(
+                    ax_mean, ax_frac, plot_wells, plot_colors, plot_labels,
+                    target_t, tp_str, threshold,
+                    cell_scale=cell_scale,
+                )
             else:
                 self._draw_beeswarm(
-                    ax_mean,
-                    ax_frac,
-                    plot_wells,
-                    plot_colors,
-                    plot_labels,
-                    target_t,
-                    tp_str,
-                    threshold,
+                    ax_mean, ax_frac,
+                    plot_wells, plot_colors, plot_labels,
+                    target_t, tp_str, threshold,
+                    cell_scale=cell_scale,
                 )
             self._apply_bar_ylims(
                 ax_mean,
@@ -6356,25 +6390,19 @@ class WellViewerApp(QWidget):
         self._stats_cache[cache_key] = result
         return result
 
-    def _collect_bar_items(self, target_t: float) -> tuple:
-        """
-        Return (use_groups, bar_items_or_well_data, band_lbl) for *target_t*.
+    def _collect_bar_items(self, target_t: float, *,
+                           fc_state=None, miss_sink=None) -> tuple:
+        """Return ``(use_groups, list[BarItem], band_lbl)`` for *target_t*.
 
-        Mirrors the computation in _redraw_bars so that export and on-screen
-        rendering always produce identical numbers.
-
-        Returns
-        -------
-        use_groups : bool
-        items      : list
-            Grouped mode  → list of (name, mean, err_mean, frac, err_frac, has, color)
-            Per-well mode → list of (label, mean, spread, frac, has)
-        band_lbl   : str
+        Thin wrapper around :func:`barplot_controller.collect_bar_items`.
+        ``fc_state`` lets the on-tab CSV exporter request raw items (pass
+        ``FC_STATE_OFF``) alongside the normalized items the renderer
+        consumes. ``miss_sink`` collects timepoints where a vs-control
+        denominator couldn't be resolved so the caller can surface a
+        single status warning at the end of the redraw.
         """
         return _bar_collect_items(
-            self,
-            target_t,
-            well_colors=WELL_COLORS,
+            self, target_t, fc_state=fc_state, miss_sink=miss_sink,
         )
 
     def _render_bar_figure(self, target_t: float, tp_str: str) -> "Figure":
@@ -6409,32 +6437,13 @@ class WellViewerApp(QWidget):
         ax_frac.set_ylim(-0.05, 1.05)
 
         use_groups, items, _ = self._collect_bar_items(target_t)
-        if use_groups:
-            rep_by_name = {r.name: r for r in self._rep_sets_active()}
-            xlabels = [self._replicate_display_label(rep_by_name[name]) if name in rep_by_name else name for name, *_ in items]
-            draw_items = []
-            for item, xlbl in zip(items, xlabels):
-                # collect_bar_items rep-set items are 9-tuples
-                # (name, gm, g_err_m, gf, g_err_f, has, color, n_above, n_above_spread).
-                # Older callers may still emit 7-/8-tuples without trailing
-                # event-count fields.
-                name, gm, g_err_m, gf, g_err_f, has, color = item[:7]
-                n_above = float(item[7]) if len(item) >= 8 else 0.0
-                n_above_spread = float(item[8]) if len(item) >= 9 else 0.0
-                draw_items.append((name, xlbl, gm, g_err_m, gf, g_err_f, has, color, n_above, n_above_spread))
-        else:
-            draw_items = items
-            xlabels = [self._bar_well_display_label(lbl) for lbl, *_ in items]
-
         _bar_render_items(
             ax_mean=ax_mean,
             ax_frac=ax_frac,
             ax_n=ax_n,
             use_groups=use_groups,
-            items=draw_items,
-            xlabels=xlabels,
+            items=items,
             threshold=threshold,
-            well_colors=WELL_COLORS,
             warn_color=WARN,
             border_color=BORDER,
             placeholder_color=CLR_PLACEHOLDER,

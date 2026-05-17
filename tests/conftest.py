@@ -1,0 +1,213 @@
+"""Shared test fixtures.
+
+The All-Well runtime is a PySide6 Qt application, so we don't try to spin
+up a real ``WellViewerApp`` here. Instead, fixtures expose lightweight
+stand-ins that satisfy the duck-typed contract the fold-change helpers
+need (``_well_paths``, ``_selections``, ``_aggregate_well``,
+``_aggregate_group``, ``_compute_rep_stats``,
+``_compute_rep_per_fov_stats``).
+
+Tests are pure-logic — no Qt, no matplotlib rendering — so they run in a
+plain ``python -m pytest`` with just numpy + pandas in the venv.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Tuple
+
+import pytest
+
+
+# ── AggPoint helpers ────────────────────────────────────────────────────────
+
+def make_agg(t: float, mean: float, *,
+             spread: float = 0.0, frac: float = 0.5,
+             n_above: int = 5, n_total: int = 10,
+             frac_spread: float = 0.0,
+             n_above_pf_mean: float = 0.0,
+             n_above_pf_spread: float = 0.0) -> tuple:
+    """Construct a 9-tuple AggPoint matching ``data_loading._aggregate_arrays``."""
+    return (t, mean, spread, frac, n_above, n_total,
+            frac_spread, n_above_pf_mean, n_above_pf_spread)
+
+
+# ── MockApp ──────────────────────────────────────────────────────────────────
+
+@dataclass
+class MockApp:
+    """Duck-typed stand-in for ``WellViewerApp`` for pure-logic tests.
+
+    Tests construct one with a ``per_well_pts`` dict mapping well token →
+    list of AggPoints. The helpers compute aggregations / stats from that
+    in-memory map. Replicate sets are described via ``selections``.
+    """
+    per_well_pts: Dict[str, List[tuple]]
+    selections: List[dict] = field(default_factory=list)
+    fc_vs_control_on: bool = False
+    fc_control_label: str = ""
+    fc_vs_t0_on: bool = False
+
+    # Read by ``fold_change.fold_change_state`` etc.
+    @property
+    def _well_paths(self) -> Dict[str, str]:
+        return {w: w for w in self.per_well_pts}
+
+    @property
+    def _selections(self) -> List[dict]:
+        return self.selections
+
+    @property
+    def _fc_vs_control_on(self) -> bool:
+        return self.fc_vs_control_on
+
+    @property
+    def _fc_control_label(self) -> str:
+        return self.fc_control_label
+
+    @property
+    def _fc_vs_t0_on(self) -> bool:
+        return self.fc_vs_t0_on
+
+    def _aggregate_well(self, label: str, *, threshold: float, use_sem: bool,
+                        val_col: str, cell_area_threshold: float,
+                        fluor_gates, per_fov_spread: bool = False,
+                        tp_col: str = "timepoint_hours") -> List[tuple]:
+        return list(self.per_well_pts.get(label, []))
+
+    def _aggregate_group(self, wells: List[str], *, threshold: float,
+                         use_sem: bool, val_col: str,
+                         cell_area_threshold: float, fluor_gates,
+                         per_fov_spread: bool = False,
+                         tp_col: str = "timepoint_hours") -> List[tuple]:
+        # Pool-of-cells approximation: average means across wells per tp.
+        # The mock doesn't keep per-cell granularity, so this collapses to
+        # "mean of per-well means" — that's fine for fold_change tests
+        # since they don't compare the two stats numerically.
+        by_t: Dict[float, List[float]] = {}
+        for w in wells:
+            for pt in self.per_well_pts.get(w, []):
+                by_t.setdefault(pt[0], []).append(pt[1])
+        out: List[tuple] = []
+        for t in sorted(by_t):
+            means = by_t[t]
+            avg = sum(means) / len(means) if means else float("nan")
+            out.append(make_agg(t, avg))
+        return out
+
+    def _compute_rep_stats(self, rset, target_t: float,
+                           threshold: float, use_sem: bool) -> tuple:
+        """Mean of per-well means at *target_t*."""
+        well_means: List[float] = []
+        for w in rset.wells:
+            for pt in self.per_well_pts.get(w, []):
+                if abs(pt[0] - target_t) < 1e-3 * max(1.0, abs(pt[0]),
+                                                      abs(target_t)):
+                    well_means.append(pt[1])
+                    break
+        if not well_means:
+            return (float("nan"), 0.0, float("nan"), 0.0)
+        gm = sum(well_means) / len(well_means)
+        return (gm, 0.0, 0.5, 0.0)
+
+    def _compute_rep_per_fov_stats(self, rset, target_t: float,
+                                   threshold: float, use_sem: bool) -> tuple:
+        gm, gerr, gf, ferr = self._compute_rep_stats(
+            rset, target_t, threshold, use_sem,
+        )
+        return (gm, gerr, gf, ferr, 5.0, 0.0)
+
+    def _compute_rep_n_above(self, rset, target_t: float) -> int:
+        return 10
+
+    def _get_thresh_frac_on(self, channel: str) -> float:
+        return 50.0
+
+    def _get_cell_area_threshold(self) -> float:
+        return 0.0
+
+    def _get_all_fluor_gates(self) -> dict:
+        return {}
+
+    def _use_fov_spread_active(self) -> bool:
+        return False
+
+    @property
+    def _use_sem(self) -> bool:
+        return True
+
+    @property
+    def _active_channel(self) -> str:
+        return "gfp"
+
+    @property
+    def _active_val_col(self) -> str:
+        return "gfp_mean_intensity"
+
+    @property
+    def _active_metric(self) -> str:
+        return "mean_intensity"
+
+    @property
+    def _selected_wells(self):
+        return set(self.per_well_pts)
+
+    def _rep_sets_active(self):
+        from well_viewer.batch_models import ReplicateSet
+        out = []
+        for s in self.selections:
+            if s.get("hidden"):
+                continue
+            wells = [w for w in (s.get("wells") or []) if w in self._well_paths]
+            if wells:
+                out.append(ReplicateSet(s.get("name") or "", wells))
+        return out
+
+    def _parse_rc(self, label: str):
+        # Sort wells by (row letter, col number). Good enough for "A01"-style.
+        if not label:
+            return (0, 0)
+        return (label[0], int(label[1:]) if label[1:].isdigit() else 0)
+
+    def _bar_current_keys(self):
+        active_rsets = self._rep_sets_active()
+        if active_rsets:
+            return [r.name for r in active_rsets]
+        return sorted(self.per_well_pts, key=self._parse_rc)
+
+    def _rank_color_well(self, label: str) -> str:
+        return "#888888"
+
+    def _rank_color_rset(self, rset) -> str:
+        return "#888888"
+
+    def _replicate_display_label(self, rset) -> str:
+        return rset.name
+
+    def _bar_well_display_label(self, label: str) -> str:
+        return label
+
+    def _well_display_label(self, label: str) -> str:
+        return label
+
+    def _selected_labels(self):
+        return list(self.per_well_pts)
+
+
+@pytest.fixture
+def mock_app():
+    """Mock app with two rep-sets (A01/A02 → CTRL, B01/B02 → TREAT) and
+    one solo well C01. The control rep-set means are 100 across time so
+    fold-change ratios are easy to verify."""
+    pts = {
+        "A01": [make_agg(0.0, 100.0), make_agg(1.0, 100.0), make_agg(2.0, 100.0)],
+        "A02": [make_agg(0.0, 100.0), make_agg(1.0, 100.0), make_agg(2.0, 100.0)],
+        "B01": [make_agg(0.0, 100.0), make_agg(1.0, 200.0), make_agg(2.0, 400.0)],
+        "B02": [make_agg(0.0, 100.0), make_agg(1.0, 200.0), make_agg(2.0, 400.0)],
+        "C01": [make_agg(0.0, 50.0), make_agg(1.0, 100.0), make_agg(2.0, 200.0)],
+    }
+    selections = [
+        {"name": "CTRL", "wells": ["A01", "A02"], "hidden": False},
+        {"name": "TREAT", "wells": ["B01", "B02"], "hidden": False},
+    ]
+    return MockApp(per_well_pts=pts, selections=selections)

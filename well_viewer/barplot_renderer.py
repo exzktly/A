@@ -8,7 +8,7 @@ the matplotlib axes to draw into.
 from __future__ import annotations
 
 import math
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from ui.theme import (
     BORDER,
@@ -34,7 +34,6 @@ from well_viewer.data_loading import (
     parse_timepoint_hours,
     resolve_value_series,
 )
-from well_viewer.plate_layout import WELL_COLORS
 from well_viewer.plot_style import apply_ax_style, tokens_for
 
 
@@ -54,8 +53,18 @@ def draw_violin(
     target_t: float,
     tp_str: str,
     threshold: float,
+    *,
+    cell_scale: Optional[Dict[str, float]] = None,
 ) -> None:
-    """KDE-smoothed distribution per well/group."""
+    """KDE-smoothed distribution per well/group.
+
+    *cell_scale*, when supplied, maps each well to a denominator the
+    pre-threshold cell values are divided by. This is how the per-cell
+    view participates in fold-change normalization — each well's
+    distribution shifts to live on the fold-change axis. NaN denominator
+    means "this well had no resolvable baseline" and the well is left
+    blank with no violin shape.
+    """
     try:
         from scipy.stats import gaussian_kde
     except ImportError:
@@ -91,6 +100,20 @@ def draw_violin(
             n_above = int(vals.size)
 
         frac_vals.append(n_above / n_total if n_total else float("nan"))
+
+        # Apply fold-change scaling to the per-cell values (above-threshold
+        # set only). The threshold filter ran on raw values above, so we
+        # scale post-filter — that keeps the "above-threshold" semantics
+        # consistent across the bar / line / violin renderers.
+        if cell_scale is not None:
+            factor = cell_scale.get(lbl, 1.0)
+            if not (isinstance(factor, (int, float)) and math.isfinite(factor)
+                    and factor != 0):
+                # NaN factor means we lost the denominator for this well
+                # — render a blank slot instead of misleading raw values.
+                continue
+            if factor != 1.0:
+                vals = vals / factor
 
         if vals.size < 3:
             if vals.size:
@@ -136,11 +159,14 @@ def draw_violin(
     ax_frac.set_ylim(-0.05, 1.05)
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    from well_viewer import fold_change as _fc
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
+    _fc_v, _fc_lbl, _fc_t0 = _fc.fold_change_state(app)
+    _fc_suffix = _fc.fold_change_suffix(_fc_v, _fc_t0, _fc_lbl) if cell_scale else ""
     ax_mean.set_title(
-        f"{app._active_channel.upper()} {_metric_label} distribution (violin, bw={bw:.2f})  —  t = {tp_str} h",
+        f"{app._active_channel.upper()} {_metric_label} distribution (violin, bw={bw:.2f}){_fc_suffix}  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6)
-    ax_mean.set_ylabel(f"{app._active_channel.upper()} {_metric_label}", fontsize=8, labelpad=5)
+    ax_mean.set_ylabel(f"{app._active_channel.upper()} {_metric_label}{_fc_suffix}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6)
@@ -156,8 +182,16 @@ def draw_beeswarm(
     target_t: float,
     tp_str: str,
     threshold: float,
+    *,
+    cell_scale: Optional[Dict[str, float]] = None,
 ) -> None:
-    """One column per well, each cell a jittered point."""
+    """One column per well, each cell a jittered point.
+
+    *cell_scale* — see :func:`draw_violin`. When supplied, each well's
+    above-threshold cells are divided by ``cell_scale[well]`` before
+    plotting. NaN factor means the well's baseline couldn't be resolved
+    and the column is left blank.
+    """
     n = len(wells)
     xs_ticks = list(range(n))
     bar_w = min(0.35, 3.0 / max(n, 1))
@@ -189,7 +223,20 @@ def draw_beeswarm(
             if n_total > 0:
                 frac_val = n_above / n_total
 
-        if cell_vals.size:
+        # Fold-change per-cell scaling — same contract as draw_violin.
+        skipped_scale = False
+        if cell_scale is not None:
+            factor = cell_scale.get(lbl, 1.0)
+            if not (isinstance(factor, (int, float)) and math.isfinite(factor)
+                    and factor != 0):
+                skipped_scale = True
+            elif factor != 1.0 and cell_vals.size:
+                cell_vals = cell_vals / factor
+
+        if skipped_scale:
+            ax_mean.scatter([i], [0], c=CLR_PLACEHOLDER, s=16,
+                            marker="x", zorder=3, linewidths=1)
+        elif cell_vals.size:
             jx, jy = _beeswarm_jitter(cell_vals.tolist(), x_center=float(i),
                                        max_spread=bar_w)
             ax_mean.scatter(jx, jy, c=color, s=6, alpha=0.55,
@@ -220,11 +267,14 @@ def draw_beeswarm(
     ax_frac.set_ylim(-0.05, 1.05)
     ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+    from well_viewer import fold_change as _fc
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
+    _fc_v, _fc_lbl, _fc_t0 = _fc.fold_change_state(app)
+    _fc_suffix = _fc.fold_change_suffix(_fc_v, _fc_t0, _fc_lbl) if cell_scale else ""
     ax_mean.set_title(
-        f"{app._active_channel.upper()} {_metric_label} per cell (above threshold)  —  t = {tp_str} h",
+        f"{app._active_channel.upper()} {_metric_label} per cell (above threshold){_fc_suffix}  —  t = {tp_str} h",
         color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6)
-    ax_mean.set_ylabel(f"{app._active_channel.upper()} {_metric_label}", fontsize=8, labelpad=5)
+    ax_mean.set_ylabel(f"{app._active_channel.upper()} {_metric_label}{_fc_suffix}", fontsize=8, labelpad=5)
     ax_frac.set_title(
         f"Fraction above threshold  —  t = {tp_str} h",
         color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6)
@@ -243,95 +293,25 @@ def draw_grouped_bar_mode(
     band_lbl: str,
     use_sem: bool,
 ) -> None:
-    """Render the canonical grouped-bar (or per-well) view."""
-    use_groups, items, _ = app._collect_bar_items(target_t)
-    if use_groups:
-        by_key = {r.name: r for r in active_rsets}
-        # decision #1: a rep-set's bar is coloured by its lowest well's rank.
-        color_by_key = {r.name: app._rank_color_rset(r) for r in active_rsets}
-        per_fov_spread = app._use_fov_spread_active()
-        # Fold-change normalization — resolved once and applied to each
-        # rep-set bar. ``_collect_bar_items`` already does this for its
-        # output, but the rep-set draw path re-fetches stats below for the
-        # drag-order + display-label shape it needs, so the scaling has to
-        # repeat here. The expensive helpers consulted are cached, so this
-        # second pass is cheap.
-        from well_viewer import fold_change as _fc
-        fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
-        fc_control_mean = None
-        if fc_vs_ctrl and fc_ctrl_lbl:
-            fc_control_mean = _fc.control_mean_at(
-                app, fc_ctrl_lbl, target_t,
-                threshold=threshold, val_col=app._active_val_col,
-                cell_area_threshold=app._get_cell_area_threshold(),
-                fluor_gates=app._get_all_fluor_gates(),
-            )
-        fc_active = fc_vs_ctrl or fc_vs_t0
-        ordered = []
-        for key in app._bar_current_keys():
-            rset = by_key.get(key)
-            if not rset:
-                continue
-            if per_fov_spread:
-                gm, g_err_m, gf, g_err_f, n_above_mean, n_above_spread = (
-                    app._compute_rep_per_fov_stats(rset, target_t, threshold, use_sem)
-                )
-                trailing = (float(n_above_mean), float(n_above_spread))
-            else:
-                gm, g_err_m, gf, g_err_f = app._compute_rep_stats(rset, target_t, threshold, use_sem)
-                n_above = app._compute_rep_n_above(rset, target_t)
-                trailing = (int(n_above), 0.0)
-            if fc_active:
-                t0_mean = None
-                if fc_vs_t0:
-                    t0_mean = _fc.first_tp_value(app._aggregate_group(
-                        list(rset.wells), threshold=threshold, use_sem=False,
-                        val_col=app._active_val_col,
-                        cell_area_threshold=app._get_cell_area_threshold(),
-                        fluor_gates=app._get_all_fluor_gates(),
-                    ))
-                gm, g_err_m = _fc.scale_bar_value(
-                    gm, g_err_m,
-                    control_mean=fc_control_mean if fc_vs_ctrl else None,
-                    t0_mean=t0_mean if fc_vs_t0 else None,
-                )
-            base_lbl = app._replicate_display_label(rset)
-            display = base_lbl
-            ordered.append(
-                (
-                    rset.name,
-                    display,
-                    gm,
-                    g_err_m,
-                    gf,
-                    g_err_f,
-                    not math.isnan(gm),
-                    color_by_key.get(rset.name, WELL_COLORS[0]),
-                    trailing[0],
-                    trailing[1],
-                )
-            )
-        xlabels = [display for _, display, *_ in ordered]
-        draw_items = ordered
-    else:
-        key_to_item = {item[0]: item for item in items}
-        ordered_keys = [k for k in app._bar_current_keys() if k in key_to_item]
-        draw_items = [key_to_item[k] for k in ordered_keys]
-        xlabels = [app._bar_well_display_label(lbl) for lbl, *_ in draw_items]
+    """Render the canonical grouped-bar (or per-well) view.
 
-    # decision #1: per-well bars are coloured by each well's position rank
-    # (group bars carry their own colour in the item tuple already).
-    per_well_colors = (WELL_COLORS if use_groups
-                       else ([app._rank_color_well(lbl) for lbl, *_ in draw_items] or WELL_COLORS))
+    The items returned by :func:`collect_bar_items` are already in
+    drag-order, already fold-change-normalized, and already carry their
+    display labels and colours — this function is just the renderer
+    wrapper that paints axes-decorations around the shared ``BarItem``
+    draw loop. A miss sink tracks any timepoint where the vs-control
+    denominator couldn't be resolved so the user gets one status
+    warning instead of silently empty bars.
+    """
+    fc_misses: set = set()
+    use_groups, items, _ = app._collect_bar_items(target_t, miss_sink=fc_misses)
     _render_bar_items(
         ax_mean=ax_mean,
         ax_frac=ax_frac,
         ax_n=ax_n,
         use_groups=use_groups,
-        items=draw_items,
-        xlabels=xlabels,
+        items=items,
         threshold=threshold,
-        well_colors=per_well_colors,
         warn_color=WARN,
         border_color=BORDER,
         placeholder_color=CLR_PLACEHOLDER,
@@ -367,6 +347,11 @@ def draw_grouped_bar_mode(
         )
         ax_n.set_ylabel(n_ylabel, fontsize=8, labelpad=5)
     _apply_bar_ylims(app, ax_mean, ax_frac, ax_n=ax_n)
+    if fc_misses:
+        _tps = ", ".join(f"{t:g}" for t in sorted(fc_misses))
+        app._set_status(
+            f"Fold change: control missing at t={_tps} — bars dropped."
+        )
     app._bar_canvas.draw_idle()
 
 
