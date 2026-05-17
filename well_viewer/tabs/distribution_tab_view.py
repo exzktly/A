@@ -17,6 +17,7 @@ from well_viewer.ui_helpers import (
 
 
 _MODE_OPTIONS = ["Histogram", "Histogram + KDE", "KDE only", "CDF", "Violin (per group)"]
+_LAYOUT_OPTIONS = ["Overlay", "Faceted (one per group)"]
 
 
 def build_distribution_tab(app, parent: QWidget) -> None:
@@ -62,7 +63,12 @@ def build_distribution_tab(app, parent: QWidget) -> None:
 
     cl.addWidget(QLabel("Bins:", ctrl))
     app._distribution_bins_spin = QSpinBox(ctrl)
-    app._distribution_bins_spin.setRange(5, 500)
+    # No practical upper bound — fine-grained / over-sampled histograms are
+    # a legitimate request when distributions are concentrated in a narrow
+    # window of the channel's dynamic range. Qt's QSpinBox tops out at
+    # ``INT_MAX`` so this is as close to "no upper limit" as the widget
+    # supports.
+    app._distribution_bins_spin.setRange(2, 2_147_483_647)
     app._distribution_bins_spin.setValue(40)
     app._distribution_bins = 40
 
@@ -71,6 +77,19 @@ def build_distribution_tab(app, parent: QWidget) -> None:
         _on_changed(app)
     app._distribution_bins_spin.valueChanged.connect(_on_bins_changed)
     cl.addWidget(app._distribution_bins_spin)
+
+    # Histogram layout: overlay every group on one axis (default), or
+    # face one axis per group stacked vertically with minimal padding.
+    # The combo is always visible but only has an effect for the
+    # ``Histogram`` / ``Histogram + KDE`` modes; the renderer ignores it
+    # for KDE-only, CDF, and Violin layouts.
+    cl.addWidget(QLabel("Layout:", ctrl))
+    app._distribution_layout_cb = QComboBox(ctrl)
+    app._distribution_layout_cb.addItems(_LAYOUT_OPTIONS)
+    app._distribution_layout_cb.setCurrentText("Overlay")
+    app._distribution_layout_cb.currentIndexChanged.connect(lambda _i: _on_changed(app))
+    cl.addWidget(app._distribution_layout_cb)
+    app._distribution_layout_var = app._distribution_layout_cb
 
     app._distribution_log_x_cb = QCheckBox("log x", ctrl)
     app._distribution_log_x = False
