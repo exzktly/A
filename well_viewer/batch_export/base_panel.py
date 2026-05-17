@@ -7,6 +7,7 @@ import csv
 import json
 import math
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -400,6 +401,27 @@ class BatchExportPanel(QWidget):
         return METRIC_LABEL_TO_KEY.get(
             label, getattr(self._app, "_active_metric", "mean_intensity") or "mean_intensity",
         )
+
+    @contextmanager
+    def _app_val_col_scope(self, val_col: str):
+        """Temporarily override the app's ``_active_val_col``.
+
+        Several core helpers consult ``_active_val_col`` directly instead
+        of accepting an explicit ``val_col`` parameter (e.g.
+        ``_compute_rep_stats``), so a batch export that wants its
+        (Channel, Property) selection to govern the figure has to swap
+        the app's value for the duration of the render. Cache entries
+        keyed by ``_active_val_col`` (``_stats_cache``) include the
+        column in their key, so this swap doesn't pollute the cache.
+        """
+        app = self._app
+        saved = getattr(app, "_active_val_col", None)
+        try:
+            app._active_val_col = val_col
+            yield
+        finally:
+            if saved is not None:
+                app._active_val_col = saved
 
     def _export_val_col_for(self, channel_attr: str) -> str:
         """Resolve the (Channel, Property) pair to a CSV column / ratio key.
@@ -1210,7 +1232,13 @@ class BatchExportPanel(QWidget):
                 return f"{grp.name} CSV: {exc}"
 
             try:
-                fig = self._render_group_figure(grp, threshold, use_sem, band_lbl)
+                # ``_render_group_figure`` calls helpers (notably
+                # ``_compute_rep_stats``) that read ``app._active_val_col``
+                # directly. Swap it for the duration of the render so a
+                # batch export against a ratio column or a non-MFI
+                # property draws the correct curves.
+                with self._app_val_col_scope(_val_col):
+                    fig = self._render_group_figure(grp, threshold, use_sem, band_lbl)
                 self._save_figure(fig, fig_path, fmt)
             except Exception as exc:
                 return f"{grp.name} figure: {exc}"

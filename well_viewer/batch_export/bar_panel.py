@@ -243,9 +243,14 @@ class BarBatchExportPanel(BatchExportPanel):
                 return f"{grp.name} t={tp_str} CSV: {exc}"
 
             try:
-                fig = self._render_bar_group_figure(
-                    grp, target_t, tp_str, threshold, use_sem, band_lbl,
-                )
+                # Helpers consulted during the render may read
+                # ``app._active_val_col`` directly — swap it for the
+                # panel's selection so a ratio or non-MFI batch draws
+                # the right curves.
+                with self._app_val_col_scope(_val_col):
+                    fig = self._render_bar_group_figure(
+                        grp, target_t, tp_str, threshold, use_sem, band_lbl,
+                    )
                 self._save_figure(fig, Path(str(base) + f".{fmt}"), fmt)
             except Exception as exc:
                 return f"{grp.name} t={tp_str} figure: {exc}"
@@ -274,9 +279,12 @@ class BarBatchExportPanel(BatchExportPanel):
         fig.suptitle(f"{grp.name}  \u2014  t = {tp_str} h",
                      fontsize=10, fontweight="bold", color=get_color("PLOT_TXT"), y=0.97)
         _ch = (self._selected_export_channel() or self._app._active_channel).upper()
+        from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
+        _metric_key = self._selected_export_metric_key("_bar_channel_cb")
+        _metric_label = _MLB.get(_metric_key, "Mean Intensity")
         apply_ax_style(ax_mean,
-                       f"Mean {_ch} (above threshold) \u00b1 {band_lbl}",
-                       f"Mean {_ch}")
+                       f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}",
+                       f"{_ch} {_metric_label}")
         apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         if self._app._use_fov_spread_active():
             apply_ax_style(ax_n, f"Mean events above threshold per FOV ± {band_lbl}", "N(above)/FOV")
