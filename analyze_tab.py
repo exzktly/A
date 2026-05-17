@@ -861,11 +861,14 @@ class AnalyzeTab(QWidget):
                 wells.add(token.upper())
         return len(wells) or len(tifs) or 1
 
-    def _resolve_run_dirs_for_runner(self, opts: dict, log_q: queue.Queue):
+    def _resolve_run_dirs_for_runner(self, opts: dict, log_q: queue.Queue,
+                                     *, proc_hook=None):
         """Adapter passed to ``PipelineRunner.start``.
 
         Lives on the tab because expected-well-count + grouping progress are
-        UI-side helpers that depend on Analyze form state.
+        UI-side helpers that depend on Analyze form state. ``proc_hook`` is
+        forwarded to ``resolve_input_output`` so the grouping subprocess can
+        be tracked by the runner and reached by Stop.
         """
         try:
             log_q.put(("zipper_start", self._expected_well_count(opts)))
@@ -875,6 +878,7 @@ class AnalyzeTab(QWidget):
                 progress_fn=lambda tok: log_q.put(("zipper_well", tok)),
                 filename_schema=opts["filename_schema"],
                 filename_sep=opts["filename_sep"],
+                proc_hook=proc_hook,
             )
             log_q.put(("zipper_done", None))
             return input_dir, output_dir
@@ -883,9 +887,12 @@ class AnalyzeTab(QWidget):
             return None
 
     def _stop(self) -> None:
-        if self._runner.is_running:
-            self._runner.stop()
-            self._log_line("\n[User stopped the pipeline]\n", "WARNING")
+        # Stop is meaningful whenever the runner has *any* in-flight work
+        # — including the grouping phase, when self._runner._proc is
+        # still None. Calling stop() unconditionally is safe (it no-ops
+        # when nothing is alive) and lets it reach the zipper.
+        self._runner.stop()
+        self._log_line("\n[User stopped the pipeline]\n", "WARNING")
 
     # ------------------------------------------------------------------
     # Log helpers
