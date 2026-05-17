@@ -175,6 +175,44 @@ def _fc_mode_str(vs_control: bool, vs_t0: bool) -> str:
     return "+".join(parts) or "off"
 
 
+def bar_fold_change_fieldnames(band_lbl: str) -> list:
+    """Additive fold-change CSV columns appended after the raw bar columns."""
+    return [
+        "fold_change_mean",
+        f"fold_change_{band_lbl.lower()}",
+        "fold_change_mode",
+        "fold_change_control",
+    ]
+
+
+def attach_bar_fold_change_columns(
+    row: dict,
+    *,
+    fc_mean: float,
+    fc_spread: float,
+    fc_has: bool,
+    band_lbl: str,
+    vs_control: bool,
+    vs_t0: bool,
+    control_label: str,
+) -> None:
+    """Append the four fold-change columns to a bar-plot CSV row in place.
+
+    The raw ``mean_*`` / ``err_*`` columns stay as written by
+    :func:`bar_metric_row`; this helper carries the post-normalization
+    values plus mode / control annotations on the right of the row. Used
+    by both the on-tab CSV (``export_bar_plot_data``) and the batch CSV.
+    """
+    row["fold_change_mean"] = (
+        f"{fc_mean:.6f}" if fc_has and not math.isnan(fc_mean) else ""
+    )
+    row[f"fold_change_{band_lbl.lower()}"] = (
+        f"{fc_spread:.6f}" if fc_has else ""
+    )
+    row["fold_change_mode"] = _fc_mode_str(vs_control, vs_t0)
+    row["fold_change_control"] = control_label if vs_control else ""
+
+
 def aggpoint_at(pts, target_t: float, tol: float = 1e-6):
     """Return the AggPoint whose time matches *target_t* within tol, or None."""
     for pt in pts or ():
@@ -329,6 +367,7 @@ def export_plot_data(app) -> None:
 
 def export_bar_plot_data(app) -> None:
     from well_viewer import fold_change as _fc
+    from well_viewer.barplot_controller import FC_STATE_OFF
 
     tp_str = app._bar_tp_cb.currentText()
     if tp_str in ("—", ""):
@@ -338,27 +377,28 @@ def export_bar_plot_data(app) -> None:
         target_t = float(tp_str)
     except ValueError:
         return
-    # ``_collect_bar_items`` already applies the active fold-change to the
-    # mean / spread columns, so the CSV mirrors the on-screen bars. We
-    # surface the mode / control as separate columns when active so the
-    # numbers aren't ambiguous downstream.
-    use_groups, items, band_lbl = app._collect_bar_items(target_t)
     fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
     fc_active = fc_vs_ctrl or fc_vs_t0
+    # Additive CSV: raw values in the standard ``mean_*`` / ``err_*``
+    # columns, fold-change values in their own columns. The aggregation
+    # helpers are cached so the second call to collect_bar_items is cheap.
+    use_groups, items_raw, band_lbl = app._collect_bar_items(
+        target_t, fc_state=FC_STATE_OFF,
+    )
+    if fc_active:
+        _, items_fc, _ = app._collect_bar_items(target_t)
+        fc_by_key = {it.key: it for it in items_fc}
+    else:
+        fc_by_key = {}
     ch = app._active_channel
     metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)
     well_labels = _well_labels_map(app)
     well_paths = _well_paths_keys(app)
     rows_out = []
-    # ``items`` is a list of ``BarItem`` records emitted by
-    # ``collect_bar_items``. Per-bar values are post-normalization (the on-
-    # screen plot and this CSV stay in lockstep). PR 2 will switch the bar
-    # CSV to the additive schema; for now keep the existing
-    # overwrite-and-annotate behaviour.
     if use_groups:
         id_cols = ["name", "well_name"]
-        for item in items:
+        for item in items_raw:
             row = {
                 "name": item.key,
                 "well_name": well_name_for(item.key, well_labels,
@@ -373,10 +413,18 @@ def export_bar_plot_data(app) -> None:
                 ch=ch, metric=metric, tp_str=tp_str,
                 threshold=threshold, band_lbl=band_lbl,
             ))
+            if fc_active and item.key in fc_by_key:
+                fc_item = fc_by_key[item.key]
+                attach_bar_fold_change_columns(
+                    row, fc_mean=fc_item.mean, fc_spread=fc_item.spread,
+                    fc_has=fc_item.has_mean, band_lbl=band_lbl,
+                    vs_control=fc_vs_ctrl, vs_t0=fc_vs_t0,
+                    control_label=fc_ctrl_lbl,
+                )
             rows_out.append(row)
     else:
         id_cols = ["well", "well_name"]
-        for item in items:
+        for item in items_raw:
             row = {
                 "well": item.key,
                 "well_name": well_name_for(item.key, well_labels),
@@ -390,12 +438,15 @@ def export_bar_plot_data(app) -> None:
                 ch=ch, metric=metric, tp_str=tp_str,
                 threshold=threshold, band_lbl=band_lbl,
             ))
+            if fc_active and item.key in fc_by_key:
+                fc_item = fc_by_key[item.key]
+                attach_bar_fold_change_columns(
+                    row, fc_mean=fc_item.mean, fc_spread=fc_item.spread,
+                    fc_has=fc_item.has_mean, band_lbl=band_lbl,
+                    vs_control=fc_vs_ctrl, vs_t0=fc_vs_t0,
+                    control_label=fc_ctrl_lbl,
+                )
             rows_out.append(row)
-    if fc_active:
-        mode_str = _fc_mode_str(fc_vs_ctrl, fc_vs_t0)
-        for row in rows_out:
-            row["fold_change_mode"] = mode_str
-            row["fold_change_control"] = fc_ctrl_lbl if fc_vs_ctrl else ""
     if not rows_out:
         _warn(app, "Export", "No data to export.")
         return
@@ -404,7 +455,7 @@ def export_bar_plot_data(app) -> None:
         return
     fieldnames = id_cols + bar_metric_fieldnames(ch, metric, band_lbl)
     if fc_active:
-        fieldnames += ["fold_change_mode", "fold_change_control"]
+        fieldnames += bar_fold_change_fieldnames(band_lbl)
     try:
         with open(out_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)

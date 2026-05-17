@@ -109,7 +109,17 @@ def bar_groups_from_data(data, *, tok_to_label: dict[str, str]) -> Tuple[List[Re
     return rep_sets, bar_groups
 
 
-def collect_bar_items(app, target_t: float) -> Tuple[bool, List[BarItem], str]:
+#: Fold-change "off" state — pass to ``collect_bar_items`` or
+#: ``collect_bar_items_for_group`` when you want the raw (unscaled) values,
+#: e.g. to emit the un-normalized columns of an additive CSV alongside the
+#: fold-change columns.
+FC_STATE_OFF: Tuple[bool, str, bool] = (False, "", False)
+
+
+def collect_bar_items(
+    app, target_t: float, *,
+    fc_state: Optional[Tuple[bool, str, bool]] = None,
+) -> Tuple[bool, List[BarItem], str]:
     """Compute the bar-plot ``BarItem``s for the active mode (rep-set or per-well).
 
     Single source of truth — every consumer of bar data (on-screen renderer,
@@ -117,6 +127,11 @@ def collect_bar_items(app, target_t: float) -> Tuple[bool, List[BarItem], str]:
     list in the same order. Fold-change normalization is applied exactly
     once, here. The order follows ``app._bar_current_keys()`` so drag-
     reorder state is honoured by every consumer without a rebuild.
+
+    When *fc_state* is None (default) the app's current state is used.
+    Callers that want raw values can pass :data:`FC_STATE_OFF` — the
+    aggregation helpers are cached so a second call is cheap, which is how
+    the on-tab CSV emits the additive (raw + fold-change) schema.
 
     Returns ``(use_groups, items, band_lbl)``. ``use_groups`` is True when
     replicate sets are active (drives a slightly wider bar style in the
@@ -131,7 +146,9 @@ def collect_bar_items(app, target_t: float) -> Tuple[bool, List[BarItem], str]:
 
     # Fold-change normalization (vs control well/group, vs t0, or both).
     # Resolved once here so we don't re-aggregate the control per bar.
-    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = _fc.fold_change_state(app)
+    if fc_state is None:
+        fc_state = _fc.fold_change_state(app)
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
     fc_control_mean_at_t = None
     if fc_vs_ctrl and fc_ctrl_lbl:
         fc_control_mean_at_t = _fc.control_mean_at(
@@ -252,6 +269,113 @@ def collect_bar_items(app, target_t: float) -> Tuple[bool, List[BarItem], str]:
                 n_above=0.0, n_above_spread=0.0,
             ))
     return False, items, band_lbl
+
+
+def collect_bar_items_for_group(
+    app,
+    group: BarGroup,
+    target_t: float,
+    *,
+    val_col: str,
+    threshold: float,
+    use_sem: bool,
+    per_fov_spread: bool,
+    fc_state: Tuple[bool, str, bool],
+    cell_area_threshold: Optional[float] = None,
+    fluor_gates: Optional[dict] = None,
+) -> List[BarItem]:
+    """Build ``BarItem``s for a batch-export ``BarGroup`` (members + solo wells).
+
+    This is the batch-side analogue of :func:`collect_bar_items`. The plot
+    tab's collector reads from ``app._rep_sets_active()`` / ``_selected_wells``
+    and ``app._fc_*`` state; the batch path needs to operate on arbitrary
+    ``BarGroup`` instances with a panel-local fold-change state — so
+    everything is passed in explicitly. The batch panel maintains its own
+    ``_fc_*`` mirror (intentionally decoupled from the plot tab) and
+    forwards it via ``fc_state``.
+
+    Pass :data:`FC_STATE_OFF` to skip fold-change scaling and get raw
+    aggregated values (used by the additive CSV emitter).
+    """
+    if cell_area_threshold is None:
+        cell_area_threshold = app._get_cell_area_threshold()
+    if fluor_gates is None:
+        fluor_gates = app._get_all_fluor_gates()
+
+    fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0 = fc_state
+    fc_control_mean_at_t = None
+    if fc_vs_ctrl and fc_ctrl_lbl:
+        fc_control_mean_at_t = _fc.control_mean_at(
+            app, fc_ctrl_lbl, target_t,
+            threshold=threshold, val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+        )
+
+    items: List[BarItem] = []
+    members: List[Tuple[str, str, list[str]]] = []  # (key, display, wells)
+    for rset in group.members:
+        valid = [w for w in rset.wells if w in app._well_paths]
+        if not valid:
+            continue
+        members.append((rset.name, rset.name, valid))
+    for w in group.solo_wells:
+        if w not in app._well_paths:
+            continue
+        members.append((w, w, [w]))
+
+    # Use the batch-export palette by position rank — matches the prior
+    # behaviour of ``_render_bar_group_figure`` before consolidation. Each
+    # caller may override the colour by mutating ``item.color`` after the
+    # call if needed.
+    from well_viewer.plate_layout import WELL_COLORS as _WELL_COLORS
+
+    for i, (key, display, wells) in enumerate(members):
+        color = _WELL_COLORS[i % len(_WELL_COLORS)]
+        pts = app._aggregate_group(
+            wells, threshold=threshold, use_sem=use_sem,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            per_fov_spread=per_fov_spread,
+        )
+        matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
+        if matched:
+            pt = matched[0]
+            m, s, f = pt[1], pt[2], pt[3]
+            n_above_total = int(pt[4]) if len(pt) >= 5 else 0
+            frac_spread = float(pt[6]) if len(pt) >= 7 else 0.0
+            n_above_pf_mean = float(pt[7]) if len(pt) >= 8 else 0.0
+            n_above_pf_spread = float(pt[8]) if len(pt) >= 9 else 0.0
+            if per_fov_spread:
+                n_above_val = n_above_pf_mean
+                n_above_err = n_above_pf_spread
+            else:
+                n_above_val = float(n_above_total)
+                n_above_err = 0.0
+            if fc_vs_ctrl or fc_vs_t0:
+                t0_mean = _fc.first_tp_value(pts) if fc_vs_t0 else None
+                m, s = _fc.scale_bar_value(
+                    m, s,
+                    control_mean=fc_control_mean_at_t if fc_vs_ctrl else None,
+                    t0_mean=t0_mean if fc_vs_t0 else None,
+                )
+            has_mean = not math.isnan(m)
+            has_frac = has_mean and not math.isnan(f)
+            items.append(BarItem(
+                key=key, display=display, color=color,
+                mean=m, spread=s, has_mean=has_mean,
+                frac=f, frac_spread=frac_spread, has_frac=has_frac,
+                n_above=n_above_val, n_above_spread=n_above_err,
+            ))
+        else:
+            items.append(BarItem(
+                key=key, display=display, color=color,
+                mean=float("nan"), spread=0.0, has_mean=False,
+                frac=float("nan"), frac_spread=0.0, has_frac=False,
+                n_above=0.0, n_above_spread=0.0,
+            ))
+    return items
 
 
 def ordered_bar_keys(app) -> list:
