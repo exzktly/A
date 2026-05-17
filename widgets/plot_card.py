@@ -388,15 +388,26 @@ if _HAVE_MPL:
 
         def _apply_rcparams(self) -> None:
             bg, fg, muted, grid, spine = _plot_tokens(self._plot_theme)
+            # Configure *this* figure only — mutating matplotlib.rcParams
+            # is process-global and the value leaks across PlotCards
+            # (e.g. a Publication-mode toggle on Line Graphs would
+            # silently change a batch-export Bar Plots redraw). Apply
+            # the styling to the live figure + axes here; new figures
+            # built later go through the same path on construction.
             try:
                 from cycler import cycler
-                matplotlib.rcParams.update({
-                    "figure.facecolor": bg, "axes.facecolor": bg,
-                    "axes.edgecolor": spine, "axes.labelcolor": fg,
-                    "text.color": fg, "xtick.color": muted, "ytick.color": muted,
-                    "grid.color": grid,
-                    "axes.prop_cycle": cycler(color=_plot_palette(self._plot_theme)),
-                })
+                self.figure.set_facecolor(bg)
+                for ax in self.figure.axes:
+                    ax.set_facecolor(bg)
+                    for spine_obj in ax.spines.values():
+                        spine_obj.set_edgecolor(spine)
+                    ax.tick_params(colors=muted)
+                    ax.yaxis.label.set_color(fg)
+                    ax.xaxis.label.set_color(fg)
+                    ax.title.set_color(fg)
+                    ax.set_prop_cycle(cycler(color=_plot_palette(self._plot_theme)))
+                    for gridline in ax.get_xgridlines() + ax.get_ygridlines():
+                        gridline.set_color(grid)
             except Exception:
                 pass
 

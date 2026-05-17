@@ -80,6 +80,22 @@ _FNAME_RE = re.compile(
 )
 
 
+def _build_fname_re(sep: str) -> "re.Pattern[str]":
+    """Compose the 5-field fallback regex against an arbitrary separator.
+
+    Datasets using ``-`` or ``.`` separators previously fell through to
+    the underscore-hardcoded ``_FNAME_RE`` and got ``("unknown",
+    "unknown")`` for every file. Callers can now pass a separator-aware
+    extractor in ``find_well_images_and_masks`` to fix that.
+    """
+    s = re.escape(sep)
+    return re.compile(
+        rf"^(?P<exp>[^{s}]+){s}(?P<channel>[^{s}]*){s}"
+        rf"(?P<well>[^{s}]+){s}(?P<fov>[^{s}]+){s}(?P<tp>[^{s}.]+)",
+        re.I,
+    )
+
+
 def _norm_well(raw: str) -> Optional[str]:
     normalized = _normalize_well_token(raw)
     return normalized or None
@@ -137,12 +153,38 @@ def open_imgref_as_array(ref: ImgRef, greyscale: bool = False):
 
 
 def _default_fov_tp_extractor(stem: str) -> Tuple[str, str]:
-    """5-field-regex fallback used when callers don't provide a schema extractor."""
+    """5-field-regex fallback used when callers don't provide a schema extractor.
+
+    Hardcodes ``_`` because the no-pipeline-info path can't know the
+    real separator. Callers with a known separator should build a
+    schema extractor (``viewer_state.make_schema_extractor``) or
+    :func:`make_default_fov_tp_extractor` with the real sep instead.
+    """
     m = _FNAME_RE.match(stem)
     if m:
         return m.group("fov"), m.group("tp")
     _logger.debug("_FNAME_RE no match: stem=%r", stem)
     return "unknown", "unknown"
+
+
+def make_default_fov_tp_extractor(sep: str):
+    """Return a 5-field fallback extractor using *sep* as the separator."""
+    if sep == "_":
+        return _default_fov_tp_extractor
+    pattern = _build_fname_re(sep)
+
+    def _extract(stem: str) -> Tuple[str, str]:
+        m = pattern.match(stem)
+        if m:
+            return m.group("fov"), m.group("tp")
+        # Last-ditch: also try the underscore form so a folder mixing
+        # separators doesn't blank every legacy file.
+        m = _FNAME_RE.match(stem)
+        if m:
+            return m.group("fov"), m.group("tp")
+        return "unknown", "unknown"
+
+    return _extract
 
 
 def extract_pipeline_fields(stem: str, pipeline_info: Optional[dict]) -> Dict[str, str]:
