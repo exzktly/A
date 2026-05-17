@@ -161,6 +161,17 @@ if _HAVE_MPL:
             root.addWidget(self.toolbar)
 
             self.setStyleSheet(self._build_qss())
+            # NB: a previous revision installed a `QEvent.StyleChange`
+            # event filter here so the per-instance QSS would track a
+            # future runtime-theme switcher. That filter routed *every*
+            # Qt event sent to the PlotCard through Python and — worse —
+            # called `setStyleSheet` from inside the filter, which
+            # re-fires `StyleChange`, which re-fires the filter. The
+            # cascading rebuilds added ~20s to the dataset-load path
+            # and made interactive use sluggish. Reverted until the
+            # theme switcher actually ships and is exercised under perf
+            # measurement; the `install_qss_refresh` helper is still
+            # available in `widgets/_support.py` for opt-in use.
             self._sync_theme_ui()
 
         # ── public API ───────────────────────────────────────────────────
@@ -365,19 +376,16 @@ if _HAVE_MPL:
                 return
             self._plot_theme = mode
             self._apply_rcparams()
-            palette = _plot_palette(mode)
             bg = _plot_tokens(mode)[0]
             self.figure.set_facecolor(bg)
             for ax in self.figure.axes:
                 apply_axes_style(ax, mode)
-                # best-effort: recolour the visible traces with the new cycle
-                idx = 0
-                for line in ax.get_lines():
-                    lbl = line.get_label() or ""
-                    if isinstance(lbl, str) and lbl.startswith("_"):
-                        continue
-                    line.set_color(palette[idx % len(palette)])
-                    idx += 1
+                # Don't recolour lines by their iteration order — the
+                # controllers assign rank-based colours (so "well A01"
+                # → palette[0] *everywhere*); recolouring by enumeration
+                # broke that invariant on Screen↔Pub toggle. Just style
+                # the chrome; the next redraw repaints lines with the
+                # correct rank colour.
                 leg = ax.get_legend()
                 if leg is not None:
                     fg = _plot_tokens(mode)[1]
@@ -391,15 +399,26 @@ if _HAVE_MPL:
 
         def _apply_rcparams(self) -> None:
             bg, fg, muted, grid, spine = _plot_tokens(self._plot_theme)
+            # Configure *this* figure only — mutating matplotlib.rcParams
+            # is process-global and the value leaks across PlotCards
+            # (e.g. a Publication-mode toggle on Line Graphs would
+            # silently change a batch-export Bar Plots redraw). Apply
+            # the styling to the live figure + axes here; new figures
+            # built later go through the same path on construction.
             try:
                 from cycler import cycler
-                matplotlib.rcParams.update({
-                    "figure.facecolor": bg, "axes.facecolor": bg,
-                    "axes.edgecolor": spine, "axes.labelcolor": fg,
-                    "text.color": fg, "xtick.color": muted, "ytick.color": muted,
-                    "grid.color": grid,
-                    "axes.prop_cycle": cycler(color=_plot_palette(self._plot_theme)),
-                })
+                self.figure.set_facecolor(bg)
+                for ax in self.figure.axes:
+                    ax.set_facecolor(bg)
+                    for spine_obj in ax.spines.values():
+                        spine_obj.set_edgecolor(spine)
+                    ax.tick_params(colors=muted)
+                    ax.yaxis.label.set_color(fg)
+                    ax.xaxis.label.set_color(fg)
+                    ax.title.set_color(fg)
+                    ax.set_prop_cycle(cycler(color=_plot_palette(self._plot_theme)))
+                    for gridline in ax.get_xgridlines() + ax.get_ygridlines():
+                        gridline.set_color(grid)
             except Exception:
                 pass
 

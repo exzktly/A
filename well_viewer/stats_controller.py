@@ -86,7 +86,10 @@ def collect_group_values(
             fov_raw = (df["fov"].fillna("").astype(str).str.strip()
                        if "fov" in df.columns
                        else pd.Series([""] * len(df), index=df.index))
-            fov = fov_raw.where(fov_raw != "", "_").to_numpy()
+            # Empty FOV → "1" to match aggregate_with_threshold_df. The
+            # earlier "_" sentinel bucketed missing-FOV cells differently
+            # from the bar / line aggregator on the same dataset.
+            fov = fov_raw.where(fov_raw != "", "1").to_numpy()
             sub = pd.DataFrame({"key": fov[mask], "v": val[mask]})
             for _, group_vals in sub.groupby("key", sort=False)["v"]:
                 stat = _compute_statistic_arr(group_vals.to_numpy(), statistic, threshold)
@@ -309,8 +312,18 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
     lines.append("")
 
     pairs = [(group_vals[i], group_vals[j]) for i in range(len(group_vals)) for j in range(i + 1, len(group_vals))]
+
+    # Two-pass: collect all raw p-values first so we can compute
+    # multiple-comparison adjustments (Benjamini-Hochberg) before
+    # emitting per-pair lines. With ≥3 groups (≥3 pairs) reporting
+    # raw p alone overstates significance — BH-FDR is the most common
+    # control for that.
+    pair_results: list = []  # [(name_a, name_b, stat_name, stat_value, p, err)]
     for (name_a, vals_a), (name_b, vals_b) in pairs:
-        lines.append(f"── {name_a}  vs  {name_b} ──")
+        stat_name = "?"
+        stat_value: Optional[float] = None
+        p: Optional[float] = None
+        err: Optional[str] = None
         try:
             if test.startswith("t-test"):
                 res = _st.ttest_ind(vals_a, vals_b, equal_var=False)
@@ -325,13 +338,54 @@ def run_stats(app, *, collect_group_values_fn, draw_ks_cdf_fn) -> None:
                 res = _st.ks_2samp(vals_a, vals_b)
                 stat_name = "D"
             else:
-                lines.append("Unknown test.")
+                err = "Unknown test."
+                pair_results.append((name_a, name_b, stat_name, stat_value, p, err))
                 continue
-            p = res.pvalue
-            sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
-            lines.append(f"  {stat_name} = {res.statistic:.4f}   p = {p:.4g}   {sig}")
+            p = float(res.pvalue)
+            stat_value = float(res.statistic)
         except Exception as exc:
-            lines.append(f"  Error: {exc}")
+            err = str(exc)
+        pair_results.append((name_a, name_b, stat_name, stat_value, p, err))
+
+    # Benjamini-Hochberg adjusted p-values (FDR control). Applied across
+    # all valid p-values in this report.
+    valid_idx = [i for i, r in enumerate(pair_results) if r[4] is not None]
+    adjusted: dict[int, float] = {}
+    if len(valid_idx) >= 2:
+        ranked = sorted(valid_idx, key=lambda i: pair_results[i][4])
+        m = len(ranked)
+        # Walk in descending order so the monotonic-decreasing step
+        # function for BH-FDR can be propagated forward.
+        prev = 1.0
+        for rank_from_top, idx in enumerate(reversed(ranked)):
+            k = m - rank_from_top  # 1-based rank, largest p first
+            raw_p = pair_results[idx][4]
+            assert raw_p is not None
+            cand = raw_p * m / k
+            prev = min(prev, cand)
+            adjusted[idx] = min(1.0, prev)
+
+    show_adjusted = len(adjusted) >= 2
+
+    for idx, (name_a, name_b, stat_name, stat_value, p, err) in enumerate(pair_results):
+        lines.append(f"── {name_a}  vs  {name_b} ──")
+        if err is not None:
+            lines.append(f"  Error: {err}")
+        elif p is not None and stat_value is not None:
+            sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
+            line = f"  {stat_name} = {stat_value:.4f}   p = {p:.4g}   {sig}"
+            if show_adjusted and idx in adjusted:
+                ap = adjusted[idx]
+                asig = "***" if ap < 0.001 else "**" if ap < 0.01 else "*" if ap < 0.05 else "ns"
+                line += f"   |   p_BH = {ap:.4g}   {asig}"
+            lines.append(line)
+        lines.append("")
+    if show_adjusted:
+        lines.append(
+            f"p_BH: Benjamini-Hochberg FDR-adjusted p-value across "
+            f"{len(adjusted)} pairwise comparison(s). Report p_BH alongside "
+            f"raw p when quoting significance with 3+ groups."
+        )
         lines.append("")
 
     app._stats_write_result("\n".join(lines))

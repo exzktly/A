@@ -80,6 +80,22 @@ _FNAME_RE = re.compile(
 )
 
 
+def _build_fname_re(sep: str) -> "re.Pattern[str]":
+    """Compose the 5-field fallback regex against an arbitrary separator.
+
+    Datasets using ``-`` or ``.`` separators previously fell through to
+    the underscore-hardcoded ``_FNAME_RE`` and got ``("unknown",
+    "unknown")`` for every file. Callers can now pass a separator-aware
+    extractor in ``find_well_images_and_masks`` to fix that.
+    """
+    s = re.escape(sep)
+    return re.compile(
+        rf"^(?P<exp>[^{s}]+){s}(?P<channel>[^{s}]*){s}"
+        rf"(?P<well>[^{s}]+){s}(?P<fov>[^{s}]+){s}(?P<tp>[^{s}.]+)",
+        re.I,
+    )
+
+
 def _norm_well(raw: str) -> Optional[str]:
     normalized = _normalize_well_token(raw)
     return normalized or None
@@ -137,12 +153,38 @@ def open_imgref_as_array(ref: ImgRef, greyscale: bool = False):
 
 
 def _default_fov_tp_extractor(stem: str) -> Tuple[str, str]:
-    """5-field-regex fallback used when callers don't provide a schema extractor."""
+    """5-field-regex fallback used when callers don't provide a schema extractor.
+
+    Hardcodes ``_`` because the no-pipeline-info path can't know the
+    real separator. Callers with a known separator should build a
+    schema extractor (``viewer_state.make_schema_extractor``) or
+    :func:`make_default_fov_tp_extractor` with the real sep instead.
+    """
     m = _FNAME_RE.match(stem)
     if m:
         return m.group("fov"), m.group("tp")
     _logger.debug("_FNAME_RE no match: stem=%r", stem)
     return "unknown", "unknown"
+
+
+def make_default_fov_tp_extractor(sep: str):
+    """Return a 5-field fallback extractor using *sep* as the separator."""
+    if sep == "_":
+        return _default_fov_tp_extractor
+    pattern = _build_fname_re(sep)
+
+    def _extract(stem: str) -> Tuple[str, str]:
+        m = pattern.match(stem)
+        if m:
+            return m.group("fov"), m.group("tp")
+        # Last-ditch: also try the underscore form so a folder mixing
+        # separators doesn't blank every legacy file.
+        m = _FNAME_RE.match(stem)
+        if m:
+            return m.group("fov"), m.group("tp")
+        return "unknown", "unknown"
+
+    return _extract
 
 
 def extract_pipeline_fields(stem: str, pipeline_info: Optional[dict]) -> Dict[str, str]:
@@ -169,7 +211,7 @@ def classify_member(
     _fov_tp_extractor=None,
     _pipeline_info: Optional[dict] = None,
 ) -> Tuple[str, str, str]:
-    """Return (kind, fov, tp) where kind is fluor/tophat_fluor/mask/overlay/''."""
+    """Return (kind, fov, tp) where kind is fluor/tophat/mask/overlay/smfish/''."""
     kind, fov, tp = _preview_classify_member(
         name=name,
         fluor_lower=fluor_lower,
@@ -281,7 +323,7 @@ def scan_folder_members(
             ref = ImgRef(disk_path=p)
             if kind == "fluor":
                 fluor.setdefault(key, ref)
-            elif kind == "tophat_fluor":
+            elif kind == "tophat":
                 tophat_fluor.setdefault(key, ref)
             elif kind == "overlay":
                 overlay.setdefault(key, ref)
@@ -439,8 +481,16 @@ def find_well_images_and_masks(
         [data_dir] if data_dir and data_dir.is_dir() else []
     )
     if not fluor and search_dirs:
+        # Cap rglob recursion depth so a user who accidentally points
+        # the viewer at their home directory or a project root doesn't
+        # trigger a full filesystem scan. 3 levels covers the canonical
+        # data-dir / well-subdir / channel-subdir layout with headroom.
+        _MAX_DEPTH = 3
         for search_root in search_dirs:
+            search_root_parts = len(search_root.parts)
             for p in sorted(search_root.rglob("*")):
+                if (len(p.parts) - search_root_parts) > _MAX_DEPTH:
+                    continue
                 if p.suffix.lower() not in _IMAGE_EXTS or p.name.startswith("."):
                     continue
                 kind, fov, tp = classify_member(
@@ -486,7 +536,7 @@ def find_well_images_and_masks(
                 ref = ImgRef(disk_path=p)
                 if kind == "fluor":
                     fluor.setdefault((fov, tp), ref)
-                elif kind == "tophat_fluor":
+                elif kind == "tophat":
                     tophat_fluor.setdefault((fov, tp), ref)
                 elif kind == "overlay":
                     overlay.setdefault((fov, tp), ref)

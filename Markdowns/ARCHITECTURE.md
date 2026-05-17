@@ -75,16 +75,25 @@ allwell/
 ├── analyze_tab.py               ← Analyze pane (form + run controls + live log)
 ├── process_microscopy.py        ← the actual analysis pipeline (CLI + library)
 ├── WellPlateZipper.py           ← input-folder packing utility (96-well .zip set)
-├── theme.py                     ← design tokens (Colors / Typography / Spacing / Radii)
+├── auto_threshold_core.py       ← Otsu helpers shared by pipeline + GUI (stdlib + numpy only)
+├── well_token.py                ← canonical 96-well token parser (stdlib only)
+├── theme.py                     ← v2 design tokens (Colors / Typography / Spacing / Radii)
 ├── well_viewer/                 ← Review pane (the bulk of the app)
 ├── widgets/                     ← reusable Qt widgets (no app coupling)
-├── ui/theme/                    ← QSS themes + their Template-string driver
+├── ui/theme/                    ← QSS themes + Template-string driver (palette + plot tokens)
 ├── services/                    ← Analyze-side service modules
 ├── scripts/                     ← build_executable.sh, dev helpers
-├── _Docs/                       ← installer / requirements / icon SVGs
+├── _Docs/                       ← installer / requirements / icon SVGs + this Planning.md
 ├── Markdowns/                   ← live docs (this file, README, model contract, icons readme)
+├── tests/                       ← pytest scaffold (added in #248; pure-Python no Qt)
 └── design/                      ← HTML mockups + screenshots — visual reference only
 ```
+
+The two top-level helpers `auto_threshold_core.py` and `well_token.py` are
+*deliberately at repo root* (not under `well_viewer/`): the pipeline contract
+forbids `well_viewer` / `widgets` / Qt imports, so anything both the pipeline
+and the GUI need to agree on has to live in a Qt-free module the pipeline can
+import. See §6.2 for the contract.
 
 A few rules of thumb so you know where to put something new:
 
@@ -321,12 +330,14 @@ The current list (with a one-line role each):
 | `smfish_controller.py` + `smfish_worker.py` | smFISH spot detection + the background worker. |
 | `review_image_controller.py` + `review_image_renderer.py` | Segmentation tab review-image + Review-CSV jump-to-image. |
 | `preview_controller.py` | Image-preview helpers (zip member classification, byte reading). |
-| `plot_orchestrator.py` | The single redraw entry point — fans out to the active leaf tab's controller and re-applies the Export Style prefs to the figure. |
+| `plot_orchestrator.py` | Default-scope fan-out (line + distribution + heat map). Per-tab scopes (bar / scatter / scatter-agg) have their own entry points that consume scope-specific state. PR #249 unified the dist/heatmap dispatch here so a new default-scope tab is wired in one place. |
 | `plot_style.py` | `apply_ax_style` — token-aware axes styling for matplotlib. |
 | `figure_export_editor.py` | The floating Export Style sidebar's prefs + apply pipeline + `launch_export_editor`. |
 | `grouping_controller.py` | Sample-Definitions group editor logic. |
-| `auto_threshold.py` | Otsu-based per-channel default threshold estimator. |
+| `auto_threshold.py` | Otsu-based per-channel default threshold estimator. Delegates the shared helpers (`parse_tp_hours`, `pick_endpoint_timepoints`, `sample_cell_and_bg`) to the top-level `auto_threshold_core.py` so the pipeline and the GUI agree exactly. |
 | `fold_change.py` | Fold-change normalization helpers (vs control well/rep-set, vs each member's first timepoint). Consumed by the line / bar plot controllers, their renderers, the batch-export panels, and `export_service.py`. |
+| `channel_state_controller.py` | Channel-state machinery extracted from the runtime god-object (PR #249): `recalculate_threshold`, `set_active_channel`, `update_channel_selector`, `refresh_metric_combo_for_channel`. Owns the per-channel `(min, max)` cache on `app._threshold_range_cache` that turns repeat channel toggles from an O(total cells) scan into an O(1) lookup. |
+| `zipfile_cache.py` | Process-wide LRU of open `ZipFile` handles, lock-guarded per handle so `read_member_bytes` / `scan_zip_members` share one open file across the thousands of per-member reads the Image Table / heatmap / smFISH-worker paths issue. Invalidated on dataset swap. |
 
 ### 5.6 The data layer
 
@@ -374,6 +385,18 @@ Every "save state into the dataset folder" path lives under
 
 Persistence modules expose `load_from_data_dir(app)` / `save_to_data_dir(app)`
 function pairs. `WellViewerApp` delegates to them via thin shims.
+
+**Atomic writes.** Every save goes through
+`well_viewer/persistence/_io.atomic_write_json` (or `atomic_write_text` for
+the smFISH worker's per-well CSV writer): tmp file + fsync + `os.replace`.
+A crash, signal, or full-disk mid-write can no longer leave a truncated
+sidecar that the next viewer load reads as empty state and silently
+clobbers. Two persistence paths share a debounce flag
+(`_<name>_save_pending` on the app) so signal storms (ratio-panel field
+edits, heatmap layout drag-and-drop) coalesce into one disk write per
+500 ms burst. `cell_overrides.json` v2 stamps each row with the well's
+`<well>_out.zip` mtime so a pipeline re-run drops the now-stale overrides
+on load instead of re-binding them to unrelated cells.
 
 ### 5.8 The Export Style sidebar
 
@@ -513,30 +536,63 @@ that opens a small demo window so you can iterate visually with
 
 ## 8. Theming
 
-There are two theme surfaces:
+The app has two complementary theme surfaces. The previous version of this
+doc claimed `ui/theme/` was "dormant scaffolding"; that was wrong — both
+systems are load-bearing, and they cover different concerns:
 
-1. **`theme.py`** (repo root) — Python-side design tokens. `Colors`,
-   `Typography`, `Spacing`, `Radii`, plus a `qss()` builder that produces
-   the full application stylesheet by string-templating the tokens into
-   `theme.qss`'s inline template. Widget code reads from `theme.Colors.xxx`,
-   never hardcoded.
-2. **`ui/theme/`** — the *other* theme system, kept for the per-theme QSS
-   files (`dark.qss` / `light.qss` / `amber.qss` / `beige.qss`) and a small
-   `ThemeManager` that swaps them at runtime. The matplotlib-side
-   "publication" preview palette also lives here (`theme.CPub`).
+1. **`theme.py`** (repo root) — Python-side design tokens for the v2
+   redesign. `Colors`, `Typography`, `Spacing`, `Radii`, plus a `qss()`
+   builder that produces the full application stylesheet by
+   string-templating the tokens into `theme.qss`'s inline template. The
+   `widgets/` package and most of the app shell read from
+   `theme.Colors.*`; the v2 dark palette is hardcoded here.
+2. **`ui/theme/`** — a separate palette + QSS-template system used by
+   matplotlib-side plot styling, the Analyze tab, a handful of
+   batch-export panels, and the per-theme `.qss` files for an
+   in-progress theme switcher (`dark.qss` / `light.qss` / `amber.qss` /
+   `beige.qss`). Plot tokens live here (`PLOT_BG`, `TXT_PRI`, `TXT_MUT`,
+   `FM_UI`, `WELL_COLOR_1..48`); call `get_color("ACCENT")` for the
+   active theme's value. The well palette is sourced from
+   `theme.WELL_COLORS_TUPLE` so both systems hand out identical
+   per-well colours.
 
-In practice the app ships one dark theme (the v2 design) and the
-`ui/theme/*.qss` files are dormant scaffolding for a future theme switcher.
+**Why two:** the v2 design (theme.py) was added on top of an existing
+palette system (ui/theme). The two stabilised side-by-side rather than
+being merged — overlapping conceptual tokens (panel / text-primary /
+accent) have *different* hex values in each system, picked
+independently for each palette's aesthetic. They are not currently
+reconciled.
 
 When you add a colour or size:
 
-- Add it to `theme.Colors` / `theme.Spacing` / etc.
-- Reference it from QSS via `${TOKEN_NAME}` in the relevant `.qss` template.
+- For widgets in `widgets/`, the app shell, or the v2-styled chrome:
+  add to `theme.Colors` / `theme.Spacing` / etc.
+- For plot styling, the Analyze tab, or anything reading via
+  `get_color()`: add to `ui/theme/styles._DARK_THEME` (and the other
+  palettes when relevant) and reference it from QSS via
+  `${TOKEN_NAME}` in the `.qss` template.
 - **Do not** hardcode hex / px values inline.
 
-The publication-export plot surface is in `theme.CPub` and feeds matplotlib
-`rcParams` (`figure.facecolor`, `axes.facecolor`, etc.) when a `PlotCard`
-flips into Publication mode.
+The publication-export plot surface uses `theme.CPub` and feeds the
+target figure's axes (`figure.facecolor`, `axes.facecolor`, etc.) when
+a `PlotCard` flips into Publication mode. (PR #249 changed this from a
+global `matplotlib.rcParams.update` to per-figure styling so toggling
+one PlotCard no longer changes the rcParams seen by later figures.)
+
+**Widgets with per-instance QSS.** Many widgets in `widgets/` set their
+own stylesheet at construction (`self.setStyleSheet(self._build_qss())`
+or `self.setStyleSheet(self._qss())`) — that's load-bearing for
+per-widget object-name scoping, but it freezes the colour tokens at
+construction time. Today the global QSS is static and this is fine; if
+a runtime theme switcher ever ships (the `ui/theme/theme_manager.py`
+scaffold is there for exactly that), widgets need to rebuild their
+inline QSS when Qt fires `QEvent.StyleChange`.
+
+`widgets/_support.install_qss_refresh(widget, qss_factory)` is the
+opt-in helper: it installs a single event filter that catches
+`StyleChange` and calls `widget.setStyleSheet(qss_factory())`. Idempotent.
+PlotCard uses it as the canonical example; other widgets should adopt it
+when their inline QSS depends on `theme.Colors` values.
 
 ---
 

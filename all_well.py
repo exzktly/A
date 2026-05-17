@@ -52,10 +52,14 @@ class AllWellApp(QMainWindow):
         self._cell_threshold = 0.0
 
         self._build_ui()
-        self._install_app_icon()
         self._install_shortcuts()
         self._apply_stylesheet()
         self._restore_window_state()
+        # Defer the icon render — it builds 8 QPainter pixmaps and that
+        # work was blocking first paint. Queue it after the event loop
+        # picks up; the window briefly shows the default Qt icon, which
+        # is fine.
+        QTimer.singleShot(0, self._install_app_icon)
 
         if data_path is not None and self._review is not None:
             QTimer.singleShot(150, lambda: self._review._load_path(data_path))

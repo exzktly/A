@@ -78,7 +78,9 @@ class _RailNavRow(QFrame):
         self._strip.setObjectName("RailNavRowStrip")
         self._strip.setAttribute(Qt.WA_StyledBackground, True)
         self._strip.setProperty("active", False)
-        self._strip.setFixedWidth(2)
+        # ~13% of body height (2px at 1×, scales on hi-dpi); architecture §7
+        # mandates fontMetrics-derived sizes.
+        self._strip.setFixedWidth(max(2, round(self.fontMetrics().height() * 0.13)))
         outer.addWidget(self._strip, 0)
 
         body = QFrame(self)
@@ -88,12 +90,15 @@ class _RailNavRow(QFrame):
         body.setProperty("active", False)
         self._body = body
         bl = QHBoxLayout(body)
-        bl.setContentsMargins(9, 7, 9, 7)
+        _pad_x, _pad_y = theme.Spacing.md, theme.Spacing.sm
+        bl.setContentsMargins(_pad_x, _pad_y, _pad_x, _pad_y)
         bl.setSpacing(theme.Spacing.sm)
 
         self._glyph = QLabel(body)
         self._glyph.setObjectName("RailNavRowGlyph")
-        self._glyph.setFixedSize(15, 15)
+        # ~14× viewer text height — was 15px hardcoded; scales with font.
+        _gs = max(12, round(self.fontMetrics().height() * 1.0))
+        self._glyph.setFixedSize(_gs, _gs)
         self._glyph.setVisible(bool(icon))
 
         self._label = QLabel(label, body)

@@ -29,11 +29,32 @@ def redraw(
     all_fluor_values_filtered,
     warn,
 ) -> None:
+    """Single fan-out for the "default scope" plot tabs.
+
+    Drives line graphs, distribution, and heat map — every plot that
+    re-renders in response to a channel / metric / threshold change.
+    Bar / scatter / scatter-aggregate live outside this fan-out and are
+    invoked from their own per-tab redraw shims (``_redraw_bars``,
+    ``scatter_redraw_active``, ``_redraw_scatter_agg``) because they
+    consume scope-specific state (the bar timepoint slider, the
+    scatter-axis property combos, etc.) and route through the
+    fold-change scope registry on selection changes.
+
+    Audit M6 was the split-brain: distribution + heatmap dispatch used
+    to live in `runtime_app._redraw` *after* the orchestrator call, so
+    a new tab added to either path could be missed. Both are now here.
+    The runtime_app shim becomes a thin wrapper.
+    """
+    import logging
+    _logger = logging.getLogger("well_viewer")
+
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
     metric_label = METRIC_KEY_TO_LABEL.get(
         getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity"
     )
 
+    # 1. Line plot — always present (eager-built); the entry point that
+    # established the orchestrator's name.
     lineplot_redraw(
         app,
         apply_ax_style=apply_ax_style,
@@ -43,10 +64,21 @@ def redraw(
         metric_label=metric_label,
     )
 
-    if hasattr(app, "_notebook"):
-        tab = app._notebook.currentName()
-        if tab == "Movie Montage" and app._preview_selected_well:
-            app._update_preview(app._preview_selected_well)
+    # 2. Distribution — lazy-built, so guard on the canvas attribute.
+    if hasattr(app, "_distribution_canvas"):
+        try:
+            from well_viewer.distribution_controller import redraw_distribution
+            redraw_distribution(app)
+        except Exception:
+            _logger.exception("Distribution redraw failed")
+
+    # 3. Heat Map — lazy-built; same guard.
+    if hasattr(app, "_heatmap_canvas"):
+        try:
+            from well_viewer.heatmap_controller import redraw_heatmap
+            redraw_heatmap(app)
+        except Exception:
+            _logger.exception("Heat map redraw failed")
 
 
 def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:

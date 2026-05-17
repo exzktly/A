@@ -12,6 +12,10 @@ import math
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import QTimer
+
+from well_viewer.persistence._io import atomic_write_json
+
 _logger = logging.getLogger("well_viewer")
 
 
@@ -47,10 +51,26 @@ def save_to_data_dir(app) -> None:
         "settings": _collect_settings(app),
     }
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+        atomic_write_json(path, payload)
     except OSError as exc:
         _logger.warning("Failed to save heatmap layouts to %s: %s", path, exc)
+
+
+def schedule_save(app) -> None:
+    """Debounced autosave — heatmap layout drag-and-drop fires save per
+    drop event; without debouncing, dragging wells around the layout
+    table writes the JSON dozens of times per second on a fast user."""
+    if getattr(app, "_heatmap_layouts_save_pending", False):
+        return
+    if path_for(app) is None:
+        return
+    app._heatmap_layouts_save_pending = True
+    QTimer.singleShot(500, lambda: _flush(app))
+
+
+def _flush(app) -> None:
+    app._heatmap_layouts_save_pending = False
+    save_to_data_dir(app)
 
 
 def load_from_data_dir(app) -> None:

@@ -129,7 +129,10 @@ class CollapsibleRail(QFrame):
             return self._handle
         h = QPushButton(self._host)
         h.setObjectName("RailEdgeHandle")
-        h.setFixedSize(QSize(14, 64))
+        # ~1 char wide × 4 lines tall — was (14, 64) hardcoded.
+        _fm = self.fontMetrics()
+        h.setFixedSize(QSize(max(10, _fm.averageCharWidth() * 2),
+                             max(40, _fm.height() * 4)))
         h.setCursor(QCursor(Qt.PointingHandCursor))
         h.setFocusPolicy(Qt.NoFocus)
         h.setToolTip("Show / hide the Properties rail")

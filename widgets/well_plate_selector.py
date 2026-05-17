@@ -704,7 +704,7 @@ class _PlateGrid(QWidget):
             -wr.width() * 0.16, -wr.height() * 0.46,
         )
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(with_alpha("#FFFFFF", 0.30), max(1.0, wr.width() * 0.06)))
+        p.setPen(QPen(with_alpha(theme.Colors.ink_light, 0.30), max(1.0, wr.width() * 0.06)))
         p.drawArc(hl, 20 * 16, 140 * 16)
 
     @staticmethod
@@ -774,14 +774,14 @@ class _PlateGrid(QWidget):
             -wr.width() * 0.06, -wr.height() * 0.06,
         )
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(with_alpha("#000000", 0.55),
+        p.setPen(QPen(with_alpha(theme.Colors.ink_dark, 0.55),
                       max(1.0, wr.width() * 0.10)))
         # Qt arc angles are sixteenths of a degree, 0° at +x, CCW positive;
         # 30°→150° draws the upper half of the ellipse (the rim's shaded
         # underside).
         p.drawArc(inner, 30 * 16, 120 * 16)
         # Faint bright arc on the bottom to mirror the lit floor.
-        p.setPen(QPen(with_alpha("#FFFFFF", 0.10),
+        p.setPen(QPen(with_alpha(theme.Colors.ink_light, 0.10),
                       max(1.0, wr.width() * 0.06)))
         p.drawArc(inner, 210 * 16, 120 * 16)
 

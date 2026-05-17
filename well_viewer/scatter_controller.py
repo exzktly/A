@@ -5,8 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
+import matplotlib
 import numpy as np
 import pandas as pd
 
@@ -184,6 +183,15 @@ def redraw_scatter(
         fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
         fluor_gate_y: FluorGating threshold for Y channel; cells below are excluded
     """
+    # Lazy-build guard. The Scatter tab is built on demand; if a redraw
+    # is fanned out before the tab body exists, no-op rather than
+    # AttributeError-ing.
+    if not all(
+        hasattr(app, attr)
+        for attr in ("_ax_scatter", "_scatter_fig", "_scatter_canvas")
+    ):
+        return
+
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
 
@@ -285,6 +293,14 @@ def redraw_scatter(
         "col_x": col_x,
         "col_y": col_y,
     }
+    # Re-apply Export Style sidebar prefs so axis limits / log scale /
+    # font sizes survive a redraw — matches bar/heatmap/distribution.
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, app._scatter_fig,
+                                      getattr(app, "_scatter_canvas", None))
+    except Exception:  # pragma: no cover
+        pass
     app._scatter_canvas.draw()
 
 
@@ -392,7 +408,7 @@ def collect_scatter_agg_data(
 
     # Create color gradient for timepoints using a colormap
     if timepoints_h:
-        cmap = cm.get_cmap('viridis')
+        cmap = matplotlib.colormaps['viridis']
         normalized_tps = np.linspace(0, 1, len(timepoints_h))
         tp_to_color = {tp: cmap(norm_val) for tp, norm_val in zip(sorted(timepoints_h), normalized_tps)}
     else:
@@ -426,37 +442,27 @@ def collect_scatter_agg_data(
         val_col_y = f"{ch_y}_{intensity_y}"
 
     def _agg_wells(wells, tp, val_col, threshold, metric):
-        """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""
+        """Mean ± SD/SEM across well-level values for the scatter-aggregate plot.
+
+        Delegates to ``WellViewerApp._well_aggregate_stats`` so this
+        path agrees numerically with the line/bar plots'
+        ``_compute_rep_stats`` and the Stats tab's pairwise tests.
+        Returns ``(value, err)`` picking ``frac`` when ``metric ==
+        "frac"`` and ``mean`` otherwise.
+        """
         if not val_col:
             return float("nan"), 0.0
-        well_means: List[float] = []
-        well_fracs: List[float] = []
-        for well_label in wells:
-            if well_label not in app._well_paths:
-                continue
-            pts = app._aggregate_well(
-                well_label, threshold=threshold, use_sem=False,
-                val_col=val_col,
-                cell_area_threshold=cell_area_threshold,
-                fluor_gates=fluor_gates,
-            )
-            matched = [(m, f) for t, m, _s, f, *_ in pts if abs(t - tp) < 1e-6]
-            if matched:
-                m, f = matched[0]
-                if not math.isnan(m):
-                    well_means.append(m)
-                if not math.isnan(f):
-                    well_fracs.append(f)
-
-        vals = well_fracs if metric == "frac" else well_means
-        if not vals:
-            return float("nan"), 0.0
-        arr = np.asarray(vals, dtype=float)
-        mean_v = float(arr.mean())
-        n = arr.size
-        sd = float(arr.std(ddof=0)) if n > 1 else 0.0
-        err = sd / math.sqrt(n) if (use_sem and n > 1) else sd
-        return mean_v, err
+        gm, gerr, gf, ferr = app._well_aggregate_stats(
+            wells, tp,
+            threshold=threshold,
+            val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            use_sem=use_sem,
+        )
+        if metric == "frac":
+            return gf, ferr
+        return gm, gerr
 
     for label_idx, (label, wells) in enumerate(labels_to_process):
         marker = markers[label_idx % len(markers)]
@@ -501,6 +507,14 @@ def redraw_scatter_agg(
         timepoints_h: List of timepoints in hours
         well_colors: List of colors for replicates/wells
     """
+    # Lazy-build guard — Scatter Aggregate is a sub-tab of the Scatter
+    # tab, built on first activation.
+    if not all(
+        hasattr(app, attr)
+        for attr in ("_ax_scatter_agg", "_scatter_agg_fig", "_scatter_agg_canvas")
+    ):
+        return
+
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
 
@@ -583,4 +597,10 @@ def redraw_scatter_agg(
         app._ax_scatter_agg.legend(loc='best', fontsize=8, framealpha=0.0, facecolor="none")
 
     # Redraw canvas
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, app._scatter_agg_fig,
+                                      getattr(app, "_scatter_agg_canvas", None))
+    except Exception:  # pragma: no cover
+        pass
     app._scatter_agg_canvas.draw()

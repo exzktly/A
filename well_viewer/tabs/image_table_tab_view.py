@@ -290,9 +290,9 @@ def build_image_table_tab(app, parent: QWidget) -> None:
     tr.addWidget(btn_secondary(
         tools_row, "Copy PNG", app._image_table_copy_png, icon="copy",
     ))
-    tr.addWidget(btn_secondary(
-        tools_row, "Copy SVG", app._image_table_copy_svg, icon="copy",
-    ))
+    _b = btn_secondary(tools_row, "", app._image_table_copy_svg, icon="copy")
+    _b.setToolTip("Copy SVG")
+    tr.addWidget(_b)
     tr.addWidget(btn_secondary(
         tools_row, "Export", app._image_table_export, icon="download",
     ))

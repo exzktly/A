@@ -96,10 +96,11 @@ _STARDIST_MODEL: "StarDist2D | None" = None
 #   2. A crash mid-write leaves a partial file on disk; the next run picks
 #      it up and fails with cryptic decode errors.
 #
-# ``_safe_imwrite`` writes to ``<path>.pid<N>.tmp``, fsyncs the bytes, and
-# then renames atomically. Any caller that subsequently sees ``path`` reads
-# either a complete file or no file at all. Likewise ``_safe_atomic_write``
-# wraps the per-well CSV write with the same guarantee.
+# ``_safe_imwrite`` writes to ``__aw_tmp_<stem>.pid<N><ext>``, fsyncs the
+# bytes, and then renames atomically. Any caller that subsequently sees
+# ``path`` reads either a complete file or no file at all. Likewise
+# ``_safe_atomic_write`` wraps the per-well CSV write with the same
+# guarantee.
 # ---------------------------------------------------------------------------
 
 
@@ -129,14 +130,18 @@ def _safe_imwrite(out_path: "Path | str", data: "np.ndarray") -> None:
     failure so the well's output directory never carries partial bytes
     that a later zip-up step would pack into a corrupt archive.
 
-    The tmp file is named ``.<stem>.pid<N>.tmp<ext>`` (leading dot, so it
-    sorts away from the real outputs and so directory listers used by the
-    zip-up step skip it; trailing original extension preserved so the
-    codec auto-detects the format from the path).
+    The tmp file is named ``__aw_tmp_<stem>.pid<N><ext>`` — a unique
+    prefix the zip-up step's listers explicitly exclude. The trailing
+    original extension is preserved so the codec auto-detects the
+    format from the path.
     """
     out_path = Path(out_path)
+    # `__aw_tmp_` prefix is unique enough that the scratch-file
+    # exclusion can match on it without false positives from user
+    # filenames (a TIF named `exp.pidgin.A01.tif` previously matched
+    # the `.pid` substring check below).
     tmp = out_path.with_name(
-        f".{out_path.stem}.pid{os.getpid()}.tmp{out_path.suffix}"
+        f"__aw_tmp_{out_path.stem}.pid{os.getpid()}{out_path.suffix}"
     )
     suffix = out_path.suffix.lower()
     try:
@@ -168,7 +173,7 @@ def _safe_atomic_text_write(out_path: "Path | str") -> "_AtomicTextHandle":
 class _AtomicTextHandle:
     def __init__(self, out_path: Path) -> None:
         self._out_path = out_path
-        self._tmp = out_path.with_name(out_path.name + f".pid{os.getpid()}.tmp")
+        self._tmp = out_path.with_name(f"__aw_tmp_{out_path.name}.pid{os.getpid()}")
         self._fh: "io.TextIOBase | None" = None
 
     def __enter__(self):
@@ -483,14 +488,14 @@ def find_well_folders(input_dir: Path) -> list[tuple[str, Path]]:
 
 
 def _canonical_well_label(token: str) -> str | None:
-    """Return canonical 96-well label (e.g. B03) for *token*, or None if invalid."""
-    m = _WELL_RE.match((token or "").strip())
-    if not m:
-        return None
-    col = int(m.group(2))
-    if not (1 <= col <= 12):
-        return None
-    return f"{m.group(1).upper()}{col:02d}"
+    """Return canonical 96-well label (e.g. B03) for *token*, or None if invalid.
+
+    Thin wrapper over :func:`well_token.canonical_well_label` so the
+    pipeline and the GUI tools (WellPlateZipper, analyze_tab,
+    services/input_resolution_service) all share one parser.
+    """
+    from well_token import canonical_well_label as _cwl
+    return _cwl(token)
 
 
 def organize_loose_tifs_into_well_folders(
@@ -636,7 +641,11 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
         and p.suffix.lower() in include_exts
         and p.suffix.lower() not in exclude_exts
         and not p.name.endswith(".tmp")
-        and ".pid" not in p.name  # stale _safe_imwrite scratch files
+        # Stale _safe_imwrite / _AtomicTextHandle scratch files. The
+        # `__aw_tmp_` prefix is unique enough that user filenames
+        # don't false-positive (the old `.pid` substring would drop
+        # e.g. `exp.pidgin.A01.tif`).
+        and not p.name.startswith("__aw_tmp_")
     )
     image_files = _verify_files_complete(candidate_files)
 
@@ -648,7 +657,7 @@ def compress_images_to_zip(image_dir: Path, out_zip: Path) -> int:
     # Build the zip via the same atomic-rename pattern the imwrite helper
     # uses: stage at <out_zip>.tmp, fsync, replace. Any caller that sees
     # *out_zip* gets either the complete archive or the previous one.
-    tmp_zip = out_zip.with_name(out_zip.name + f".pid{os.getpid()}.tmp")
+    tmp_zip = out_zip.with_name(f"__aw_tmp_{out_zip.name}.pid{os.getpid()}")
     try:
         with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for img_path in image_files:
@@ -920,7 +929,15 @@ def parse_filename(
         token = parts[i] if i < len(parts) else ""
         if field == "timepoint":
             result["timepoint"]       = token
-            result["timepoint_hours"] = _parse_timepoint_hours(token)
+            # Empty timepoint slot — common when the schema includes
+            # "timepoint" but the dataset is single-timepoint and the
+            # filenames don't carry a timepoint token. NaN would
+            # propagate into the CSV's timepoint_hours column and
+            # break every downstream comparison. Treat as t=0.
+            result["timepoint_hours"] = (
+                0.0 if not token.strip()
+                else _parse_timepoint_hours(token)
+            )
         else:
             result[field] = token
 
@@ -1049,76 +1066,17 @@ def _segment_stardist_seeded_watershed_cell(
 # merged into ``pipeline_info.json``'s ``cell_gating.thresh_frac_on`` block
 # (preserving any user-set values).
 #
-# Mirrors the original ``well_viewer.auto_threshold`` implementation but uses
-# only modules ``process_microscopy.py`` already imports (numpy / skimage /
-# tifffile / zipfile / pathlib / json / random), so the pipeline can produce
-# auto-thresholds even on a host where ``well_viewer`` is not installed.
+# The per-image sampler and timepoint helpers live in
+# ``auto_threshold_core`` so the GUI's Cell Gating tab and this pipeline
+# run produce identical defaults on the same dataset. ``auto_threshold_core``
+# depends only on ``numpy`` + ``random`` so the pipeline-only deployment
+# story is preserved.
 
-_AUTO_THRESHOLD_CELLS_PER_IMAGE_CAP = 800
-
-
-def _sample_cell_and_bg(
-    labels: np.ndarray,
-    fluor: np.ndarray,
-    *,
-    cap: int,
-    rng,
-) -> "tuple[list[float], list[float]]":
-    """Return ``(cell_means, bg_pixels)`` sampled from one (labels, fluor) pair.
-
-    For every distinct cell label in ``labels`` (excluding background ``0``),
-    one mean intensity is added to ``cell_means`` plus one random outside-cell
-    pixel value to ``bg_pixels``. Both lists are capped to ``cap`` entries.
-    """
-    if labels.shape != fluor.shape:
-        return [], []
-    flat_labels = labels.ravel().astype(np.int64, copy=False)
-    flat_fluor = fluor.ravel().astype(np.float64, copy=False)
-    nonzero = flat_labels > 0
-    if not nonzero.any():
-        return [], []
-    bg_indices = np.flatnonzero(~nonzero)
-    if bg_indices.size == 0:
-        return [], []
-    n_labels = int(flat_labels.max()) + 1
-    sums = np.bincount(flat_labels, weights=flat_fluor, minlength=n_labels)
-    counts = np.bincount(flat_labels, minlength=n_labels)
-    valid = np.arange(1, n_labels)
-    valid_counts = counts[1:]
-    keep = valid_counts > 0
-    valid = valid[keep]
-    if valid.size == 0:
-        return [], []
-    means = (sums[valid] / counts[valid]).astype(np.float64)
-    if means.size > cap:
-        idx = np.array(rng.sample(range(means.size), cap), dtype=np.int64)
-        means = means[idx]
-    n = int(means.size)
-    bg_pick = rng.choices(bg_indices.tolist(), k=n)
-    bg_values = flat_fluor[np.asarray(bg_pick, dtype=np.int64)]
-    return means.tolist(), bg_values.tolist()
-
-
-def _pick_endpoint_timepoints(tps) -> "list[str]":
-    """First / middle / last from *tps* (deduplicated, parsed-as-float-if-possible)."""
-    def _key(t: str):
-        s = str(t or "").strip()
-        try:
-            return (0, float(s))
-        except ValueError:
-            return (1, s)
-
-    sorted_tps = sorted({str(t).strip() for t in tps if str(t).strip()}, key=_key)
-    if not sorted_tps:
-        return []
-    if len(sorted_tps) <= 2:
-        return list(sorted_tps)
-    mid = sorted_tps[len(sorted_tps) // 2]
-    picked: list[str] = []
-    for tp in (sorted_tps[0], mid, sorted_tps[-1]):
-        if tp not in picked:
-            picked.append(tp)
-    return picked
+from auto_threshold_core import (
+    DEFAULT_CELLS_PER_IMAGE_CAP as _AUTO_THRESHOLD_CELLS_PER_IMAGE_CAP,
+    pick_endpoint_timepoints as _pick_endpoint_timepoints,
+    sample_cell_and_bg as _sample_cell_and_bg,
+)
 
 
 def _estimate_thresholds_standalone(
@@ -1184,14 +1142,31 @@ def _estimate_thresholds_standalone(
                     stem = base[: -len("_labels")]
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
-                    tp = (fields.get("tp") or fields.get("timepoint") or "").strip()
+                    # Accept either canonical "timepoint" or the legacy
+                    # "tp" alias. ``args.filename_schema`` is passed in
+                    # *raw* (not via parse_schema), so a user who typed
+                    # "experiment:channel:well:fov:tp" lands here with
+                    # schema_fields == [..., "tp"]; dropping the
+                    # fallback (PR #247 C2 fix) silently produced zero
+                    # samples for every channel on those datasets.
+                    tp = (fields.get("timepoint") or fields.get("tp") or "").strip()
+                    # Single-timepoint datasets: when the filename has
+                    # fewer tokens than the schema has fields, the
+                    # timepoint slot parses as "" and `if fov and tp`
+                    # below would drop every label silently. Use a
+                    # synthetic "0" sentinel so the auto-threshold
+                    # still aggregates per-fov samples.
+                    if fov and not tp:
+                        tp = "0"
                     if fov and tp:
                         label_members[(fov, tp)] = name
                 elif base.endswith("_tophat"):
                     stem = base[: -len("_tophat")]
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
-                    tp = (fields.get("tp") or fields.get("timepoint") or "").strip()
+                    tp = (fields.get("timepoint") or fields.get("tp") or "").strip()
+                    if fov and not tp:
+                        tp = "0"
                     ch = (fields.get("channel") or "").strip().lower()
                     if fov and tp and ch in per_channel:
                         tophat_members[(ch, fov, tp)] = name
@@ -2860,7 +2835,33 @@ def write_pipeline_info(
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     p = output_dir / PIPELINE_INFO_FILENAME
-    p.write_text(json.dumps(info, indent=2))
+    # Preserve user-side blocks that the GUI writes back into this file
+    # (cell_gating thresholds, saved selections, ratios, notes). Re-running
+    # the pipeline against the same output dir must not clobber them.
+    if p.exists():
+        try:
+            existing = json.loads(p.read_text())
+            if isinstance(existing, dict):
+                for preserved_key in (
+                    "cell_gating",
+                    "sample_definitions",
+                    "ratios",
+                    "notes",
+                ):
+                    if preserved_key in existing and preserved_key not in info:
+                        info[preserved_key] = existing[preserved_key]
+        except (OSError, json.JSONDecodeError):
+            pass
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(info, indent=2))
+        os.replace(tmp, p)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
     return p
 
 
@@ -3091,7 +3092,10 @@ def main() -> None:
     if args.tf_threads > 0:
         tf_threads = min(args.tf_threads, available)
     else:
-        tf_threads = 4   # sweet spot for StarDist on modern x86
+        # Default sweet spot for StarDist is 4 threads, but clamp to the
+        # available core budget so a 2-core host doesn't spawn 4 TF
+        # threads on 1 reserved core (worse than going single-threaded).
+        tf_threads = min(4, available)
     workers            = max(1, available // tf_threads)
     threads_per_worker = tf_threads
 

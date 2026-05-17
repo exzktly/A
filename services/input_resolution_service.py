@@ -24,11 +24,25 @@ def tif_files_in(folder: Path) -> list[Path]:
     return files
 
 
+def _is_well_named(p: Path) -> bool:
+    """Match `A1` / `A01` … `H12` against the well-token canonicaliser."""
+    from well_token import is_valid_well_name
+    return is_valid_well_name(p.stem)
+
+
 def _has_well_content(folder: Path) -> bool:
-    """Return True if *folder* contains zip files OR well-named subdirectories."""
-    if any(folder.glob("*.zip")):
-        return True
+    """Return True iff *folder* contains *well-named* zip files OR
+    well-named subdirectories.
+
+    A stray ``archive.zip`` used to be enough to short-circuit the zipper
+    even though the pipeline would then warn on every non-well zip — the
+    user saw a flood of skipped-file warnings and concluded the pipeline
+    was broken. Match the well-token regex on the basename to avoid that.
+    """
     try:
+        for p in folder.glob("*.zip"):
+            if _is_well_named(p):
+                return True
         return any(_WELL_NAME_RE.match(p.name) for p in folder.iterdir() if p.is_dir())
     except OSError:
         return False
@@ -42,6 +56,7 @@ def run_zipper(
     progress_fn: Callable[[str], None] | None = None,
     filename_schema: str,
     filename_sep: str,
+    proc_hook: Callable[[subprocess.Popen | None], None] | None = None,
 ) -> None:
     zipper = find_zipper_script()
     if zipper is None:
@@ -64,25 +79,47 @@ def run_zipper(
         log_fn(f"[zipper] $ {' '.join(cmd)}\n")
 
     well_pat = re.compile(r"^([A-H]\d{2}):\s+\d+\s+files", re.IGNORECASE)
-    proc = subprocess.Popen(
-        cmd,
+    popen_kwargs: dict = dict(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.rstrip("\n")
-        if log_fn:
-            log_fn(f"[zipper] {line}\n")
-        m = well_pat.match(line.strip())
-        if m and progress_fn:
-            progress_fn(m.group(1).upper())
-    proc.wait()
-    if proc.returncode != 0:
-        raise RuntimeError(f"WellPlateZipper exited with code {proc.returncode}.")
+    # Put the zipper in its own session / process group so the runner's
+    # Stop button can signal it the same way it signals the pipeline.
+    # Without this, the zipper inherited the GUI's session and Stop
+    # could never reach it.
+    if os.name == "posix":
+        popen_kwargs["start_new_session"] = True
+    else:
+        popen_kwargs["creationflags"] = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        )
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    if proc_hook is not None:
+        try:
+            proc_hook(proc)
+        except Exception:
+            pass
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if log_fn:
+                log_fn(f"[zipper] {line}\n")
+            m = well_pat.match(line.strip())
+            if m and progress_fn:
+                progress_fn(m.group(1).upper())
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"WellPlateZipper exited with code {proc.returncode}.")
+    finally:
+        if proc_hook is not None:
+            try:
+                proc_hook(None)
+            except Exception:
+                pass
 
 
 def resolve_input_output(
@@ -92,6 +129,7 @@ def resolve_input_output(
     progress_fn: Callable[[str], None] | None = None,
     filename_schema: str,
     filename_sep: str,
+    proc_hook: Callable[[subprocess.Popen | None], None] | None = None,
 ) -> tuple[Path, Path]:
     if not raw.is_dir():
         raise ValueError(f"Not a directory:\n{raw}")
@@ -116,6 +154,7 @@ def resolve_input_output(
             progress_fn=progress_fn,
             filename_schema=filename_schema,
             filename_sep=filename_sep,
+            proc_hook=proc_hook,
         )
         if not in_sub.is_dir() or not _has_well_content(in_sub):
             raise ValueError(

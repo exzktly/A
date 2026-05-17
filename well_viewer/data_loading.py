@@ -7,6 +7,7 @@ one and the per-well cache stores it.
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from pathlib import Path
@@ -17,8 +18,12 @@ import pandas as pd
 
 from .ratio_models import RatioMetric, is_ratio_key
 
-if TYPE_CHECKING:
-    pass
+
+_logger = logging.getLogger("well_viewer")
+
+# One-shot dedupe for the "missing fluor column" warning so a 96-well
+# dataset with a schema mismatch logs once per channel, not 96 times.
+_missing_col_warned: set[str] = set()
 
 
 # ── Timepoint parser ─────────────────────────────────────────────────────────
@@ -213,7 +218,16 @@ def resolve_value_series(
             return pd.Series(np.nan, index=df.index)
         num = pd.to_numeric(df[ncol], errors="coerce").to_numpy()
         den = pd.to_numeric(df[dcol], errors="coerce").to_numpy()
-        denom = den + ratio.epsilon
+        # Clamp the denominator to ``epsilon`` (rather than adding
+        # epsilon). Background-subtracted channels can go slightly
+        # negative; ``den + epsilon`` was sign-flipping near zero and
+        # producing arbitrarily large ratios for individual cells. The
+        # clamp keeps the divisor strictly positive when epsilon > 0
+        # and preserves the old NaN-on-zero behaviour when epsilon == 0.
+        if ratio.epsilon > 0.0:
+            denom = np.maximum(den, ratio.epsilon)
+        else:
+            denom = den
         finite = np.isfinite(num) & np.isfinite(den)
         nz = denom != 0.0
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -301,13 +315,27 @@ def aggregate_with_threshold_df(
     if "area_px" in df.columns:
         area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
         with np.errstate(invalid="ignore"):
-            mask &= ~(area <= cell_area_threshold)
+            # Match _all_fluor_values_filtered: drop NaN areas explicitly
+            # rather than letting `~(NaN <= x)` keep them. Without this,
+            # aggregation kept NaN-area cells but raw filtering dropped
+            # them — same dataset, different counts.
+            mask &= np.isfinite(area) & (area > cell_area_threshold)
     elif 0.0 <= cell_area_threshold:
         return []
 
     for channel, gate in fluor_gates.items():
         col = f"{channel}_mean_intensity"
         if col not in df.columns:
+            if col not in _missing_col_warned:
+                _missing_col_warned.add(col)
+                _logger.warning(
+                    "Cell-gating channel %r references column %r which is "
+                    "absent from the loaded CSVs — aggregation is returning "
+                    "no rows for this channel. Check the gating thresholds "
+                    "in Sample Definitions / Cell Gating against the "
+                    "current dataset's schema.",
+                    channel, col,
+                )
             return []
         v = pd.to_numeric(df[col], errors="coerce").to_numpy()
         mask &= np.isfinite(v) & (v > gate)
@@ -403,21 +431,27 @@ def _aggregate_arrays(
             fov_above_count = fov_above_count.reindex(fov_total.index, fill_value=0)
             fov_mean = fov_mean.reindex(fov_total.index)
 
+            # Per-FOV spreads treat each FOV as a sample, so use the
+            # sample SD (ddof=1) consistently — matches what the Stats
+            # tab reports for the same groups. The per-cell SD branch
+            # below (line ~454) stays ddof=0 because it's an explicit
+            # population SD of cells around the well mean (labelled
+            # accordingly in the axis title).
             fov_means = fov_mean.dropna().to_numpy()
             if fov_means.size > 1:
-                sd = float(fov_means.std(ddof=0))
+                sd = float(fov_means.std(ddof=1))
                 spread = sd / math.sqrt(fov_means.size) if use_sem else sd
 
             fov_fracs = (fov_above_count.to_numpy() / fov_total.to_numpy()).astype(float)
             if fov_fracs.size > 1:
-                fsd = float(fov_fracs.std(ddof=0))
+                fsd = float(fov_fracs.std(ddof=1))
                 frac_spread = fsd / math.sqrt(fov_fracs.size) if use_sem else fsd
 
             fov_n_above = fov_above_count.to_numpy().astype(float)
             if fov_n_above.size >= 1:
                 n_above_per_fov_mean = float(fov_n_above.sum() / fov_n_above.size)
             if fov_n_above.size > 1:
-                nsd = float(fov_n_above.std(ddof=0))
+                nsd = float(fov_n_above.std(ddof=1))
                 n_above_per_fov_spread = (nsd / math.sqrt(fov_n_above.size)
                                           if use_sem else nsd)
         else:

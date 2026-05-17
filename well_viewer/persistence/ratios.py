@@ -7,6 +7,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import QTimer
+
+from well_viewer.persistence._io import atomic_write_json
 from well_viewer.ratio_models import ratios_from_dict, ratios_to_dict
 
 _logger = logging.getLogger("well_viewer")
@@ -23,8 +26,7 @@ def save_to_data_dir(app) -> None:
     if path is None:
         return
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(ratios_to_dict(app._ratio_metrics), fh, indent=2)
+        atomic_write_json(path, ratios_to_dict(app._ratio_metrics))
     except OSError as exc:
         _logger.warning("Failed to save ratios to %s: %s", path, exc)
 
@@ -40,3 +42,20 @@ def load_from_data_dir(app) -> None:
         _logger.warning("Failed to load ratios from %s: %s", path, exc)
         return
     app._set_ratio_metrics(ratios_from_dict(data))
+
+
+def schedule_save(app) -> None:
+    """Debounced autosave (matches cell_overrides / line_order). The
+    ratio panel fires save on every field-edit signal; without
+    debouncing each keystroke produces a JSON write."""
+    if getattr(app, "_ratios_save_pending", False):
+        return
+    if path_for(app) is None:
+        return
+    app._ratios_save_pending = True
+    QTimer.singleShot(500, lambda: _flush(app))
+
+
+def _flush(app) -> None:
+    app._ratios_save_pending = False
+    save_to_data_dir(app)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
@@ -10,6 +10,33 @@ from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
+
+
+def set_combo_values(combo: object, values: List[str]) -> None:
+    """Set combobox values for both Qt and legacy widget shims.
+
+    Preserves the current selection when the new item list contains it, so a
+    tk-style ``currentIndexChanged`` handler that calls back into a refresh
+    function doesn't clobber the user's pick as a side-effect.
+
+    Lives in ui_helpers (not runtime_app) so the channel-state
+    controller can use it without creating a circular import back into
+    the runtime monolith.
+    """
+    vals = [str(v) for v in values]
+    if hasattr(combo, "clear") and hasattr(combo, "addItems"):
+        block = getattr(combo, "blockSignals", None)
+        prev_text = combo.currentText() if hasattr(combo, "currentText") else ""
+        if callable(block):
+            block(True)
+        combo.clear()  # type: ignore[attr-defined]
+        combo.addItems(vals)  # type: ignore[attr-defined]
+        if prev_text and prev_text in vals and hasattr(combo, "setCurrentIndex"):
+            combo.setCurrentIndex(vals.index(prev_text))  # type: ignore[attr-defined]
+        if callable(block):
+            block(False)
+        return
+    combo["values"] = vals  # type: ignore[index]
 
 
 def wrap_with_empty_state(

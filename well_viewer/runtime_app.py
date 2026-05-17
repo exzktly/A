@@ -327,27 +327,11 @@ def ask_name_dialog(parent, title: str = "Name", prompt: str = "Name:",
     return _ui_ask_name_dialog(parent, title=title, prompt=prompt, default=default)
 
 
-def _set_combo_values(combo: object, values: List[str]) -> None:
-    """Set combobox values for both Qt and legacy widget shims.
-
-    Preserves the current selection when the new item list contains it, so a
-    tk-style ``currentIndexChanged`` handler that calls back into a refresh
-    function doesn't clobber the user's pick as a side-effect.
-    """
-    vals = [str(v) for v in values]
-    if hasattr(combo, "clear") and hasattr(combo, "addItems"):
-        block = getattr(combo, "blockSignals", None)
-        prev_text = combo.currentText() if hasattr(combo, "currentText") else ""
-        if callable(block):
-            block(True)
-        combo.clear()  # type: ignore[attr-defined]
-        combo.addItems(vals)  # type: ignore[attr-defined]
-        if prev_text and prev_text in vals and hasattr(combo, "setCurrentIndex"):
-            combo.setCurrentIndex(vals.index(prev_text))  # type: ignore[attr-defined]
-        if callable(block):
-            block(False)
-        return
-    combo["values"] = vals  # type: ignore[index]
+# `_set_combo_values` was hoisted into well_viewer.ui_helpers so the new
+# `channel_state_controller` can use it without a circular import back
+# into runtime_app. Re-export the old private name for compatibility with
+# call sites that still reference it via the runtime_app module.
+from well_viewer.ui_helpers import set_combo_values as _set_combo_values  # noqa: E402, F401
 
 
 
@@ -785,6 +769,10 @@ class WellViewerApp(QWidget):
 
         # Plate-map well selection
         self._selected_wells: set  = set()
+        # Coalesces commit-after-paint events. A drag paints 96 wells in
+        # rapid sequence; we want one commit (one full redraw) at the end
+        # of the event-loop tick, not 96.
+        self._plate_commit_pending: bool = False
         # Plotting-tab solo-well overrides: when a user clicks a well not
         # in any group, it's added here so the plot picks it up alongside
         # the visible groups. Independent of ``_selected_wells``, which is
@@ -848,6 +836,12 @@ class WellViewerApp(QWidget):
         self._line_order_save_pending: bool = False
         self._notes_text: str = ""
         self._notes_save_pending: bool = False
+        # Debounce flags for ratios.json + heatmap_layouts.json autosaves;
+        # ratio-panel field edits and heatmap-layout drags both fire saves
+        # per signal — without debouncing they hit disk dozens of times
+        # per second.
+        self._ratios_save_pending: bool = False
+        self._heatmap_layouts_save_pending: bool = False
         # When True, the Review Image tab loads the unprocessed fluorescence
         # frame; when False (default) it prefers the top-hat-filtered output.
         self._review_image_show_raw: bool = False
@@ -2257,8 +2251,11 @@ class WellViewerApp(QWidget):
         return _r.path_for(self)
 
     def _ratios_save_to_data_dir(self) -> None:
+        # Debounced via the persistence module's schedule_save — every
+        # ratio-panel field edit fires this; without debouncing each
+        # keystroke produced a JSON write.
         from well_viewer.persistence import ratios as _r
-        _r.save_to_data_dir(self)
+        _r.schedule_save(self)
 
     def _ratios_load_from_data_dir(self) -> None:
         from well_viewer.persistence import ratios as _r
@@ -2269,8 +2266,11 @@ class WellViewerApp(QWidget):
         return _h.path_for(self)
 
     def _heatmap_layouts_save_to_data_dir(self) -> None:
+        # Debounced — heatmap layout drag-and-drop fires save per drop
+        # event; without debouncing, dragging wells writes JSON dozens
+        # of times per second.
         from well_viewer.persistence import heatmap_layouts as _h
-        _h.save_to_data_dir(self)
+        _h.schedule_save(self)
 
     def _heatmap_layouts_load_from_data_dir(self) -> None:
         from well_viewer.persistence import heatmap_layouts as _h
@@ -3350,7 +3350,47 @@ class WellViewerApp(QWidget):
             return
         self._selected_wells = new_set
         self._refresh_sidebar_map()
+        # Coalesce the commit. A drag through 96 cells fires this handler
+        # 96 times in one event-loop tick; without coalescing each one
+        # triggered a full bar/scatter/line redraw and an export-style
+        # reapply (architecture §9.2 documents the paint-vs-commit split).
+        # The deferred call fires once at the end of the tick — and
+        # `_on_sidebar_plate_drag_finished` already commits at drag end
+        # too, so this matters mostly for single-click mode (smFISH /
+        # Segmentation tabs) where no drag_finished signal fires.
+        if not self._plate_commit_pending:
+            self._plate_commit_pending = True
+            QTimer.singleShot(0, self._plate_commit_deferred)
+
+    def _plate_commit_deferred(self) -> None:
+        """Run the deferred commit scheduled by a paint event. No-op if
+        a drag_finished handler already cleared the pending flag (which
+        means it already committed in the same tick)."""
+        if not self._plate_commit_pending:
+            return
+        self._plate_commit_pending = False
         self._on_plate_sel_change()
+
+    def _set_selected_wells(self, new_set, *, commit: bool = True) -> None:
+        """Single mutation point for ``_selected_wells``.
+
+        Callers that mutated the set directly (heatmap drag, smFISH tab
+        activation, batch-export panels) bypassed ``_prev_sel`` tracking
+        and the redraw fan-out, so the next selection diff in
+        ``selection_controller.on_plate_sel_change`` mis-attributed
+        additions / removals across tabs. Funnel everything through here.
+        """
+        new_set = set(new_set or [])
+        if new_set == self._selected_wells:
+            return
+        # Snapshot the previous selection so on_plate_sel_change can
+        # compute an accurate diff if it runs after this.
+        self._prev_sel = set(self._selected_wells)
+        self._selected_wells = new_set
+        if hasattr(self, "_refresh_sidebar_map"):
+            self._refresh_sidebar_map()
+        if commit and hasattr(self, "_on_plate_sel_change"):
+            self._on_plate_sel_change()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
         try:
@@ -3360,6 +3400,9 @@ class WellViewerApp(QWidget):
         per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
         if self._selections and not per_well_tab:
             return
+        # Cancel any pending deferred commit from the paint events that
+        # led here — we're committing right now.
+        self._plate_commit_pending = False
         self._on_plate_sel_change()
 
     _PLOTTING_TABS = frozenset({
@@ -3448,102 +3491,13 @@ class WellViewerApp(QWidget):
     # ── Threshold ─────────────────────────────────────────────────────────────
 
     def _recalculate_threshold(self) -> None:
-        # Detect channels from the first loaded well
-        sample_df = next(
-            (self._get_rows(lbl) for lbl in self._well_paths),
-            pd.DataFrame(),
-        )
-        detected = detect_fluor_channels(sample_df)
-        detected_smfish = detect_smfish_channels(sample_df)
-        pipeline_fluor_raw = [
-            str(tok).strip().lower()
-            for tok in (self._pipeline_info.get("fluor_tokens", []) if isinstance(self._pipeline_info, dict) else [])
-            if str(tok).strip()
-        ]
-        pipeline_fluor = normalize_channel_tokens(pipeline_fluor_raw)
-        detected = normalize_channel_tokens(detected)
-        seg_tok = ""
-        if isinstance(self._pipeline_info, dict):
-            seg_tok = str(self._pipeline_info.get("nuclear_token", "") or "").strip().lower()
-        if not seg_tok:
-            seg_tok = detect_nuclear_channel_token(sample_df)
-        fluor_channels = merge_fluor_channels(pipeline_fluor, detected, seg_tok)
-        if fluor_channels:
-            self._fluor_channels = fluor_channels
-            # Keep the active channel if it is still present; otherwise
-            # default to the first detected channel.
-            if not self._active_channel:
-                self._active_channel = fluor_channels[0]
-            if not self._active_image_channel:
-                self._active_image_channel = fluor_channels[0]
-        self._seg_channel_token = seg_tok
-        self._review_image_channels = detect_review_image_channels(sample_df, self._fluor_channels, seg_tok)
-        self._update_channel_selector()
+        """Channel detection + threshold range recompute.
 
-        # Update smFISH channels and reset metric if needed
-        self._smfish_channels = set(detected_smfish)
-        if self._active_metric == "smfish_count" and self._active_channel not in self._smfish_channels:
-            self._active_metric = "mean_intensity"
-
-        # Derive _active_val_col from active channel and metric (skip when
-        # a ratio is active — the ratio key already lives in _active_val_col).
-        if not is_ratio_key(self._active_val_col):
-            self._active_val_col = f"{self._active_channel}_{self._active_metric}"
-
-        # Update metric selector visibility (both line and bar tabs).
-        # Hidden when a ratio is active or when the channel has no smFISH metric.
-        ratio_active = is_ratio_key(self._active_val_col)
-        # Per-tab metric frames are now permanent back-compat shims —
-        # the visible Property selector is the global ctxbar combo.
-        for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
-            if hasattr(self, frame_attr):
-                getattr(self, frame_attr).hide()
-
-        # Always refresh timepoint menus regardless of whether intensity
-        # values exist — single-timepoint experiments still need the bar menu.
-        if hasattr(self, "_bar_tp_cb"):
-            self._update_bar_tp_menu()
-        if hasattr(self, "_stats_tp_cb"):
-            self._stats_update_tp_menu()
-        if hasattr(self, "_distribution_tp_cb"):
-            try:
-                from well_viewer.tabs.distribution_tab_view import refresh_distribution_timepoints
-                refresh_distribution_timepoints(self)
-            except Exception:
-                _logger.exception("Distribution timepoint refresh failed")
-        if hasattr(self, "_heatmap_tp_slider"):
-            try:
-                from well_viewer.tabs.heatmap_tab_view import refresh_heatmap_timepoints
-                refresh_heatmap_timepoints(self)
-            except Exception:
-                _logger.exception("Heatmap timepoint refresh failed")
-
-        chunks = [_all_fluor_values(self._get_rows(lbl), val_col=self._active_val_col)
-                  for lbl in self._well_paths]
-        all_vals = np.concatenate(chunks) if chunks else np.empty(0)
-        if all_vals.size == 0:
-            return
-        lo, hi = float(all_vals.min()), float(all_vals.max())
-        if hi <= lo: hi = lo + 1.0
-        self._threshold_min = lo
-        self._threshold_max = hi
-
-        # Hydrate persisted gating params from pipeline_info.json. The Cell
-        # Gating tab is lazy by default, but ``_load_gating_from_pipeline_info``
-        # force-builds it whenever the sidecar carries non-default thresholds
-        # so they apply at data-load time without waiting on a user click.
-        # When no thresholds were saved, the call is a cheap no-op and Cell
-        # Gating stays unbuilt.
-        self._load_gating_from_pipeline_info()
-        if hasattr(self, "_cell_gating_area_edit"):
-            # Refresh the per-channel CDF + saved ThreshFracOn values now
-            # that the tab exists and channels are known.
-            from well_viewer.tabs.cell_gating_tab_view import (
-                cell_gating_load_cell_areas,
-                cell_gating_load_threshold_frac_on,
-            )
-            cell_gating_load_cell_areas(self)
-            cell_gating_load_threshold_frac_on(self)
+        Body lives in :mod:`well_viewer.channel_state_controller` — see
+        the controller for the full docstring.
+        """
+        from well_viewer.channel_state_controller import recalculate_threshold
+        recalculate_threshold(self)
 
     # ── Ratio metric helpers ─────────────────────────────────────────────────
 
@@ -3633,100 +3587,12 @@ class WellViewerApp(QWidget):
     # ── Active channel ───────────────────────────────────────────────────────
 
     def _set_active_channel(self, channel: str) -> None:
-        """Switch the active fluorescent channel and redraw all plots.
+        """Switch the active fluorescent channel and trigger a redraw.
 
-        ``channel`` may be a real channel token (e.g. ``"gfp"``) or a ratio
-        key (``"ratio:<name>"``). Ratios bypass the per-channel metric
-        selector and route reads through ``resolve_value``.
+        Body lives in :mod:`well_viewer.channel_state_controller`.
         """
-        if not channel or channel == "—":
-            return
-        was_ratio = is_ratio_key(self._active_val_col)
-        ratio_active = is_ratio_key(channel)
-        if ratio_active:
-            ratio_name = ratio_name_from_key(channel)
-            ratio = next((r for r in self._ratio_metrics if r.name == ratio_name), None)
-            if ratio is None:
-                return
-            new_val_col = ratio.key()
-            if new_val_col == self._active_val_col:
-                return
-            self._active_channel = ratio_name
-            self._active_val_col = new_val_col
-            # Hide the per-cell metric selector — ratios encode their own metrics.
-            for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
-                frame = getattr(self, frame_attr, None)
-                if frame is not None:
-                    frame.setVisible(False)
-        else:
-            if channel == self._active_channel and not is_ratio_key(self._active_val_col):
-                return
-            self._active_channel = channel
-            # Coming back from a ratio leaves _active_metric pointing at
-            # whatever was last picked (often smfish_count) and the metric
-            # frames hidden. Reset both so the new channel composes a real
-            # column name (``<channel>_mean_intensity``) and the user sees
-            # the metric selector again.
-            if was_ratio or channel not in self._smfish_channels:
-                self._active_metric = "mean_intensity"
-            # Per-tab metric frames stay hidden — visibility is owned by
-            # the global ctxbar combo. Sync every metric combo to the
-            # current ``_active_metric`` so a freshly-visible non-ratio
-            # channel shows the right Property label.
-            from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
-            label = METRIC_KEY_TO_LABEL.get(
-                self._active_metric, "Mean Intensity"
-            )
-            for cb_attr in ("_metric_var", "_metric_cb", "_metric_cb_bar",
-                            "_plotting_metric_cb"):
-                cb = getattr(self, cb_attr, None)
-                if cb is None:
-                    continue
-                idx = cb.findText(label)
-                if idx < 0:
-                    continue
-                blocked = cb.blockSignals(True)
-                try:
-                    cb.setCurrentIndex(idx)
-                finally:
-                    cb.blockSignals(blocked)
-            # Derive val_col from channel and metric
-            self._active_val_col = f"{channel}_{self._active_metric}"
-        # Keep all plot-tab channel selectors in sync so switching channel
-        # on one tab is reflected on the others.
-        target_label = self._active_channel_label()
-        # Phase 11b: include the global ctxbar combo in the sync set so a
-        # change from any source (per-renderer combo OR the global one)
-        # propagates everywhere.
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
-                     "_chan_cb_heatmap", "_plotting_channel_cb"):
-            cb = getattr(self, attr, None)
-            if cb is None:
-                continue
-            if str(cb.currentText() or "") == target_label:
-                continue
-            idx = cb.findText(target_label)
-            if idx >= 0:
-                blocked = cb.blockSignals(True)
-                try:
-                    cb.setCurrentIndex(idx)
-                finally:
-                    cb.blockSignals(blocked)
-        # Reset threshold to the range of the new channel.
-        self._recalculate_threshold()
-        self._invalidate_stats_cache()
-        self._refresh_metric_combo_for_channel()
-        # Redraw the visible plot scope only; mark the other one dirty
-        # so it picks up the channel change when the user switches
-        # tabs. Mirrors the fold-change setter's behaviour — the two
-        # used to redraw both eagerly, which wasted work for the
-        # non-visible tab.
-        from well_viewer.tabs.fold_change_controls import redraw_scopes_or_defer
-        redraw_scopes_or_defer(self)
-        if hasattr(self, "_cdf_chan_lbl"):
-            self._cdf_chan_lbl.setText(f"({target_label} x range)")
-        if hasattr(self, "_bar_ylim_chan_lbl"):
-            self._bar_ylim_chan_lbl.setText(f"{target_label} y:")
+        from well_viewer.channel_state_controller import set_active_channel
+        set_active_channel(self, channel)
 
     def _set_active_image_channel(self, channel: str, *, preserve_review_view: bool = False) -> None:
         """Switch image-display channel for Movie Montage and Review Image."""
@@ -4031,26 +3897,10 @@ class WellViewerApp(QWidget):
     def _refresh_metric_combo_for_channel(self) -> None:
         """Reshape every Property combo to match the active channel.
 
-        For ratio channels each combo collapses to a single ``Calculated
-        Val`` entry; for real channels the full intensity set is restored
-        with ``smFISH Count`` greyed out when the channel isn't an smFISH
-        one. Per-tab combos (heatmap / stats) follow the global channel.
+        Body lives in :mod:`well_viewer.channel_state_controller`.
         """
-        try:
-            channel_label = self._active_channel_label()
-        except Exception:
-            channel_label = ""
-        smfish_chan = self._active_channel
-        for attr in ("_plotting_metric_cb", "_metric_cb", "_metric_cb_bar"):
-            self._populate_metric_combo(
-                getattr(self, attr, None),
-                channel_entry=channel_label,
-                smfish_channel=smfish_chan,
-            )
-        # Stats has its own channel combo (which the user can set
-        # independently of the active plot channel), so the stats Property
-        # combo follows that one instead of the active plot channel.
-        self._refresh_stats_property_combo()
+        from well_viewer.channel_state_controller import refresh_metric_combo_for_channel
+        refresh_metric_combo_for_channel(self)
 
     def _refresh_stats_property_combo(self) -> None:
         """Reshape the stats Property combo to match the stats channel combo."""
@@ -4066,133 +3916,12 @@ class WellViewerApp(QWidget):
         )
 
     def _update_channel_selector(self) -> None:
-        """Refresh the channel dropdown values and selection to match loaded data."""
-        real_labels = [ch.upper() for ch in self._fluor_channels]
-        ratio_labels = self._ratio_dropdown_labels()
-        labels = (real_labels + ratio_labels) or ["—"]
-        # Map the uppercase dropdown label back to the underlying channel key
-        # used by ``_set_active_channel`` (real channels stay lowercase; ratio
-        # entries use the ``ratio:<name>`` key so the resolver can route them).
-        self._label_to_channel_key = {ch.upper(): ch for ch in self._fluor_channels}
-        for r in self._ratio_metrics:
-            self._label_to_channel_key[self._ratio_label_for(r)] = r.key()
-        # Montage/preview includes the segmentation channel token.
-        seg_tok = getattr(self, "_seg_channel_token", "")
-        montage_chans = list(self._fluor_channels)
-        if seg_tok and seg_tok not in montage_chans:
-            montage_chans.append(seg_tok)
-        montage_labels = [ch.upper() for ch in montage_chans] or ["—"]
-        review_labels = [ch.upper() for ch in (self._review_image_channels or self._fluor_channels)] or ["—"]
-        # Update channel selector instances — including the global ctxbar
-        # chip (``_plotting_channel_cb``) so it picks up newly-defined ratio
-        # channels and live-updates without waiting for a tab switch.
-        for attr in ("_chan_cb_line", "_chan_cb_bar", "_chan_cb_distribution",
-                     "_chan_cb_heatmap", "_plotting_channel_cb"):
-            if hasattr(self, attr):
-                _set_combo_values(getattr(self, attr), labels)
-        if hasattr(self, "_chan_cb_preview"):
-            _set_combo_values(self._chan_cb_preview, montage_labels)
-        if hasattr(self, "_review_image_chan_cb"):
-            _set_combo_values(self._review_image_chan_cb, review_labels)
-        active_label = self._active_channel_label()
+        """Refresh the channel dropdown values and selection to match loaded data.
 
-        def _pick_valid(current: str, candidates: List[str], fallback_label: str) -> str:
-            if current in candidates and current != "—":
-                return current
-            if fallback_label in candidates and fallback_label != "—":
-                return fallback_label
-            if candidates and candidates[0] != "—":
-                return candidates[0]
-            return "—"
-
-        # Plot tabs: only measurement channels.
-        plot_label = _pick_valid(self._plot_chan_var.currentText(), labels, active_label)
-        self._plot_chan_var.setCurrentText(plot_label)
-
-        # Image tabs: each validates against its own channel universe.
-        active_image_label = self._active_image_channel.upper()
-        # ``_montage_chan_var`` only exists when the (now-retired) Movie
-        # Montage tab was built. Skip it gracefully if absent so a fresh
-        # data load doesn't blow up the channel-selector refresh.
-        montage_var = getattr(self, "_montage_chan_var", None)
-        if montage_var is not None:
-            montage_label = _pick_valid(montage_var.currentText(), montage_labels, active_image_label)
-            montage_var.setCurrentText(montage_label)
-        else:
-            montage_label = "—"
-        review_var = getattr(self, "_review_image_chan_var", None)
-        if review_var is not None:
-            review_label = _pick_valid(review_var.currentText(), review_labels, active_image_label)
-            review_var.setCurrentText(review_label)
-        else:
-            review_label = "—"
-
-        # Keep active image channel anchored only when the current value is invalid.
-        if active_image_label not in montage_labels and active_image_label not in review_labels:
-            fallback_image_label = montage_label if montage_label != "—" else review_label
-            if fallback_image_label != "—":
-                self._set_active_image_channel(fallback_image_label.lower())
-
-        # Keep active channel anchored to a valid plot channel.
-        if active_label not in labels:
-            if plot_label != "—":
-                self._set_active_channel(self._channel_key_for_label(plot_label))
-            else:
-                self._active_channel = ""
-
-        # Force the visible global ctxbar combo to track the (now-valid)
-        # active label. ``_set_combo_values`` above only preserves the combo's
-        # previous current text, so a fresh combo (or one whose previous text
-        # got dropped from the new label list) would otherwise display the
-        # first label instead of the active channel — making the dropdown
-        # disagree with what the plot just drew. Setting the index here closes
-        # that gap so the channel chip always tracks correctly at first draw.
-        global_cb = getattr(self, "_plotting_channel_cb", None)
-        if global_cb is not None:
-            active_label_final = self._active_channel_label()
-            idx = global_cb.findText(active_label_final) if active_label_final else -1
-            if idx >= 0 and global_cb.currentIndex() != idx:
-                blocked = global_cb.blockSignals(True)
-                try:
-                    global_cb.setCurrentIndex(idx)
-                finally:
-                    global_cb.blockSignals(blocked)
-        # Refresh the global Property combo's per-item enable state now that
-        # the channel list (and possibly ``_active_channel``) has changed.
-        self._refresh_metric_combo_for_channel()
-
-        # Same trick for the Segmentation tab's channel combo and the
-        # (retired-but-still-present-for-back-compat) Movie Montage combo —
-        # ``_pick_valid`` above preserves the combo's existing currentText
-        # when it's still a valid label, even when ``_active_image_channel``
-        # has drifted to something else. The dropdown would then disagree
-        # with the image actually being drawn, and the user has to wiggle
-        # it back and forth before the click handler's
-        # ``_set_active_image_channel`` realises it's a real change. Snap
-        # the currentIndex to the active label so the first user click
-        # actually triggers the redraw.
-        active_image_label_final = (self._active_image_channel or "").upper()
-        for _attr in ("_review_image_chan_cb", "_chan_cb_preview"):
-            cb = getattr(self, _attr, None)
-            if cb is None or not hasattr(cb, "findText"):
-                continue
-            idx = cb.findText(active_image_label_final) if active_image_label_final else -1
-            if idx >= 0 and cb.currentIndex() != idx:
-                blocked = cb.blockSignals(True)
-                try:
-                    cb.setCurrentIndex(idx)
-                finally:
-                    cb.blockSignals(blocked)
-
-        # Back-compat sync: follow the active tab's selector instead of forcing plot labels.
-        if hasattr(self, "_chan_var"):
-            tab_label = self._current_centre_tab()
-            if tab_label == "Movie Montage":
-                self._chan_var.setCurrentText(montage_label)
-            elif tab_label == "Segmentation":
-                self._chan_var.setCurrentText(review_label)
-            else:
-                self._chan_var.setCurrentText(plot_label)
+        Body lives in :mod:`well_viewer.channel_state_controller`.
+        """
+        from well_viewer.channel_state_controller import update_channel_selector
+        update_channel_selector(self)
 
     def _toggle_sem(self) -> None:
         self._invalidate_stats_cache()
@@ -5206,6 +4935,11 @@ class WellViewerApp(QWidget):
         # the empty state via its own no-data branch.
         from well_viewer import status_signal as _status_signal
         self._refresh_plot_empty_states()
+        # `_plot_redraw_orchestrator` fans out across the default-scope
+        # tabs (line / distribution / heat map). Bar / scatter /
+        # scatter-aggregate are scope-specific and re-render through
+        # their own per-tab shims — see `plot_orchestrator.redraw`'s
+        # docstring for the contract.
         with _status_signal.warn_scope():
             try:
                 _plot_redraw_orchestrator(
@@ -5220,24 +4954,7 @@ class WellViewerApp(QWidget):
                 _status_signal.signal_failed()
                 raise
         from well_viewer.figure_export_editor import apply_export_style_to_current
-
         apply_export_style_to_current(self, self._line_fig, getattr(self, "_line_canvas", None))
-
-        # Redraw the Distribution and Heat Map tabs if they have been built —
-        # both follow the active channel/metric/threshold so they need to track
-        # the same state changes that drive the line plot.
-        if hasattr(self, "_distribution_canvas"):
-            try:
-                from well_viewer.distribution_controller import redraw_distribution
-                redraw_distribution(self)
-            except Exception:
-                _logger.exception("Distribution redraw failed")
-        if hasattr(self, "_heatmap_canvas"):
-            try:
-                from well_viewer.heatmap_controller import redraw_heatmap
-                redraw_heatmap(self)
-            except Exception:
-                _logger.exception("Heat map redraw failed")
 
         # Keep the Export Configurator's line-order lists in sync with the
         # current selection / replicate sets when the sidebar is open.
@@ -5319,13 +5036,7 @@ class WellViewerApp(QWidget):
         # mouse handlers.
         self._sync_heatmap_well_drag_mode(tab == "Heat Map")
 
-        if tab == "Movie Montage":
-            self._sync_preview_well_for_image_tabs()
-            self._sidebar_preview_frame.setVisible(True)
-            self._refresh_preview_picker()
-            self._update_preview(self._preview_selected_well)
-
-        elif tab == "Segmentation":
+        if tab == "Segmentation":
             self._sync_preview_well_for_image_tabs()
             self._sidebar_preview_frame.setVisible(True)
             self._refresh_preview_picker()
@@ -5367,7 +5078,11 @@ class WellViewerApp(QWidget):
             self._sidebar_main_frame.setVisible(True)
             if len(self._selected_wells) > 1:
                 keep = self._last_sel if self._last_sel in self._selected_wells else next(iter(self._selected_wells))
-                self._selected_wells = {keep}
+                # Route through the central mutator so _prev_sel is
+                # snapshotted properly — bypassing it left the next
+                # selection diff in selection_controller mis-attributing
+                # cross-tab additions / removals.
+                self._set_selected_wells({keep}, commit=False)
             self._refresh_sidebar_map()
             from well_viewer.tabs.smfish_tab_view import smfish_sync_from_app
             smfish_sync_from_app(self)
@@ -6129,6 +5844,68 @@ class WellViewerApp(QWidget):
                 out.append(ReplicateSet(s.get("name") or "", list(wells)))
         return out
 
+    def _well_aggregate_stats(
+        self,
+        wells,
+        target_t: float,
+        *,
+        threshold: float,
+        val_col: str,
+        cell_area_threshold: float,
+        fluor_gates: Dict[str, float],
+        use_sem: bool,
+    ) -> tuple[float, float, float, float]:
+        """Pool per-well means and fractions at *target_t* and return
+        ``(mean, mean_err, frac, frac_err)``.
+
+        Each loaded well contributes one mean / fraction value (per the
+        active gating); sample SD (ddof=1) is taken across those values
+        and divided by √n when ``use_sem`` is True. Shared between
+        :meth:`_compute_rep_stats` (line / bar plot rep-set stats) and
+        ``scatter_controller._agg_wells`` (scatter aggregate plot) so the
+        three paths agree on what "mean across wells under active
+        gating" means.
+        """
+        well_means: List[float] = []
+        well_fracs: List[float] = []
+        for lbl in wells:
+            if lbl not in self._well_paths:
+                continue
+            pts = self._aggregate_well(
+                lbl, threshold=threshold, use_sem=False,
+                val_col=val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+            )
+            for pt in pts:
+                if abs(pt[0] - target_t) < 1e-6:
+                    _, m, _sd, f, *_ = pt
+                    if not math.isnan(m):
+                        well_means.append(m)
+                    if not math.isnan(f):
+                        well_fracs.append(f)
+                    break
+
+        if well_means:
+            arr = np.asarray(well_means, dtype=float)
+            gm = float(arr.mean())
+            n = arr.size
+            gsd = float(arr.std(ddof=1)) if n > 1 else 0.0
+            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
+        else:
+            gm, gerr = float("nan"), 0.0
+
+        if well_fracs:
+            arr = np.asarray(well_fracs, dtype=float)
+            gf = float(arr.mean())
+            nf = arr.size
+            fsd = float(arr.std(ddof=1)) if nf > 1 else 0.0
+            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
+        else:
+            gf, ferr = float("nan"), 0.0
+
+        return gm, gerr, gf, ferr
+
     def _compute_rep_stats(
         self,
         rset: "ReplicateSet",
@@ -6142,6 +5919,12 @@ class WellViewerApp(QWidget):
         Statistics are computed across the loaded wells of the set.
         Each well contributes one mean-fluor value; SD/SEM is across those values.
         Results are cached in _stats_cache.
+
+        Thin wrapper over :meth:`_well_aggregate_stats` which carries the
+        shared per-well aggregation + ddof=1 stats logic. ``_agg_wells``
+        in scatter_controller delegates to the same helper so all three
+        plot paths (line / bar / scatter-agg) compute the "mean across
+        wells under active gating" identically.
         """
         if not hasattr(self, "_stats_cache"):
             self._stats_cache = {}
@@ -6152,40 +5935,14 @@ class WellViewerApp(QWidget):
         if cache_key in self._stats_cache:
             return self._stats_cache[cache_key]
 
-        well_means: List[float] = []
-        well_fracs: List[float] = []
-        for lbl in rset.wells:
-            if lbl not in self._well_paths:
-                continue
-            pts = self._aggregate_well(
-                lbl, threshold=threshold, use_sem=False,
-                val_col=self._active_val_col,
-                cell_area_threshold=cell_area_threshold,
-                fluor_gates=fluor_gates,
-            )
-            matched = [pt for pt in pts if abs(pt[0] - target_t) < 1e-6]
-            if matched:
-                _, m, _sd, f, *_ = matched[0]
-                if not math.isnan(m): well_means.append(m)
-                if not math.isnan(f): well_fracs.append(f)
-
-        if well_means:
-            arr = np.asarray(well_means, dtype=float)
-            gm  = float(arr.mean())
-            n   = arr.size
-            gsd = float(arr.std(ddof=0)) if n > 1 else 0.0
-            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
-        else:
-            gm, gerr = float("nan"), 0.0
-
-        if well_fracs:
-            arr = np.asarray(well_fracs, dtype=float)
-            gf  = float(arr.mean())
-            nf  = arr.size
-            fsd = float(arr.std(ddof=0)) if nf > 1 else 0.0
-            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
-        else:
-            gf, ferr = float("nan"), 0.0
+        gm, gerr, gf, ferr = self._well_aggregate_stats(
+            rset.wells, target_t,
+            threshold=threshold,
+            val_col=self._active_val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            use_sem=use_sem,
+        )
 
         result = (gm, gerr, gf, ferr)
         self._stats_cache[cache_key] = result

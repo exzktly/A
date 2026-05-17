@@ -709,6 +709,11 @@ class AnalyzeTab(QWidget):
         self._log = QTextEdit(parent)
         self._log.setReadOnly(True)
         self._log.setLineWrapMode(QTextEdit.NoWrap)
+        # Cap the QTextDocument so a multi-hour pipeline can't grow it to
+        # hundreds of megabytes. Older lines drop off the top once we hit
+        # the cap; the ring buffer in all_well captures everything for
+        # the help-drawer log tab anyway.
+        self._log.document().setMaximumBlockCount(10000)
         font = self._log.font()
         font.setFamily("Menlo" if _sys.platform == "darwin" else "Consolas")
         font.setPointSize(9)
@@ -856,11 +861,14 @@ class AnalyzeTab(QWidget):
                 wells.add(token.upper())
         return len(wells) or len(tifs) or 1
 
-    def _resolve_run_dirs_for_runner(self, opts: dict, log_q: queue.Queue):
+    def _resolve_run_dirs_for_runner(self, opts: dict, log_q: queue.Queue,
+                                     *, proc_hook=None):
         """Adapter passed to ``PipelineRunner.start``.
 
         Lives on the tab because expected-well-count + grouping progress are
-        UI-side helpers that depend on Analyze form state.
+        UI-side helpers that depend on Analyze form state. ``proc_hook`` is
+        forwarded to ``resolve_input_output`` so the grouping subprocess can
+        be tracked by the runner and reached by Stop.
         """
         try:
             log_q.put(("zipper_start", self._expected_well_count(opts)))
@@ -870,6 +878,7 @@ class AnalyzeTab(QWidget):
                 progress_fn=lambda tok: log_q.put(("zipper_well", tok)),
                 filename_schema=opts["filename_schema"],
                 filename_sep=opts["filename_sep"],
+                proc_hook=proc_hook,
             )
             log_q.put(("zipper_done", None))
             return input_dir, output_dir
@@ -878,9 +887,12 @@ class AnalyzeTab(QWidget):
             return None
 
     def _stop(self) -> None:
-        if self._runner.is_running:
-            self._runner.stop()
-            self._log_line("\n[User stopped the pipeline]\n", "WARNING")
+        # Stop is meaningful whenever the runner has *any* in-flight work
+        # — including the grouping phase, when self._runner._proc is
+        # still None. Calling stop() unconditionally is safe (it no-ops
+        # when nothing is alive) and lets it reach the zipper.
+        self._runner.stop()
+        self._log_line("\n[User stopped the pipeline]\n", "WARNING")
 
     # ------------------------------------------------------------------
     # Log helpers
@@ -940,7 +952,12 @@ class AnalyzeTab(QWidget):
             self._eta_lbl.setText("")
             return
         if total > 0 and done >= total:
-            self._eta_lbl.setText("")
+            # All wells finished. The pipeline still has post-well work
+            # (write pipeline_info.json, run the auto-threshold pass)
+            # before the "finished" event fires; surface that state
+            # explicitly so the user doesn't see a stale ETA / blank
+            # while the progress bar sits at 100%.
+            self._eta_lbl.setText("Finalizing…")
             return
         deadline = getattr(self, "_eta_deadline", None)
 
@@ -985,6 +1002,11 @@ class AnalyzeTab(QWidget):
                 f"Pipeline: {self._well_done} / {total} wells  ({pct}%)"
             )
             self._update_eta(self._well_done, total)
+            # The auto-threshold pass runs *after* the last well — show
+            # an explicit finalizing state so the user doesn't see the
+            # progress bar pinned at 100% with nothing happening.
+            if total > 0 and self._well_done >= total:
+                self._status_lbl.setText("Finalizing…")
 
     def _poll_log(self) -> None:
         try:
@@ -1068,6 +1090,17 @@ class AnalyzeTab(QWidget):
     def closeEvent(self, event) -> None:
         if self._runner.is_running:
             self._runner.stop()
+        # Mirror the cleanup branch in _poll_log so closing the app
+        # mid-run doesn't leave the status_signal warn-scope
+        # unbalanced (the in-memory ref count would otherwise carry
+        # across a re-build of the tab without a fresh QApplication).
+        if getattr(self, "_status_signal_pushed", False):
+            try:
+                from well_viewer import status_signal as _status_signal
+                _status_signal.warn_pop()
+            except Exception:
+                pass
+            self._status_signal_pushed = False
         super().closeEvent(event)
 
 

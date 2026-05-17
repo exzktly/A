@@ -157,7 +157,17 @@ def _setup_axes(app, n_axes: int):
             ax.clear()
         axes = existing
     else:
+        # ``fig.clear()`` resets figure-level attributes, which can wipe
+        # the ``_plot_card`` back-ref that ``plot_style.tokens_for``
+        # consults — re-attach it after rebuilding axes so the next
+        # ``_apply_card_style`` reads the right palette.
+        card = getattr(fig, "_plot_card", None)
         fig.clear()
+        if card is not None:
+            try:
+                fig._plot_card = card
+            except Exception:
+                pass
         if n_axes == 1:
             axes = [fig.add_subplot(1, 1, 1)]
             fig.subplots_adjust(top=0.93, bottom=0.12, left=0.10, right=0.97)
@@ -244,8 +254,38 @@ def redraw_distribution(app) -> None:
         ax.set_axis_on()
         _render_overlay(app, ax, groups, mode, bins, log_x, tp_h)
 
+    # Re-apply theme text colours after the renderers set titles/labels.
+    # `apply_axes_style` is called inside `_setup_axes` *before* the title
+    # exists; matplotlib then created the title text object at its
+    # default dark-grey colour, which read as low-contrast against the
+    # dark plot bg (and broke entirely after the H20 palette reconcile).
+    _retint_axes_text(app)
     _apply_export_style(app)
     canvas.draw_idle()
+
+
+def _retint_axes_text(app) -> None:
+    """Recolour the title + axis labels of every axis on the distribution
+    figure using the active card's plot theme. Run after the renderers
+    so titles set via ``ax.set_title(...)`` pick up the right ink.
+    """
+    fig = getattr(app, "_distribution_fig", None)
+    if fig is None:
+        return
+    from widgets.plot_card import plot_tokens
+    card = getattr(app, "_distribution_card", None)
+    mode = getattr(card, "_plot_theme", "screen") if card is not None else "screen"
+    _bg, fg, _muted, _grid, _spine = plot_tokens(mode)
+    import theme as _theme
+    sec = fg if mode == "publication" else _theme.Colors.text_secondary
+    for ax in fig.axes:
+        try:
+            if ax.get_title():
+                ax.title.set_color(fg)
+            ax.xaxis.label.set_color(sec)
+            ax.yaxis.label.set_color(sec)
+        except Exception:
+            pass
 
 
 def _render_overlay(app, ax, groups, mode, bins, log_x, tp_h) -> None:

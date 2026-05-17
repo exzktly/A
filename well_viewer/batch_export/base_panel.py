@@ -182,7 +182,10 @@ class BatchExportPanel(QWidget):
         hdr2 = QHBoxLayout()
         hdr2.setContentsMargins(8, 2, 8, 2)
         qs_btn = QToolButton()
-        qs_btn.setText("Quick Setup \u25be")
+        # QToolButton.InstantPopup adds its own dropdown-arrow indicator;
+        # the literal `\u25be` we used to put in the text rendered as a
+        # second overlapping arrow. Let Qt's indicator do the job alone.
+        qs_btn.setText("Quick Setup")
         qs_btn.setPopupMode(QToolButton.InstantPopup)
         qs_menu = QMenu(qs_btn)
         qs_menu.addAction("One group per row  (Row A = all A wells, \u2026)", self._quick_by_row)

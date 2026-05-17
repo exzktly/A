@@ -9,6 +9,8 @@ from typing import Optional
 
 from PySide6.QtCore import QTimer
 
+from well_viewer.persistence._io import atomic_write_json
+
 _logger = logging.getLogger("well_viewer")
 
 
@@ -28,10 +30,7 @@ def save_to_data_dir(app) -> None:
         "wells": list(app._line_order_wells),
     }
     try:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
-        tmp.replace(path)
+        atomic_write_json(path, payload)
     except OSError as exc:
         _logger.warning("Failed to save line order to %s: %s", path, exc)
 

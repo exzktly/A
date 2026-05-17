@@ -23,6 +23,24 @@ def parse_schema(schema_str: str) -> List[str]:
     ]
 
 
+def validate_schema(schema: List[str]) -> List[str]:
+    """Return a list of human-readable validation errors. Empty list = OK.
+
+    Mirrors process_microscopy.validate_schema so a CLI invocation of
+    WellPlateZipper rejects the same bad schemas the GUI rejects.
+    """
+    errors: List[str] = []
+    if "channel" not in schema:
+        errors.append('Schema must include a "channel" field.')
+    elif schema.count("channel") > 1:
+        errors.append('Schema must include "channel" exactly once.')
+    if "well" not in schema:
+        errors.append('Schema must include a "well" field.')
+    elif schema.count("well") > 1:
+        errors.append('Schema must include "well" exactly once.')
+    return errors
+
+
 def build_arg_parser():
     parser = argparse.ArgumentParser(
         description="Group TIFF files into per-well folders by 96-well plate IDs in filenames"
@@ -68,6 +86,7 @@ def _extract_well_from_filename(
     Returns the normalised well label (e.g. "A01") if the filename contains a
     valid 96-well plate position at the schema's "well" slot, otherwise None.
     """
+    from well_token import canonical_well_label
     stem = os.path.splitext(fname)[0]
     well_idx = _well_index_from_schema(schema)
     if well_idx is None:
@@ -76,16 +95,7 @@ def _extract_well_from_filename(
     parts = stem.split(sep)
     if well_idx >= len(parts):
         return None
-    token = parts[well_idx]
-
-    # Validate and normalise: must match A-H, 01-12.
-    m = re.fullmatch(r"([A-Ha-h])(\d{1,2})", token)
-    if not m:
-        return None
-    col = int(m.group(2))
-    if not (1 <= col <= 12):
-        return None
-    return f"{m.group(1).upper()}{col:02d}"
+    return canonical_well_label(parts[well_idx])
 
 
 def find_matching_files(
@@ -95,7 +105,11 @@ def find_matching_files(
     schema: List[str],
     sep: str,
 ) -> List[str]:
-    """Return all TIFF files in *search_dir* whose well token matches *well*."""
+    """Return all TIFF files in *search_dir* whose well token matches *well*.
+
+    Kept for back-compat. The single-pass main loop uses ``group_by_well``
+    below, which is O(N) instead of O(96 · N).
+    """
     matches = []
     for root, _, files in os.walk(search_dir):
         for fname in files:
@@ -107,6 +121,33 @@ def find_matching_files(
         if not recursive:
             break
     return matches
+
+
+def group_by_well(
+    search_dir: str,
+    recursive: bool,
+    schema: List[str],
+    sep: str,
+) -> dict:
+    """Single pass through *search_dir*; return ``{well_label: [paths]}``.
+
+    Replaces the previous O(96·N) approach where ``main`` walked the
+    entire directory once per 96-well slot. For a directory with ~10⁵
+    TIFs the old code did ~10⁷ filename inspections — the "Grouping"
+    phase the user stares at took minutes when it should be seconds.
+    """
+    out: dict[str, list[str]] = {}
+    for root, _, files in os.walk(search_dir):
+        for fname in files:
+            if not fname.lower().endswith((".tif", ".tiff")):
+                continue
+            extracted = _extract_well_from_filename(fname, schema, sep)
+            if extracted is None:
+                continue
+            out.setdefault(extracted, []).append(os.path.join(root, fname))
+        if not recursive:
+            break
+    return out
 
 
 def folder_well(well: str, files: List[str], output_dir: str) -> None:
@@ -128,14 +169,27 @@ def main():
     schema     = parse_schema(args.filename_schema)
     sep        = args.filename_sep
 
+    # Validate before walking — matches the GUI's pre-flight checks so
+    # a CLI invocation rejects the same schemas (e.g. two "well" slots)
+    # the GUI would reject. Previously the zipper silently used
+    # `schema.index("well")` and misclassified.
+    schema_errors = validate_schema(schema)
+    if schema_errors:
+        for msg in schema_errors:
+            print(f"error: {msg}", file=sys.stderr)
+        sys.exit(2)
+
     if not os.path.isdir(search_dir):
         sys.exit(f"Invalid directory: {search_dir}")
 
     os.makedirs(output_dir, exist_ok=True)
 
+    # Single-pass grouping (was 96 separate os.walks).
+    files_by_well = group_by_well(search_dir, args.recursive, schema, sep)
+    # Emit per-well progress in canonical A01…H12 order so the Analyze
+    # tab's progress chip can keep tracking.
     for well in generate_wells():
-        files = find_matching_files(well, search_dir, args.recursive, schema, sep)
-        folder_well(well, files, output_dir)
+        folder_well(well, files_by_well.get(well, []), output_dir)
 
 
 if __name__ == "__main__":

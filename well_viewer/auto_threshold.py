@@ -41,80 +41,20 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+from auto_threshold_core import (
+    DEFAULT_CELLS_PER_IMAGE_CAP,
+    parse_tp_hours as _parse_tp_hours,
+    pick_endpoint_timepoints as _pick_endpoint_timepoints,
+    sample_cell_and_bg as _sample_cell_and_bg,
+)
+
 
 logger = logging.getLogger("well_viewer.auto_threshold")
-
-
-# Per-image cell cap. Large fields of view can hold thousands of nuclei;
-# sampling a few hundred per image is plenty for a stable Otsu estimate
-# and keeps the runtime bounded.
-DEFAULT_CELLS_PER_IMAGE_CAP = 800
-
-
-# ── Timepoint helpers ──────────────────────────────────────────────────────
-
-
-def _parse_tp_hours(tp: str) -> Optional[float]:
-    """Mirror of ``well_viewer.data_loading.parse_timepoint_hours`` without
-    pulling in the GUI module. Recognises ``"01d02h30m"`` / ``"48h"`` /
-    ``"2d"`` / ``"30m"`` / plain numerics. Returns ``None`` when nothing
-    parseable is found."""
-    s = str(tp or "").strip()
-    if not s:
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    total = 0.0
-    matched = False
-    for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([dhms])", s, flags=re.IGNORECASE):
-        matched = True
-        v = float(value)
-        u = unit.lower()
-        if u == "d":
-            total += v * 24.0
-        elif u == "h":
-            total += v
-        elif u == "m":
-            total += v / 60.0
-        elif u == "s":
-            total += v / 3600.0
-    if matched:
-        return total
-    m = re.search(r"\d+", s)
-    if m:
-        try:
-            return float(int(m.group(0)))
-        except ValueError:
-            return None
-    return None
-
-
-def _pick_endpoint_timepoints(tps: Iterable[str]) -> List[str]:
-    """Return *up to* three timepoints from *tps*: first, middle, last
-    (chronologically). Drops duplicates so a movie with one or two
-    timepoints still works."""
-    sorted_tps = sorted(
-        set(tps),
-        key=lambda t: (_parse_tp_hours(t) is None, _parse_tp_hours(t) or 0.0, t),
-    )
-    if not sorted_tps:
-        return []
-    if len(sorted_tps) <= 2:
-        return sorted_tps
-    mid = sorted_tps[len(sorted_tps) // 2]
-    picked: List[str] = []
-    for tp in (sorted_tps[0], mid, sorted_tps[-1]):
-        if tp not in picked:
-            picked.append(tp)
-    return picked
 
 
 # ── Image loading ──────────────────────────────────────────────────────────
@@ -141,55 +81,8 @@ def _open_image_at(ref) -> Optional[np.ndarray]:
     return arr
 
 
-# ── Core sampling ──────────────────────────────────────────────────────────
-
-
-def _sample_cell_and_bg(
-    labels: np.ndarray,
-    fluor: np.ndarray,
-    *,
-    cap: int,
-    rng: random.Random,
-) -> Tuple[List[float], List[float]]:
-    """Return ``(cell_means, bg_pixels)`` sampled from one image.
-
-    For every distinct cell label in ``labels`` (excluding background
-    ``0``), one entry is added to ``cell_means`` (the mean ``fluor``
-    inside that cell). A matched random background pixel is added to
-    ``bg_pixels``. Each list is capped to ``cap`` entries so we don't
-    blow up memory on very dense fields.
-    """
-    if labels.shape != fluor.shape:
-        return [], []
-    flat_labels = labels.ravel()
-    flat_fluor = fluor.ravel().astype(np.float64, copy=False)
-    nonzero = flat_labels > 0
-    if not nonzero.any():
-        return [], []
-    bg_indices = np.flatnonzero(~nonzero)
-    if bg_indices.size == 0:
-        return [], []
-
-    # Bincount-based per-label sums → per-label means.
-    n_labels = int(flat_labels.max()) + 1
-    sums = np.bincount(flat_labels, weights=flat_fluor, minlength=n_labels)
-    counts = np.bincount(flat_labels, minlength=n_labels)
-    valid = np.arange(1, n_labels)
-    valid_counts = counts[1:]
-    keep = valid_counts > 0
-    valid = valid[keep]
-    if valid.size == 0:
-        return [], []
-    means = (sums[valid] / counts[valid]).astype(np.float64)
-
-    if means.size > cap:
-        idx = np.array(rng.sample(range(means.size), cap), dtype=np.int64)
-        means = means[idx]
-
-    n = int(means.size)
-    bg_pick = rng.choices(bg_indices.tolist(), k=n)
-    bg_values = flat_fluor[np.asarray(bg_pick, dtype=np.int64)]
-    return means.tolist(), bg_values.tolist()
+# Core sampler (`_sample_cell_and_bg`) is imported from
+# `auto_threshold_core` at the top of this module.
 
 
 # ── Walk the output dir ────────────────────────────────────────────────────

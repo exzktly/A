@@ -14,6 +14,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from well_viewer import selections_model as _sel
+from well_viewer.persistence._io import atomic_write_json
 
 _logger = logging.getLogger("well_viewer")
 
@@ -54,8 +55,7 @@ def save_via_dialog(app) -> None:
     if not path_str:
         return
     try:
-        with open(path_str, "w", encoding="utf-8") as fh:
-            json.dump(to_payload(app), fh, indent=2)
+        atomic_write_json(Path(path_str), to_payload(app))
         _logger.info("Bar groups saved to %s", path_str)
     except OSError as exc:
         QMessageBox.critical(app, "Save failed", str(exc))

@@ -91,26 +91,28 @@ def _apply_order(items, saved_order, key):
     if not saved_order:
         return list(items)
     items = list(items)
-    by_key: dict[str, list] = {}
-    natural_order: list = []
-    for it in items:
+    by_key: dict[str, list[int]] = {}  # str-key -> indices into items
+    for idx, it in enumerate(items):
         try:
             k = str(key(it))
         except Exception:
             k = ""
-        by_key.setdefault(k, []).append(it)
-        natural_order.append(it)
-    seen_objs: set = set()
+        by_key.setdefault(k, []).append(idx)
+    # Track which item *indices* have already been emitted. id()-based
+    # dedup was unsafe for small interned strings or any items the
+    # iterator might compare equal — distinct list positions could
+    # share an id, producing spurious dedup.
+    seen_indices: set[int] = set()
     out: list = []
     for k in saved_order:
         bucket = by_key.get(str(k))
         if not bucket:
             continue
-        for it in bucket:
-            out.append(it)
-            seen_objs.add(id(it))
-    for it in natural_order:
-        if id(it) not in seen_objs:
+        for idx in bucket:
+            out.append(items[idx])
+            seen_indices.add(idx)
+    for idx, it in enumerate(items):
+        if idx not in seen_indices:
             out.append(it)
     return out
 
@@ -310,6 +312,15 @@ def redraw_line_plots(
     metric_label: str = "Mean Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
+    # Lazy-build guard: this controller is reachable from the redraw fan-out
+    # whether or not the Line Graphs tab has been built. Today it's
+    # eager-built; this guard is the safe shape for when it isn't.
+    if not all(
+        hasattr(app, attr)
+        for attr in ("_line_ax_mean", "_line_ax_frac", "_line_ax_cdf",
+                     "_line_fig", "_line_canvas")
+    ):
+        return
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
         ax.cla()
 
@@ -478,4 +489,13 @@ def redraw_line_plots(
         n_total = sum(len(app._get_rows(l)) for l in selected)
         app._set_status(f"{len(selected)} well(s)  |  {n_total:,} nuclei  |  threshold={threshold:.2f}  |  band={band_lbl}")
 
+    # Re-apply the Export Style sidebar's prefs so font sizes, axis
+    # limits, log scale, etc. survive a redraw (matches what the bar,
+    # heatmap, and distribution renderers do).
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, app._line_fig,
+                                      getattr(app, "_line_canvas", None))
+    except Exception:  # pragma: no cover - never let style restore break a draw
+        pass
     app._line_canvas.draw_idle()

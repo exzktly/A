@@ -9,6 +9,22 @@ from pathlib import Path
 from PySide6.QtWidgets import QMessageBox
 
 
+def _resolve_fov_tp_extractor(extractor, pipeline_info: dict):
+    """Return *extractor* unchanged when read_pipeline_info gave us one;
+    otherwise build a separator-aware 5-field fallback from
+    ``pipeline_info["separator"]`` (matching the dataset's filename
+    convention rather than the hardcoded ``_`` legacy regex)."""
+    if extractor is not None:
+        return extractor
+    sep = ""
+    if isinstance(pipeline_info, dict):
+        sep = str(pipeline_info.get("separator", "")).strip()
+    if not sep:
+        return None
+    from well_viewer.image_discovery import make_default_fov_tp_extractor
+    return make_default_fov_tp_extractor(sep)
+
+
 def load_path(app, path: Path) -> None:
     if not path.is_dir():
         QMessageBox.critical(app, "Not a directory", f"Expected a directory:\n{path}")
@@ -22,11 +38,13 @@ def load_path(app, path: Path) -> None:
         logger.info("Fluor images from: %s  |  masks/overlays from: %s", in_dir, out_dir)
         app._in_dir = in_dir
         app._fov_tp_extractor, _fluor_tokens, _smfish_tokens, app._pipeline_info = app._read_pipeline_info(out_dir)
+        app._fov_tp_extractor = _resolve_fov_tp_extractor(app._fov_tp_extractor, app._pipeline_info)
         app._smfish_channels = _smfish_tokens
         app._load_directory(out_dir, label=f"{path.name}/out")
     else:
         app._in_dir = None
         app._fov_tp_extractor, _fluor_tokens, _smfish_tokens, app._pipeline_info = app._read_pipeline_info(path)
+        app._fov_tp_extractor = _resolve_fov_tp_extractor(app._fov_tp_extractor, app._pipeline_info)
         app._smfish_channels = _smfish_tokens
         app._load_directory(path)
 
@@ -59,8 +77,30 @@ def load_directory(app, d: Path, label=None) -> None:
     app._last_sel = None
     app._prev_sel = set()
     app._bar_order = None
+    # Drop the per-channel threshold (min, max) cache; the new dataset's
+    # ranges may be completely different.
+    if hasattr(app, "_threshold_range_cache"):
+        app._threshold_range_cache.clear()
     if hasattr(app, "_invalidate_review_image_frame_cache"):
         app._invalidate_review_image_frame_cache()
+    # Drop every cached ZipFile handle on dataset swap so the new
+    # dataset's per-well zips aren't read through a previous
+    # dataset's handle (or, worse, a handle pointing at a since-
+    # deleted file).
+    try:
+        from well_viewer.zipfile_cache import invalidate as _invalidate_zip_cache
+        _invalidate_zip_cache()
+    except Exception:
+        pass
+    # Signal any in-flight smFISH "Apply to All" worker to abort so
+    # it doesn't overwrite the *new* dataset's CSVs with counts
+    # computed against the previous dataset.
+    smfish_cancel = getattr(app, "_smfish_cancel_event", None)
+    if smfish_cancel is not None:
+        try:
+            smfish_cancel.set()
+        except Exception:
+            pass
     n = len(csvs)
     app._show_progress(n, f"Loading {n} CSV file(s)…")
     for i, p in enumerate(csvs, 1):

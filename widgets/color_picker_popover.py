@@ -115,7 +115,7 @@ class SvSquare(QWidget):
         rect = QRectF(self.rect())
         # white → hue across x
         hg = QLinearGradient(rect.left(), 0.0, rect.right(), 0.0)
-        hg.setColorAt(0.0, QColor("#FFFFFF"))
+        hg.setColorAt(0.0, QColor(theme.Colors.ink_light))
         hg.setColorAt(1.0, QColor.fromHsvF(self._hue, 1.0, 1.0))
         p.fillRect(rect, hg)
         # transparent → black down y
@@ -131,7 +131,7 @@ class SvSquare(QWidget):
         cx = self._s * rect.width()
         cy = (1.0 - self._v) * rect.height()
         rr = max(4.0, rect.width() * 0.04)
-        ink = QColor("#FFFFFF") if self._v < 0.55 else QColor("#000000")
+        ink = QColor(theme.Colors.ink_light) if self._v < 0.55 else QColor(theme.Colors.ink_dark)
         p.setPen(QPen(ink, 1.6))
         p.drawEllipse(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr))
         p.end()
@@ -197,9 +197,9 @@ class HueStrip(QWidget):
         p.setPen(QPen(QColor(theme.Colors.border), 1.0))
         p.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))
         y = self._hue * rect.height()
-        p.setPen(QPen(QColor("#FFFFFF"), 2.0))
+        p.setPen(QPen(QColor(theme.Colors.ink_light), 2.0))
         p.drawLine(rect.left(), y, rect.right(), y)
-        p.setPen(QPen(QColor("#000000"), 1.0))
+        p.setPen(QPen(QColor(theme.Colors.ink_dark), 1.0))
         p.drawLine(rect.left(), y - 1, rect.right(), y - 1)
         p.drawLine(rect.left(), y + 1, rect.right(), y + 1)
         p.end()
@@ -224,10 +224,16 @@ class ColorPickerPopover(Popover):
 
         row = QHBoxLayout()
         row.setSpacing(theme.Spacing.sm)
+        # fontMetrics-derived minimums: roughly 18 chars wide × 10 lines tall
+        # for the SV square, ~1 char wide for the hue strip. Scales at hi-dpi.
+        _fm = self.fontMetrics()
         self._sv = SvSquare()
-        self._sv.setMinimumSize(160, 140)
+        self._sv.setMinimumSize(
+            max(120, _fm.averageCharWidth() * 22),
+            max(110, _fm.height() * 10),
+        )
         self._hue = HueStrip()
-        self._hue.setMinimumWidth(16)
+        self._hue.setMinimumWidth(max(12, _fm.averageCharWidth() * 2))
         row.addWidget(self._sv, 1)
         row.addWidget(self._hue, 0)
         v.addLayout(row, 1)
@@ -351,8 +357,16 @@ class ColorPickerPopover(Popover):
     def _on_alpha_edited(self) -> None:
         if self._updating:
             return
+        text = self._alpha.text().strip()
+        if not text:
+            # Treat blank as "no change yet" — silently snapping to 255
+            # (the old behaviour) re-emits colorPicked for what was a
+            # typo. Re-sync from the current colour so the field shows
+            # the live value on next focus.
+            self._sync_from_color_keep_committed()
+            return
         try:
-            a = max(0, min(255, int(self._alpha.text() or "255")))
+            a = max(0, min(255, int(text)))
         except ValueError:
             return
         if a != self._color.alpha():

@@ -525,13 +525,21 @@ def export_raw_data_csv(app) -> None:
 
 def save_montage_figure(app) -> None:
     from matplotlib.figure import Figure as _Figure
-    from well_viewer import runtime_app as rt
+
+    # Pull theme constants and the well-token helper from their proper
+    # homes (ui.theme / data_loading) instead of round-tripping through
+    # the runtime_app monolith. Numpy is a hard pipeline dependency, so
+    # the optional-import dance in runtime_app's _np / _NP_AVAILABLE is
+    # also unnecessary here.
+    import numpy as _np
+    from ui.theme import PLOT_BG, TXT_PRI, TXT_MUT
+    from well_viewer.data_loading import extract_well_token as _extract_well_token
 
     if not app._montage_fluor_arrays:
         _warn(app, "Nothing to save", "Load a well in the Preview tab first.")
         return
     fov = app._preview_fov_cb.currentText()
-    well = rt._extract_well_token(app._preview_selected_well or "") or "well"
+    well = _extract_well_token(app._preview_selected_well or "") or "well"
     n = len(app._montage_fluor_arrays)
     try:
         lo = float(app._mon_lmin_edit.text())
@@ -561,7 +569,7 @@ def save_montage_figure(app) -> None:
         """Slice ``a`` to the active montage crop, preserving channel axes."""
         if crop is None or a is None:
             return a
-        a = rt._np.asarray(a)
+        a = _np.asarray(a)
         ih, iw = a.shape[:2]
         y0, x0, y1, x1 = crop
         y0 = max(0, min(int(y0), ih))
@@ -572,46 +580,46 @@ def save_montage_figure(app) -> None:
             return a
         return a[y0:y1, x0:x1]
 
-    fig = _Figure(figsize=(max(4, n * 2.5), 5), dpi=300, facecolor=rt.PLOT_BG)
+    fig = _Figure(figsize=(max(4, n * 2.5), 5), dpi=300, facecolor=PLOT_BG)
     for ci, ((tp, _), display_arr, ov_arr) in enumerate(zip(tp_list, fluor_source, app._montage_overlay_arrays)):
         ax_g = fig.add_subplot(2, n, ci + 1)
         ax_o = fig.add_subplot(2, n, n + ci + 1)
-        if display_arr is not None and rt._NP_AVAILABLE:
-            arr = rt._np.asarray(_apply_crop(display_arr), dtype=rt._np.float32)
+        if display_arr is not None and True:
+            arr = _np.asarray(_apply_crop(display_arr), dtype=_np.float32)
             alo = lo if lo is not None else float(arr.min())
             ahi = hi if hi is not None else float(arr.max())
             if ahi <= alo:
                 ahi = alo + 1.0
             ax_g.imshow(arr, cmap="gray", vmin=alo, vmax=ahi, aspect="auto")
         else:
-            ax_g.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_g.transAxes, color=rt.TXT_MUT)
-        ax_g.set_title(tp, fontsize=6, color=rt.TXT_PRI)
+            ax_g.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_g.transAxes, color=TXT_MUT)
+        ax_g.set_title(tp, fontsize=6, color=TXT_PRI)
         ax_g.axis("off")
         if ci == 0:
-            ax_g.set_ylabel(app._active_channel.upper(), fontsize=7, color=rt.TXT_PRI)
-        if ov_arr is not None and rt._NP_AVAILABLE:
-            arr = rt._np.asarray(_apply_crop(ov_arr))
+            ax_g.set_ylabel(app._active_channel.upper(), fontsize=7, color=TXT_PRI)
+        if ov_arr is not None and True:
+            arr = _np.asarray(_apply_crop(ov_arr))
             if arr.ndim == 2:
-                arr_f = arr.astype(rt._np.float32)
+                arr_f = arr.astype(_np.float32)
                 lo_o = ov_lo if ov_lo is not None else float(arr_f.min())
                 hi_o = ov_hi if ov_hi is not None else float(arr_f.max())
                 if hi_o <= lo_o:
                     hi_o = lo_o + 1.0
                 ax_o.imshow(arr_f, cmap="gray", vmin=lo_o, vmax=hi_o, aspect="auto")
             elif arr.ndim == 3:
-                a = arr[:, :, :3].astype(rt._np.float32)
+                a = arr[:, :, :3].astype(_np.float32)
                 lo_o = ov_lo if ov_lo is not None else float(a.min())
                 hi_o = ov_hi if ov_hi is not None else float(a.max())
                 if hi_o <= lo_o:
                     hi_o = lo_o + 1.0
-                a = rt._np.clip((a - lo_o) / (hi_o - lo_o) * 255.0, 0, 255).astype(rt._np.uint8)
+                a = _np.clip((a - lo_o) / (hi_o - lo_o) * 255.0, 0, 255).astype(_np.uint8)
                 ax_o.imshow(a, aspect="auto")
         else:
-            ax_o.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_o.transAxes, color=rt.TXT_MUT)
+            ax_o.text(0.5, 0.5, "unavail", ha="center", va="center", transform=ax_o.transAxes, color=TXT_MUT)
         ax_o.axis("off")
         if ci == 0:
-            ax_o.set_ylabel("overlay", fontsize=7, color=rt.TXT_PRI)
-    fig.suptitle(f"{well}  FOV: {fov}", fontsize=9, fontweight="bold", color=rt.TXT_PRI, y=1.01)
+            ax_o.set_ylabel("overlay", fontsize=7, color=TXT_PRI)
+    fig.suptitle(f"{well}  FOV: {fov}", fontsize=9, fontweight="bold", color=TXT_PRI, y=1.01)
     fig.tight_layout()
     app._save_matplotlib_fig(fig, f"montage_{well}_{fov}.png")
 
@@ -694,7 +702,6 @@ def export_scatter_data(app) -> None:
 
 def export_scatter_agg_data(app) -> None:
     """Export aggregate scatter plot data to CSV."""
-    from well_viewer import runtime_app as rt
     from well_viewer.scatter_controller import collect_scatter_agg_data as _scatter_collect_agg_data
 
     try:
