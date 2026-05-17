@@ -119,11 +119,19 @@ def _hex6(c: Any) -> Optional[str]:
 
 
 def rank_color(wells: Sequence[str], fallback_idx: int = 0,
-               palette: Optional[Sequence[str]] = None) -> str:
+               palette: Optional[Sequence[str]] = None,
+               used_colors: Optional[set] = None) -> str:
     """Decision-#1 colour: by the position rank of the selection's *lowest* well.
 
     Falls back to the positional palette entry when ``wells`` has no parseable
     token (e.g. an empty, not-yet-populated selection).
+
+    The plate has 96 wells but the palette has 48 colours, so two selections
+    whose lowest-rank wells differ by exactly 48 (e.g. A01 / E01) would map
+    to the same palette index. When ``used_colors`` is supplied, the index is
+    incremented (mod len(palette)) until a free slot is found — preserving
+    the "same lowest-rank well → same colour" intent in the common case
+    while keeping distinct selections distinguishable.
     """
     pal = list(palette) if palette else well_colors()
     if not pal:
@@ -131,8 +139,20 @@ def rank_color(wells: Sequence[str], fallback_idx: int = 0,
     ranks = [well_rank(w) for w in wells]
     ranks = [r for r in ranks if r < (1 << 30)]
     if not ranks:
-        return pal[fallback_idx % len(pal)]
-    return pal[min(ranks) % len(pal)]
+        base_idx = fallback_idx % len(pal)
+    else:
+        base_idx = min(ranks) % len(pal)
+    if not used_colors:
+        return pal[base_idx]
+    # Step to the next free palette slot, in palette order. After a full
+    # cycle every slot is taken; fall back to the base index (a colour
+    # *will* repeat, but at that point the user has more selections than
+    # the palette can distinguish).
+    for offset in range(len(pal)):
+        candidate = pal[(base_idx + offset) % len(pal)]
+        if candidate not in used_colors:
+            return candidate
+    return pal[base_idx]
 
 
 def _default_id_factory() -> str:
@@ -199,13 +219,15 @@ def make_selection(*, name: Any, wells: Any, replicates: Any = None,
                    hidden: bool = False, color: Any = None, source: Any = "user",
                    labels: Any = None, sel_id: Any = None,
                    used_names: Optional[set] = None, used_ids: Optional[set] = None,
+                   used_colors: Optional[set] = None,
                    fallback_color_idx: int = 0,
                    palette: Optional[Sequence[str]] = None,
                    id_factory: Callable[[], str] = _default_id_factory) -> dict:
     """Build one normalised, invariant-respecting ``Selection`` dict.
 
-    ``used_names`` / ``used_ids`` (if given) are updated in place so a sequence
-    of calls produces globally-unique names/ids.
+    ``used_names`` / ``used_ids`` / ``used_colors`` (if given) are updated
+    in place so a sequence of calls produces globally-unique names / ids /
+    colours.
     """
     used_names = used_names if used_names is not None else set()
     used_ids = used_ids if used_ids is not None else set()
@@ -220,7 +242,9 @@ def make_selection(*, name: Any, wells: Any, replicates: Any = None,
     nm = _unique_name(name, used_names)
     used_names.add(nm)
 
-    col = _hex6(color) or rank_color(wl, fallback_color_idx, palette)
+    col = _hex6(color) or rank_color(wl, fallback_color_idx, palette, used_colors)
+    if used_colors is not None:
+        used_colors.add(col)
 
     sel: dict = {
         "id": sid,
@@ -251,6 +275,7 @@ def validate_repair(selections: Any, *, palette: Optional[Sequence[str]] = None,
         return []
     used_names: set = set()
     used_ids: set = set()
+    used_colors: set = set()
     out: list[dict] = []
     for i, raw in enumerate(selections):
         if not isinstance(raw, dict):
@@ -265,6 +290,7 @@ def validate_repair(selections: Any, *, palette: Optional[Sequence[str]] = None,
             labels=raw.get("labels"),
             sel_id=raw.get("id"),
             used_names=used_names, used_ids=used_ids,
+            used_colors=used_colors,
             fallback_color_idx=i, palette=palette, id_factory=id_factory,
         )
         # carry through any unknown keys (forward-compat)
@@ -341,6 +367,7 @@ def migrate_v1(block: Any, *, rep_hidden: Optional[Iterable[int]] = None,
     rep_dicts, _rep_by_name, group_dicts = _resolve_v1(block)
     used_names: set = set()
     used_ids: set = set()
+    used_colors: set = set()
     selections: list[dict] = []
 
     # (1) bar groups, in order — group order wins
@@ -353,6 +380,7 @@ def migrate_v1(block: Any, *, rep_hidden: Optional[Iterable[int]] = None,
         selections.append(make_selection(
             name=g["name"], wells=gw, replicates=(reps or None), hidden=g["hidden"],
             color=None, source="bar_group", used_names=used_names, used_ids=used_ids,
+            used_colors=used_colors,
             fallback_color_idx=gi, palette=palette, id_factory=id_factory,
         ))
 
@@ -375,6 +403,7 @@ def migrate_v1(block: Any, *, rep_hidden: Optional[Iterable[int]] = None,
             replicates=([list(rd["wells"])] if rd["wells"] else None),
             hidden=hidden, color=None, source="rep_set",
             used_names=used_names, used_ids=used_ids,
+            used_colors=used_colors,
             fallback_color_idx=len(group_dicts) + j, palette=palette, id_factory=id_factory,
         ))
         if id(rd) in rep_dict_index:
