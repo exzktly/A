@@ -679,6 +679,15 @@ def _smfish_apply_to_all(app) -> None:
             lambda: QMessageBox.information(frame, "smFISH", "Apply to All finished."),
         )
 
+    # Cancel event used by load_controller / app shutdown to abort
+    # the in-flight smFISH run before it overwrites CSVs from a
+    # different dataset.
+    import threading as _threading
+    if not hasattr(app, "_smfish_cancel_event") or app._smfish_cancel_event is None:
+        app._smfish_cancel_event = _threading.Event()
+    else:
+        app._smfish_cancel_event.clear()
+
     apply_global_threshold_async(
         out_dir=app._smfish_out_dir,
         well_to_zip=app._smfish_well_to_zip,
@@ -689,6 +698,8 @@ def _smfish_apply_to_all(app) -> None:
         status_cb=app._smfish_bridge.status.emit,
         done_cb=app._smfish_bridge.done.emit,
         after_csv_cb=_after_csv,
+        cancel_event=app._smfish_cancel_event,
+        expected_data_dir=app._smfish_out_dir,
     )
 
 

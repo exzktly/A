@@ -70,6 +70,15 @@ def load_directory(app, d: Path, label=None) -> None:
         _invalidate_zip_cache()
     except Exception:
         pass
+    # Signal any in-flight smFISH "Apply to All" worker to abort so
+    # it doesn't overwrite the *new* dataset's CSVs with counts
+    # computed against the previous dataset.
+    smfish_cancel = getattr(app, "_smfish_cancel_event", None)
+    if smfish_cancel is not None:
+        try:
+            smfish_cancel.set()
+        except Exception:
+            pass
     n = len(csvs)
     app._show_progress(n, f"Loading {n} CSV file(s)…")
     for i, p in enumerate(csvs, 1):
