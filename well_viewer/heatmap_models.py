@@ -70,8 +70,8 @@ class HeatmapLayout:
         if src == dst or not (0 <= src < self.rows and 0 <= dst < self.rows):
             return
         order = list(range(self.rows))
-        order.pop(src)
-        order.insert(dst, src)
+        popped = order.pop(src)
+        order.insert(dst, popped)
         new_cells: Dict[Tuple[int, int], List[str]] = {}
         for new_r, old_r in enumerate(order):
             for c in range(self.cols):
@@ -88,8 +88,8 @@ class HeatmapLayout:
         if src == dst or not (0 <= src < self.cols and 0 <= dst < self.cols):
             return
         order = list(range(self.cols))
-        order.pop(src)
-        order.insert(dst, src)
+        popped = order.pop(src)
+        order.insert(dst, popped)
         new_cells: Dict[Tuple[int, int], List[str]] = {}
         for r in range(self.rows):
             for new_c, old_c in enumerate(order):

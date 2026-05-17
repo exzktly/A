@@ -43,10 +43,9 @@ def redraw(
         metric_label=metric_label,
     )
 
-    if hasattr(app, "_notebook"):
-        tab = app._notebook.currentName()
-        if tab == "Movie Montage" and app._preview_selected_well:
-            app._update_preview(app._preview_selected_well)
+    # ``Movie Montage`` was retired and folded into Image Table; its
+    # NamedPageStack entry no longer exists, so no tab-name branch is
+    # needed here.
 
 
 def save_matplotlib_fig(app, fig, default_name: str, *, plot_bg: str) -> None:

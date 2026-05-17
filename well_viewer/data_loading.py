@@ -315,7 +315,11 @@ def aggregate_with_threshold_df(
     if "area_px" in df.columns:
         area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
         with np.errstate(invalid="ignore"):
-            mask &= ~(area <= cell_area_threshold)
+            # Match _all_fluor_values_filtered: drop NaN areas explicitly
+            # rather than letting `~(NaN <= x)` keep them. Without this,
+            # aggregation kept NaN-area cells but raw filtering dropped
+            # them — same dataset, different counts.
+            mask &= np.isfinite(area) & (area > cell_area_threshold)
     elif 0.0 <= cell_area_threshold:
         return []
 
