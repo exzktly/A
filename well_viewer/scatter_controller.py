@@ -183,6 +183,15 @@ def redraw_scatter(
         fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
         fluor_gate_y: FluorGating threshold for Y channel; cells below are excluded
     """
+    # Lazy-build guard. The Scatter tab is built on demand; if a redraw
+    # is fanned out before the tab body exists, no-op rather than
+    # AttributeError-ing.
+    if not all(
+        hasattr(app, attr)
+        for attr in ("_ax_scatter", "_scatter_fig", "_scatter_canvas")
+    ):
+        return
+
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
 
@@ -510,6 +519,14 @@ def redraw_scatter_agg(
         timepoints_h: List of timepoints in hours
         well_colors: List of colors for replicates/wells
     """
+    # Lazy-build guard — Scatter Aggregate is a sub-tab of the Scatter
+    # tab, built on first activation.
+    if not all(
+        hasattr(app, attr)
+        for attr in ("_ax_scatter_agg", "_scatter_agg_fig", "_scatter_agg_canvas")
+    ):
+        return
+
     active_rsets = app._rep_sets_active()
     selected_wells = [lbl for lbl in app._selected_wells if lbl in app._well_paths]
 
