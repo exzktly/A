@@ -187,6 +187,12 @@ class MockApp:
     def _bar_well_display_label(self, label: str) -> str:
         return label
 
+    def _well_display_label(self, label: str) -> str:
+        return label
+
+    def _selected_labels(self):
+        return list(self.per_well_pts)
+
 
 @pytest.fixture
 def mock_app():

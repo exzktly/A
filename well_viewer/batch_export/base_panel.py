@@ -1319,15 +1319,16 @@ class BatchExportPanel(QWidget):
         fc_active = fc_vs_ctrl or fc_vs_t0
 
         def _run_group(grp: BarGroup) -> Optional[str]:
-            from well_viewer import fold_change as _fc
-
             safe = re.sub(r"[^A-Za-z0-9_\-]", "_", grp.name)
             csv_path = out_dir / f"batch_{safe}.csv"
             fig_path = out_dir / f"batch_{safe}.{fmt}"
 
             try:
+                from well_viewer.batch_export._line_series_runner import (
+                    collect_line_series_for_group,
+                )
                 from well_viewer.export_service import (
-                    _well_labels_map, _fc_mode_str,
+                    _well_labels_map,
                     line_metric_fieldnames, line_metric_row,
                     well_name_for, well_names_joined,
                 )
@@ -1340,86 +1341,64 @@ class BatchExportPanel(QWidget):
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
                 _well_labels = _well_labels_map(self._app)
-                # Control series resolved once per group; the same {t: mean}
-                # is reused across every member of the group.
-                fc_control_means: dict = {}
-                if fc_vs_ctrl and fc_ctrl_lbl:
-                    fc_control_means = _fc.pts_to_mean_by_t(
-                        _fc.control_pts_for_line(
-                            self._app, fc_ctrl_lbl, threshold=threshold,
-                            val_col=_val_col,
-                            cell_area_threshold=_cell_area_threshold,
-                            fluor_gates=_fluor_gates,
-                        )
-                    )
-                rows_out: List[dict] = []
-                for rset in grp.members:
-                    valid_wells = [w for w in rset.wells if w in self._app._well_paths]
-                    if not valid_wells:
-                        continue
-                    pts = self._app._aggregate_group(
-                        valid_wells, threshold=threshold, use_sem=use_sem,
+                panel_fc_state = (fc_vs_ctrl, fc_ctrl_lbl, fc_vs_t0)
+                # Two passes through the same shared collector: raw values
+                # for the standard mean / spread columns, fold-change
+                # values for the additive ``fold_change_*`` columns when
+                # active. Mirrors the bar batch CSV's additive schema.
+                series_raw = collect_line_series_for_group(
+                    self._app, grp,
+                    threshold=threshold, use_sem=use_sem,
+                    val_col=_val_col,
+                    cell_area_threshold=_cell_area_threshold,
+                    fluor_gates=_fluor_gates,
+                    fc_state=(False, "", False),
+                )
+                if fc_active:
+                    series_fc = collect_line_series_for_group(
+                        self._app, grp,
+                        threshold=threshold, use_sem=use_sem,
                         val_col=_val_col,
                         cell_area_threshold=_cell_area_threshold,
                         fluor_gates=_fluor_gates,
+                        fc_state=panel_fc_state,
                     )
-                    wells_str = ";".join(valid_wells)
-                    well_names_str = well_names_joined(wells_str, _well_labels)
-                    norm_pts = (
-                        _fc.normalize_pts(
-                            pts, control_means=fc_control_means or None,
-                            use_t0=fc_vs_t0,
-                        ) if fc_active else None
-                    )
-                    for i, pt in enumerate(pts):
+                    fc_points_by_key = {
+                        s.key: s.points for s in series_fc
+                    }
+                else:
+                    fc_points_by_key = {}
+                rows_out: List[dict] = []
+                for series in series_raw:
+                    if series.kind == "repset":
+                        wells_str = ";".join(series.wells)
+                        well_names_str = well_names_joined(wells_str, _well_labels)
+                        member_type = "replicate_set"
+                        n_wells = len(series.wells)
+                    else:
+                        wells_str = series.wells[0] if series.wells else series.key
+                        well_names_str = well_name_for(wells_str, _well_labels)
+                        member_type = "solo_well"
+                        n_wells = 1
+                    fc_pts = fc_points_by_key.get(series.key, [])
+                    for i, pt in enumerate(series.points):
                         row = {
                             "group": grp.name,
-                            "member": rset.name,
-                            "member_type": "replicate_set",
+                            "member": series.key,
+                            "member_type": member_type,
                             "wells": wells_str,
                             "well_names": well_names_str,
-                            "n_wells": len(valid_wells),
+                            "n_wells": n_wells,
                         }
                         row.update(line_metric_row(
-                            pt, ch=_ch, metric=_metric,
+                            pt.as_aggpoint(), ch=_ch, metric=_metric,
                             threshold=threshold, band_lbl=band_lbl,
                         ))
-                        if fc_active and norm_pts is not None and i < len(norm_pts):
-                            _attach_fc_row(row, norm_pts[i], band_lbl,
-                                           fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
-                        rows_out.append(row)
-                for w in grp.solo_wells:
-                    if w not in self._app._well_paths:
-                        continue
-                    pts = self._app._aggregate_well(
-                        w, threshold=threshold, use_sem=use_sem,
-                        val_col=_val_col,
-                        cell_area_threshold=_cell_area_threshold,
-                        fluor_gates=_fluor_gates,
-                    )
-                    _well_name = well_name_for(w, _well_labels)
-                    norm_pts = (
-                        _fc.normalize_pts(
-                            pts, control_means=fc_control_means or None,
-                            use_t0=fc_vs_t0,
-                        ) if fc_active else None
-                    )
-                    for i, pt in enumerate(pts):
-                        row = {
-                            "group": grp.name,
-                            "member": w,
-                            "member_type": "solo_well",
-                            "wells": w,
-                            "well_names": _well_name,
-                            "n_wells": 1,
-                        }
-                        row.update(line_metric_row(
-                            pt, ch=_ch, metric=_metric,
-                            threshold=threshold, band_lbl=band_lbl,
-                        ))
-                        if fc_active and norm_pts is not None and i < len(norm_pts):
-                            _attach_fc_row(row, norm_pts[i], band_lbl,
-                                           fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl)
+                        if fc_active and i < len(fc_pts):
+                            _attach_fc_row(
+                                row, fc_pts[i].as_aggpoint(), band_lbl,
+                                fc_vs_ctrl, fc_vs_t0, fc_ctrl_lbl,
+                            )
                         rows_out.append(row)
                 if rows_out:
                     fieldnames = (
@@ -1514,121 +1493,52 @@ class BatchExportPanel(QWidget):
         any_ts = any_cdf = False
         all_fluor_vals: List[float] = []
 
-        members: List[tuple] = []
-        for rset in grp.members:
-            valid = [w for w in rset.wells if w in self._app._well_paths]
-            if not valid:
-                continue
-            members.append(("replicate", rset, valid, self._app._replicate_display_label(rset)))
-        for w in grp.solo_wells:
-            if w not in self._app._well_paths:
-                continue
-            members.append(("well", w, [w], w))
-
         _val_col = self._export_val_col_for("_line_channel_cb")
         _cell_area_threshold = self._app._get_cell_area_threshold()
         _fluor_gates = self._app._get_all_fluor_gates()
-        for mi, (member_type, member_key, valid_wells, display_name) in enumerate(members):
-            # decision #1: each member coloured by its own well-position rank.
-            color = (self._app._rank_color_rset(member_key) if member_type == "replicate"
-                     else self._app._rank_color_well(member_key))
-            if member_type == "replicate":
-                rset = member_key
-                fluor_chunks: list = []
-                pooled_pts = self._app._aggregate_group(
-                    valid_wells, threshold=threshold, use_sem=False,
-                    val_col=_val_col,
-                    cell_area_threshold=_cell_area_threshold,
-                    fluor_gates=_fluor_gates,
+        from well_viewer.batch_export._line_series_runner import (
+            collect_line_series_for_group,
+        )
+        fc_state_for_fig = (
+            bool(fc_control_means),
+            self._fc_control_label if fc_active else "",
+            bool(fc_vs_t0),
+        )
+        series_list = collect_line_series_for_group(
+            self._app, grp,
+            threshold=threshold, use_sem=use_sem,
+            val_col=_val_col,
+            cell_area_threshold=_cell_area_threshold,
+            fluor_gates=_fluor_gates,
+            fc_state=fc_state_for_fig,
+            include_cdf=True,
+        )
+        import numpy as _np
+        for series in series_list:
+            color = series.color
+            display_name = series.display
+            agg_times = [p.t for p in series.points if p.has_mean]
+            agg_means = [p.mean for p in series.points if p.has_mean]
+            agg_errs = [p.spread for p in series.points if p.has_mean]
+            if agg_times:
+                ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o",
+                             markersize=4, label=display_name, zorder=3)
+                ax_mean.fill_between(
+                    agg_times,
+                    [m - e for m, e in zip(agg_means, agg_errs)],
+                    [m + e for m, e in zip(agg_means, agg_errs)],
+                    color=color, alpha=0.15, zorder=2,
                 )
-                all_tps = sorted({t for t, *_ in pooled_pts})
-                for lbl in valid_wells:
-                    df = self._app._get_rows(lbl)
-                    if df is None or df.empty:
-                        continue
-                    fluor_chunks.append(_all_fluor_values(df, val_col=_val_col))
-                _raw = []
-                for t in all_tps:
-                    gm, gerr, gf, _ = self._app._compute_rep_stats(rset, t, threshold, use_sem)
-                    if not math.isnan(gm):
-                        _raw.append((t, gm, gerr, gf))
-                if _raw and fc_active:
-                    _raw = _fc.normalize_pts(
-                        _raw,
-                        control_means=fc_control_means or None,
-                        use_t0=fc_vs_t0,
-                    )
-                agg_times, agg_means, agg_errs, agg_fracs = [], [], [], []
-                for pt in _raw:
-                    t2, m2, e2, fr2 = pt[0], pt[1], pt[2], pt[3]
-                    if not (isinstance(m2, float) and math.isnan(m2)):
-                        agg_times.append(t2)
-                        agg_means.append(m2)
-                        agg_errs.append(e2)
-                        agg_fracs.append(fr2)
-
-                if agg_times:
-                    ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o",
-                                 markersize=4, label=display_name, zorder=3)
-                    ax_mean.fill_between(
-                        agg_times,
-                        [m - e for m, e in zip(agg_means, agg_errs)],
-                        [m + e for m, e in zip(agg_means, agg_errs)],
-                        color=color, alpha=0.15, zorder=2,
-                    )
-                    vf = [(t, f) for t, f in zip(agg_times, agg_fracs) if not math.isnan(f)]
-                    if vf:
-                        vt2, vf2 = zip(*vf)
-                        ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
-                                     markersize=3, label=display_name, zorder=3)
-                        ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
-                    any_ts = True
-
-                import numpy as _np
-                pooled = _np.concatenate(fluor_chunks) if fluor_chunks else _np.empty(0, dtype=float)
-                fluor_vals = _np.sort(pooled)
-            else:
-                df = self._app._get_rows(member_key)
-                pts = self._app._aggregate_well(
-                    member_key, threshold=threshold, use_sem=use_sem,
-                    val_col=_val_col,
-                    cell_area_threshold=_cell_area_threshold,
-                    fluor_gates=_fluor_gates,
-                )
-                if pts and fc_active:
-                    pts = _fc.normalize_pts(
-                        pts,
-                        control_means=fc_control_means or None,
-                        use_t0=fc_vs_t0,
-                    )
-                if pts:
-                    times, means, spreads, fracs, *_ = zip(*pts)
-                    vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
-                    if vm:
-                        vt, vmm, vs = zip(*vm)
-                        ax_mean.plot(vt, vmm, color=color, lw=2, marker="o",
-                                     markersize=4, label=display_name, zorder=3)
-                        ax_mean.fill_between(
-                            vt,
-                            [m - s for m, s in zip(vmm, vs)],
-                            [m + s for m, s in zip(vmm, vs)],
-                            color=color, alpha=0.15, zorder=2,
-                        )
-                    vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
-                    if vf:
-                        vt2, vf2 = zip(*vf)
-                        ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
-                                     markersize=3, label=display_name, zorder=3)
-                        ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
-                    any_ts = True
-
-                import numpy as _np
-                pooled = _all_fluor_values(df, val_col=_val_col) if df is not None and not df.empty else _np.empty(0, dtype=float)
-                fluor_vals = _np.sort(pooled)
-
+                vf = [(p.t, p.frac) for p in series.points if p.has_frac]
+                if vf:
+                    vt2, vf2 = zip(*vf)
+                    ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
+                                 markersize=3, label=display_name, zorder=3)
+                    ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
+                any_ts = True
+            fluor_vals = _np.sort(_np.asarray(series.cdf_vals, dtype=float))
             n = int(fluor_vals.size)
             if n:
-                import numpy as _np
                 all_fluor_vals.extend(fluor_vals.tolist())
                 cdf = _np.arange(1, n + 1) / n
                 ax_cdf.plot(fluor_vals, cdf,

@@ -695,16 +695,27 @@ tabs/fold_change_controls.set_fold_change_state(app, *, …, initiating_scope)
         │   mirrors the shape of runtime_app._set_active_channel:
         │   updates state → _sync_widgets_to_state → _redraw_bars + _redraw
         ▼
-Line tab — lineplot_controller.redraw_line_plots(…)
-   1. fold_change.member_mean_series(app, fc_ctrl_lbl, …) →
-      {t: control_mean}  (mean-of-per-well-means for rep-set controls,
-      per-FOV pool when Aggregate-FOVs is on, single-well agg for
-      well controls — matches each member trace's own stat).
-   2. For each member trace, normalize_pts(pts, control_means=…,
-      use_t0=…, miss_sink=fc_misses) divides mean & spread by the
-      control's mean at the matching timepoint and/or by the member's
-      earliest finite mean.
-   3. After redraw, app._set_status(…) surfaces a one-line warning
+Line tab — lineplot_controller.redraw_line_plots(…) →
+            collect_line_series(app, …) → list[LineSeries]
+   1. Single source of truth, mirrors the bar plot's
+      ``collect_bar_items``. Each member becomes a ``LineSeries``
+      with a list of ``LinePoint``s (full AggPoint shape so the
+      renderer and CSV writers consume the same record).
+   2. fold_change.member_stats_series(app, fc_ctrl_lbl, …) →
+      {t: (control_mean, control_spread)} — mean-of-per-well-means
+      for rep-set controls (per-FOV pool when Aggregate-FOVs is on),
+      single-well agg for well controls. Spreads thread through
+      normalize_pts via quadrature for proper error propagation.
+   3. normalize_pts(pts, control_stats=…, use_t0=…,
+      miss_sink=fc_misses) is called inside collect_line_series.
+      Drag-order from ``_line_order_rsets`` / ``_line_order_wells``
+      is applied before the per-trace work.
+   4. The renderer just iterates the resulting LineSeries and calls
+      ax.plot. The batch line CSV / figure go through
+      ``batch_export._line_series_runner.collect_line_series_for_group``
+      — same data shape, pool-of-cells stat for the batch
+      numerator (matches the prior batch behaviour).
+   5. After redraw, app._set_status(…) surfaces a one-line warning
       naming any timepoints where the control had no sample.
 
 Bar tab — barplot_controller.collect_bar_items(app, target_t,
