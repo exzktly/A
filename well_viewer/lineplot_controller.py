@@ -310,6 +310,15 @@ def redraw_line_plots(
     metric_label: str = "Mean Intensity",
 ) -> None:
     """Redraw the line/fraction/CDF panel set for the active app state."""
+    # Lazy-build guard: this controller is reachable from the redraw fan-out
+    # whether or not the Line Graphs tab has been built. Today it's
+    # eager-built; this guard is the safe shape for when it isn't.
+    if not all(
+        hasattr(app, attr)
+        for attr in ("_line_ax_mean", "_line_ax_frac", "_line_ax_cdf",
+                     "_line_fig", "_line_canvas")
+    ):
+        return
     for ax in (app._line_ax_mean, app._line_ax_frac, app._line_ax_cdf):
         ax.cla()
 
