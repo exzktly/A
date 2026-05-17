@@ -169,6 +169,36 @@ def redraw_distribution(app) -> None:
         ax.set_xticks(range(1, len(labels) + 1))
         ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
         ax.set_ylabel("Value")
+    elif mode == "CDF":
+        # Empirical CDF per group: x = sorted values, y = (k+1)/n.
+        # ``step(..., where="post")`` matches the existing CDF panel on
+        # the Line Graphs and Statistics tabs so the visual style stays
+        # consistent across the app.
+        for name, color, vals in groups:
+            arr = np.asarray(vals, dtype=float)
+            arr = arr[np.isfinite(arr)]
+            n = arr.size
+            if n == 0:
+                continue
+            xs = np.sort(arr)
+            ys = np.arange(1, n + 1, dtype=float) / float(n)
+            ax.step(
+                xs, ys, where="post", color=color, lw=1.6,
+                label=f"{name} (n={n:,})",
+            )
+        if log_x:
+            try:
+                ax.set_xscale("log")
+            except Exception:
+                pass
+        ax.set_xlabel(_xlabel_for(app))
+        ax.set_ylabel("Cumulative fraction")
+        ax.set_ylim(-0.02, 1.05)
+        if any(name for name, _, _ in groups):
+            try:
+                ax.legend(fontsize=7, loc="best", framealpha=0.0, facecolor="none")
+            except Exception:
+                pass
     else:
         grid = _grid_for((vs for _, _, vs in groups), log_x=log_x)
         for name, color, vals in groups:

@@ -16,7 +16,7 @@ from well_viewer.ui_helpers import (
     make_plot_view_switcher)
 
 
-_MODE_OPTIONS = ["Histogram", "Histogram + KDE", "KDE only", "Violin (per group)"]
+_MODE_OPTIONS = ["Histogram", "Histogram + KDE", "KDE only", "CDF", "Violin (per group)"]
 
 
 def build_distribution_tab(app, parent: QWidget) -> None:
