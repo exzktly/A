@@ -6131,7 +6131,10 @@ class WellViewerApp(QWidget):
             arr = np.asarray(well_means, dtype=float)
             gm  = float(arr.mean())
             n   = arr.size
-            gsd = float(arr.std(ddof=0)) if n > 1 else 0.0
+            # Sample SD (ddof=1) across wells — each well is treated as
+            # one biological replicate. Matches the Stats tab's
+            # statistics.stdev (ddof=1) on the same group.
+            gsd = float(arr.std(ddof=1)) if n > 1 else 0.0
             gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
         else:
             gm, gerr = float("nan"), 0.0
@@ -6140,7 +6143,7 @@ class WellViewerApp(QWidget):
             arr = np.asarray(well_fracs, dtype=float)
             gf  = float(arr.mean())
             nf  = arr.size
-            fsd = float(arr.std(ddof=0)) if nf > 1 else 0.0
+            fsd = float(arr.std(ddof=1)) if nf > 1 else 0.0
             ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
         else:
             gf, ferr = float("nan"), 0.0

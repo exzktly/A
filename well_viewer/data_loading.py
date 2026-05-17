@@ -431,21 +431,27 @@ def _aggregate_arrays(
             fov_above_count = fov_above_count.reindex(fov_total.index, fill_value=0)
             fov_mean = fov_mean.reindex(fov_total.index)
 
+            # Per-FOV spreads treat each FOV as a sample, so use the
+            # sample SD (ddof=1) consistently — matches what the Stats
+            # tab reports for the same groups. The per-cell SD branch
+            # below (line ~454) stays ddof=0 because it's an explicit
+            # population SD of cells around the well mean (labelled
+            # accordingly in the axis title).
             fov_means = fov_mean.dropna().to_numpy()
             if fov_means.size > 1:
-                sd = float(fov_means.std(ddof=0))
+                sd = float(fov_means.std(ddof=1))
                 spread = sd / math.sqrt(fov_means.size) if use_sem else sd
 
             fov_fracs = (fov_above_count.to_numpy() / fov_total.to_numpy()).astype(float)
             if fov_fracs.size > 1:
-                fsd = float(fov_fracs.std(ddof=0))
+                fsd = float(fov_fracs.std(ddof=1))
                 frac_spread = fsd / math.sqrt(fov_fracs.size) if use_sem else fsd
 
             fov_n_above = fov_above_count.to_numpy().astype(float)
             if fov_n_above.size >= 1:
                 n_above_per_fov_mean = float(fov_n_above.sum() / fov_n_above.size)
             if fov_n_above.size > 1:
-                nsd = float(fov_n_above.std(ddof=0))
+                nsd = float(fov_n_above.std(ddof=1))
                 n_above_per_fov_spread = (nsd / math.sqrt(fov_n_above.size)
                                           if use_sem else nsd)
         else:
