@@ -80,6 +80,7 @@ class BarBatchExportPanel(BatchExportPanel):
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
         self._build_output_header_and_io(layout)
         self._build_channel_row(layout, attr="_bar_channel_cb")
+        self._build_control_group_row(layout, attr="_bar_ctrl_grp_cb")
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -135,6 +136,7 @@ class BarBatchExportPanel(BatchExportPanel):
         if out_dir is None:
             return
 
+        self._refresh_ctrl_grp_combo("_bar_ctrl_grp_cb")
         _ch_selected = self._selected_export_channel() or self._app._active_channel
         # Threshold lookup keys by the canonical channel/ratio key, not
         # the dropdown's display label — translate ratio labels first so
@@ -146,6 +148,11 @@ class BarBatchExportPanel(BatchExportPanel):
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
+
+        # Pre-compute control group bar fields per timepoint for normalization.
+        ctrl_name = self._selected_ctrl_grp_name("_bar_ctrl_grp_cb")
+        _ctrl_grp_obj = next((g for g in groups_with_data if g.name == ctrl_name), None) if ctrl_name else None
+
         jobs = [(grp, tp_str) for grp in groups_with_data for tp_str in selected_tps]
 
         def _progress(job, step: int, total: int) -> str:
@@ -178,6 +185,28 @@ class BarBatchExportPanel(BatchExportPanel):
                 _cell_area_threshold = self._app._get_cell_area_threshold()
                 _fluor_gates = self._app._get_all_fluor_gates()
                 _per_fov_spread = self._app._use_fov_spread_active()
+
+                # Compute control mean/frac at this timepoint for normalization.
+                _ctrl_mean = float("nan")
+                _ctrl_frac = float("nan")
+                if _ctrl_grp_obj is not None:
+                    _ctrl_valid: List[str] = []
+                    for _rs in _ctrl_grp_obj.members:
+                        _ctrl_valid.extend(w for w in _rs.wells if w in self._app._well_paths)
+                    _ctrl_valid.extend(w for w in _ctrl_grp_obj.solo_wells if w in self._app._well_paths)
+                    if _ctrl_valid:
+                        _ctrl_pts = self._app._aggregate_group(
+                            _ctrl_valid, threshold=threshold, use_sem=use_sem,
+                            val_col=_val_col,
+                            cell_area_threshold=_cell_area_threshold,
+                            fluor_gates=_fluor_gates,
+                            per_fov_spread=_per_fov_spread,
+                        )
+                        _ctrl_pt = aggpoint_at(_ctrl_pts, target_t)
+                        if _ctrl_pt is not None:
+                            _ctrl_mean = float(_ctrl_pt[1])
+                            _ctrl_frac = float(_ctrl_pt[3])
+
                 rows_csv: List[dict] = []
                 for rset in grp.members:
                     valid = [w for w in rset.wells if w in self._app._well_paths]
@@ -235,14 +264,40 @@ class BarBatchExportPanel(BatchExportPanel):
                         threshold=threshold, band_lbl=band_lbl, **fields,
                     ))
                     rows_csv.append(row)
+                # Apply normalization to CSV rows when a control is set.
+                _normalizing_bar = not math.isnan(_ctrl_mean) and _ctrl_mean != 0
+                _norm_frac_ok = not math.isnan(_ctrl_frac) and _ctrl_frac != 0
+                if _normalizing_bar:
+                    _mean_col = f"mean_{_ch}_{_metric}"
+                    _err_col = f"err_{band_lbl}_{_ch}_{_metric}"
+                    for _row in rows_csv:
+                        try:
+                            if _row.get(_mean_col):
+                                _row[_mean_col] = f"{float(_row[_mean_col]) / _ctrl_mean:.6f}"
+                            if _row.get(_err_col):
+                                _row[_err_col] = f"{float(_row[_err_col]) / _ctrl_mean:.6f}"
+                        except (ValueError, TypeError):
+                            pass
+                        if _norm_frac_ok:
+                            try:
+                                if _row.get("fraction_above"):
+                                    _row["fraction_above"] = f"{float(_row['fraction_above']) / _ctrl_frac:.6f}"
+                                if _row.get(f"err_frac_{band_lbl}"):
+                                    _row[f"err_frac_{band_lbl}"] = f"{float(_row[f'err_frac_{band_lbl}']) / _ctrl_frac:.6f}"
+                            except (ValueError, TypeError):
+                                pass
+                        if ctrl_name:
+                            _row["normalized_by"] = ctrl_name
                 if rows_csv:
+                    _extra_cols = ["normalized_by"] if _normalizing_bar and ctrl_name else []
                     fnames = (
                         ["group", "member", "member_type",
                          "wells", "well_names", "n_wells"]
                         + bar_metric_fieldnames(_ch, _metric, band_lbl)
+                        + _extra_cols
                     )
                     with open(str(base) + ".csv", "w", newline="") as fh:
-                        wrt = csv.DictWriter(fh, fieldnames=fnames)
+                        wrt = csv.DictWriter(fh, fieldnames=fnames, extrasaction="ignore")
                         wrt.writeheader()
                         wrt.writerows(rows_csv)
             except Exception as exc:
@@ -256,6 +311,7 @@ class BarBatchExportPanel(BatchExportPanel):
                 with self._app_val_col_scope(_val_col):
                     fig = self._render_bar_group_figure(
                         grp, target_t, tp_str, threshold, use_sem, band_lbl,
+                        ctrl_mean=_ctrl_mean, ctrl_frac=_ctrl_frac, ctrl_name=ctrl_name,
                     )
                 self._save_figure(fig, Path(str(base) + f".{fmt}"), fmt)
             except Exception as exc:
@@ -272,7 +328,8 @@ class BarBatchExportPanel(BatchExportPanel):
 
     def _render_bar_group_figure(
         self, grp: BarGroup, target_t: float, tp_str: str,
-        threshold: float, use_sem: bool, band_lbl: str,
+        threshold: float, use_sem: bool, band_lbl: str, *,
+        ctrl_mean: float = float("nan"), ctrl_frac: float = float("nan"), ctrl_name: str = "",
     ):
         from matplotlib.figure import Figure as _Figure
 
@@ -288,10 +345,17 @@ class BarBatchExportPanel(BatchExportPanel):
         from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
         _metric_key = self._selected_export_metric_key("_bar_channel_cb")
         _metric_label = _MLB.get(_metric_key, "Mean Intensity")
-        apply_ax_style(ax_mean,
-                       f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}",
-                       f"{_ch} {_metric_label}")
-        apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
+        _normalizing_fig = not math.isnan(ctrl_mean) and ctrl_mean != 0
+        if _normalizing_fig:
+            apply_ax_style(ax_mean,
+                           f"{_ch} {_metric_label} (fold change vs. {ctrl_name}) ± {band_lbl}",
+                           "Fold change")
+            apply_ax_style(ax_frac, f"Fraction above threshold (normalized vs. {ctrl_name})", "Fold change")
+        else:
+            apply_ax_style(ax_mean,
+                           f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}",
+                           f"{_ch} {_metric_label}")
+            apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         if self._app._use_fov_spread_active():
             apply_ax_style(ax_n, f"Mean events above threshold per FOV ± {band_lbl}", "N(above)/FOV")
         else:
@@ -345,6 +409,15 @@ class BarBatchExportPanel(BatchExportPanel):
                 else:
                     n_above = float(n_above_total)
                     n_above_spread = 0.0
+                # Apply normalization to each item's mean/frac values.
+                if _normalizing_fig:
+                    if not math.isnan(m):
+                        m = m / ctrl_mean
+                        s = s / ctrl_mean
+                    _ctrl_frac_ok = not math.isnan(ctrl_frac) and ctrl_frac != 0
+                    if _ctrl_frac_ok and not math.isnan(f):
+                        f = f / ctrl_frac
+                        frac_spread = frac_spread / ctrl_frac
                 has_data = not math.isnan(m)
                 draw_items.append((name, name, m, s, f, frac_spread, has_data, color, n_above, n_above_spread))
             else:

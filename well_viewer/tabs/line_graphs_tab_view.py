@@ -69,6 +69,14 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
+    cl.addWidget(QLabel("Normalize by:", line_ctrl))
+    app._line_ctrl_cb = QComboBox(line_ctrl)
+    app._line_ctrl_cb.addItem("— (none) —", None)
+    app._line_ctrl_cb.setMinimumWidth(120)
+    app._line_ctrl_cb.setToolTip("Divide all groups/wells by this control's value at each timepoint")
+    app._line_ctrl_cb.currentIndexChanged.connect(lambda _i: app._redraw())
+    cl.addWidget(app._line_ctrl_cb)
+
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data,
                              icon="download"))
     cl.addWidget(btn_secondary(line_ctrl, "Copy SVG",

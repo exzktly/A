@@ -248,12 +248,59 @@ class BatchExportPanel(QWidget):
             self._refresh_group_list()
         self._drag_visited = set()
 
+    def _build_control_group_row(self, layout: QVBoxLayout, *, attr: str = "_ctrl_grp_cb") -> None:
+        """Add a Control group: <combo> row whose choices come from the export groups."""
+        row = QHBoxLayout()
+        row.setContentsMargins(12, 2, 12, 2)
+        lbl = QLabel("Control group:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        row.addWidget(lbl)
+        cb = QComboBox()
+        cb.addItem("\u2014 (none) \u2014")
+        cb.setMinimumWidth(160)
+        cb.setToolTip("If set, all other groups are normalized by this group's value")
+        setattr(self, attr, cb)
+        row.addWidget(cb)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+    def _refresh_ctrl_grp_combo(self, attr: str = "_ctrl_grp_cb") -> None:
+        """Repopulate the control group combo from the current export groups."""
+        cb = getattr(self, attr, None)
+        if cb is None:
+            return
+        prev = cb.currentText()
+        groups = self._groups_for_export()
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem("\u2014 (none) \u2014")
+        for g in groups:
+            cb.addItem(g.name)
+        if prev and prev != "\u2014 (none) \u2014":
+            idx = cb.findText(prev)
+            if idx >= 0:
+                cb.setCurrentIndex(idx)
+        cb.blockSignals(False)
+
+    def _selected_ctrl_grp_name(self, attr: str = "_ctrl_grp_cb") -> str:
+        """Return the selected control group name, or empty string for none."""
+        cb = getattr(self, attr, None)
+        if cb is None:
+            return ""
+        text = str(cb.currentText() or "")
+        return "" if text in ("\u2014 (none) \u2014", "") else text
+
     def _build_output_panel(self, layout: QVBoxLayout) -> None:
         self._build_output_header_and_io(layout)
         self._build_channel_row(layout, attr="_line_channel_cb")
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
+
+        self._build_control_group_row(layout, attr="_ctrl_grp_cb")
+
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep2)
 
         info = QLabel(
             "Each export group produces:\n"
@@ -486,6 +533,7 @@ class BatchExportPanel(QWidget):
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         self._refresh_channel_combos()
+        self._refresh_ctrl_grp_combo()
 
     def _selected_export_channel(self) -> str:
         """Return the channel currently picked in the channel row, falling
@@ -751,6 +799,7 @@ class BatchExportPanel(QWidget):
             self._grp_inner_layout.insertWidget(gi, card)
 
         self._refresh_map()
+        self._refresh_ctrl_grp_combo()
 
     def _build_group_card(self, gi: int, grp: BarGroup) -> QWidget:
         is_sel = (gi == self._active_grp)
@@ -1158,6 +1207,7 @@ class BatchExportPanel(QWidget):
         if out_dir is None:
             return
 
+        self._refresh_ctrl_grp_combo()
         _ch_selected = self._selected_export_channel() or self._app._active_channel
         # ``_get_thresh_frac_on`` looks up by the canonical key (bare
         # channel token or ``ratio:<name>``), not by the dropdown's
@@ -1170,6 +1220,34 @@ class BatchExportPanel(QWidget):
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
+
+        # Pre-compute control group time series for normalization.
+        ctrl_name = self._selected_ctrl_grp_name()
+        ctrl_means_at_t: dict = {}
+        ctrl_fracs_at_t: dict = {}
+        if ctrl_name:
+            _ctrl_grp = next((g for g in groups_with_data if g.name == ctrl_name), None)
+            if _ctrl_grp:
+                _val_col_ctrl = self._export_val_col_for("_line_channel_cb")
+                _cell_area_ctrl = self._app._get_cell_area_threshold()
+                _fluor_gates_ctrl = self._app._get_all_fluor_gates()
+                _ctrl_all_valid: List[str] = []
+                for _rs in _ctrl_grp.members:
+                    _ctrl_all_valid.extend(w for w in _rs.wells if w in self._app._well_paths)
+                _ctrl_all_valid.extend(w for w in _ctrl_grp.solo_wells if w in self._app._well_paths)
+                if _ctrl_all_valid:
+                    _ctrl_pts = self._app._aggregate_group(
+                        _ctrl_all_valid, threshold=threshold, use_sem=False,
+                        val_col=_val_col_ctrl,
+                        cell_area_threshold=_cell_area_ctrl,
+                        fluor_gates=_fluor_gates_ctrl,
+                    )
+                    for _pt in _ctrl_pts:
+                        _t, _m, _, _f, *_ = _pt
+                        if not math.isnan(_m) and _m != 0:
+                            ctrl_means_at_t[_t] = _m
+                        if not math.isnan(_f) and _f != 0:
+                            ctrl_fracs_at_t[_t] = _f
 
         def _progress(grp: BarGroup, step: int, total: int) -> str:
             return f"Exporting '{grp.name}' ({step}/{total})\u2026"
@@ -1244,14 +1322,39 @@ class BatchExportPanel(QWidget):
                             threshold=threshold, band_lbl=band_lbl,
                         ))
                         rows_out.append(row)
+                # Apply normalization: divide mean/frac by control values at each t.
+                if ctrl_means_at_t:
+                    for row in rows_out:
+                        _t_key = "time_h"
+                        try:
+                            _t = float(row.get(_t_key, "nan"))
+                        except ValueError:
+                            continue
+                        _mean_col = f"mean_{_ch}_{_metric}"
+                        _band_col = f"{band_lbl.lower()}_{_ch}_{_metric}"
+                        _ctrl_m = ctrl_means_at_t.get(_t)
+                        if _ctrl_m and _ctrl_m != 0:
+                            try:
+                                row[_mean_col] = f"{float(row[_mean_col]) / _ctrl_m:.6f}" if row.get(_mean_col) else ""
+                                row[_band_col] = f"{float(row[_band_col]) / _ctrl_m:.6f}" if row.get(_band_col) else ""
+                            except (ValueError, TypeError):
+                                pass
+                        _ctrl_f = ctrl_fracs_at_t.get(_t)
+                        if _ctrl_f and _ctrl_f != 0:
+                            try:
+                                _fv = row.get("fraction_above", "")
+                                if _fv:
+                                    row["fraction_above"] = f"{float(_fv) / _ctrl_f:.6f}"
+                            except (ValueError, TypeError):
+                                pass
+                        if ctrl_name:
+                            row["normalized_by"] = ctrl_name
                 if rows_out:
-                    fieldnames = (
-                        ["group", "member", "member_type",
-                         "wells", "well_names", "n_wells"]
-                        + line_metric_fieldnames(_ch, _metric, band_lbl)
-                    )
+                    _id_cols = ["group", "member", "member_type", "wells", "well_names", "n_wells"]
+                    _metric_cols = line_metric_fieldnames(_ch, _metric, band_lbl)
+                    fieldnames = _id_cols + _metric_cols + (["normalized_by"] if ctrl_means_at_t else [])
                     with open(csv_path, "w", newline="") as fh:
-                        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+                        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
                         writer.writeheader()
                         writer.writerows(rows_out)
             except OSError as exc:
@@ -1264,7 +1367,12 @@ class BatchExportPanel(QWidget):
                 # batch export against a ratio column or a non-MFI
                 # property draws the correct curves.
                 with self._app_val_col_scope(_val_col):
-                    fig = self._render_group_figure(grp, threshold, use_sem, band_lbl)
+                    fig = self._render_group_figure(
+                        grp, threshold, use_sem, band_lbl,
+                        ctrl_means_at_t=ctrl_means_at_t,
+                        ctrl_fracs_at_t=ctrl_fracs_at_t,
+                        ctrl_name=ctrl_name,
+                    )
                 self._save_figure(fig, fig_path, fmt)
             except Exception as exc:
                 return f"{grp.name} figure: {exc}"
@@ -1290,7 +1398,8 @@ class BatchExportPanel(QWidget):
         )
 
     def _render_group_figure(
-        self, grp: BarGroup, threshold: float, use_sem: bool, band_lbl: str,
+        self, grp: BarGroup, threshold: float, use_sem: bool, band_lbl: str, *,
+        ctrl_means_at_t: dict = None, ctrl_fracs_at_t: dict = None, ctrl_name: str = "",
     ):
         from matplotlib.figure import Figure as _Figure
 
@@ -1307,11 +1416,20 @@ class BatchExportPanel(QWidget):
         from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
         _metric_key = self._selected_export_metric_key("_line_channel_cb")
         _metric_label = _MLB.get(_metric_key, "Mean Intensity")
-        apply_ax_style(ax_mean, f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}", f"{_ch} {_metric_label}")
-        apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
+        _normalizing = bool(ctrl_means_at_t)
+        if _normalizing:
+            apply_ax_style(ax_mean,
+                           f"{_ch} {_metric_label} (fold change vs. {ctrl_name}) \u00b1 {band_lbl}",
+                           "Fold change")
+            apply_ax_style(ax_frac,
+                           f"Fraction above threshold (normalized vs. {ctrl_name})",
+                           "Fold change")
+        else:
+            apply_ax_style(ax_mean, f"{_ch} {_metric_label} (above threshold) \u00b1 {band_lbl}", f"{_ch} {_metric_label}")
+            apply_ax_style(ax_frac, "Fraction of Cells Above Threshold", "Fraction")
         apply_ax_style(ax_cdf, f"{_ch} {_metric_label} CDF", "Cumulative fraction")
         ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)
-        ax_frac.set_ylim(-0.05, 1.05)
+        ax_frac.set_ylim(-0.05, 1.05 if not _normalizing else None)
         ax_cdf.set_xlabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
         ax_cdf.set_ylim(-0.02, 1.05)
 
@@ -1359,15 +1477,26 @@ class BatchExportPanel(QWidget):
                         agg_errs.append(gerr); agg_fracs.append(gf)
 
                 if agg_times:
-                    ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o",
+                    _plot_means = agg_means
+                    _plot_errs = agg_errs
+                    _plot_fracs = agg_fracs
+                    if _normalizing:
+                        _plot_means = [m / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan")
+                                       for m, t in zip(agg_means, agg_times)]
+                        _plot_errs = [e / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan")
+                                      for e, t in zip(agg_errs, agg_times)]
+                        if ctrl_fracs_at_t:
+                            _plot_fracs = [f / ctrl_fracs_at_t[t] if t in ctrl_fracs_at_t and not math.isnan(f) else f
+                                           for f, t in zip(agg_fracs, agg_times)]
+                    ax_mean.plot(agg_times, _plot_means, color=color, lw=2, marker="o",
                                  markersize=4, label=display_name, zorder=3)
                     ax_mean.fill_between(
                         agg_times,
-                        [m - e for m, e in zip(agg_means, agg_errs)],
-                        [m + e for m, e in zip(agg_means, agg_errs)],
+                        [m - e for m, e in zip(_plot_means, _plot_errs)],
+                        [m + e for m, e in zip(_plot_means, _plot_errs)],
                         color=color, alpha=0.15, zorder=2,
                     )
-                    vf = [(t, f) for t, f in zip(agg_times, agg_fracs) if not math.isnan(f)]
+                    vf = [(t, f) for t, f in zip(agg_times, _plot_fracs) if not math.isnan(f)]
                     if vf:
                         vt2, vf2 = zip(*vf)
                         ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
@@ -1391,20 +1520,37 @@ class BatchExportPanel(QWidget):
                     vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
                     if vm:
                         vt, vmm, vs = zip(*vm)
-                        ax_mean.plot(vt, vmm, color=color, lw=2, marker="o",
-                                     markersize=4, label=display_name, zorder=3)
-                        ax_mean.fill_between(
-                            vt,
-                            [m - s for m, s in zip(vmm, vs)],
-                            [m + s for m, s in zip(vmm, vs)],
-                            color=color, alpha=0.15, zorder=2,
-                        )
+                        if _normalizing:
+                            vmm = tuple(m / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan") for m, t in zip(vmm, vt))
+                            vs = tuple(s / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan") for s, t in zip(vs, vt))
+                            _valid = [(t, m, s) for t, m, s in zip(vt, vmm, vs) if not math.isnan(m)]
+                            if _valid:
+                                vt, vmm, vs = zip(*_valid)
+                            else:
+                                vt = vmm = vs = ()
+                        if vt:
+                            ax_mean.plot(vt, vmm, color=color, lw=2, marker="o",
+                                         markersize=4, label=display_name, zorder=3)
+                            ax_mean.fill_between(
+                                vt,
+                                [m - s for m, s in zip(vmm, vs)],
+                                [m + s for m, s in zip(vmm, vs)],
+                                color=color, alpha=0.15, zorder=2,
+                            )
                     vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
                     if vf:
                         vt2, vf2 = zip(*vf)
-                        ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
-                                     markersize=3, label=display_name, zorder=3)
-                        ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
+                        if _normalizing and ctrl_fracs_at_t:
+                            vf2 = tuple(f / ctrl_fracs_at_t[t] if t in ctrl_fracs_at_t else float("nan") for f, t in zip(vf2, vt2))
+                            _vf_valid = [(t, f) for t, f in zip(vt2, vf2) if not math.isnan(f)]
+                            if _vf_valid:
+                                vt2, vf2 = zip(*_vf_valid)
+                            else:
+                                vt2 = vf2 = ()
+                        if vt2:
+                            ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s",
+                                         markersize=3, label=display_name, zorder=3)
+                            ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                     any_ts = True
 
                 import numpy as _np

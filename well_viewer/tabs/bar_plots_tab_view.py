@@ -72,6 +72,14 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
+    cl.addWidget(QLabel("Normalize by:", bar_ctrl))
+    app._bar_ctrl_cb = QComboBox(bar_ctrl)
+    app._bar_ctrl_cb.addItem("— (none) —", None)
+    app._bar_ctrl_cb.setMinimumWidth(120)
+    app._bar_ctrl_cb.setToolTip("Divide all groups by this control group's value")
+    app._bar_ctrl_cb.currentIndexChanged.connect(lambda _i: app._redraw_bars())
+    cl.addWidget(app._bar_ctrl_cb)
+
     app._swarm_btn = QPushButton("Beeswarm", bar_ctrl)
     app._swarm_btn.setProperty("variant", "toggle")
     app._swarm_btn.setCheckable(True)

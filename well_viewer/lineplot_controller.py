@@ -9,6 +9,41 @@ NO_SELECTION_MSG = "No wells or well groups selected.\nSelect wells on the left 
 NO_DATA_MSG = "Load a directory.\nUse the Open button at the top-right (⌘O) to pick a folder."
 
 
+def _line_ctrl_key(app) -> str:
+    """Return the canonical key of the selected control item, or empty string."""
+    cb = getattr(app, "_line_ctrl_cb", None)
+    if cb is None:
+        return ""
+    data = cb.currentData() if hasattr(cb, "currentData") else None
+    if data is not None:
+        return str(data)
+    txt = cb.currentText() if hasattr(cb, "currentText") else ""
+    return "" if txt in ("", "— (none) —", "—") else txt
+
+
+def update_line_ctrl_combo(app, keys: list, labels: list = None) -> None:
+    """Refresh the Normalize-by combo with current line canonical keys and display labels."""
+    cb = getattr(app, "_line_ctrl_cb", None)
+    if cb is None:
+        return
+    if labels is None:
+        labels = keys
+    prev_data = cb.currentData() if hasattr(cb, "currentData") else None
+    cb.blockSignals(True)
+    try:
+        cb.clear()
+        cb.addItem("— (none) —", None)
+        for k, lbl in zip(keys, labels):
+            cb.addItem(str(lbl), str(k))
+        if prev_data is not None:
+            for i in range(cb.count()):
+                if cb.itemData(i) == prev_data:
+                    cb.setCurrentIndex(i)
+                    break
+    finally:
+        cb.blockSignals(False)
+
+
 def _apply_order(items, saved_order, key):
     """Reorder ``items`` so entries matching ``saved_order`` come first.
 
@@ -70,8 +105,18 @@ def redraw_line_plots(
     legend_kw = dict(fontsize=7, framealpha=0.0, facecolor="none", edgecolor=_spine, labelcolor=_title_fg)
 
     _ch = app._active_channel.upper()
-    apply_ax_style(app._line_ax_mean, f"{_ch} {metric_label} (above threshold) ± {band_lbl}", metric_label)
-    apply_ax_style(app._line_ax_frac, "Fraction of Cells Above Threshold", "Fraction")
+    # Resolve control key early (before data) so axis labels are set correctly.
+    _ctrl_key = _line_ctrl_key(app)
+    if _ctrl_key:
+        apply_ax_style(app._line_ax_mean,
+                       f"{_ch} {metric_label} (fold change vs. {_ctrl_key}) ± {band_lbl}",
+                       "Fold change")
+        apply_ax_style(app._line_ax_frac,
+                       f"Fraction above threshold (normalized vs. {_ctrl_key})",
+                       "Fold change")
+    else:
+        apply_ax_style(app._line_ax_mean, f"{_ch} {metric_label} (above threshold) ± {band_lbl}", metric_label)
+        apply_ax_style(app._line_ax_frac, "Fraction of Cells Above Threshold", "Fraction")
     cdf_lbl = (f"{_ch} {metric_label} CDF (all wells per replicate set)" if app._rep_sets_active() else f"{_ch} {metric_label} CDF (all selected wells)")
     apply_ax_style(app._line_ax_cdf, cdf_lbl, "Cumulative fraction")
     app._line_ax_frac.set_xlabel("Time (hours)", fontsize=8, labelpad=5)
@@ -122,6 +167,33 @@ def redraw_line_plots(
             list(getattr(app, "_line_order_rsets", []) or []),
             key=lambda r: getattr(r, "name", ""),
         )
+        # Populate the Normalize-by combo and pre-compute control series if needed.
+        _rset_keys = [r.name for r in ordered_rsets]
+        _rset_labels = [app._replicate_display_label(r) for r in ordered_rsets]
+        update_line_ctrl_combo(app, _rset_keys, _rset_labels)
+        ctrl_means_at_t: dict = {}
+        ctrl_fracs_at_t: dict = {}
+        if _ctrl_key:
+            _ctrl_rset = next((r for r in ordered_rsets if r.name == _ctrl_key), None)
+            if _ctrl_rset:
+                _ctrl_valid = [w for w in _ctrl_rset.wells if w in app._well_paths]
+                _all_ctrl_tps: set = set()
+                _cell_area_threshold_c = app._get_cell_area_threshold()
+                _fluor_gates_c = app._get_all_fluor_gates()
+                for _lbl in _ctrl_valid:
+                    for _t, *_ in app._aggregate_well(
+                        _lbl, threshold=threshold, use_sem=False,
+                        val_col=app._active_val_col,
+                        cell_area_threshold=_cell_area_threshold_c,
+                        fluor_gates=_fluor_gates_c,
+                    ):
+                        _all_ctrl_tps.add(_t)
+                for _t in sorted(_all_ctrl_tps):
+                    _gm, _, _gf, _ = app._compute_rep_stats(_ctrl_rset, _t, threshold, use_sem)
+                    if not math.isnan(_gm) and _gm != 0:
+                        ctrl_means_at_t[_t] = _gm
+                    if not math.isnan(_gf) and _gf != 0:
+                        ctrl_fracs_at_t[_t] = _gf
         for idx, rset in enumerate(ordered_rsets):
             # decision #1: line-plot trace colour = the rep-set's well-position
             # rank colour, so it matches the sidebar plate and the bar plot.
@@ -149,6 +221,15 @@ def redraw_line_plots(
                     agg_fracs.append(gf)
             n_wells = len(valid_wells)
             lbl_str = f"{rset.name} (n={n_wells})" if n_wells != 1 else rset.name
+            # Apply control-well normalization when a control is set.
+            if ctrl_means_at_t:
+                agg_means = [m / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan")
+                             for m, t in zip(agg_means, agg_times)]
+                agg_errs = [e / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan")
+                            for e, t in zip(agg_errs, agg_times)]
+            if ctrl_fracs_at_t:
+                agg_fracs = [f / ctrl_fracs_at_t[t] if t in ctrl_fracs_at_t and not math.isnan(f) else f
+                             for f, t in zip(agg_fracs, agg_times)]
             if agg_times:
                 app._line_ax_mean.plot(agg_times, agg_means, color=color, lw=2, marker="o", markersize=4, label=lbl_str, zorder=3)
                 app._line_ax_mean.fill_between(agg_times, [m - e for m, e in zip(agg_means, agg_errs)], [m + e for m, e in zip(agg_means, agg_errs)], color=color, alpha=0.15, zorder=2)
@@ -176,6 +257,25 @@ def redraw_line_plots(
             list(getattr(app, "_line_order_wells", []) or []),
             key=lambda x: x,
         )
+        # Populate the Normalize-by combo and pre-compute control series if needed.
+        _well_labels_disp = [app._well_display_label(w) for w in ordered_selected]
+        update_line_ctrl_combo(app, list(ordered_selected), _well_labels_disp)
+        ctrl_means_at_t: dict = {}
+        ctrl_fracs_at_t: dict = {}
+        if _ctrl_key and _ctrl_key in ordered_selected:
+            _ctrl_pts = app._aggregate_well(
+                _ctrl_key, threshold=threshold, use_sem=use_sem,
+                val_col=app._active_val_col,
+                cell_area_threshold=cell_area_threshold,
+                fluor_gates=fluor_gates,
+                per_fov_spread=per_fov_spread,
+            )
+            for _pt in _ctrl_pts:
+                _t, _m, _, _f = _pt[0], _pt[1], _pt[2], _pt[3]
+                if not math.isnan(_m) and _m != 0:
+                    ctrl_means_at_t[_t] = _m
+                if not math.isnan(_f) and _f != 0:
+                    ctrl_fracs_at_t[_t] = _f
         for i, label in enumerate(ordered_selected):
             color = app._rank_color_well(label)  # decision #1: colour by well-position rank
             rows = app._get_rows(label)
@@ -186,13 +286,30 @@ def redraw_line_plots(
                 vm = [(t, m, s) for t, m, s in zip(times, means, spreads) if not math.isnan(m)]
                 if vm:
                     vt, vmm, vs = zip(*vm)
-                    app._line_ax_mean.plot(vt, vmm, color=color, lw=2, marker="o", markersize=4, label=disp, zorder=3)
-                    app._line_ax_mean.fill_between(vt, [m - s for m, s in zip(vmm, vs)], [m + s for m, s in zip(vmm, vs)], color=color, alpha=0.15, zorder=2)
+                    if ctrl_means_at_t:
+                        vmm = tuple(m / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan") for m, t in zip(vmm, vt))
+                        vs = tuple(s / ctrl_means_at_t[t] if t in ctrl_means_at_t else float("nan") for s, t in zip(vs, vt))
+                        _valid = [(t, m, s) for t, m, s in zip(vt, vmm, vs) if not math.isnan(m)]
+                        if _valid:
+                            vt, vmm, vs = zip(*_valid)
+                        else:
+                            vt = vmm = vs = ()
+                    if vt:
+                        app._line_ax_mean.plot(vt, vmm, color=color, lw=2, marker="o", markersize=4, label=disp, zorder=3)
+                        app._line_ax_mean.fill_between(vt, [m - s for m, s in zip(vmm, vs)], [m + s for m, s in zip(vmm, vs)], color=color, alpha=0.15, zorder=2)
                 vf = [(t, f) for t, f in zip(times, fracs) if not math.isnan(f)]
                 if vf:
                     vt2, vf2 = zip(*vf)
-                    app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=disp, zorder=3)
-                    app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
+                    if ctrl_fracs_at_t:
+                        vf2 = tuple(f / ctrl_fracs_at_t[t] if t in ctrl_fracs_at_t else float("nan") for f, t in zip(vf2, vt2))
+                        _vf_valid = [(t, f) for t, f in zip(vt2, vf2) if not math.isnan(f)]
+                        if _vf_valid:
+                            vt2, vf2 = zip(*_vf_valid)
+                        else:
+                            vt2 = vf2 = ()
+                    if vt2:
+                        app._line_ax_frac.plot(vt2, vf2, color=color, lw=2, marker="s", markersize=3, label=disp, zorder=3)
+                        app._line_ax_frac.fill_between(vt2, 0, vf2, color=color, alpha=0.10, zorder=2)
                 any_ts = True
             vals = sorted(all_fluor_values_filtered(rows, val_col=app._active_val_col, cell_area_threshold=cell_area_threshold, fluor_gates=fluor_gates, ratios=getattr(app, "_ratio_index", None)))
             if vals:

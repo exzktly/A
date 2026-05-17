@@ -287,6 +287,13 @@ def export_bar_plot_data(app) -> None:
     except ValueError:
         return
     use_groups, items, band_lbl = app._collect_bar_items(target_t)
+    # Mirror the visual normalization so the CSV matches what is displayed.
+    from well_viewer.barplot_controller import (
+        _bar_ctrl_key as _bck, normalize_bar_items as _nbi,
+    )
+    _bctrl = _bck(app)
+    if _bctrl:
+        items = _nbi(use_groups, items, _bctrl)
     ch = app._active_channel
     metric = app._active_metric
     threshold = app._get_thresh_frac_on(ch)

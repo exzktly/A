@@ -21,8 +21,11 @@ from ui.theme import (
 from well_viewer.barplot_controller import (
     apply_bar_ylims as _apply_bar_ylims,
     collect_bar_items as _collect_bar_items,
+    normalize_bar_items as _normalize_bar_items,
     ordered_bar_keys as _ordered_bar_keys,
     render_bar_items as _render_bar_items,
+    _bar_ctrl_key as _bar_ctrl_key_fn,
+    update_bar_ctrl_combo as _update_bar_ctrl_combo,
 )
 import numpy as np
 import pandas as pd
@@ -288,6 +291,14 @@ def draw_grouped_bar_mode(
         draw_items = [key_to_item[k] for k in ordered_keys]
         xlabels = [app._bar_well_display_label(lbl) for lbl, *_ in draw_items]
 
+    # Refresh the Normalize-by combo then apply control-well normalization if set.
+    _ctrl_keys = [str(item[0]) for item in draw_items]
+    _ctrl_labels = xlabels if len(xlabels) == len(draw_items) else _ctrl_keys
+    _update_bar_ctrl_combo(app, _ctrl_keys, _ctrl_labels)
+    _ctrl_key = _bar_ctrl_key_fn(app)
+    if _ctrl_key:
+        draw_items = _normalize_bar_items(use_groups, draw_items, _ctrl_key)
+
     # decision #1: per-well bars are coloured by each well's position rank
     # (group bars carry their own colour in the item tuple already).
     per_well_colors = (WELL_COLORS if use_groups
@@ -307,19 +318,31 @@ def draw_grouped_bar_mode(
         disabled_well_color=CLR_MUTED_DISABLED,
         err_bar_color=CLR_ERR_BAR,
     )
-    ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     _ch = app._active_channel.upper()
     from well_viewer.metric_labels import METRIC_KEY_TO_LABEL as _MLB
     _metric_label = _MLB.get(getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity")
-    ax_mean.set_title(
-        f"{_ch} {_metric_label} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
-        color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
-    )
-    ax_mean.set_ylabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
-    ax_frac.set_title(
-        f"Fraction above threshold  —  t = {tp_str} h",
-        color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
-    )
+    if _ctrl_key:
+        ax_mean.set_title(
+            f"{_ch} {_metric_label} (fold change vs. {_ctrl_key}) ± {band_lbl}  —  t = {tp_str} h",
+            color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
+        )
+        ax_mean.set_ylabel("Fold change", fontsize=8, labelpad=5)
+        ax_frac.set_title(
+            f"Fraction above threshold (normalized vs. {_ctrl_key})  —  t = {tp_str} h",
+            color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
+        )
+        ax_frac.set_ylabel("Fraction (normalized)", fontsize=8, labelpad=5)
+    else:
+        ax_mean.set_title(
+            f"{_ch} {_metric_label} (above threshold) ± {band_lbl}  —  t = {tp_str} h",
+            color=tokens_for(ax_mean)[1], fontsize=9, fontweight="bold", pad=6,
+        )
+        ax_mean.set_ylabel(f"{_ch} {_metric_label}", fontsize=8, labelpad=5)
+        ax_frac.set_title(
+            f"Fraction above threshold  —  t = {tp_str} h",
+            color=tokens_for(ax_frac)[1], fontsize=9, fontweight="bold", pad=6,
+        )
+        ax_frac.set_ylabel("Fraction", fontsize=8, labelpad=5)
     if ax_n is not None:
         fov_active = app._use_fov_spread_active()
         if fov_active:

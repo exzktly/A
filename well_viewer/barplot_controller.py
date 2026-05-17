@@ -349,6 +349,108 @@ def apply_bar_ylims(app, ax_mean, ax_frac, *, ax_n=None) -> None:
 # canvas + axes) is owned by ``WellViewerApp``; these helpers only mutate
 # ``app._bar_drag_state`` / ``app._bar_order`` and trigger a redraw.
 
+def _bar_ctrl_key(app) -> str:
+    """Return the canonical key of the selected control item, or empty string."""
+    cb = getattr(app, "_bar_ctrl_cb", None)
+    if cb is None:
+        return ""
+    data = cb.currentData() if hasattr(cb, "currentData") else None
+    if data is not None:
+        return str(data)
+    txt = cb.currentText() if hasattr(cb, "currentText") else ""
+    return "" if txt in ("", "— (none) —", "—") else txt
+
+
+def update_bar_ctrl_combo(app, keys: list, labels: list = None) -> None:
+    """Refresh the Normalize-by combo with current bar canonical keys and display labels."""
+    cb = getattr(app, "_bar_ctrl_cb", None)
+    if cb is None:
+        return
+    if labels is None:
+        labels = keys
+    prev_data = cb.currentData() if hasattr(cb, "currentData") else None
+    cb.blockSignals(True)
+    try:
+        cb.clear()
+        cb.addItem("— (none) —", None)
+        for k, lbl in zip(keys, labels):
+            cb.addItem(str(lbl), str(k))
+        if prev_data is not None:
+            for i in range(cb.count()):
+                if cb.itemData(i) == prev_data:
+                    cb.setCurrentIndex(i)
+                    break
+    finally:
+        cb.blockSignals(False)
+
+
+def normalize_bar_items(use_groups: bool, items: list, ctrl_key: str) -> list:
+    """Return items with mean/frac values divided by the control item's values.
+
+    The control item is identified by matching *ctrl_key* against each item's
+    canonical key (item[0]). Spreads are scaled by the same divisor so error
+    bars remain proportionally correct. n_above counts are left unnormalized.
+    Returns the original list unchanged when the control is missing or has a
+    zero/NaN mean.
+    """
+    if not ctrl_key or not items:
+        return items
+
+    ctrl_mean = float("nan")
+    ctrl_frac = float("nan")
+    for item in items:
+        if str(item[0]) == ctrl_key:
+            ctrl_mean = float(item[2] if use_groups else item[1])
+            ctrl_frac = float(item[4] if use_groups else item[3])
+            break
+
+    if math.isnan(ctrl_mean) or ctrl_mean == 0:
+        return items
+    ctrl_frac_ok = not math.isnan(ctrl_frac) and ctrl_frac != 0
+
+    normalized: list = []
+    if use_groups:
+        for item in items:
+            key, display, gm, g_err_m, gf, g_err_f, has, color = item[:8]
+            n_above = float(item[8]) if len(item) >= 9 else 0.0
+            n_above_spread = float(item[9]) if len(item) >= 10 else 0.0
+            new_gm = gm / ctrl_mean if not math.isnan(gm) else gm
+            new_g_err_m = g_err_m / ctrl_mean if not math.isnan(gm) else g_err_m
+            if ctrl_frac_ok and not math.isnan(gf):
+                new_gf = gf / ctrl_frac
+                new_g_err_f = g_err_f / ctrl_frac
+            else:
+                new_gf, new_g_err_f = gf, g_err_f
+            normalized.append((key, display, new_gm, new_g_err_m, new_gf, new_g_err_f,
+                                has, color, n_above, n_above_spread))
+    else:
+        for item in items:
+            if len(item) >= 8:
+                label, mean, spread, frac, frac_spread, has_data, n_above, n_above_spread = item[:8]
+                n_above = float(n_above)
+                n_above_spread = float(n_above_spread)
+            elif len(item) == 7:
+                label, mean, spread, frac, frac_spread, has_data, n_above = item
+                n_above = float(n_above)
+                n_above_spread = 0.0
+            elif len(item) == 6:
+                label, mean, spread, frac, frac_spread, has_data = item
+                n_above = n_above_spread = 0.0
+            else:
+                label, mean, spread, frac, has_data = item
+                frac_spread = n_above = n_above_spread = 0.0
+            new_mean = mean / ctrl_mean if not math.isnan(mean) else mean
+            new_spread = spread / ctrl_mean if not math.isnan(mean) else spread
+            if ctrl_frac_ok and not math.isnan(frac):
+                new_frac = frac / ctrl_frac
+                new_frac_spread = frac_spread / ctrl_frac
+            else:
+                new_frac, new_frac_spread = frac, frac_spread
+            normalized.append((label, new_mean, new_spread, new_frac, new_frac_spread,
+                                has_data, n_above, n_above_spread))
+    return normalized
+
+
 def bar_event_xdata(app, event) -> Optional[float]:
     """Return data-x for a matplotlib MouseEvent over any bar axis."""
     ax = getattr(event, "inaxes", None)
