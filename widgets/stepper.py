@@ -166,6 +166,13 @@ class Stepper(QFrame):
         self.setValue(v)
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        # PySide6 occasionally dispatches non-QEvent arguments through
+        # eventFilter (observed: a QStandardItem from a completer popup
+        # being routed in place of the QEvent). Bail before any
+        # ``event.type()`` access so the stepper survives those edge
+        # cases instead of TypeError-ing the whole widget tree.
+        if not isinstance(event, QEvent):
+            return False
         if obj is self._edit:
             if event.type() in (QEvent.FocusIn, QEvent.FocusOut):
                 self.setProperty("focused", event.type() == QEvent.FocusIn)

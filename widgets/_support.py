@@ -67,6 +67,12 @@ def install_qss_refresh(widget, qss_factory) -> None:
         classes passed to ``installEventFilter`` with a TypeError."""
 
         def eventFilter(self, obj, event):  # noqa: N802 — Qt naming
+            # PySide6 occasionally dispatches non-QEvent objects (e.g. a
+            # QStandardItem from a completer) through eventFilter. Guard
+            # before calling .type() so a stray event doesn't crash the
+            # filter and disable the widget.
+            if not isinstance(event, QEvent):
+                return False
             if event.type() == QEvent.StyleChange:
                 try:
                     obj.setStyleSheet(qss_factory())
