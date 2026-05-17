@@ -201,22 +201,34 @@ calls out the fix commit.
 | M8 | `b0fa79b` | Debounce ratios + heatmap-layouts saves |
 | L24, M23, M24 | `040c402` | Alpha edit blank; backup TOCTOU; rglob depth cap |
 
-**Major remaining items** (see also §7 must-fix shortlist):
+**Items closed in PR #249** (post-merge follow-up to PR #247):
+
+| Finding | Commit | One-line |
+|---|---|---|
+| H5, M16, M17, M25, M27 | `b8d3195` | argv `-c` check tightened; controllers stop reaching into runtime_app; distribution `_plot_card` back-ref re-attached after `fig.clear()`; MplToolbar disconnects mpl callback; PlotCard stops recolouring lines by index |
+| M20, M26 | `d31719c` | Separator-aware fallback fov/tp extractor; PlotCard styling applied per-figure (no global rcParams mutation) |
+| H10 (partial) | `74547cf` | ctxbar combo deselects on empty-state instead of showing a stale label |
+| M15 | `6597cea` | Heatmap `_cell_value` pools 1-D arrays instead of `pd.concat`'ing per-well DataFrames in the O(T·R·C) inner loop |
+| L14, L15 | `973d697` | Index-based dedup in line plot ordering; per-FOV bucket key aligned to aggregator's `"1"` |
+| L5 | `a8c540f` | `__aw_tmp_` prefix on pipeline scratch files (no more false-positive drops of user files containing `.pid`) |
+
+**Already closed upstream by PR #248** (so the audit's analysis is now stale):
+
+- **H7** — `_set_active_channel` now routes through `redraw_scopes_or_defer` (fold-change scope pattern); only the visible scope redraws.
+- **M11** — bar-plot fold-change pipeline consolidated around `collect_bar_items_for_group` / `BarItem`; no more duplicate per-rset fetching.
+- **M13** — bar CSV switched to the additive schema (raw + `fold_change_*` columns), matching the line CSV shape.
+
+**Major remaining items:**
 
 - **H4** — `WellPlateZipper` copies instead of moving — left alone; behavioural change requiring user opt-in.
-- **H5** — Frozen-bundle `-c` argv matching — left alone; not exploitable in practice and the existing startswith check is the actual guard.
-- **H7** — `_set_active_channel` double redraws — touches the most entangled methods on the god-object; left for a focused follow-up.
-- **H10** — `_active_channel` written without combo-sync at three sites — same cluster as H7; needs the extraction in §6.3.
 - **H20** — `theme.py` vs `ui/theme/` reconciliation — sizable; not attempted.
-- **M1** — Three different well-token parsers — partially addressed (the `_is_well_named` helper in `services/input_resolution_service.py` is shared with the new well-zip predicate); the canonicaliser still has three copies. Refactor wasn't worth the blast radius without tests.
-- **M6, M7** — `plot_orchestrator` unification — touches many redraw paths; left for focused follow-up.
-- **M9** — CSV load on UI thread — left; needs a `QThread` worker plumbed through the load progress signal.
-- **M10** — Tab-switch redraw fan-out — same cluster as H7.
-- **M11, M12, M13** — Bar-plot fold-change duplication / scatter-agg threshold path / fold-change CSV shape — semantic; needs careful review of every downstream consumer.
-- **M15, M16, M17** — Heatmap concat hot path; controllers → runtime_app; distribution `fig.clear()` — left for focused follow-up.
-- **M20** — Legacy fov/tp regex hardcoded to `_` — left; needs the schema-aware fallback to be plumbed.
-- **M25–M30** — Widget items (mpl callback disconnect, PlotCard rcParams, line-recolour-by-index, hardcoded pixels, per-instance QSS) — not attempted.
-- **L1, L2, L5, L9, L14, L15, L16, L17, L20–L22** — Various Low items not touched.
+- **M1** — Three different well-token parsers — refactor not done; the duplicates agree behaviourally so the cost / benefit didn't justify the disruption.
+- **M6, M7** — `plot_orchestrator` unification — partly addressed by PR #248's scope-aware redraw; the bar / scatter / scatter-agg branches still bypass the orchestrator.
+- **M9** — CSV load on UI thread — left; `_step_progress` already calls `QApplication.processEvents()` between files so it's not as bad as the audit suggested. Full off-thread load wants a `QThread` worker plumbed through the load progress signal.
+- **M10** — Tab-switch redraw fan-out — same risk as the god-object methods; left for a focused refactor.
+- **M12** — Scatter-agg threshold path duplicates `_compute_rep_stats` — numerical agreement reached after H11; deduplication needs a shared helper signature.
+- **M28, M29, M30** — Widget hardcoded values + per-instance QSS — partially addressed by M27 (no more line-recolour-by-index); full reconciliation depends on H20.
+- **L1, L2, L9, L10, L16, L17, L20, L21, L22** — Various Low items not touched.
 
 ### 0.8 Suggested workflow for a fresh session
 
@@ -1214,8 +1226,10 @@ In rough order:
 The rest (M-series and L-series) is hygiene worth scheduling but does
 not, on its own, change user outcomes today.
 
-**Items 1–8, 10–13 are merged on this branch; items 9 (partial), 14
-remain.** See §0.7.5 for the full status table.
+**Items 1–8, 10–13 merged via PR #247 → main.** Items 9 (H6, H8 only),
+and item 14 (H20) remain. PR #249 closes H5, H10 (partial), M15, M16,
+M17, M20, M25, M26, M27, L5, L14, L15 on top of that. See §0.7.5 for
+the full status table.
 
 ---
 
