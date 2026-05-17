@@ -136,7 +136,13 @@ class BarBatchExportPanel(BatchExportPanel):
             return
 
         _ch_selected = self._selected_export_channel() or self._app._active_channel
-        threshold = self._app._get_thresh_frac_on(_ch_selected)
+        # Threshold lookup keys by the canonical channel/ratio key, not
+        # the dropdown's display label — translate ratio labels first so
+        # the bar plot draws against the user-configured ThreshFracOn
+        # instead of the 50.0 default.
+        threshold = self._app._get_thresh_frac_on(
+            self._resolved_channel_key(_ch_selected)
+        )
         use_sem = self._app._use_sem
         band_lbl = "SEM" if use_sem else "SD"
         fmt = self._fmt_cb.currentText()
