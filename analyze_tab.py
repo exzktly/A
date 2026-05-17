@@ -709,6 +709,11 @@ class AnalyzeTab(QWidget):
         self._log = QTextEdit(parent)
         self._log.setReadOnly(True)
         self._log.setLineWrapMode(QTextEdit.NoWrap)
+        # Cap the QTextDocument so a multi-hour pipeline can't grow it to
+        # hundreds of megabytes. Older lines drop off the top once we hit
+        # the cap; the ring buffer in all_well captures everything for
+        # the help-drawer log tab anyway.
+        self._log.document().setMaximumBlockCount(10000)
         font = self._log.font()
         font.setFamily("Menlo" if _sys.platform == "darwin" else "Consolas")
         font.setPointSize(9)

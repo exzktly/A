@@ -64,11 +64,11 @@ def build_pipeline_args(
         args += ["--cytoplasm_token", cytoplasm_token]
     try:
         args += ["--tophat_radius_nir", str(int(opts["tophat_radius_nir"]))]
-    except ValueError:
+    except (TypeError, ValueError, KeyError):
         pass
     try:
         args += ["--tophat_radius_fluor", str(int(opts["tophat_radius_fluor"]))]
-    except ValueError:
+    except (TypeError, ValueError, KeyError):
         pass
 
     for flag in (
