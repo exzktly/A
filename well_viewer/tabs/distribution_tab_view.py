@@ -104,12 +104,12 @@ def build_distribution_tab(app, parent: QWidget) -> None:
 
     cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_distribution_data,
                              icon="download"))
-    cl.addWidget(btn_secondary(ctrl, "Copy SVG",
-                               lambda: app._copy_active_card_as_svg(),
-                               icon="copy"))
-    cl.addWidget(btn_secondary(ctrl, "Save figure",
-                               lambda: app._save_active_card_figure(),
-                               icon="save"))
+    _b = btn_secondary(ctrl, "", lambda: app._copy_active_card_as_svg(), icon="copy")
+    _b.setToolTip("Copy SVG")
+    cl.addWidget(_b)
+    _b = btn_secondary(ctrl, "", lambda: app._save_active_card_figure(), icon="save")
+    _b.setToolTip("Save figure")
+    cl.addWidget(_b)
     # Properties button last in the row so it sits flush with the right
     # edge of the plot area — adjacent to where the dock slides out.
     style_btn = btn_secondary(

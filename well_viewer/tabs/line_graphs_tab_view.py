@@ -76,12 +76,12 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data,
                              icon="download"))
-    cl.addWidget(btn_secondary(line_ctrl, "Copy SVG",
-                               lambda: app._copy_active_card_as_svg(),
-                               icon="copy"))
-    cl.addWidget(btn_secondary(line_ctrl, "Save figure",
-                               lambda: app._save_active_card_figure(),
-                               icon="save"))
+    _b = btn_secondary(line_ctrl, "", lambda: app._copy_active_card_as_svg(), icon="copy")
+    _b.setToolTip("Copy SVG")
+    cl.addWidget(_b)
+    _b = btn_secondary(line_ctrl, "", lambda: app._save_active_card_figure(), icon="save")
+    _b.setToolTip("Save figure")
+    cl.addWidget(_b)
     # Properties button last in the row so it sits flush with the right
     # edge of the plot area — adjacent to where the figure-properties
     # dock slides out, instead of the old "▸" floating mid-row.

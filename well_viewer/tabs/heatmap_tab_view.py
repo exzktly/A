@@ -72,12 +72,12 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
 
     cl1.addWidget(btn_primary(ctrl1, "Export CSV", app._export_heatmap_data,
                               icon="download"))
-    cl1.addWidget(btn_secondary(ctrl1, "Copy SVG",
-                                lambda: app._copy_active_card_as_svg(),
-                                icon="copy"))
-    cl1.addWidget(btn_secondary(ctrl1, "Save figure",
-                                lambda: app._save_active_card_figure(),
-                                icon="save"))
+    _b = btn_secondary(ctrl1, "", lambda: app._copy_active_card_as_svg(), icon="copy")
+    _b.setToolTip("Copy SVG")
+    cl1.addWidget(_b)
+    _b = btn_secondary(ctrl1, "", lambda: app._save_active_card_figure(), icon="save")
+    _b.setToolTip("Save figure")
+    cl1.addWidget(_b)
     # Properties button last in the row so it sits flush with the right
     # edge of the plot area — adjacent to where the dock slides out.
     style_btn = btn_secondary(
