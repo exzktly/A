@@ -276,15 +276,32 @@ def _compute_global_range(
     if not tps:
         return None, None
 
-    cache_key = (
-        id(layout),
+    # Content-based cache key. ``id(layout)`` / ``id(ratios)`` changed
+    # every time the runtime app rebuilt either object, missing the
+    # cache on slider scrubs where the underlying data was identical.
+    # Use the layout's structural shape and the ratios dict's sorted
+    # key tuple — both are cheap to compute relative to the O(T·R·C)
+    # sweep below.
+    layout_fingerprint = (
         getattr(layout, "name", ""),
+        int(getattr(layout, "rows", 0)),
+        int(getattr(layout, "cols", 0)),
+        tuple(
+            sorted(
+                ((int(r), int(c)), tuple(sorted(w or [])))
+                for (r, c), w in (getattr(layout, "cells", {}) or {}).items()
+            )
+        ),
+    )
+    ratios_fingerprint = tuple(sorted((ratios or {}).keys()))
+    cache_key = (
+        layout_fingerprint,
         metric,
         val_col,
         float(threshold),
         float(cell_area_threshold),
         tuple(sorted((fluor_gates or {}).items())),
-        id(ratios),
+        ratios_fingerprint,
         tuple(tps),
         bool(getattr(app, "_heatmap_repset_avg", False)),
         bool(getattr(app, "_heatmap_log_scale", False)),

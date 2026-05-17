@@ -3,6 +3,17 @@
 Stores Segmentation tab include/exclude patches for individual cells. Writes
 are debounced via ``schedule_save`` to coalesce bursts of toggles into a
 single disk write.
+
+Schema v2 adds a per-well **segmentation fingerprint** so re-running the
+pipeline (which re-allocates nucleus label IDs from 1) doesn't cause
+overrides to silently re-bind to unrelated cells. The fingerprint is the
+``<well>_out.zip`` mtime captured at the time the override was set; a
+stored entry whose fingerprint no longer matches the on-disk zip is
+discarded with a warning.
+
+v1 files (no fingerprint) load with a warning telling the user their
+overrides may be stale if the pipeline has been re-run since the
+overrides were last saved.
 """
 
 from __future__ import annotations
@@ -10,13 +21,15 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from PySide6.QtCore import QTimer
 
 from well_viewer.persistence._io import atomic_write_json
 
 _logger = logging.getLogger("well_viewer")
+
+_SCHEMA_VERSION = 2
 
 
 def path_for(app) -> Optional[Path]:
@@ -25,10 +38,30 @@ def path_for(app) -> Optional[Path]:
     return None
 
 
+def _well_zip_fingerprints(app) -> Dict[str, str]:
+    """Snapshot the ``<well>_out.zip`` mtimes for every loaded well.
+
+    Used both at save time (stored alongside each override) and at load
+    time (compared against the file on disk).
+    """
+    out: Dict[str, str] = {}
+    data_dir = getattr(app, "_data_dir", None)
+    if not data_dir:
+        return out
+    for zip_path in Path(data_dir).glob("*_out.zip"):
+        well = zip_path.stem.replace("_out", "")
+        try:
+            out[well] = f"{zip_path.stat().st_mtime_ns}"
+        except OSError:
+            pass
+    return out
+
+
 def save_to_data_dir(app) -> None:
     path = path_for(app)
     if path is None:
         return
+    fingerprints = _well_zip_fingerprints(app)
     overrides = []
     for (well, fov, tp, nid), val in app._review_included_overrides.items():
         overrides.append({
@@ -37,8 +70,16 @@ def save_to_data_dir(app) -> None:
             "tp": str(tp),
             "nucleus_id": str(nid),
             "included": str(val),
+            # Stamp each row with the fingerprint of the well's zip at
+            # the time the override was saved. A later re-run of the
+            # pipeline will change this value and the row will be
+            # dropped on next load.
+            "seg_fp": fingerprints.get(str(well), ""),
         })
-    payload = {"version": 1, "overrides": overrides}
+    payload = {
+        "version": _SCHEMA_VERSION,
+        "overrides": overrides,
+    }
     try:
         atomic_write_json(path, payload)
     except OSError as exc:
@@ -58,9 +99,18 @@ def load_from_data_dir(app) -> None:
     overrides = data.get("overrides") if isinstance(data, dict) else None
     if not isinstance(overrides, list):
         return
+    file_version = 1
+    try:
+        file_version = int(data.get("version", 1))
+    except (TypeError, ValueError):
+        pass
+
+    fingerprints = _well_zip_fingerprints(app)
     # Build the new map locally — only commit to in-memory state on success
     # so a broken / empty file doesn't wipe unsaved edits.
     new_map: dict = {}
+    dropped_stale = 0
+    legacy_unfingerprinted = 0
     for entry in overrides:
         if not isinstance(entry, dict):
             continue
@@ -69,14 +119,38 @@ def load_from_data_dir(app) -> None:
         tp = str(entry.get("tp", "")).strip()
         nid = str(entry.get("nucleus_id", "")).strip()
         inc = str(entry.get("included", "1")).strip() or "1"
+        stored_fp = str(entry.get("seg_fp", "")).strip()
         if not (well and fov and tp and nid):
             continue
+        if stored_fp:
+            current_fp = fingerprints.get(well, "")
+            if current_fp and stored_fp != current_fp:
+                # Pipeline re-run since this override was saved — nucleus
+                # IDs no longer match the original segmentation. Drop.
+                dropped_stale += 1
+                continue
+        else:
+            legacy_unfingerprinted += 1
         fov_n, tp_n, nid_n = app._review_row_keys(
             {"fov": fov, "tp": tp, "nucleus_id": nid}
         )
         if not (fov_n and tp_n and nid_n):
             continue
         new_map[(well, fov_n, tp_n, nid_n)] = inc
+    if dropped_stale:
+        _logger.warning(
+            "cell_overrides: dropped %d override(s) whose segmentation "
+            "fingerprint no longer matches the on-disk well zip (likely a "
+            "pipeline re-run since the overrides were saved).",
+            dropped_stale,
+        )
+    if legacy_unfingerprinted and file_version < _SCHEMA_VERSION:
+        _logger.warning(
+            "cell_overrides: %d v1 override(s) loaded without a segmentation "
+            "fingerprint — they may bind to unrelated cells if the pipeline "
+            "has been re-run since they were saved. Save to upgrade.",
+            legacy_unfingerprinted,
+        )
     if not new_map:
         # Refuse to wipe a populated in-memory state with a no-op load.
         return

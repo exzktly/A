@@ -3058,7 +3058,10 @@ def main() -> None:
     if args.tf_threads > 0:
         tf_threads = min(args.tf_threads, available)
     else:
-        tf_threads = 4   # sweet spot for StarDist on modern x86
+        # Default sweet spot for StarDist is 4 threads, but clamp to the
+        # available core budget so a 2-core host doesn't spawn 4 TF
+        # threads on 1 reserved core (worse than going single-threaded).
+        tf_threads = min(4, available)
     workers            = max(1, available // tf_threads)
     threads_per_worker = tf_threads
 
