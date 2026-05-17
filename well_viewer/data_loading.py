@@ -7,6 +7,7 @@ one and the per-well cache stores it.
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from pathlib import Path
@@ -17,8 +18,12 @@ import pandas as pd
 
 from .ratio_models import RatioMetric, is_ratio_key
 
-if TYPE_CHECKING:
-    pass
+
+_logger = logging.getLogger("well_viewer")
+
+# One-shot dedupe for the "missing fluor column" warning so a 96-well
+# dataset with a schema mismatch logs once per channel, not 96 times.
+_missing_col_warned: set[str] = set()
 
 
 # ── Timepoint parser ─────────────────────────────────────────────────────────
@@ -213,7 +218,16 @@ def resolve_value_series(
             return pd.Series(np.nan, index=df.index)
         num = pd.to_numeric(df[ncol], errors="coerce").to_numpy()
         den = pd.to_numeric(df[dcol], errors="coerce").to_numpy()
-        denom = den + ratio.epsilon
+        # Clamp the denominator to ``epsilon`` (rather than adding
+        # epsilon). Background-subtracted channels can go slightly
+        # negative; ``den + epsilon`` was sign-flipping near zero and
+        # producing arbitrarily large ratios for individual cells. The
+        # clamp keeps the divisor strictly positive when epsilon > 0
+        # and preserves the old NaN-on-zero behaviour when epsilon == 0.
+        if ratio.epsilon > 0.0:
+            denom = np.maximum(den, ratio.epsilon)
+        else:
+            denom = den
         finite = np.isfinite(num) & np.isfinite(den)
         nz = denom != 0.0
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -308,6 +322,16 @@ def aggregate_with_threshold_df(
     for channel, gate in fluor_gates.items():
         col = f"{channel}_mean_intensity"
         if col not in df.columns:
+            if col not in _missing_col_warned:
+                _missing_col_warned.add(col)
+                _logger.warning(
+                    "Cell-gating channel %r references column %r which is "
+                    "absent from the loaded CSVs — aggregation is returning "
+                    "no rows for this channel. Check the gating thresholds "
+                    "in Sample Definitions / Cell Gating against the "
+                    "current dataset's schema.",
+                    channel, col,
+                )
             return []
         v = pd.to_numeric(df[col], errors="coerce").to_numpy()
         mask &= np.isfinite(v) & (v > gate)

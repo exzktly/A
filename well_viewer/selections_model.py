@@ -431,14 +431,48 @@ def _clean_labels(raw: Any) -> dict[str, str]:
 
 
 def block_is_v2(block: Any) -> bool:
+    """A block is v2 only when *all three* hold:
+
+      1. ``schema_version`` is present and >= 2 (or absent + ``selections``
+         is a list, which the v2 builder always sets).
+      2. No legacy v1 keys (``rep_sets`` / ``groups``) are populated.
+
+    A mixed-shape file (carrying both v1 *and* v2 keys with content) is
+    rejected so the caller can refuse to migrate, leaving the v1 data
+    untouched rather than silently dropping it.
+    """
     if not isinstance(block, dict):
         return False
+    has_legacy = bool(block.get("rep_sets")) or bool(block.get("groups"))
     try:
-        if int(block.get("schema_version", 1)) >= 2:
-            return True
+        is_v2_marker = int(block.get("schema_version", 1)) >= 2
     except (TypeError, ValueError):
-        pass
-    return isinstance(block.get("selections"), list)
+        is_v2_marker = False
+    if not is_v2_marker:
+        is_v2_marker = isinstance(block.get("selections"), list)
+    if is_v2_marker and has_legacy:
+        # Mixed payload — fail closed. Caller surfaces a warning and
+        # disables v2 writes for the session.
+        return False
+    return is_v2_marker
+
+
+def block_is_mixed(block: Any) -> bool:
+    """``True`` when *block* carries both v1 and v2 keys with content.
+
+    Lets callers distinguish "use v1 path" from "refuse to migrate"
+    after ``block_is_v2`` returns ``False``.
+    """
+    if not isinstance(block, dict):
+        return False
+    has_legacy = bool(block.get("rep_sets")) or bool(block.get("groups"))
+    try:
+        is_v2_marker = int(block.get("schema_version", 1)) >= 2
+    except (TypeError, ValueError):
+        is_v2_marker = False
+    if not is_v2_marker:
+        is_v2_marker = isinstance(block.get("selections"), list)
+    return is_v2_marker and has_legacy
 
 
 def from_block(block: Any, *, tok_to_label: Any = None,

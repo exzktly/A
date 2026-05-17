@@ -77,6 +77,25 @@ def _apply_unified_state(app, block, *, set_notes: bool = True) -> tuple[bool, d
     """
     from well_viewer import selections_model as _sel
     tok_to_label = getattr(app, "_tok_to_label", {})
+    # Mixed v1+v2 payload (both rep_sets/groups *and* a selections list
+    # with content) — refuse to migrate. Either path would silently drop
+    # data, so we keep the file untouched and disable v2 writes for the
+    # session.
+    if _sel.block_is_mixed(block):
+        _logger.warning(
+            "sample_definitions block has both v1 (rep_sets/groups) and v2 "
+            "(selections) keys populated; refusing to migrate to avoid data "
+            "loss. v2 writes disabled for this session."
+        )
+        app._selections_v2_writes_disabled = True
+        try:
+            app._set_status(
+                "Saved sample definitions are in a mixed v1/v2 shape — using "
+                "compatibility mode. Edit and Save to clean up (see log)."
+            )
+        except Exception:
+            pass
+        return False, {}
     # Detect a legacy v1 block so we can surface a one-time migration toast
     # after the upgrade succeeds. v2 blocks carry schema_version ≥ 2.
     was_v1 = False

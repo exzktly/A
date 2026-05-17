@@ -275,4 +275,13 @@ def redraw_line_plots(
         n_total = sum(len(app._get_rows(l)) for l in selected)
         app._set_status(f"{len(selected)} well(s)  |  {n_total:,} nuclei  |  threshold={threshold:.2f}  |  band={band_lbl}")
 
+    # Re-apply the Export Style sidebar's prefs so font sizes, axis
+    # limits, log scale, etc. survive a redraw (matches what the bar,
+    # heatmap, and distribution renderers do).
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, app._line_fig,
+                                      getattr(app, "_line_canvas", None))
+    except Exception:  # pragma: no cover - never let style restore break a draw
+        pass
     app._line_canvas.draw_idle()
