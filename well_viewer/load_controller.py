@@ -122,6 +122,22 @@ def load_directory(app, d: Path, label=None) -> None:
     # exists; errors are logged and swallowed.
     if hasattr(app, "_ratios_load_from_data_dir"):
         app._ratios_load_from_data_dir()
+    # Eagerly hydrate Cell Gating thresholds from ``pipeline_info.json`` so the
+    # very first plot draw (line / bar / batch export) has the user's
+    # per-channel and per-ratio ThreshFracOn values available. The Cell Gating
+    # sub-tab is otherwise built lazily on first visit, which would leave the
+    # threshold lookup falling back to its 50.0 default — silently filtering
+    # every cell out of a ratio-based plot until the user clicks anything that
+    # triggers the sub-tab build. ``_load_gating_from_pipeline_info`` force-
+    # builds the sub-tab when needed and writes the saved values into the
+    # ThreshFracOn / FluorGating edits in one pass.
+    if hasattr(app, "_load_gating_from_pipeline_info"):
+        try:
+            app._load_gating_from_pipeline_info()
+        except Exception:
+            logging.getLogger("well_viewer").exception(
+                "Eager Cell Gating load from pipeline_info failed"
+            )
     if hasattr(app, "_heatmap_layouts_load_from_data_dir"):
         app._heatmap_layouts_load_from_data_dir()
     if hasattr(app, "_heatmap_sidebar_table"):
