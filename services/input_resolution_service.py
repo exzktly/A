@@ -25,15 +25,9 @@ def tif_files_in(folder: Path) -> list[Path]:
 
 
 def _is_well_named(p: Path) -> bool:
-    """Match `A1` / `A01` … `H12` against the well-token regex."""
-    m = _WELL_NAME_RE.match(p.stem)
-    if not m:
-        return False
-    try:
-        col = int(m.group(2))
-    except ValueError:
-        return False
-    return 1 <= col <= 12
+    """Match `A1` / `A01` … `H12` against the well-token canonicaliser."""
+    from well_token import is_valid_well_name
+    return is_valid_well_name(p.stem)
 
 
 def _has_well_content(folder: Path) -> bool:

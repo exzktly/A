@@ -86,6 +86,7 @@ def _extract_well_from_filename(
     Returns the normalised well label (e.g. "A01") if the filename contains a
     valid 96-well plate position at the schema's "well" slot, otherwise None.
     """
+    from well_token import canonical_well_label
     stem = os.path.splitext(fname)[0]
     well_idx = _well_index_from_schema(schema)
     if well_idx is None:
@@ -94,16 +95,7 @@ def _extract_well_from_filename(
     parts = stem.split(sep)
     if well_idx >= len(parts):
         return None
-    token = parts[well_idx]
-
-    # Validate and normalise: must match A-H, 01-12.
-    m = re.fullmatch(r"([A-Ha-h])(\d{1,2})", token)
-    if not m:
-        return None
-    col = int(m.group(2))
-    if not (1 <= col <= 12):
-        return None
-    return f"{m.group(1).upper()}{col:02d}"
+    return canonical_well_label(parts[well_idx])
 
 
 def find_matching_files(

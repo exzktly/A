@@ -488,14 +488,14 @@ def find_well_folders(input_dir: Path) -> list[tuple[str, Path]]:
 
 
 def _canonical_well_label(token: str) -> str | None:
-    """Return canonical 96-well label (e.g. B03) for *token*, or None if invalid."""
-    m = _WELL_RE.match((token or "").strip())
-    if not m:
-        return None
-    col = int(m.group(2))
-    if not (1 <= col <= 12):
-        return None
-    return f"{m.group(1).upper()}{col:02d}"
+    """Return canonical 96-well label (e.g. B03) for *token*, or None if invalid.
+
+    Thin wrapper over :func:`well_token.canonical_well_label` so the
+    pipeline and the GUI tools (WellPlateZipper, analyze_tab,
+    services/input_resolution_service) all share one parser.
+    """
+    from well_token import canonical_well_label as _cwl
+    return _cwl(token)
 
 
 def organize_loose_tifs_into_well_folders(
