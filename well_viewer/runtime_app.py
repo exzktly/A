@@ -785,6 +785,10 @@ class WellViewerApp(QWidget):
 
         # Plate-map well selection
         self._selected_wells: set  = set()
+        # Coalesces commit-after-paint events. A drag paints 96 wells in
+        # rapid sequence; we want one commit (one full redraw) at the end
+        # of the event-loop tick, not 96.
+        self._plate_commit_pending: bool = False
         # Plotting-tab solo-well overrides: when a user clicks a well not
         # in any group, it's added here so the plot picks it up alongside
         # the visible groups. Independent of ``_selected_wells``, which is
@@ -3340,6 +3344,25 @@ class WellViewerApp(QWidget):
             return
         self._selected_wells = new_set
         self._refresh_sidebar_map()
+        # Coalesce the commit. A drag through 96 cells fires this handler
+        # 96 times in one event-loop tick; without coalescing each one
+        # triggered a full bar/scatter/line redraw and an export-style
+        # reapply (architecture §9.2 documents the paint-vs-commit split).
+        # The deferred call fires once at the end of the tick — and
+        # `_on_sidebar_plate_drag_finished` already commits at drag end
+        # too, so this matters mostly for single-click mode (smFISH /
+        # Segmentation tabs) where no drag_finished signal fires.
+        if not self._plate_commit_pending:
+            self._plate_commit_pending = True
+            QTimer.singleShot(0, self._plate_commit_deferred)
+
+    def _plate_commit_deferred(self) -> None:
+        """Run the deferred commit scheduled by a paint event. No-op if
+        a drag_finished handler already cleared the pending flag (which
+        means it already committed in the same tick)."""
+        if not self._plate_commit_pending:
+            return
+        self._plate_commit_pending = False
         self._on_plate_sel_change()
 
     def _on_sidebar_plate_drag_finished(self) -> None:
@@ -3350,6 +3373,9 @@ class WellViewerApp(QWidget):
         per_well_tab = tab_name in ("Sample Definitions", "Review CSV")
         if self._selections and not per_well_tab:
             return
+        # Cancel any pending deferred commit from the paint events that
+        # led here — we're committing right now.
+        self._plate_commit_pending = False
         self._on_plate_sel_change()
 
     _PLOTTING_TABS = frozenset({
