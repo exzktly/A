@@ -97,10 +97,6 @@ class BarBatchExportPanel(BatchExportPanel):
         self._build_output_header_and_io(layout)
         self._build_channel_row(layout, attr="_bar_channel_cb")
 
-        sep_fc = QFrame(); sep_fc.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep_fc)
-        self._build_fold_change_section(layout)
-
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 

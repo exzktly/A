@@ -282,10 +282,6 @@ class BatchExportPanel(QWidget):
         self._build_output_header_and_io(layout)
         self._build_channel_row(layout, attr="_line_channel_cb")
 
-        sep_fc = QFrame(); sep_fc.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep_fc)
-        self._build_fold_change_section(layout)
-
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
@@ -352,7 +348,11 @@ class BatchExportPanel(QWidget):
         cb.currentIndexChanged.connect(
             lambda _i, _a=attr: self._refresh_property_combo_for(_a)
         )
+        # Fold-change controls sit on the far right of the same row so
+        # they're visible alongside the Channel / Property selectors that
+        # govern what gets normalized.
         row.addStretch(1)
+        self._build_fold_change_widgets(row)
         layout.addLayout(row)
 
     def _all_export_channels(self) -> List[str]:
@@ -671,40 +671,34 @@ class BatchExportPanel(QWidget):
     def _selected_tps(self) -> List[str]:
         return [it.text() for it in self._tp_lb.selectedItems()]
 
-    def _build_fold_change_section(self, layout: QVBoxLayout) -> None:
-        """Two-toggle fold-change row + control selector.
+    def _build_fold_change_widgets(self, row: QHBoxLayout) -> None:
+        """Append the two fold-change toggles + control combo to *row*.
 
         The control combo lists every member exposed by the current export
-        groups (rep-set names + solo wells), keyed by display label. The
-        combo is repopulated whenever the panel is shown so changes to the
-        group editor are reflected without a panel rebuild.
+        groups (rep-set names + solo wells). The combo is repopulated
+        whenever the panel is shown so changes to the group editor are
+        reflected without a panel rebuild.
         """
-        hdr = QHBoxLayout()
-        hdr.setContentsMargins(12, 4, 12, 2)
-        self._add_bold_label(hdr, "NORMALIZATION")
-        hdr.addStretch(1)
-        layout.addLayout(hdr)
+        fc_lbl = QLabel("Fold change:")
+        f = fc_lbl.font(); f.setBold(True); fc_lbl.setFont(f)
+        row.addWidget(fc_lbl)
 
-        row = QHBoxLayout()
-        row.setContentsMargins(12, 2, 12, 6)
-        self._fc_ctrl_cb = QCheckBox("Fold change vs control")
+        self._fc_ctrl_cb = QCheckBox("vs control")
         self._fc_ctrl_cb.setChecked(self._fc_vs_control_on)
         row.addWidget(self._fc_ctrl_cb)
 
         self._fc_ctrl_combo = QComboBox()
-        self._fc_ctrl_combo.setMinimumWidth(180)
+        self._fc_ctrl_combo.setMinimumWidth(160)
         self._repopulate_fc_control_combo()
         row.addWidget(self._fc_ctrl_combo)
 
-        self._fc_t0_cb = QCheckBox("Fold change vs t0")
+        self._fc_t0_cb = QCheckBox("vs t0")
         self._fc_t0_cb.setChecked(self._fc_vs_t0_on)
         self._fc_t0_cb.setToolTip(
             "Normalize each member to its own value at the earliest "
             "available timepoint (each member's first point becomes 1.0)."
         )
         row.addWidget(self._fc_t0_cb)
-        row.addStretch(1)
-        layout.addLayout(row)
 
         def _on_ctrl_tog(c: bool) -> None:
             self._fc_vs_control_on = bool(c)
