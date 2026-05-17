@@ -133,6 +133,43 @@ def _repset_name_for_wells(app, wells: Iterable[str]) -> Optional[str]:
     return None
 
 
+def _pool_filtered_mean(
+    app,
+    wells,
+    *,
+    val_col: str,
+    cell_area_threshold: float,
+    fluor_gates: Dict[str, float],
+    ratios,
+    target_t: float,
+) -> float:
+    """Return the mean of ``_all_fluor_values_filtered`` across *wells*.
+
+    Filters each well's DataFrame separately and concatenates the
+    resulting 1-D float arrays — much cheaper than ``pd.concat`` on
+    the full per-well DataFrames inside the heatmap's O(T·R·C) inner
+    loop.
+    """
+    parts: List[np.ndarray] = []
+    for w in wells:
+        df = app._get_rows(w)
+        if df is None or df.empty:
+            continue
+        vals = _all_fluor_values_filtered(
+            df, val_col=val_col,
+            cell_area_threshold=cell_area_threshold,
+            fluor_gates=fluor_gates,
+            ratios=ratios,
+            tp_filter=target_t,
+        )
+        if vals.size:
+            parts.append(vals)
+    if not parts:
+        return float("nan")
+    pooled = parts[0] if len(parts) == 1 else np.concatenate(parts)
+    return float(pooled.mean())
+
+
 def _cell_value(
     app,
     wells: Iterable[str],
@@ -174,46 +211,35 @@ def _cell_value(
         return float(matched[0][3])
 
     if metric == METRIC_RATIO:
-        # Pool ratio values across cells at the target timepoint via vectorized
-        # DataFrame concat — no per-row dict iteration.
         if not is_ratio_key(val_col):
             return float("nan")
-        frames = [app._get_rows(w) for w in valid_wells]
-        frames = [f for f in frames if f is not None and not f.empty]
-        if not frames:
-            return float("nan")
-        pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-        vals = _all_fluor_values_filtered(
-            pooled, val_col=val_col,
+        # Run the filter per well and concat the resulting 1-D float
+        # arrays instead of pd.concat'ing the per-well DataFrames.
+        # `_compute_global_range` calls this O(T·R·C) times per
+        # heatmap redraw — full-frame concat in the hot loop was the
+        # bottleneck on slider scrubs.
+        return _pool_filtered_mean(
+            app, valid_wells,
+            val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
             ratios=ratios,
-            tp_filter=target_t,
+            target_t=target_t,
         )
-        if vals.size == 0:
-            return float("nan")
-        return float(vals.mean())
 
     if metric == METRIC_MEAN_ALL:
         # Mean across every included cell at the target timepoint — no
         # per-channel ThreshFracOn filter applied. Useful for non-MFI
         # properties (Total / Max / Min / Std) where the MFI threshold is
         # semantically irrelevant.
-        frames = [app._get_rows(w) for w in valid_wells]
-        frames = [f for f in frames if f is not None and not f.empty]
-        if not frames:
-            return float("nan")
-        pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-        vals = _all_fluor_values_filtered(
-            pooled, val_col=val_col,
+        return _pool_filtered_mean(
+            app, valid_wells,
+            val_col=val_col,
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
             ratios=ratios,
-            tp_filter=target_t,
+            target_t=target_t,
         )
-        if vals.size == 0:
-            return float("nan")
-        return float(vals.mean())
 
     # METRIC_MEAN (and fallback)
     pts = app._aggregate_group(
