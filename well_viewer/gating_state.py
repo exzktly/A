@@ -27,11 +27,18 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from well_viewer.persistence._io import atomic_write_json
+
 
 _logger = logging.getLogger("well_viewer.gating_state")
 
 PIPELINE_INFO_FILENAME = "pipeline_info.json"
 CELL_GATING_KEY = "cell_gating"
+
+
+def pipeline_info_available(out_dir: Path) -> bool:
+    """``True`` when *out_dir* has a writable pipeline_info.json sidecar."""
+    return _resolve_pipeline_info_path(out_dir).exists()
 
 DEFAULT_CELL_AREA_THRESHOLD = 0.0
 DEFAULT_FLUOR_GATE = 0.0
@@ -98,11 +105,16 @@ def save_gating_to_pipeline_info(
     When ``gating_block`` is empty, removes any existing ``cell_gating``
     key so default-valued state is not persisted.
 
-    Returns the written path, or None when there is no pipeline_info.json
-    to update (callers can silently skip in that case).
+    Returns the written path, or ``None`` when there is no pipeline_info.json
+    to update or the write failed. Callers wanting to distinguish the two
+    no-write cases can call :func:`pipeline_info_available` first.
     """
     info_path = _resolve_pipeline_info_path(out_dir)
     if not info_path.exists():
+        _logger.warning(
+            "pipeline_info.json not found at %s — gating thresholds will not "
+            "be persisted across sessions for this dataset.", info_path,
+        )
         return None
     try:
         existing = json.loads(info_path.read_text())
@@ -119,9 +131,7 @@ def save_gating_to_pipeline_info(
         existing.pop(CELL_GATING_KEY, None)
 
     try:
-        tmp = info_path.with_suffix(info_path.suffix + ".tmp")
-        tmp.write_text(json.dumps(existing, indent=2))
-        tmp.replace(info_path)
+        atomic_write_json(info_path, existing)
     except OSError as exc:
         _logger.warning("Could not write %s: %s", info_path, exc)
         return None

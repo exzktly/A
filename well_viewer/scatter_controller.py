@@ -285,6 +285,14 @@ def redraw_scatter(
         "col_x": col_x,
         "col_y": col_y,
     }
+    # Re-apply Export Style sidebar prefs so axis limits / log scale /
+    # font sizes survive a redraw — matches bar/heatmap/distribution.
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, app._scatter_fig,
+                                      getattr(app, "_scatter_canvas", None))
+    except Exception:  # pragma: no cover
+        pass
     app._scatter_canvas.draw()
 
 
@@ -583,4 +591,10 @@ def redraw_scatter_agg(
         app._ax_scatter_agg.legend(loc='best', fontsize=8, framealpha=0.0, facecolor="none")
 
     # Redraw canvas
+    try:
+        from well_viewer.figure_export_editor import apply_export_style_to_current
+        apply_export_style_to_current(app, app._scatter_agg_fig,
+                                      getattr(app, "_scatter_agg_canvas", None))
+    except Exception:  # pragma: no cover
+        pass
     app._scatter_agg_canvas.draw()
