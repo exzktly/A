@@ -29,7 +29,10 @@ def redraw(
     all_fluor_values_filtered,
     warn,
 ) -> None:
-    metric_label = "smFISH Count" if app._active_metric == "smfish_count" else "Intensity"
+    from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
+    metric_label = METRIC_KEY_TO_LABEL.get(
+        getattr(app, "_active_metric", "mean_intensity"), "Mean Intensity"
+    )
 
     lineplot_redraw(
         app,

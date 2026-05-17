@@ -86,38 +86,28 @@ class ScatterBatchExportPanel(BatchExportPanel):
                  else "OUTPUT SETTINGS \u2014 SCATTER AGGREGATE")
         self._build_output_header_and_io(layout, title=title)
 
-        opt_row = QHBoxLayout()
-        opt_row.setContentsMargins(12, 2, 12, 2)
+        # X / Y selection rows. Each axis carries its own Channel +
+        # Property pair so the batch export mirrors the per-tab plot UI
+        # (including ratio channels, which collapse the Property combo to
+        # ``Calculated Val``). The agg variant adds ``Fraction above
+        # threshold`` to the Property options so the per-well aggregation
+        # mode is still reachable.
         if self._scatter_mode == "cells":
-            xlbl = QLabel("X:")
-            f = xlbl.font(); f.setBold(True); xlbl.setFont(f)
-            opt_row.addWidget(xlbl)
-            self._sc_cells_x_cb = QComboBox()
-            self._sc_cells_x_cb.setMinimumWidth(140)
-            opt_row.addWidget(self._sc_cells_x_cb)
-            ylbl = QLabel("Y:")
-            f = ylbl.font(); f.setBold(True); ylbl.setFont(f)
-            opt_row.addWidget(ylbl)
-            self._sc_cells_y_cb = QComboBox()
-            self._sc_cells_y_cb.setMinimumWidth(140)
-            opt_row.addWidget(self._sc_cells_y_cb)
+            self._sc_cells_x_cb, self._sc_cells_metric_x_cb = self._build_axis_row(
+                layout, axis_label="X", include_fraction=False,
+            )
+            self._sc_cells_y_cb, self._sc_cells_metric_y_cb = self._build_axis_row(
+                layout, axis_label="Y", include_fraction=False,
+            )
             self._init_scatter_cells_axes()
         else:
-            xlbl = QLabel("Stat X:")
-            f = xlbl.font(); f.setBold(True); xlbl.setFont(f)
-            opt_row.addWidget(xlbl)
-            self._sc_agg_x_cb = QComboBox()
-            self._sc_agg_x_cb.setMinimumWidth(180)
-            opt_row.addWidget(self._sc_agg_x_cb)
-            ylbl = QLabel("Stat Y:")
-            f = ylbl.font(); f.setBold(True); ylbl.setFont(f)
-            opt_row.addWidget(ylbl)
-            self._sc_agg_y_cb = QComboBox()
-            self._sc_agg_y_cb.setMinimumWidth(180)
-            opt_row.addWidget(self._sc_agg_y_cb)
-            self._init_scatter_agg_stats()
-        opt_row.addStretch(1)
-        layout.addLayout(opt_row)
+            self._sc_agg_x_cb, self._sc_agg_metric_x_cb = self._build_axis_row(
+                layout, axis_label="X", include_fraction=True,
+            )
+            self._sc_agg_y_cb, self._sc_agg_metric_y_cb = self._build_axis_row(
+                layout, axis_label="Y", include_fraction=True,
+            )
+            self._init_scatter_agg_axes()
 
         self._build_timepoints_section(layout)
         self._init_timepoint_dropdown()
@@ -163,39 +153,211 @@ class ScatterBatchExportPanel(BatchExportPanel):
             self._tp_lb.addItem(QListWidgetItem(tp))
         self._tp_select_all()
 
-    def _init_scatter_cells_axes(self) -> None:
+    def _build_axis_row(
+        self, layout: QVBoxLayout, *, axis_label: str, include_fraction: bool,
+    ) -> tuple:
+        """Add a "{axis}: Channel <combo>  Property <combo>" row.
+
+        The Property combo gets full ``METRIC_ORDER`` plus an optional
+        ``Fraction above threshold`` entry; it dynamically collapses to
+        ``Calculated Val`` when the channel resolves to a ratio key,
+        matching the per-tab scatter UI behaviour.
+
+        Returns ``(channel_combo, property_combo)``.
+        """
+        row = QHBoxLayout()
+        row.setContentsMargins(12, 2, 12, 2)
+        lbl = QLabel(f"{axis_label}:")
+        f = lbl.font(); f.setBold(True); lbl.setFont(f)
+        row.addWidget(lbl)
+
+        ch_cb = QComboBox()
+        ch_cb.setMinimumWidth(140)
+        row.addWidget(QLabel("Channel:"))
+        row.addWidget(ch_cb)
+
+        prop_cb = QComboBox()
+        prop_cb.setMinimumWidth(140)
+        row.addWidget(QLabel("Property:"))
+        row.addWidget(prop_cb)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        # Stash both on the panel so `_refresh_scatter_axis_property` can
+        # find them, then wire the channel→property refresh signal.
+        ch_cb._paired_property_cb = prop_cb  # type: ignore[attr-defined]
+        ch_cb._include_fraction = include_fraction  # type: ignore[attr-defined]
+        ch_cb.currentIndexChanged.connect(
+            lambda _i, _c=ch_cb: self._refresh_scatter_axis_property(_c)
+        )
+        return ch_cb, prop_cb
+
+    def _refresh_scatter_axis_property(self, ch_cb: QComboBox) -> None:
+        """Reshape the Property combo paired with ``ch_cb`` based on its
+        currently-selected channel (ratio → ``Calculated Val``, real
+        channel → full intensity set, optionally + ``Fraction above
+        threshold`` for the agg axis)."""
+        from well_viewer.metric_labels import (
+            METRIC_ORDER, METRIC_KEY_TO_LABEL, CALCULATED_VAL_LABEL,
+        )
+        from well_viewer.ratio_models import is_ratio_key as _is_ratio_key
+        prop_cb = getattr(ch_cb, "_paired_property_cb", None)
+        if prop_cb is None:
+            return
+        include_fraction = bool(getattr(ch_cb, "_include_fraction", False))
+        channel = str(ch_cb.currentText() or "")
+        ratio_key = (
+            getattr(self._app, "_label_to_channel_key", None) or {}
+        ).get(channel)
+        is_ratio = bool(ratio_key and _is_ratio_key(ratio_key))
+
+        prev = str(prop_cb.currentText() or "")
+        blocked = prop_cb.blockSignals(True)
+        try:
+            prop_cb.clear()
+            if is_ratio:
+                prop_cb.addItem(CALCULATED_VAL_LABEL)
+                prop_cb.setCurrentIndex(0)
+                prop_cb.setEnabled(True)
+                return
+            items = list(METRIC_ORDER)
+            if include_fraction:
+                items.append("Fraction above threshold")
+            prop_cb.addItems(items)
+            prop_cb.setEnabled(True)
+            if prev in items:
+                prop_cb.setCurrentText(prev)
+            else:
+                fallback = METRIC_KEY_TO_LABEL.get(
+                    getattr(self._app, "_active_metric", "mean_intensity"),
+                    "Mean Intensity",
+                )
+                idx = prop_cb.findText(fallback)
+                if idx >= 0:
+                    prop_cb.setCurrentIndex(idx)
+            # Grey out smFISH Count when the channel isn't smFISH.
+            sm_idx = prop_cb.findText("smFISH Count")
+            if sm_idx >= 0:
+                model = prop_cb.model()
+                item = model.item(sm_idx) if model is not None else None
+                if item is not None:
+                    smf_ok = channel in (
+                        getattr(self._app, "_smfish_channels", []) or []
+                    )
+                    item.setEnabled(smf_ok)
+        finally:
+            prop_cb.blockSignals(blocked)
+
+    def _scatter_channel_options(self) -> List[str]:
+        """Real fluor channels + ratio labels — same source the per-tab
+        scatter plot uses so the batch UI tracks the plot tabs exactly."""
         channels = list(self._app._fluor_channels) if self._app._fluor_channels else ["gfp"]
-        options: List[str] = []
-        smfish_channels = set(getattr(self._app, "_smfish_channels", []))
-        for ch in channels:
-            options.append(ch)
-            if ch in smfish_channels:
-                options.append(f"{ch} (spots)")
-        if not options:
-            options = ["gfp"]
-        self._sc_cells_x_cb.clear()
-        self._sc_cells_x_cb.addItems(options)
-        self._sc_cells_y_cb.clear()
-        self._sc_cells_y_cb.addItems(options)
+        options: List[str] = list(channels)
+        ratio_labels: List[str] = []
+        if hasattr(self._app, "_ratio_dropdown_labels"):
+            try:
+                ratio_labels = list(self._app._ratio_dropdown_labels() or [])
+            except Exception:
+                ratio_labels = []
+        for r in ratio_labels:
+            if r and r not in options:
+                options.append(r)
+        return options or ["gfp"]
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        # Refresh the X / Y channel options so newly-defined ratios show
+        # up without restarting the panel.
+        try:
+            if self._scatter_mode == "cells" and hasattr(self, "_sc_cells_x_cb"):
+                options = self._scatter_channel_options()
+                for cb in (self._sc_cells_x_cb, self._sc_cells_y_cb):
+                    prev = cb.currentText()
+                    blocked = cb.blockSignals(True)
+                    try:
+                        cb.clear()
+                        cb.addItems(options)
+                        if prev in options:
+                            cb.setCurrentText(prev)
+                    finally:
+                        cb.blockSignals(blocked)
+                    self._refresh_scatter_axis_property(cb)
+            elif self._scatter_mode == "aggregate" and hasattr(self, "_sc_agg_x_cb"):
+                options = self._scatter_channel_options()
+                for cb in (self._sc_agg_x_cb, self._sc_agg_y_cb):
+                    prev = cb.currentText()
+                    blocked = cb.blockSignals(True)
+                    try:
+                        cb.clear()
+                        cb.addItems(options)
+                        if prev in options:
+                            cb.setCurrentText(prev)
+                    finally:
+                        cb.blockSignals(blocked)
+                    self._refresh_scatter_axis_property(cb)
+        except Exception:
+            pass
+
+    def _init_scatter_cells_axes(self) -> None:
+        options = self._scatter_channel_options()
+        for cb in (self._sc_cells_x_cb, self._sc_cells_y_cb):
+            cb.clear()
+            cb.addItems(options)
         self._sc_cells_x_cb.setCurrentText(options[0])
         self._sc_cells_y_cb.setCurrentText(options[1] if len(options) > 1 else options[0])
+        # Trigger property-combo refresh so each axis picks up the right
+        # metric set for its starting channel.
+        self._refresh_scatter_axis_property(self._sc_cells_x_cb)
+        self._refresh_scatter_axis_property(self._sc_cells_y_cb)
 
-    def _init_scatter_agg_stats(self) -> None:
-        channels = list(self._app._fluor_channels) if self._app._fluor_channels else ["gfp"]
-        stats: List[str] = []
-        smfish_channels = set(getattr(self._app, "_smfish_channels", []))
-        for ch in channels:
-            up = ch.upper()
-            stats.append(f"Mean Fluorescence {up}")
-            stats.append(f"Fraction On {up}")
-            if ch in smfish_channels:
-                stats.append(f"smFISH Count {up}")
-        self._sc_agg_x_cb.clear()
-        self._sc_agg_x_cb.addItems(stats)
-        self._sc_agg_y_cb.clear()
-        self._sc_agg_y_cb.addItems(stats)
-        self._sc_agg_x_cb.setCurrentText(stats[0])
-        self._sc_agg_y_cb.setCurrentText(stats[1] if len(stats) > 1 else stats[0])
+    def _init_scatter_agg_axes(self) -> None:
+        options = self._scatter_channel_options()
+        for cb in (self._sc_agg_x_cb, self._sc_agg_y_cb):
+            cb.clear()
+            cb.addItems(options)
+        self._sc_agg_x_cb.setCurrentText(options[0])
+        self._sc_agg_y_cb.setCurrentText(options[1] if len(options) > 1 else options[0])
+        self._refresh_scatter_axis_property(self._sc_agg_x_cb)
+        self._refresh_scatter_axis_property(self._sc_agg_y_cb)
+
+    def _scatter_metric_key(self, prop_cb: QComboBox) -> str:
+        """Map the Property combo's current label to an intensity-metric key.
+
+        Returns one of: ``mean_intensity``, ``total_intensity``,
+        ``max_intensity``, ``min_intensity``, ``std_intensity``,
+        ``smfish_count``, ``fraction_above_threshold`` (agg only),
+        ``calculated_val`` (ratio path — caller is expected to resolve the
+        column via ``_col_for_scatter_axis`` instead).
+        """
+        from well_viewer.metric_labels import (
+            METRIC_LABEL_TO_KEY, CALCULATED_VAL_LABEL,
+        )
+        label = str(prop_cb.currentText() or "")
+        if label == CALCULATED_VAL_LABEL:
+            return "calculated_val"
+        if label == "Fraction above threshold":
+            return "fraction_above_threshold"
+        return METRIC_LABEL_TO_KEY.get(label, "mean_intensity")
+
+    def _scatter_axis_col(self, ch_cb: QComboBox, prop_cb: QComboBox) -> str:
+        """Resolve a (channel combo, property combo) pair to a CSV column
+        / ratio key, via ``app._col_for_scatter_axis``."""
+        channel = str(ch_cb.currentText() or "")
+        metric_key = self._scatter_metric_key(prop_cb)
+        if hasattr(self._app, "_col_for_scatter_axis"):
+            return self._app._col_for_scatter_axis(channel, metric_key)
+        return f"{channel}_{metric_key}"
+
+    def _scatter_axis_stat(self, ch_cb: QComboBox, prop_cb: QComboBox) -> str:
+        """Build the legacy ``Mean Fluorescence GFP (Total Intensity)``-style
+        stat string for the agg pathway, using the app's composer when
+        available so the produced string round-trips through
+        ``scatter_controller.parse_statistic``."""
+        channel = str(ch_cb.currentText() or "")
+        metric_label = str(prop_cb.currentText() or "Mean Intensity")
+        if hasattr(self._app, "_compose_scatter_agg_stat"):
+            return self._app._compose_scatter_agg_stat(channel, metric_label)
+        return f"Mean Fluorescence {channel.upper()}"
 
     def _run_batch(self) -> None:
         groups_with_data = _groups_with_loaded_wells(
@@ -293,8 +455,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
         self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
         from well_viewer.scatter_controller import collect_scatter_data as _collect_scatter_data
-        col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
-        col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
+        col_x = self._scatter_axis_col(self._sc_cells_x_cb, self._sc_cells_metric_x_cb)
+        col_y = self._scatter_axis_col(self._sc_cells_y_cb, self._sc_cells_metric_y_cb)
         with self._app_group_scope(grp):
             ch_x_base = self._sc_cells_x_cb.currentText().split(" ")[0]
             ch_y_base = self._sc_cells_y_cb.currentText().split(" ")[0]
@@ -348,8 +510,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
         self, grp: BarGroup, tp_h: float, csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
         from well_viewer.scatter_controller import collect_scatter_agg_data as _collect_scatter_agg_data
-        stat_x = self._sc_agg_x_cb.currentText()
-        stat_y = self._sc_agg_y_cb.currentText()
+        stat_x = self._scatter_axis_stat(self._sc_agg_x_cb, self._sc_agg_metric_x_cb)
+        stat_y = self._scatter_axis_stat(self._sc_agg_y_cb, self._sc_agg_metric_y_cb)
         with self._app_group_scope(grp):
             scatter_data = _collect_scatter_agg_data(
                 self._app, stat_x, stat_y, [tp_h],
@@ -414,8 +576,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
         combined_rows: List[dict] = []
         combined_series: List[tuple] = []
         for tp_h in sorted(timepoints):
-            col_x = self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText())
-            col_y = self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText())
+            col_x = self._scatter_axis_col(self._sc_cells_x_cb, self._sc_cells_metric_x_cb)
+            col_y = self._scatter_axis_col(self._sc_cells_y_cb, self._sc_cells_metric_y_cb)
             with self._app_group_scope(grp):
                 ch_x_base = self._sc_cells_x_cb.currentText().split(" ")[0]
                 ch_y_base = self._sc_cells_y_cb.currentText().split(" ")[0]
@@ -459,8 +621,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
                                alpha=0.55, s=24)
             self._export_scatter_figure(
                 _draw,
-                xlabel=self._app._col_for_scatter_entry(self._sc_cells_x_cb.currentText()),
-                ylabel=self._app._col_for_scatter_entry(self._sc_cells_y_cb.currentText()),
+                xlabel=self._scatter_axis_col(self._sc_cells_x_cb, self._sc_cells_metric_x_cb),
+                ylabel=self._scatter_axis_col(self._sc_cells_y_cb, self._sc_cells_metric_y_cb),
                 title=f"{grp.name} \u2014 Scatter Cells (all selected tps)",
                 fig_path=fig_path, fmt=fmt, legend_fontsize=7,
             )
@@ -473,8 +635,8 @@ class ScatterBatchExportPanel(BatchExportPanel):
         csv_path: Path, fig_path: Path, fmt: str,
     ) -> Optional[str]:
         from well_viewer.scatter_controller import collect_scatter_agg_data as _collect_scatter_agg_data
-        stat_x = self._sc_agg_x_cb.currentText()
-        stat_y = self._sc_agg_y_cb.currentText()
+        stat_x = self._scatter_axis_stat(self._sc_agg_x_cb, self._sc_agg_metric_x_cb)
+        stat_y = self._scatter_axis_stat(self._sc_agg_y_cb, self._sc_agg_metric_y_cb)
         with self._app_group_scope(grp):
             scatter_data = _collect_scatter_agg_data(
                 self._app, stat_x, stat_y, sorted(timepoints),

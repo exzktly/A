@@ -263,6 +263,8 @@ def build_centre(app, parent: QWidget) -> None:
             f"letter-spacing: 0.08em;"
         )
         arl.addWidget(chan_lbl)
+        # Expose the label so tab-switch logic can hide it on scatter tabs.
+        app._plotting_channel_lbl = chan_lbl
         app._plotting_channel_cb = _QComboBox()
         app._plotting_channel_cb.setMinimumContentsLength(8)
         app._plotting_channel_cb.setStyleSheet(
@@ -301,6 +303,7 @@ def build_centre(app, parent: QWidget) -> None:
             f"letter-spacing: 0.08em;"
         )
         arl.addWidget(prop_lbl)
+        app._plotting_metric_lbl = prop_lbl
         app._plotting_metric_cb = _QComboBox()
         app._plotting_metric_cb.setMinimumContentsLength(8)
         app._plotting_metric_cb.setStyleSheet(
@@ -397,12 +400,25 @@ def build_centre(app, parent: QWidget) -> None:
             the dropdown two or three times to force a re-sync via
             ``_set_active_channel``.
 
-            ``title`` is no longer used (every plotting sub-tab shares the
-            same canonical channel set) but kept in the signature so
-            existing callers don't need to change.
+            ``title`` selects whether the global Channel / Property combos
+            are visible — the scatter tabs (cells + aggregate) have
+            per-axis selectors so the global combos are hidden there to
+            avoid confusion about which one drives the plot.
             """
-            del title  # canonical channel list is the same for every sub-tab
             global_cb = getattr(app, "_plotting_channel_cb", None)
+            metric_cb = getattr(app, "_plotting_metric_cb", None)
+            # Hide the global Channel/Property combos on scatter sub-tabs
+            # — those tabs own per-axis (channel, property) selectors.
+            is_scatter = title in ("Scatter Plot", "Scatter Cells", "Scatter Agg")
+            for cb in (global_cb, metric_cb):
+                if cb is not None:
+                    cb.setVisible(not is_scatter)
+            # Also hide the "Channel" / "Property" labels in the action row
+            # so the row looks intentional (not just empty boxes hidden).
+            for lbl_attr in ("_plotting_channel_lbl", "_plotting_metric_lbl"):
+                lbl = getattr(app, lbl_attr, None)
+                if lbl is not None:
+                    lbl.setVisible(not is_scatter)
             if global_cb is None:
                 return
             real_labels = [str(ch).upper() for ch in

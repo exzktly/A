@@ -191,7 +191,7 @@ def redraw_distribution(app) -> None:
         ax.set_ylabel("Density")
         if any(name for name, _, _ in groups):
             try:
-                ax.legend(fontsize=7, loc="best")
+                ax.legend(fontsize=7, loc="best", framealpha=0.0, facecolor="none")
             except Exception:
                 pass
 

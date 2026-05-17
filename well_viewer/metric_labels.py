@@ -43,6 +43,12 @@ INTENSITY_SUFFIXES = tuple(f"_{k}" for k in INTENSITY_METRIC_KEYS)
 
 SMFISH_SUFFIX = "_smfish_count"
 
+# Display label used in Property combos when a ratio channel is the
+# active selection. Ratios have a single computed value per cell
+# (``ratio:<name>``), so none of the intensity flavours apply — the
+# combo collapses to this single entry.
+CALCULATED_VAL_LABEL = "Calculated Val"
+
 
 def split_metric_col(col: str) -> Optional[Tuple[str, str, str]]:
     """Split ``<channel>_<metric_suffix>`` into ``(channel, metric_key, label)``.

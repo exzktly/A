@@ -528,8 +528,16 @@ def export_scatter_data(app) -> None:
 
     ch_x_base = ch_x_entry.split(" ")[0]
     ch_y_base = ch_y_entry.split(" ")[0]
-    col_x = app._col_for_scatter_entry(ch_x_entry)
-    col_y = app._col_for_scatter_entry(ch_y_entry)
+    # Per-axis Property combos drive column selection now; fall back to
+    # the legacy single-entry resolver if those combos aren't present.
+    if hasattr(app, "_scatter_axis_metric_key"):
+        metric_x = app._scatter_axis_metric_key("x")
+        metric_y = app._scatter_axis_metric_key("y")
+        col_x = app._col_for_scatter_axis(ch_x_entry, metric_x)
+        col_y = app._col_for_scatter_axis(ch_y_entry, metric_y)
+    else:
+        col_x = app._col_for_scatter_entry(ch_x_entry)
+        col_y = app._col_for_scatter_entry(ch_y_entry)
 
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gate_x = app._get_fluor_gate(ch_x_base)

@@ -158,7 +158,7 @@ def _channel_options(app) -> List[str]:
     # Append user-defined ratio metrics as virtual channels.  The display
     # label "GFP/RFP" is what appears in the dropdown; _find_ratio_for_channel
     # resolves it back to the RatioMetric at render time.
-    for r in (getattr(app, "_ratios", None) or []):
+    for r in (getattr(app, "_ratio_metrics", None) or []):
         lbl = r.display_label()
         if lbl and lbl not in options:
             options.append(lbl)
@@ -168,7 +168,7 @@ def _channel_options(app) -> List[str]:
 
 def _find_ratio_for_channel(app, chan: str):
     """Return the RatioMetric whose display_label matches *chan*, or None."""
-    for r in (getattr(app, "_ratios", None) or []):
+    for r in (getattr(app, "_ratio_metrics", None) or []):
         if r.display_label().upper() == chan.strip().upper():
             return r
     return None
