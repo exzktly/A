@@ -461,7 +461,9 @@ def collect_scatter_agg_data(
         arr = np.asarray(vals, dtype=float)
         mean_v = float(arr.mean())
         n = arr.size
-        sd = float(arr.std(ddof=0)) if n > 1 else 0.0
+        # Sample SD (ddof=1) across wells, matching _compute_rep_stats
+        # and stats_controller.run_pairwise_tests.
+        sd = float(arr.std(ddof=1)) if n > 1 else 0.0
         err = sd / math.sqrt(n) if (use_sem and n > 1) else sd
         return mean_v, err
 
