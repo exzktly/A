@@ -211,6 +211,8 @@ calls out the fix commit.
 | M15 | `6597cea` | Heatmap `_cell_value` pools 1-D arrays instead of `pd.concat`'ing per-well DataFrames in the O(T·R·C) inner loop |
 | L14, L15 | `973d697` | Index-based dedup in line plot ordering; per-FOV bucket key aligned to aggregator's `"1"` |
 | L5 | `a8c540f` | `__aw_tmp_` prefix on pipeline scratch files (no more false-positive drops of user files containing `.pid`) |
+| H20 (doc) | `a371d15` | ARCHITECTURE §8 rewritten to describe the actual two-theme split — the value-reconciliation half remains for a focused visual-design PR |
+| M1 | `964d584` | New top-level `well_token.py` (stdlib-only) — `WellPlateZipper`, `process_microscopy`, `services/input_resolution_service` all delegate to it |
 
 **Already closed upstream by PR #248** (so the audit's analysis is now stale):
 
@@ -220,15 +222,14 @@ calls out the fix commit.
 
 **Major remaining items:**
 
-- **H4** — `WellPlateZipper` copies instead of moving — left alone; behavioural change requiring user opt-in.
-- **H20** — `theme.py` vs `ui/theme/` reconciliation — sizable; not attempted.
-- **M1** — Three different well-token parsers — refactor not done; the duplicates agree behaviourally so the cost / benefit didn't justify the disruption.
+- **H4** — `WellPlateZipper` copies instead of moving — left alone; behavioural change requiring user opt-in (a `--keep-originals` flag default True + Analyze tab checkbox would be the right shape).
+- **H20** (value half) — `theme.py` vs `ui/theme/` colour reconciliation — left alone; would change visible UI without test coverage. The doc half is closed (§8 rewritten).
 - **M6, M7** — `plot_orchestrator` unification — partly addressed by PR #248's scope-aware redraw; the bar / scatter / scatter-agg branches still bypass the orchestrator.
 - **M9** — CSV load on UI thread — left; `_step_progress` already calls `QApplication.processEvents()` between files so it's not as bad as the audit suggested. Full off-thread load wants a `QThread` worker plumbed through the load progress signal.
-- **M10** — Tab-switch redraw fan-out — same risk as the god-object methods; left for a focused refactor.
+- **M10** — Tab-switch redraw fan-out — also partly addressed by PR #248 (one redraw per tab now); the remaining fan-out is from lazy builders that call `_recalculate_threshold` on first build.
 - **M12** — Scatter-agg threshold path duplicates `_compute_rep_stats` — numerical agreement reached after H11; deduplication needs a shared helper signature.
-- **M28, M29, M30** — Widget hardcoded values + per-instance QSS — partially addressed by M27 (no more line-recolour-by-index); full reconciliation depends on H20.
-- **L1, L2, L9, L10, L16, L17, L20, L21, L22** — Various Low items not touched.
+- **M28, M29, M30** — Widget hardcoded values + per-instance QSS — partially addressed by M27 (no more line-recolour-by-index); full reconciliation depends on H20 (value half).
+- **L1, L2, L9, L10, L16, L17, L20, L21, L22** — Various Low items. L21 / L22 (keyboard accessibility) are the most worthwhile; both want a focused UI PR.
 
 ### 0.8 Suggested workflow for a fresh session
 
