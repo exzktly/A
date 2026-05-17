@@ -63,40 +63,13 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl.addWidget(app._metric_selector_frame_bar)
     app._metric_selector_frame_bar.hide()
 
-    cl.addWidget(QLabel("Timepoint:", bar_ctrl))
-    app._bar_tp_cb = QComboBox(bar_ctrl)
-    app._bar_tp_cb.addItems(["—"])
-    app._bar_tp_cb.currentIndexChanged.connect(lambda _i: app._redraw_bars())
-    cl.addWidget(app._bar_tp_cb)
-    app._bar_tp_var = app._bar_tp_cb
-
     cl.addStretch(1)
 
-    app._swarm_btn = QPushButton("Beeswarm", bar_ctrl)
-    app._swarm_btn.setProperty("variant", "toggle")
-    app._swarm_btn.setCheckable(True)
-    app._swarm_btn.clicked.connect(lambda _=False: app._toggle_swarm())
-    cl.addWidget(app._swarm_btn)
-    app._bar_swarm = False
-
-    app._violin_btn = QPushButton("Violin", bar_ctrl)
-    app._violin_btn.setProperty("variant", "toggle")
-    app._violin_btn.setCheckable(True)
-    app._violin_btn.clicked.connect(lambda _=False: app._toggle_violin())
-    cl.addWidget(app._violin_btn)
-    app._bar_violin = False
-
-    cl.addWidget(QLabel("Smooth:", bar_ctrl))
-    from widgets.styled_slider import StyledSlider as _StyledSlider
-    app._violin_slider = _StyledSlider(Qt.Horizontal, bar_ctrl)
-    app._violin_slider.setRange(5, 200)
-    app._violin_slider.setValue(100)
-    app._violin_slider.setFixedWidth(80)
-    app._violin_slider.valueChanged.connect(
-        lambda _v: (app._redraw_bars() if app._bar_violin else None)
-    )
-    app._violin_slider.setEnabled(False)
-    cl.addWidget(app._violin_slider)
+    # Fold-change normalization is back on the main controls row — the
+    # plot-shape controls (Timepoint / Beeswarm / Violin / Smooth) have
+    # been pulled into their own row below, which freed enough room.
+    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
+    install_fold_change_controls(app, bar_ctrl, cl, scope="bar")
 
     app._bar_reset_order_btn = QPushButton("Reset Order", bar_ctrl)
     app._bar_reset_order_btn.setProperty("variant", "toggle_muted")
@@ -122,17 +95,49 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     cl.addWidget(style_btn)
     right_l.addWidget(bar_ctrl)
 
-    # Fold-change normalization gets its own row below the main controls —
-    # the controls row is already crowded enough that sharing would force
-    # widgets to overlap on common window widths.
-    bar_fc_ctrl = QWidget(bar_right)
-    bar_fc_ctrl.setObjectName("TabCtrl")
-    fc_cl = QHBoxLayout(bar_fc_ctrl)
-    fc_cl.setContentsMargins(10, 2, 10, 6)
-    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
-    install_fold_change_controls(app, bar_fc_ctrl, fc_cl, scope="bar")
-    fc_cl.addStretch(1)
-    right_l.addWidget(bar_fc_ctrl)
+    # ── plot-shape row (Timepoint / Beeswarm / Violin / Smooth) ──────────────
+    # Split off the controls that change WHAT is plotted from the controls
+    # that change HOW it's exported — keeps the main row uncluttered.
+    shape_ctrl = QWidget(bar_right)
+    shape_ctrl.setObjectName("TabCtrl")
+    sl = QHBoxLayout(shape_ctrl)
+    sl.setContentsMargins(10, 2, 10, 6)
+
+    sl.addWidget(QLabel("Timepoint:", shape_ctrl))
+    app._bar_tp_cb = QComboBox(shape_ctrl)
+    app._bar_tp_cb.addItems(["—"])
+    app._bar_tp_cb.currentIndexChanged.connect(lambda _i: app._redraw_bars())
+    sl.addWidget(app._bar_tp_cb)
+    app._bar_tp_var = app._bar_tp_cb
+
+    app._swarm_btn = QPushButton("Beeswarm", shape_ctrl)
+    app._swarm_btn.setProperty("variant", "toggle")
+    app._swarm_btn.setCheckable(True)
+    app._swarm_btn.clicked.connect(lambda _=False: app._toggle_swarm())
+    sl.addWidget(app._swarm_btn)
+    app._bar_swarm = False
+
+    app._violin_btn = QPushButton("Violin", shape_ctrl)
+    app._violin_btn.setProperty("variant", "toggle")
+    app._violin_btn.setCheckable(True)
+    app._violin_btn.clicked.connect(lambda _=False: app._toggle_violin())
+    sl.addWidget(app._violin_btn)
+    app._bar_violin = False
+
+    sl.addWidget(QLabel("Smooth:", shape_ctrl))
+    from widgets.styled_slider import StyledSlider as _StyledSlider
+    app._violin_slider = _StyledSlider(Qt.Horizontal, shape_ctrl)
+    app._violin_slider.setRange(5, 200)
+    app._violin_slider.setValue(100)
+    app._violin_slider.setFixedWidth(80)
+    app._violin_slider.valueChanged.connect(
+        lambda _v: (app._redraw_bars() if app._bar_violin else None)
+    )
+    app._violin_slider.setEnabled(False)
+    sl.addWidget(app._violin_slider)
+
+    sl.addStretch(1)
+    right_l.addWidget(shape_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
     card = PlotCard(bar_right, figsize=(_FIG_W, _FIG_H), constrained=False)

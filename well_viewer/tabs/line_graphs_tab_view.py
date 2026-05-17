@@ -69,6 +69,11 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
+    # Fold-change normalization sits on the main controls row — the line
+    # tab's row is uncluttered enough that it fits without overlap.
+    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
+    install_fold_change_controls(app, line_ctrl, cl, scope="line")
+
     cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data,
                              icon="download"))
     cl.addWidget(btn_secondary(line_ctrl, "Copy SVG",
@@ -88,17 +93,6 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     style_btn.setToolTip("Show / hide the figure properties panel")
     cl.addWidget(style_btn)
     layout.addWidget(line_ctrl)
-
-    # Fold-change normalization gets its own row beneath the main controls
-    # to avoid widget overlap on narrower window widths.
-    line_fc_ctrl = QWidget(parent)
-    line_fc_ctrl.setObjectName("TabCtrl")
-    fc_cl = QHBoxLayout(line_fc_ctrl)
-    fc_cl.setContentsMargins(10, 2, 10, 6)
-    from well_viewer.tabs.fold_change_controls import install_fold_change_controls
-    install_fold_change_controls(app, line_fc_ctrl, fc_cl, scope="line")
-    fc_cl.addStretch(1)
-    layout.addWidget(line_fc_ctrl)
 
     # ── the figure, in a v2 PlotCard (card chrome + MplToolbar) ──────────────
     card = PlotCard(parent, figsize=(_FIG_W, _FIG_H), constrained=False)
