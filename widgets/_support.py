@@ -15,7 +15,7 @@ if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
 import theme  # noqa: E402  (after the sys.path fix above)
-from PySide6.QtCore import QEvent  # noqa: E402
+from PySide6.QtCore import QEvent, QObject  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 
 __all__ = [
@@ -62,7 +62,10 @@ def install_qss_refresh(widget, qss_factory) -> None:
     if getattr(widget, "_qss_refresh_filter_installed", False):
         return
 
-    class _Filter:
+    class _Filter(QObject):
+        """Event filter must subclass QObject — Qt rejects plain Python
+        classes passed to ``installEventFilter`` with a TypeError."""
+
         def eventFilter(self, obj, event):  # noqa: N802 — Qt naming
             if event.type() == QEvent.StyleChange:
                 try:
@@ -71,9 +74,12 @@ def install_qss_refresh(widget, qss_factory) -> None:
                     pass
             return False
 
-    filt = _Filter()
+    # Parent the filter to the widget so it lives exactly as long as
+    # the widget does (and Qt cleans it up automatically). Also assign
+    # back to an attribute so the idempotency check has something to
+    # find on a second call.
+    filt = _Filter(widget)
     widget.installEventFilter(filt)
-    # Keep the filter alive for as long as the widget is alive.
     widget._qss_refresh_filter = filt
     widget._qss_refresh_filter_installed = True
 
