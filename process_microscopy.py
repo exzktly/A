@@ -1134,14 +1134,21 @@ def _estimate_thresholds_standalone(
                     stem = base[: -len("_labels")]
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
-                    tp = (fields.get("timepoint") or "").strip()
+                    # Accept either canonical "timepoint" or the legacy
+                    # "tp" alias. ``args.filename_schema`` is passed in
+                    # *raw* (not via parse_schema), so a user who typed
+                    # "experiment:channel:well:fov:tp" lands here with
+                    # schema_fields == [..., "tp"]; dropping the
+                    # fallback (PR #247 C2 fix) silently produced zero
+                    # samples for every channel on those datasets.
+                    tp = (fields.get("timepoint") or fields.get("tp") or "").strip()
                     if fov and tp:
                         label_members[(fov, tp)] = name
                 elif base.endswith("_tophat"):
                     stem = base[: -len("_tophat")]
                     fields = _parse_fields(stem)
                     fov = (fields.get("fov") or "").strip()
-                    tp = (fields.get("timepoint") or "").strip()
+                    tp = (fields.get("timepoint") or fields.get("tp") or "").strip()
                     ch = (fields.get("channel") or "").strip().lower()
                     if fov and tp and ch in per_channel:
                         tophat_members[(ch, fov, tp)] = name
