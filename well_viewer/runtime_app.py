@@ -3463,12 +3463,11 @@ class WellViewerApp(QWidget):
         # Update metric selector visibility (both line and bar tabs).
         # Hidden when a ratio is active or when the channel has no smFISH metric.
         ratio_active = is_ratio_key(self._active_val_col)
+        # Per-tab metric frames are now permanent back-compat shims —
+        # the visible Property selector is the global ctxbar combo.
         for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
             if hasattr(self, frame_attr):
-                frame = getattr(self, frame_attr)
-                frame.setVisible(
-                    (not ratio_active) and (self._active_channel in self._smfish_channels)
-                )
+                getattr(self, frame_attr).hide()
 
         # Always refresh timepoint menus regardless of whether intensity
         # values exist — single-timepoint experiments still need the bar menu.
@@ -3640,16 +3639,27 @@ class WellViewerApp(QWidget):
             # the metric selector again.
             if was_ratio or channel not in self._smfish_channels:
                 self._active_metric = "mean_intensity"
-            for frame_attr in ("_metric_selector_frame", "_metric_selector_frame_bar"):
-                frame = getattr(self, frame_attr, None)
-                if frame is not None:
-                    frame.setVisible(True)
-            if hasattr(self, "_metric_var"):
-                label = "smFISH Count" if self._active_metric == "smfish_count" else "Mean Intensity"
+            # Per-tab metric frames stay hidden — visibility is owned by
+            # the global ctxbar combo. Sync every metric combo to the
+            # current ``_active_metric`` so a freshly-visible non-ratio
+            # channel shows the right Property label.
+            from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
+            label = METRIC_KEY_TO_LABEL.get(
+                self._active_metric, "Mean Intensity"
+            )
+            for cb_attr in ("_metric_var", "_metric_cb", "_metric_cb_bar",
+                            "_plotting_metric_cb"):
+                cb = getattr(self, cb_attr, None)
+                if cb is None:
+                    continue
+                idx = cb.findText(label)
+                if idx < 0:
+                    continue
+                blocked = cb.blockSignals(True)
                 try:
-                    self._metric_var.setCurrentText(label)
-                except Exception:
-                    pass
+                    cb.setCurrentIndex(idx)
+                finally:
+                    cb.blockSignals(blocked)
             # Derive val_col from channel and metric
             self._active_val_col = f"{channel}_{self._active_metric}"
         # Keep all plot-tab channel selectors in sync so switching channel
@@ -3675,6 +3685,7 @@ class WellViewerApp(QWidget):
         # Reset threshold to the range of the new channel.
         self._recalculate_threshold()
         self._invalidate_stats_cache()
+        self._refresh_metric_combo_for_channel()
         self._redraw()
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
@@ -3805,26 +3816,86 @@ class WellViewerApp(QWidget):
         self._set_active_image_channel(selected_ui_value.lower())
 
     def _on_metric_selected(self) -> None:
-        """Handle metric selector change in UI."""
+        """Handle the per-tab (legacy hidden) metric selector change."""
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
         metric_label = self._metric_var.currentText()
-        metric = "smfish_count" if metric_label == "smFISH Count" else "mean_intensity"
+        metric = METRIC_LABEL_TO_KEY.get(metric_label, "mean_intensity")
+        self._set_active_metric(metric)
+
+    def _on_metric_selected_global(self) -> None:
+        """Handle the global Property combo (ctxbar) change."""
+        from well_viewer.metric_labels import METRIC_LABEL_TO_KEY
+        cb = getattr(self, "_plotting_metric_cb", None)
+        if cb is None:
+            return
+        metric_label = str(cb.currentText() or "")
+        metric = METRIC_LABEL_TO_KEY.get(metric_label, "mean_intensity")
+        # smFISH count only makes sense on smfish channels; gracefully fall
+        # back to mean intensity so the user sees a redraw instead of an
+        # empty plot.
+        if metric == "smfish_count" and self._active_channel not in self._smfish_channels:
+            metric = "mean_intensity"
         self._set_active_metric(metric)
 
     def _set_active_metric(self, metric: str) -> None:
-        """Switch the active metric (mean_intensity or smfish_count) and redraw."""
+        """Switch the active intensity property and redraw."""
         if metric == self._active_metric:
             return
+        from well_viewer.metric_labels import METRIC_KEY_TO_LABEL
         self._active_metric = metric
-        self._active_val_col = f"{self._active_channel}_{self._active_metric}"
-        # Update UI to match new metric
-        if hasattr(self, "_metric_var"):
-            label = "smFISH Count" if metric == "smfish_count" else "Mean Intensity"
-            self._metric_var.setCurrentText(label)
+        if not is_ratio_key(self._active_val_col):
+            self._active_val_col = f"{self._active_channel}_{self._active_metric}"
+        label = METRIC_KEY_TO_LABEL.get(metric, "Mean Intensity")
+        # Sync every metric combo (per-tab hidden legacy combos + the
+        # global ctxbar combo) without retriggering this handler.
+        for attr in ("_metric_var", "_metric_cb", "_metric_cb_bar",
+                     "_plotting_metric_cb"):
+            cb = getattr(self, attr, None)
+            if cb is None:
+                continue
+            try:
+                current = str(cb.currentText() or "")
+            except Exception:
+                continue
+            if current == label:
+                continue
+            idx = cb.findText(label)
+            if idx < 0:
+                continue
+            blocked = cb.blockSignals(True)
+            try:
+                cb.setCurrentIndex(idx)
+            finally:
+                cb.blockSignals(blocked)
+        self._refresh_metric_combo_for_channel()
         self._recalculate_threshold()
         self._invalidate_stats_cache()
         self._redraw()
         if hasattr(self, "_bar_tp_cb"):
             self._redraw_bars()
+
+    def _refresh_metric_combo_for_channel(self) -> None:
+        """Enable/disable the global Property combo entries for the current channel.
+
+        smFISH Count only applies to smfish channels; ratios bypass the
+        metric suffix entirely so the whole combo is disabled while a
+        ratio entry is active.
+        """
+        cb = getattr(self, "_plotting_metric_cb", None)
+        if cb is None:
+            return
+        ratio_active = is_ratio_key(getattr(self, "_active_val_col", ""))
+        cb.setEnabled(not ratio_active)
+        if ratio_active:
+            return
+        idx = cb.findText("smFISH Count")
+        if idx < 0:
+            return
+        model = cb.model()
+        item = model.item(idx) if model is not None else None
+        if item is None:
+            return
+        item.setEnabled(self._active_channel in self._smfish_channels)
 
     def _update_channel_selector(self) -> None:
         """Refresh the channel dropdown values and selection to match loaded data."""
@@ -3918,6 +3989,9 @@ class WellViewerApp(QWidget):
                     global_cb.setCurrentIndex(idx)
                 finally:
                     global_cb.blockSignals(blocked)
+        # Refresh the global Property combo's per-item enable state now that
+        # the channel list (and possibly ``_active_channel``) has changed.
+        self._refresh_metric_combo_for_channel()
 
         # Same trick for the Segmentation tab's channel combo and the
         # (retired-but-still-present-for-back-compat) Movie Montage combo —
@@ -6342,7 +6416,12 @@ class WellViewerApp(QWidget):
             ch = entry[:-8]  # Remove " (spots)"
             return f"{ch}_smfish_count"
         else:
-            return f"{entry}_mean_intensity"
+            metric = getattr(self, "_active_metric", "mean_intensity") or "mean_intensity"
+            if metric == "smfish_count":
+                # The scatter dropdown uses the " (spots)" suffix for smfish;
+                # fall back to mean intensity for the plain channel entry.
+                metric = "mean_intensity"
+            return f"{entry}_{metric}"
 
     def _update_scatter_menus(self) -> None:
         """Populate scatter plot dropdowns with available channels and timepoints."""

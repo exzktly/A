@@ -258,13 +258,15 @@ def redraw_scatter(
 
     # Format axes — derive readable label from column name
     def _col_label(col: str) -> str:
-        if col.endswith("_smfish_count"):
-            ch = col[:-len("_smfish_count")]
-            return f"{ch.upper()} smFISH Count"
-        elif col.endswith("_mean_intensity"):
-            ch = col[:-len("_mean_intensity")]
-            return f"{ch.upper()} Mean Intensity"
-        return col
+        from well_viewer.metric_labels import split_metric_col
+        parts = split_metric_col(col)
+        if parts is None:
+            return col
+        _ch, metric_key, label = parts
+        if metric_key == "smfish_count":
+            ch = label.split(" ")[0]
+            return f"{ch} smFISH Count"
+        return label
 
     app._ax_scatter.set_xlabel(_col_label(col_x))
     app._ax_scatter.set_ylabel(_col_label(col_y))
@@ -376,14 +378,19 @@ def collect_scatter_agg_data(
     else:
         tp_to_color = {}
 
-    # Derive column names based on metric type
+    # Derive column names based on metric type. For plain fluor channels
+    # the suffix follows the global Property selector (``_active_metric``)
+    # so scatter axes track whatever the user picked elsewhere.
+    active_metric = getattr(app, "_active_metric", "mean_intensity") or "mean_intensity"
+    if active_metric == "smfish_count":
+        active_metric = "mean_intensity"  # smfish is selected explicitly per-axis below
     if metric_x == "smfish":
         val_col_x = f"{ch_x}_smfish_count"
         threshold_x = 0  # No threshold for smfish counts (all spots)
     elif metric_x == "ratio":
         val_col_x = label_to_key.get(ch_x, "")
     else:
-        val_col_x = f"{ch_x}_mean_intensity"
+        val_col_x = f"{ch_x}_{active_metric}"
 
     if metric_y == "smfish":
         val_col_y = f"{ch_y}_smfish_count"
@@ -391,7 +398,7 @@ def collect_scatter_agg_data(
     elif metric_y == "ratio":
         val_col_y = label_to_key.get(ch_y, "")
     else:
-        val_col_y = f"{ch_y}_mean_intensity"
+        val_col_y = f"{ch_y}_{active_metric}"
 
     def _agg_wells(wells, tp, val_col, threshold, metric):
         """Compute mean ± SD/SEM across well-level values (same method as bar plot _compute_rep_stats)."""

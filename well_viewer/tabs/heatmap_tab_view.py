@@ -58,7 +58,11 @@ def build_heatmap_tab(app, parent: QWidget) -> None:
     )
     app._chan_cb_heatmap.hide()
 
-    cl1.addWidget(QLabel("Metric:", ctrl1))
+    # "Aggregation" rather than "Metric" — the global Property combo in
+    # the ctxbar picks which intensity column drives the heatmap; this
+    # local combo picks how cells in each grid square are aggregated
+    # (mean above threshold / fraction above threshold / cell count).
+    cl1.addWidget(QLabel("Aggregation:", ctrl1))
     app._heatmap_metric_cb = QComboBox(ctrl1)
     app._heatmap_metric_cb.addItems(METRIC_OPTIONS)
     app._heatmap_metric_cb.currentIndexChanged.connect(lambda _i: _redraw(app))

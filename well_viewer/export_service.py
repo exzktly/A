@@ -375,18 +375,23 @@ def export_raw_data_csv(app) -> None:
     cell_area_threshold = app._get_cell_area_threshold()
     fluor_gate_threshold = app._get_fluor_gate(app._active_channel)
     well_labels = _well_labels_map(app)
-    fluor_col = f"{app._active_channel}_mean_intensity"
+    # Gating semantics stay on mean fluorescence intensity even when the
+    # global Property selector points at a different column — the gate
+    # values entered in the Cell Gating tab are MFI thresholds. The raw
+    # dump itself still includes every column from the source CSV, so the
+    # selected property is preserved in the output.
+    gate_col = f"{app._active_channel}_mean_intensity"
 
     frames = []
     for label in sorted(app._well_paths):
         df = app._get_rows(label)
-        if df is None or df.empty or "area_px" not in df.columns or fluor_col not in df.columns:
+        if df is None or df.empty or "area_px" not in df.columns or gate_col not in df.columns:
             continue
         mask = df_included_mask(df).to_numpy(copy=True)
         area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
         with np.errstate(invalid="ignore"):
             mask &= np.isfinite(area) & (area > cell_area_threshold)
-        fluor = pd.to_numeric(df[fluor_col], errors="coerce").to_numpy()
+        fluor = pd.to_numeric(df[gate_col], errors="coerce").to_numpy()
         with np.errstate(invalid="ignore"):
             mask &= np.isfinite(fluor) & (fluor > fluor_gate_threshold)
         if not mask.any():

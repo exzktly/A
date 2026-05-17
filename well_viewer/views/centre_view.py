@@ -291,6 +291,41 @@ def build_centre(app, parent: QWidget) -> None:
         # combo so callers that read its text still work.
         app._plotting_channel_chip = app._plotting_channel_cb
 
+        # Global Property (intensity-column) combo — mirrors the channel
+        # combo styling. Drives ``app._active_metric`` so every plot, stat,
+        # and CSV export tracks the user's chosen intensity property.
+        from well_viewer.metric_labels import METRIC_ORDER as _METRIC_ORDER
+        prop_lbl = QLabel("Property")
+        prop_lbl.setStyleSheet(
+            f"color: {_C.text_muted}; font-size: {_T.caption_size}px; "
+            f"letter-spacing: 0.08em;"
+        )
+        arl.addWidget(prop_lbl)
+        app._plotting_metric_cb = _QComboBox()
+        app._plotting_metric_cb.setMinimumContentsLength(8)
+        app._plotting_metric_cb.setStyleSheet(
+            f"QComboBox {{ background-color: {_C.panel_elevated}; "
+            f"color: {_C.text_secondary}; "
+            f"border: 1px solid {_C.border_subtle}; "
+            f"border-radius: {_R.pill}px; padding: 2px 22px 2px 10px; "
+            f"font-size: {_T.caption_size}px; font-weight: 500; "
+            f"min-width: 110px; }}"
+            f"QComboBox:hover {{ color: {_C.text_primary}; }}"
+        )
+        app._plotting_metric_cb.addItems(_METRIC_ORDER)
+
+        def _on_global_metric(_idx: int) -> None:
+            handler = getattr(app, "_on_metric_selected_global", None)
+            if handler is None:
+                return
+            try:
+                handler()
+            except Exception:
+                pass
+
+        app._plotting_metric_cb.currentIndexChanged.connect(_on_global_metric)
+        arl.addWidget(app._plotting_metric_cb)
+
         arl.addStretch(1)
 
         # "+ Add panel" button retired — the underlying per-renderer
