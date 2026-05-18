@@ -82,6 +82,9 @@ def _snapshot_tabs(app) -> dict[str, dict]:
     scat = _snapshot_scatter(app)
     if scat:
         tabs["Scatter Plot"] = scat
+    img = _snapshot_image_table(app)
+    if img:
+        tabs["Image Table"] = img
     return tabs
 
 
@@ -143,6 +146,75 @@ def _snapshot_scatter(app) -> dict:
         v = _combo_text(app, attr)
         if v is not None:
             out[key] = v
+    return out
+
+
+def _snapshot_image_table(app) -> dict:
+    """Capture the Image Table grid: dimensions, per-cell well/chan/tp/fov,
+    overlay toggles, and per-channel LUT min/max edits.
+    """
+    cells = getattr(app, "_image_table_cells", None)
+    if not cells:
+        return {}
+    out: dict[str, Any] = {
+        "rows": int(getattr(app, "_image_table_rows", len(cells))),
+        "cols": int(getattr(app, "_image_table_cols",
+                             len(cells[0]) if cells else 0)),
+    }
+    grid: list[list[dict[str, str]]] = []
+    for row in cells:
+        row_out: list[dict[str, str]] = []
+        for cell in row:
+            slc: dict[str, str] = {}
+            for key, ck in (
+                ("well", "well_cb"),
+                ("chan", "chan_cb"),
+                ("tp", "tp_cb"),
+                ("fov", "fov_cb"),
+            ):
+                w = cell.get(ck) if isinstance(cell, dict) else None
+                if w is not None:
+                    try:
+                        slc[key] = str(w.currentText())
+                    except Exception:
+                        pass
+            row_out.append(slc)
+        grid.append(row_out)
+    out["cells"] = grid
+    for key, attr in (
+        ("global_chan", "_image_table_global_chan_cb"),
+        ("global_tp",   "_image_table_global_tp_cb"),
+        ("global_fov",  "_image_table_global_fov_cb"),
+    ):
+        v = _combo_text(app, attr)
+        if v is not None:
+            out[key] = v
+    toggles = {
+        "tophat": bool(getattr(app, "_image_table_use_tophat", False)),
+        "boundaries": bool(getattr(app, "_image_table_show_boundaries", False)),
+        "binary": bool(getattr(app, "_image_table_show_binary", False)),
+    }
+    out["toggles"] = toggles
+    luts = getattr(app, "_image_table_lut", None) or {}
+    chan_luts: dict[str, dict[str, str]] = {}
+    if isinstance(luts, dict):
+        for ch, edits in luts.items():
+            if not isinstance(edits, dict):
+                continue
+            slot: dict[str, str] = {}
+            mn = edits.get("min")
+            mx = edits.get("max")
+            try:
+                if mn is not None:
+                    slot["min"] = str(mn.text())
+                if mx is not None:
+                    slot["max"] = str(mx.text())
+            except Exception:
+                continue
+            if slot:
+                chan_luts[str(ch)] = slot
+    if chan_luts:
+        out["channel_luts"] = chan_luts
     return out
 
 
@@ -268,6 +340,8 @@ def apply_pending_tab_state(app, tab_name: str) -> None:
             _apply_distribution(app, state)
         elif tab_name == "Scatter Plot":
             _apply_scatter(app, state)
+        elif tab_name == "Image Table":
+            _apply_image_table(app, state)
     except Exception:
         _logger.debug("view_state: apply_pending_tab_state(%r) failed", tab_name, exc_info=True)
 
@@ -338,6 +412,136 @@ def _apply_scatter(app, state: dict) -> None:
     ):
         if key in state:
             _set_combo_if_valid(app, attr, str(state[key]))
+
+
+def _apply_image_table(app, state: dict) -> None:
+    """Restore the Image Table grid (dimensions, per-cell combos, toggles,
+    per-channel LUTs) and re-render via image_table_generate.
+
+    The tab builder constructs widgets lazily; this only runs once the tab
+    is on screen, so the widget references are guaranteed to exist.
+    """
+    # Dimensions — set the spinners first; the apply_dimensions hook
+    # rebuilds the selector grid + cells list against the new size.
+    rows = state.get("rows")
+    cols = state.get("cols")
+    if isinstance(rows, int) or isinstance(cols, int):
+        rows_spin = getattr(app, "_image_table_rows_spin", None)
+        cols_spin = getattr(app, "_image_table_cols_spin", None)
+        # Block the per-spinner valueChanged → apply_dimensions firing twice;
+        # call apply_dimensions once after both values are set.
+        changed = False
+        for spin, val in ((rows_spin, rows), (cols_spin, cols)):
+            if spin is None or not isinstance(val, int):
+                continue
+            try:
+                if int(spin.value()) != int(val):
+                    blocked = spin.blockSignals(True)
+                    try:
+                        spin.setValue(int(val))
+                    finally:
+                        spin.blockSignals(blocked)
+                    changed = True
+            except Exception:
+                pass
+        if changed and hasattr(app, "_image_table_apply_dimensions"):
+            try:
+                app._image_table_apply_dimensions()
+            except Exception:
+                _logger.debug("image_table: apply_dimensions failed", exc_info=True)
+
+    cells = state.get("cells") or []
+    live = getattr(app, "_image_table_cells", None) or []
+    if isinstance(cells, list) and live:
+        for r, row_state in enumerate(cells):
+            if r >= len(live) or not isinstance(row_state, list):
+                continue
+            for c, cell_state in enumerate(row_state):
+                if c >= len(live[r]) or not isinstance(cell_state, dict):
+                    continue
+                cell = live[r][c]
+                if not isinstance(cell, dict):
+                    continue
+                for key, ck in (
+                    ("well", "well_cb"),
+                    ("chan", "chan_cb"),
+                    ("tp", "tp_cb"),
+                    ("fov", "fov_cb"),
+                ):
+                    val = cell_state.get(key)
+                    if not isinstance(val, str) or not val:
+                        continue
+                    w = cell.get(ck)
+                    if w is None:
+                        continue
+                    try:
+                        items = [w.itemText(i) for i in range(w.count())]
+                        if val in items:
+                            blocked = w.blockSignals(True)
+                            try:
+                                w.setCurrentText(val)
+                            finally:
+                                w.blockSignals(blocked)
+                    except Exception:
+                        pass
+
+    for key, attr in (
+        ("global_chan", "_image_table_global_chan_cb"),
+        ("global_tp",   "_image_table_global_tp_cb"),
+        ("global_fov",  "_image_table_global_fov_cb"),
+    ):
+        if key in state and isinstance(state[key], str):
+            _set_combo_if_valid(app, attr, state[key])
+
+    toggles = state.get("toggles") or {}
+    if isinstance(toggles, dict):
+        for key, attr, btn in (
+            ("tophat",     "_image_table_use_tophat",       "_image_table_tophat_btn"),
+            ("boundaries", "_image_table_show_boundaries",  "_image_table_boundaries_btn"),
+            ("binary",     "_image_table_show_binary",      "_image_table_binary_btn"),
+        ):
+            if key not in toggles:
+                continue
+            try:
+                v = bool(toggles[key])
+            except Exception:
+                continue
+            setattr(app, attr, v)
+            b = getattr(app, btn, None)
+            if b is not None and hasattr(b, "setChecked"):
+                blocked = b.blockSignals(True)
+                try:
+                    b.setChecked(v)
+                finally:
+                    b.blockSignals(blocked)
+
+    chan_luts = state.get("channel_luts") or {}
+    live_luts = getattr(app, "_image_table_lut", None) or {}
+    if isinstance(chan_luts, dict) and isinstance(live_luts, dict):
+        for ch, slot in chan_luts.items():
+            edits = live_luts.get(ch)
+            if not isinstance(edits, dict) or not isinstance(slot, dict):
+                continue
+            for k in ("min", "max"):
+                v = slot.get(k)
+                edit = edits.get(k)
+                if edit is None or not isinstance(v, str):
+                    continue
+                try:
+                    blocked = edit.blockSignals(True)
+                    try:
+                        edit.setText(v)
+                    finally:
+                        edit.blockSignals(blocked)
+                except Exception:
+                    pass
+
+    # Re-render the grid so the user sees the restored configuration.
+    try:
+        from well_viewer.image_table_controller import image_table_generate
+        image_table_generate(app)
+    except Exception:
+        _logger.debug("image_table: generate after restore failed", exc_info=True)
 
 
 # ── save / load entry points ───────────────────────────────────────────────
