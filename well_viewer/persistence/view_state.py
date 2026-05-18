@@ -176,6 +176,16 @@ def restore(app, state: dict) -> None:
             app._fc_control_label = str(fc.get("control_label") or "")
         if "vs_t0_on" in fc:
             app._fc_vs_t0_on = bool(fc.get("vs_t0_on"))
+        # Push the restored state into any fold-change combos that have
+        # already been built. Lazily-built tabs (Bar) will pick the
+        # values up on first install via _repopulate_*_combo, which both
+        # read app._fc_* directly — so this only matters for combos that
+        # exist at restore time (e.g. Line, built eagerly).
+        try:
+            from well_viewer.tabs.fold_change_controls import _sync_widgets_to_state
+            _sync_widgets_to_state(app)
+        except Exception:
+            _logger.debug("view_state: fold-change combo sync failed", exc_info=True)
 
     prefs_in = state.get("export_style_prefs")
     if isinstance(prefs_in, dict):
