@@ -2077,6 +2077,15 @@ def process_well_zip_task(
             n_compressed = compress_images_to_zip(tmp_images, out_zip)
             log.info("Well %s: %d image(s) -> %s", well_label, n_compressed, out_zip.name)
 
+            # Mark the well as functionally complete *before* the
+            # finally-block cleanup. On slow / unreliable storage (NAS,
+            # network mounts) the subsequent ``remove_directory`` calls
+            # can hang for minutes, which used to delay the well_done
+            # event the GUI reads from "temporary directories removed".
+            # All user-facing artefacts (CSV + out_zip) are already
+            # written at this point, so the well *is* done — the
+            # cleanup is internal housekeeping.
+            log.info("Well %s — done.", well_label)
             return records, failed
         except BaseException as exc:
             trace_path = _dump_well_failure_trace(output_dir, well_label, exc)
@@ -2187,6 +2196,11 @@ def process_well_folder_task(
                     )
             _committed = True
 
+            # Mark the well as done before the (potential) staging-dir
+            # cleanup in the finally block — same reasoning as the zip
+            # task: cleanup can hang on NAS storage and we don't want
+            # that to defer the GUI's well_done event.
+            log.info("Well %s — done.", well_label)
             return records, failed
         except BaseException as exc:
             # Capture the worker-side traceback to disk before propagating.
