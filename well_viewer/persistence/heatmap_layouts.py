@@ -1,28 +1,20 @@
-"""Heatmap layout persistence (``<data_dir>/heatmap_layouts.json``).
+"""Heatmap layout persistence — ``heatmap_layouts`` section of ``persistence.json``.
 
-The JSON wraps the layouts in an object so visual settings (cmap, scale mode,
-vmin/vmax, rep-set average toggle) can be persisted alongside.
+The section wraps the layouts in an object so visual settings (cmap, scale
+mode, vmin/vmax, rep-set average toggle) persist alongside. Legacy
+``heatmap_layouts.json`` sidecars are migrated on first load by ``_doc``.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import math
-from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import QTimer
 
-from well_viewer.persistence._io import atomic_write_json
+from well_viewer.persistence import _doc
 
 _logger = logging.getLogger("well_viewer")
-
-
-def path_for(app) -> Optional[Path]:
-    if app._data_dir:
-        return app._data_dir / "heatmap_layouts.json"
-    return None
 
 
 def _collect_settings(app) -> dict:
@@ -42,18 +34,14 @@ def _collect_settings(app) -> dict:
 
 
 def save_to_data_dir(app) -> None:
-    path = path_for(app)
-    if path is None:
+    if not getattr(app, "_data_dir", None):
         return
     layouts = list(getattr(app, "_heatmap_layouts", []) or [])
     payload = {
         "layouts": [lay.to_dict() for lay in layouts],
         "settings": _collect_settings(app),
     }
-    try:
-        atomic_write_json(path, payload)
-    except OSError as exc:
-        _logger.warning("Failed to save heatmap layouts to %s: %s", path, exc)
+    _doc.set_section(app, "heatmap_layouts", payload)
 
 
 def schedule_save(app) -> None:
@@ -62,7 +50,7 @@ def schedule_save(app) -> None:
     table writes the JSON dozens of times per second on a fast user."""
     if getattr(app, "_heatmap_layouts_save_pending", False):
         return
-    if path_for(app) is None:
+    if not getattr(app, "_data_dir", None):
         return
     app._heatmap_layouts_save_pending = True
     QTimer.singleShot(500, lambda: _flush(app))
@@ -74,19 +62,12 @@ def _flush(app) -> None:
 
 
 def load_from_data_dir(app) -> None:
-    path = path_for(app)
-    if path is None or not path.exists():
+    if not getattr(app, "_data_dir", None):
         return
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
-        _logger.warning("Failed to load heatmap layouts from %s: %s", path, exc)
+    data = _doc.get_section(app, "heatmap_layouts")
+    if not isinstance(data, dict):
         return
     from well_viewer.heatmap_models import layouts_from_dict
-    if not isinstance(data, dict):
-        _logger.warning("Heatmap layouts file %s is not a JSON object; ignoring.", path)
-        return
     app._heatmap_layouts = layouts_from_dict(data.get("layouts", []) or [])
     settings = data.get("settings", {}) or {}
     if isinstance(settings, dict):

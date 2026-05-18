@@ -366,11 +366,16 @@ Every "save state into the dataset folder" path lives under
 |--------------|--------|---------------|
 | `pipeline_info.json::cell_gating` | `cell_gating.py` | Cell-area + per-channel `fluor_gates` + `thresh_frac_on`. |
 | `pipeline_info.json::sample_definitions` | `sample_definitions.py` (top level) | Saved selections (`_selections`). |
-| `ratios.json` | `ratios.py` | User-defined ratio channels. |
-| `heatmap_layouts.json` | `heatmap_layouts.py` | Saved heatmap layouts + cmap/scale state. |
-| `cell_overrides.json` | `cell_overrides.py` | Per-cell `Included` overrides set on the Segmentation tab. |
-| `line_order.json` | `line_order.py` | Line plot replicate-set / well draw order. |
-| `bar_groups.json` | `bar_groups.py` | (legacy) bar-plot group state — kept for one-way migration. |
+| `persistence.json::ratios` | `ratios.py` | User-defined ratio channels. |
+| `persistence.json::heatmap_layouts` | `heatmap_layouts.py` | Saved heatmap layouts + cmap/scale state. |
+| `persistence.json::line_order` | `line_order.py` | Line plot replicate-set / well draw order. |
+| `cell_overrides.json` | `cell_overrides.py` | Per-cell `Included` overrides set on the Segmentation tab (kept separate — large + write-heavy). |
+| `bar_groups.json` | `bar_groups.py` | User-picked file for bar-plot group state (no auto-save). |
+
+`persistence.json` is a single consolidated viewer-state document managed by
+`_doc.py`. On first load it migrates any legacy `ratios.json`,
+`heatmap_layouts.json`, or `line_order.json` sidecars into the unified file
+and deletes them.
 
 Persistence modules expose `load_from_data_dir(app)` / `save_to_data_dir(app)`
 function pairs. `WellViewerApp` delegates to them via thin shims.
