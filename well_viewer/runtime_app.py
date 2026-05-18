@@ -2324,6 +2324,10 @@ class WellViewerApp(QWidget):
         from well_viewer.persistence import view_state as _vs
         _vs.load_from_data_dir(self)
 
+    def _view_state_reset(self) -> None:
+        from well_viewer.persistence import view_state as _vs
+        _vs.reset(self)
+
     def _notes_schedule_save(self) -> None:
         """Debounced save for the Notes sub-tab (sample_definitions JSON)."""
         edit = getattr(self, "_notes_edit", None)

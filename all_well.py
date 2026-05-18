@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, QRectF
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QScrollArea, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
+    QMessageBox, QScrollArea, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 import theme as theme_v2
@@ -156,6 +156,18 @@ class AllWellApp(QMainWindow):
         )
         self._open_btn.clicked.connect(self._reveal_dataset_in_file_manager)
         hl.addWidget(self._open_btn)
+
+        # Reset selections / view state. Asks before clearing — the action
+        # wipes wells, fold-change scopes, and per-tab combo state but
+        # leaves the dataset itself intact.
+        self._reset_view_btn = IconButton("x")
+        self._reset_view_btn.setToolTip(
+            "Reset selections and view (clears wells, fold-change, and "
+            "per-tab combos)"
+        )
+        self._reset_view_btn.clicked.connect(self._on_reset_view_clicked)
+        hl.addWidget(self._reset_view_btn)
+
         self._help_btn = IconButton("info")
         self._help_btn.setToolTip("Open the help drawer")
         self._help_btn.clicked.connect(self._toggle_help_drawer)
@@ -656,6 +668,27 @@ class AllWellApp(QMainWindow):
                 review._load_path(Path(cur))
             except Exception:
                 pass
+
+    def _on_reset_view_clicked(self) -> None:
+        """Confirm + wipe the view-state (selections, fold-change, combos)."""
+        review = self._review
+        if review is None or not hasattr(review, "_view_state_reset"):
+            return
+        resp = QMessageBox.question(
+            self,
+            "Reset selections and view?",
+            "This will clear selected wells, fold-change scopes, and the "
+            "per-tab combo state for every plotting tab. The loaded "
+            "dataset itself is left alone.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if resp != QMessageBox.Yes:
+            return
+        try:
+            review._view_state_reset()
+        except Exception:
+            pass
 
     def _toggle_log_drawer(self) -> None:
         if self._log_drawer is None:

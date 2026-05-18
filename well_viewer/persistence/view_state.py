@@ -62,10 +62,17 @@ def _snapshot_tabs(app) -> dict[str, dict]:
     """Capture per-tab combo state for tabs we know how to round-trip.
 
     Tab files aren't modified — we read from the widget references the
-    build functions already stash on ``app``. Missing widgets (tab not
-    built yet) produce an empty dict for that tab.
+    build functions already stash on ``app``. Lazily-built tabs the user
+    never visited this session don't expose those widgets, so we layer
+    any leftover entries from ``_view_state_pending`` underneath the
+    live snapshot — that's the state we restored at load time and never
+    overwrote, so it's still authoritative.
     """
     tabs: dict[str, dict] = {}
+    pending = getattr(app, "_view_state_pending", None) or {}
+    for name, slc in pending.items():
+        if isinstance(slc, dict) and slc:
+            tabs[str(name)] = dict(slc)
     bar = _snapshot_bar(app)
     if bar:
         tabs["Bar Plots"] = bar
@@ -360,3 +367,108 @@ def load_from_data_dir(app) -> None:
         restore(app, state)
     except Exception:
         _logger.exception("view_state: restore failed; continuing with defaults")
+
+
+def reset(app) -> None:
+    """Wipe the live view-state (selections + fold-change + per-tab combos)
+    and drop the ``view_state`` section from ``persistence.json``.
+
+    Caller is responsible for confirming with the user — this is destructive.
+    Dataset-level state (loaded wells, channels, ratios, heatmap layouts) is
+    intentionally left alone; only the user's *view* selections reset.
+    """
+    # Selected wells.
+    if hasattr(app, "_set_selected_wells"):
+        try:
+            app._set_selected_wells(set(), commit=False)
+        except Exception:
+            _logger.debug("reset: clearing selected wells failed", exc_info=True)
+    # Fold-change scopes.
+    app._fc_vs_control_on = False
+    app._fc_control_label = ""
+    app._fc_vs_t0_on = False
+    try:
+        from well_viewer.tabs.fold_change_controls import _sync_widgets_to_state
+        _sync_widgets_to_state(app)
+    except Exception:
+        _logger.debug("reset: fold-change sync failed", exc_info=True)
+    # Per-tab combo defaults.
+    _reset_bar(app)
+    _reset_distribution(app)
+    _reset_scatter(app)
+    # Drop any pending state stashed from a previous restore.
+    app._view_state_pending = None
+    # Drop the view_state section so a fresh open doesn't repopulate.
+    if getattr(app, "_data_dir", None):
+        try:
+            _doc.set_section(app, "view_state", None)
+        except Exception:
+            _logger.debug("reset: persistence.json update failed", exc_info=True)
+    # Force a redraw on whatever tab is active.
+    for fn_name in ("_redraw", "_redraw_bars", "_redraw_scatter",
+                    "_redraw_scatter_agg"):
+        fn = getattr(app, fn_name, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
+def _reset_bar(app) -> None:
+    for attr, default in (
+        ("_bar_swarm", False),
+        ("_bar_violin", False),
+    ):
+        if hasattr(app, attr):
+            setattr(app, attr, default)
+    slider = getattr(app, "_violin_slider", None)
+    if slider is not None:
+        try:
+            slider.setValue(100)
+        except Exception:
+            pass
+
+
+def _reset_distribution(app) -> None:
+    mode = getattr(app, "_distribution_mode_cb", None)
+    if mode is not None:
+        try:
+            mode.setCurrentText("Histogram + KDE")
+        except Exception:
+            pass
+    layout = getattr(app, "_distribution_layout_cb", None)
+    if layout is not None:
+        try:
+            layout.setCurrentText("Overlay")
+        except Exception:
+            pass
+    spin = getattr(app, "_distribution_bins_spin", None)
+    if spin is not None:
+        try:
+            spin.setValue(40)
+        except Exception:
+            pass
+    app._distribution_bins = 40
+    app._distribution_log_x = False
+    cb = getattr(app, "_distribution_log_x_cb", None)
+    if cb is not None:
+        try:
+            cb.setChecked(False)
+        except Exception:
+            pass
+
+
+def _reset_scatter(app) -> None:
+    # Per-axis combos: revert to the first item if any, leave alone otherwise.
+    for attr in ("_scatter_ch_x_cb", "_scatter_metric_x_cb",
+                 "_scatter_ch_y_cb", "_scatter_metric_y_cb",
+                 "_scatter_tp_cb"):
+        w = getattr(app, attr, None)
+        if w is None:
+            continue
+        try:
+            if w.count() > 0:
+                w.setCurrentIndex(0)
+        except Exception:
+            pass
