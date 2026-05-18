@@ -856,6 +856,11 @@ class AllWellApp(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._save_window_state()
+        if self._review is not None and hasattr(self._review, "_view_state_save_to_data_dir"):
+            try:
+                self._review._view_state_save_to_data_dir()
+            except Exception:
+                pass
         if self._review is not None and hasattr(self._review, "_cleanup_tmp"):
             try:
                 self._review._cleanup_tmp()

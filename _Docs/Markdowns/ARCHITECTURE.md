@@ -380,6 +380,7 @@ Every "save state into the dataset folder" path lives under
 | `persistence.json::ratios` | `ratios.py` | User-defined ratio channels. |
 | `persistence.json::heatmap_layouts` | `heatmap_layouts.py` | Saved heatmap layouts + cmap/scale state. |
 | `persistence.json::line_order` | `line_order.py` | Line plot replicate-set / well draw order. |
+| `persistence.json::view_state` | `view_state.py` | Active tab, selected wells, channel/metric, fold-change scopes, per-tab combos, export-style prefs. Saved on dataset switch + app close. |
 | `cell_overrides.json` | `cell_overrides.py` | Per-cell `Included` overrides set on the Segmentation tab (kept separate — large + write-heavy). |
 | `bar_groups.json` | `bar_groups.py` | User-picked file for bar-plot group state (no auto-save). |
 

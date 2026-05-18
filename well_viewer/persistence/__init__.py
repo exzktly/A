@@ -16,6 +16,8 @@ Modules:
     heatmap_layouts    ``persistence.json["heatmap_layouts"]``.
     cell_overrides     ``cell_overrides.json`` (Segmentation tab patch).
     line_order         ``persistence.json["line_order"]``.
+    view_state         ``persistence.json["view_state"]`` — active tab,
+                       selected wells, fold-change scopes, per-tab combos.
     sample_definitions Combined save/load/clear orchestration.
     cell_gating        Cell gating thresholds inside ``pipeline_info.json``.
 """
