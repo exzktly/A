@@ -159,8 +159,10 @@ class AllWellApp(QMainWindow):
 
         # Reset selections / view state. Asks before clearing — the action
         # wipes wells, fold-change scopes, and per-tab combo state but
-        # leaves the dataset itself intact.
-        self._reset_view_btn = IconButton("x")
+        # leaves the dataset itself intact. ``rotate-ccw`` reads as "undo
+        # / reset"; the plain ``x`` icon previously sitting here was too
+        # close to a window-close glyph.
+        self._reset_view_btn = IconButton("rotate-ccw")
         self._reset_view_btn.setToolTip(
             "Reset selections and view (clears wells, fold-change, and "
             "per-tab combos)"
