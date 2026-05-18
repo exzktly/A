@@ -31,10 +31,10 @@ _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
-from PySide6.QtCore import QPoint  # noqa: E402
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtGui import QCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QToolTip, QWidget,
+    QButtonGroup, QFrame, QHBoxLayout, QLabel, QWidget,
 )
 
 import theme  # noqa: E402
@@ -47,6 +47,42 @@ try:  # matplotlib is a project dependency; degrade gracefully if absent.
     _HAVE_MPL = True
 except Exception:  # pragma: no cover
     _HAVE_MPL = False
+
+
+class _HoverChip(QLabel):
+    """Tiny frameless label that mirrors x / y at the cursor.
+
+    Custom widget instead of QToolTip because QToolTip carries OS-default
+    padding + font sizing that read as a full-blown notification when the
+    intent is a discreet caption next to the pointer.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(None)
+        self.setWindowFlags(
+            Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        c, t = theme.Colors, theme.Typography
+        self.setStyleSheet(
+            f"QLabel {{"
+            f" background-color: {c.panel_elevated};"
+            f" color: {c.text_secondary};"
+            f" border: 1px solid {c.border_subtle};"
+            f" border-radius: 3px;"
+            f" padding: 1px 4px;"
+            f" font-family: {t.family_mono};"
+            f" font-size: {t.caption_size}px;"
+            f" }}"
+        )
+
+    def show_at(self, pos: QPoint, text: str) -> None:
+        self.setText(text)
+        self.adjustSize()
+        self.move(pos)
+        if not self.isVisible():
+            self.show()
 
 
 def _axes_have_drawn_content(axes) -> bool:
@@ -113,6 +149,10 @@ if _HAVE_MPL:
             self._coords.setObjectName("MplToolbarCoords")
             lay.addWidget(self._coords)
 
+            # Floating chip beside the cursor — lazily created on first show
+            # so headless / pre-paint construction doesn't allocate it.
+            self._chip: _HoverChip | None = None
+
             # Store the cids so we can mpl_disconnect on destroy — without
             # that the closures outlive the QLabel they update and emit
             # ``RuntimeError: wrapped C/C++ object … deleted`` in stderr
@@ -150,6 +190,13 @@ if _HAVE_MPL:
                 setattr(self, attr, None)
                 try:
                     self.canvas.mpl_disconnect(cid)
+                except Exception:
+                    pass
+            chip = getattr(self, "_chip", None)
+            if chip is not None:
+                self._chip = None
+                try:
+                    chip.deleteLater()
                 except Exception:
                     pass
 
@@ -194,46 +241,42 @@ if _HAVE_MPL:
             ax = event.inaxes
             if ax is None or event.xdata is None or event.ydata is None:
                 self._coords.setText("x = —   ·   y = —")
-                # Off-axes → hide the tooltip immediately.
-                try:
-                    QToolTip.hideText()
-                except Exception:
-                    pass
+                self._hide_chip()
                 return
 
             text = f"x = {event.xdata:.3g}   ·   y = {event.ydata:.3g}"
             self._coords.setText(text)
 
-            # Don't pop a hover tooltip on an empty axis — before data is
-            # loaded the canvas is blank and a tooltip on bare grid lines is
-            # just noise. Walk the figure's axes (twins / cohabiting subplots)
-            # so a stacked chart with one populated axis still shows.
+            # Don't pop a hover chip on an empty axis — before data is
+            # loaded the canvas is blank and a caption on bare grid lines
+            # is just noise. Walk the figure's axes (twins / cohabiting
+            # subplots) so a stacked chart with one populated axis shows.
             if not _axes_have_drawn_content(event.canvas.figure.axes):
-                try:
-                    QToolTip.hideText()
-                except Exception:
-                    pass
+                self._hide_chip()
                 return
 
-            # Use the global cursor position rather than mapping matplotlib's
-            # canvas pixel coords ourselves. matplotlib reports event.x/event.y
-            # in physical pixels, but canvas.height() is in logical pixels —
-            # on a 2× HiDPI display the manual flip placed the tooltip well
-            # above the canvas (often at the top of the screen).
-            # +14/+14 nudges the tooltip out from under the pointer.
+            # QCursor.pos() is in device-independent pixels; matplotlib's
+            # event.x / event.y mix physical and logical px on HiDPI, so a
+            # manual canvas-relative mapping landed the chip way off on
+            # retina displays.
             try:
-                pt = QCursor.pos() + QPoint(14, 14)
-                QToolTip.showText(pt, text, self.canvas)
+                if self._chip is None:
+                    self._chip = _HoverChip()
+                # +4/+2 keeps the chip directly adjacent to the cursor
+                # (the previous +14 plus the OS tooltip's internal padding
+                # was reading as ~half an inch on retina screens).
+                self._chip.show_at(QCursor.pos() + QPoint(4, 2), text)
             except Exception:
                 pass
 
         def _on_figure_leave(self, _event) -> None:
-            """Hide the hover tooltip when the cursor leaves the canvas."""
+            """Hide the hover chip when the cursor leaves the canvas."""
             self._coords.setText("x = —   ·   y = —")
-            try:
-                QToolTip.hideText()
-            except Exception:
-                pass
+            self._hide_chip()
+
+        def _hide_chip(self) -> None:
+            if self._chip is not None and self._chip.isVisible():
+                self._chip.hide()
 
         # ── chrome ──────────────────────────────────────────────────────────
         def _sep(self) -> QFrame:
