@@ -536,12 +536,9 @@ def _apply_image_table(app, state: dict) -> None:
                 except Exception:
                     pass
 
-    # Re-render the grid so the user sees the restored configuration.
-    try:
-        from well_viewer.image_table_controller import image_table_generate
-        image_table_generate(app)
-    except Exception:
-        _logger.debug("image_table: generate after restore failed", exc_info=True)
+    # Intentionally NOT calling image_table_generate here — restore only
+    # pre-fills the dropdowns, the user clicks Generate when they actually
+    # want images loaded off disk.
 
 
 # ── save / load entry points ───────────────────────────────────────────────
