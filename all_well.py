@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, QRectF
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QScrollArea, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
+    QMessageBox, QScrollArea, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 import theme as theme_v2
@@ -95,7 +95,7 @@ class AllWellApp(QMainWindow):
         hl.addWidget(title)
 
         # Phase 10 (B2): version pill next to wordmark.
-        self._version_pill = QLabel("v3.2.0")
+        self._version_pill = QLabel("v3.3.0")
         self._version_pill.setObjectName("VersionPill")
         self._version_pill.setStyleSheet(
             f"color: {theme_v2.Colors.text_faint}; "
@@ -156,6 +156,20 @@ class AllWellApp(QMainWindow):
         )
         self._open_btn.clicked.connect(self._reveal_dataset_in_file_manager)
         hl.addWidget(self._open_btn)
+
+        # Reset selections / view state. Asks before clearing — the action
+        # wipes wells, fold-change scopes, and per-tab combo state but
+        # leaves the dataset itself intact. ``rotate-ccw`` reads as "undo
+        # / reset"; the plain ``x`` icon previously sitting here was too
+        # close to a window-close glyph.
+        self._reset_view_btn = IconButton("rotate-ccw")
+        self._reset_view_btn.setToolTip(
+            "Reset selections and view (clears wells, fold-change, and "
+            "per-tab combos)"
+        )
+        self._reset_view_btn.clicked.connect(self._on_reset_view_clicked)
+        hl.addWidget(self._reset_view_btn)
+
         self._help_btn = IconButton("info")
         self._help_btn.setToolTip("Open the help drawer")
         self._help_btn.clicked.connect(self._toggle_help_drawer)
@@ -657,6 +671,27 @@ class AllWellApp(QMainWindow):
             except Exception:
                 pass
 
+    def _on_reset_view_clicked(self) -> None:
+        """Confirm + wipe the view-state (selections, fold-change, combos)."""
+        review = self._review
+        if review is None or not hasattr(review, "_view_state_reset"):
+            return
+        resp = QMessageBox.question(
+            self,
+            "Reset selections and view?",
+            "This will clear selected wells, fold-change scopes, and the "
+            "per-tab combo state for every plotting tab. The loaded "
+            "dataset itself is left alone.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if resp != QMessageBox.Yes:
+            return
+        try:
+            review._view_state_reset()
+        except Exception:
+            pass
+
     def _toggle_log_drawer(self) -> None:
         if self._log_drawer is None:
             from widgets.drawer import Drawer
@@ -856,6 +891,11 @@ class AllWellApp(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._save_window_state()
+        if self._review is not None and hasattr(self._review, "_view_state_save_to_data_dir"):
+            try:
+                self._review._view_state_save_to_data_dir()
+            except Exception:
+                pass
         if self._review is not None and hasattr(self._review, "_cleanup_tmp"):
             try:
                 self._review._cleanup_tmp()

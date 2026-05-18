@@ -70,7 +70,17 @@ def load_directory(app, d: Path, label=None) -> None:
         else:
             QMessageBox.warning(app, "No CSVs", f"No .csv files found in:\n{d}")
         return
+    # Save the outgoing dataset's view-state before swapping data dirs so
+    # reopening it later restores tab / wells / channel selection.
+    if app._data_dir is not None and hasattr(app, "_view_state_save_to_data_dir"):
+        try:
+            app._view_state_save_to_data_dir()
+        except Exception:
+            logging.getLogger("well_viewer").exception("view_state save on switch failed")
     app._data_dir = d
+    # Clear the cached persistence.json so the next read pulls from the new
+    # dataset's data directory (or migrates its legacy sidecars).
+    app._persistence_doc = None
     app._well_paths.clear()
     app._cache.clear()
     app._selected_wells.clear()
@@ -180,6 +190,15 @@ def load_directory(app, d: Path, label=None) -> None:
             )
     if hasattr(app, "_heatmap_layouts_load_from_data_dir"):
         app._heatmap_layouts_load_from_data_dir()
+    # Hydrate view-state (active tab, selected wells, channel, fold-change
+    # scopes, per-tab combos) — must come after the cross-cutting state
+    # (channels, wells, ratios, heatmap layouts) is loaded so validation
+    # against the active dataset's options can drop stale values cleanly.
+    if hasattr(app, "_view_state_load_from_data_dir"):
+        try:
+            app._view_state_load_from_data_dir()
+        except Exception:
+            logging.getLogger("well_viewer").exception("view_state load failed")
     if hasattr(app, "_heatmap_sidebar_table"):
         try:
             from well_viewer.views.heatmap_layout_sidebar_view import (

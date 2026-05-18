@@ -125,6 +125,8 @@ _GLYPHS: dict[str, str] = {
                       '<polyline points="1 20 1 14 7 14"/>'
                       '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>'
                       '<path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>'),
+    "rotate-ccw":    ('<polyline points="1 4 1 10 7 10"/>'
+                      '<path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>'),
     "folder-open":   ('<path d="M6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6A2 2 0 0 1 18.46 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>'),
     "panel-right-close": ('<rect x="3" y="3" width="18" height="18" rx="2"/>'
                           '<line x1="15" y1="3" x2="15" y2="21"/>'

@@ -597,6 +597,12 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
     pooled (``pd.concat``) from all wells in the set; otherwise one entry per
     selected well. When ``fallback_to_all`` is True (default) and no wells are
     selected, all loaded wells are yielded.
+
+    Colours come from the same rank-based palette the sidebar plate map +
+    the Line / Bar / Scatter renderers use (``_rank_color_well`` /
+    ``_rank_color_rset`` in ``runtime_app``). Optional ``_color_for_label``
+    and ``_color_for_well`` callbacks on *app* still get first dibs so a
+    caller can override the canonical lookup.
     """
     get_active = getattr(app, "_rep_sets_active", None)
     rep_sets = list(get_active() if callable(get_active) else [])
@@ -604,28 +610,39 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
     selected = set(getattr(app, "_selected_wells", set()) or set())
     color_for_label = getattr(app, "_color_for_label", None)
     color_for_well = getattr(app, "_color_for_well", None)
-    fallback_palette = [
-        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
-        "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
-        "#bcbd22",
-    ]
+    rank_rset = getattr(app, "_rank_color_rset", None)
+    rank_well = getattr(app, "_rank_color_well", None)
 
-    def _color(name: str, idx: int) -> str:
-        if callable(color_for_label):
+    def _override(fn, key):
+        if not callable(fn):
+            return None
+        try:
+            c = fn(key)
+        except Exception:
+            return None
+        return c if c else None
+
+    def _color_rset(rset) -> str:
+        c = _override(color_for_label, rset.name)
+        if c:
+            return c
+        if callable(rank_rset):
             try:
-                c = color_for_label(name)
-                if c:
-                    return c
+                return rank_rset(rset)
             except Exception:
                 pass
-        if callable(color_for_well):
+        return "#808080"
+
+    def _color_well(w: str) -> str:
+        c = _override(color_for_well, w)
+        if c:
+            return c
+        if callable(rank_well):
             try:
-                c = color_for_well(name)
-                if c:
-                    return c
+                return rank_well(w)
             except Exception:
                 pass
-        return fallback_palette[idx % len(fallback_palette)]
+        return "#808080"
 
     if rep_sets:
         # With groups defined the active set on the plot is exactly
@@ -634,25 +651,25 @@ def iter_plot_groups(app, fallback_to_all: bool = True) -> Iterator[Tuple[str, s
         # ``_active_solo_wells``. ``_selected_wells`` is not used in
         # rep-mode — group visibility is the single source of truth.
         in_any_group: set = set()
-        for idx, rset in enumerate(rep_sets):
+        for rset in rep_sets:
             wells = [w for w in rset.wells if w in well_paths]
             in_any_group.update(wells)
             if not wells:
                 continue
             frames = [app._get_rows(w) for w in wells]
             pooled = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-            yield rset.name, _color(rset.name, idx), pooled
+            yield rset.name, _color_rset(rset), pooled
         active_solo = getattr(app, "_active_solo_wells", set()) or set()
-        for i, w in enumerate(sorted(w for w in active_solo
-                                     if w in well_paths and w not in in_any_group)):
-            yield w, _color(w, i), app._get_rows(w)
+        for w in sorted(w for w in active_solo
+                        if w in well_paths and w not in in_any_group):
+            yield w, _color_well(w), app._get_rows(w)
         return
 
     if not selected:
         if not fallback_to_all:
             return
         selected = set(well_paths.keys())
-    for idx, w in enumerate(sorted(selected)):
+    for w in sorted(selected):
         if w not in well_paths:
             continue
-        yield w, _color(w, idx), app._get_rows(w)
+        yield w, _color_well(w), app._get_rows(w)

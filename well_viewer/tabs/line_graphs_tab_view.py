@@ -74,8 +74,10 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
-    cl.addWidget(btn_primary(line_ctrl, "Export CSV", app._export_plot_data,
-                             icon="download"))
+    _export_btn = btn_primary(line_ctrl, "", app._export_plot_data,
+                              icon="download")
+    _export_btn.setToolTip("Export CSV")
+    cl.addWidget(_export_btn)
     _b = btn_secondary(line_ctrl, "", lambda: app._copy_active_card_as_svg(), icon="copy")
     _b.setToolTip("Copy SVG")
     cl.addWidget(_b)
@@ -86,7 +88,7 @@ def build_line_graphs_tab(app, parent: QWidget) -> None:
     # edge of the plot area — adjacent to where the figure-properties
     # dock slides out, instead of the old "▸" floating mid-row.
     style_btn = btn_secondary(
-        line_ctrl, "Properties",
+        line_ctrl, "",
         lambda: app._open_export_style_panel("line"),
         icon="sliders-horizontal",
     )
