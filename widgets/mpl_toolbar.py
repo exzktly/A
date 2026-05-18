@@ -31,8 +31,9 @@ _ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
+from PySide6.QtCore import QPoint  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QWidget,
+    QButtonGroup, QFrame, QHBoxLayout, QLabel, QToolTip, QWidget,
 )
 
 import theme  # noqa: E402
@@ -97,15 +98,19 @@ if _HAVE_MPL:
             self._coords.setObjectName("MplToolbarCoords")
             lay.addWidget(self._coords)
 
-            # Store the cid so we can mpl_disconnect on destroy — without
-            # that the closure outlives the QLabel it updates and emits
+            # Store the cids so we can mpl_disconnect on destroy — without
+            # that the closures outlive the QLabel they update and emit
             # ``RuntimeError: wrapped C/C++ object … deleted`` in stderr
             # when the toolbar is destroyed but the canvas survives
             # (e.g. lazy tab rebuild).
             self._motion_cid = None
+            self._leave_cid = None
             try:
                 self._motion_cid = self.canvas.mpl_connect(
                     "motion_notify_event", self._on_mouse_move
+                )
+                self._leave_cid = self.canvas.mpl_connect(
+                    "figure_leave_event", self._on_figure_leave
                 )
             except Exception:
                 pass
@@ -123,14 +128,15 @@ if _HAVE_MPL:
             super().deleteLater()
 
         def _detach_canvas(self) -> None:
-            cid = getattr(self, "_motion_cid", None)
-            if cid is None:
-                return
-            self._motion_cid = None
-            try:
-                self.canvas.mpl_disconnect(cid)
-            except Exception:
-                pass
+            for attr in ("_motion_cid", "_leave_cid"):
+                cid = getattr(self, attr, None)
+                if cid is None:
+                    continue
+                setattr(self, attr, None)
+                try:
+                    self.canvas.mpl_disconnect(cid)
+                except Exception:
+                    pass
 
         # ── proxy the matplotlib handlers ───────────────────────────────────
         @property
@@ -171,9 +177,39 @@ if _HAVE_MPL:
 
         def _on_mouse_move(self, event) -> None:
             if event.inaxes and event.xdata is not None and event.ydata is not None:
-                self._coords.setText(f"x = {event.xdata:.3g}   ·   y = {event.ydata:.3g}")
+                text = f"x = {event.xdata:.3g}   ·   y = {event.ydata:.3g}"
+                self._coords.setText(text)
+                # Mirror the read-out as a hover tooltip on the canvas
+                # so the value is visible without scrolling the page
+                # down to find the bottom-right read-out. matplotlib's
+                # `event.x` / `event.y` are canvas pixel coords with
+                # Y measured from the bottom; Qt's coords are from the
+                # top, hence the height flip.
+                try:
+                    canvas_h = int(self.canvas.height())
+                    cx = int(event.x)
+                    cy = canvas_h - int(event.y)
+                    # +14/+14 puts the tooltip near the cursor without
+                    # sitting under it.
+                    pt = self.canvas.mapToGlobal(QPoint(cx + 14, cy + 14))
+                    QToolTip.showText(pt, text, self.canvas)
+                except Exception:
+                    pass
             else:
                 self._coords.setText("x = —   ·   y = —")
+                # Off-axes → hide the tooltip immediately.
+                try:
+                    QToolTip.hideText()
+                except Exception:
+                    pass
+
+        def _on_figure_leave(self, _event) -> None:
+            """Hide the hover tooltip when the cursor leaves the canvas."""
+            self._coords.setText("x = —   ·   y = —")
+            try:
+                QToolTip.hideText()
+            except Exception:
+                pass
 
         # ── chrome ──────────────────────────────────────────────────────────
         def _sep(self) -> QFrame:
