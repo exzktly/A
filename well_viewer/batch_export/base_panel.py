@@ -182,11 +182,13 @@ class BatchExportPanel(QWidget):
         hdr2 = QHBoxLayout()
         hdr2.setContentsMargins(8, 2, 8, 2)
         qs_btn = QToolButton()
-        # QToolButton.InstantPopup adds its own dropdown-arrow indicator;
-        # the literal `\u25be` we used to put in the text rendered as a
-        # second overlapping arrow. Let Qt's indicator do the job alone.
+        # Plain dropdown-style button \u2014 no visible arrow indicator.
+        # Qt's `QToolButton::menu-indicator` is the small dropdown
+        # caret Qt paints when a menu is attached; hide it via QSS.
+        # InstantPopup keeps the "click to open menu" behaviour.
         qs_btn.setText("Quick Setup")
         qs_btn.setPopupMode(QToolButton.InstantPopup)
+        qs_btn.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
         qs_menu = QMenu(qs_btn)
         qs_menu.addAction("One group per row  (Row A = all A wells, \u2026)", self._quick_by_row)
         qs_menu.addAction("One group per column  (Col 01 = all col-01 wells, \u2026)", self._quick_by_col)
