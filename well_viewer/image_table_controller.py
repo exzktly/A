@@ -444,22 +444,110 @@ def _row_tint(app, r: int) -> Optional[Tuple[float, float, float]]:
 
 
 def _row_export_cmap(app, r: int):
-    """Return a matplotlib colormap matching the row's LUT colour.
+    """Return a matplotlib colormap matching the row's LUT selector.
 
-    For ``Gray`` (None tint) returns the built-in ``"gray"`` cmap. For a
-    coloured tint, builds a black→tint LinearSegmentedColormap so the
-    exported figure visually matches the live thumbnail.
+    For ``Greys`` returns the built-in ``"gray"`` cmap. For any named
+    colormap selectable in the row (``Reds``, ``viridis``, ``magma``,
+    …) returns that colormap **by name** so the export figure picks up
+    the *full* gradient — same as the live thumbnail.
+
+    Older versions of this helper degraded to a black→tint
+    LinearSegmentedColormap which produced monochrome exports that
+    didn't match the multi-hue live view. Fixed.
     """
-    tint = _row_tint(app, r)
-    if tint is None:
+    name = _row_cmap_name(app, r)  # None when row is "Greys"
+    if not name:
         return "gray"
-    try:
-        from matplotlib.colors import LinearSegmentedColormap
-    except Exception:
-        return "gray"
-    return LinearSegmentedColormap.from_list(
-        f"row{r}_tint", [(0.0, 0.0, 0.0), tuple(tint)],
-    )
+    return name
+
+
+def _compose_image_table_rgb(
+    arr,
+    mask_arr,
+    *,
+    lo,
+    hi,
+    cmap_name,
+    is_overlay: bool,
+    show_binary: bool,
+    show_boundaries: bool,
+):
+    """Render the cell's display state to a uint8 RGB array.
+
+    Single source of truth for the image-table cell pixel content,
+    consumed by both the live thumbnail path (which wraps the RGB
+    into a QPixmap) and the export figure path (which ``imshow``s it
+    directly). Honours the row's mpl colormap, the global
+    ``show_binary`` / ``show_boundaries`` toggles, and the per-cell
+    LUT range.
+
+    Returns ``None`` when the input array can't be coerced — the
+    caller falls back to whatever placeholder it shows for missing
+    data.
+    """
+    import numpy as _np
+    from matplotlib import colormaps as _mpl_cmaps
+
+    if arr is None:
+        return None
+
+    a = _np.asarray(arr)
+
+    # 1. Pre-rendered RGB overlays (NUC+SEG channel, or any 3-D input)
+    # — pass-through with min/max normalisation so the imshow doesn't
+    # auto-rescale.
+    if is_overlay or a.ndim >= 3:
+        rgb = a[:, :, :3] if a.ndim == 3 else a
+        if rgb.dtype != _np.uint8:
+            rgb_f = rgb.astype(_np.float32)
+            rmin = float(rgb_f.min())
+            rmax = float(rgb_f.max())
+            if rmax <= rmin:
+                rmax = rmin + 1.0
+            rgb = ((_np.clip(rgb_f, rmin, rmax) - rmin)
+                   / (rmax - rmin) * 255.0).astype(_np.uint8)
+        return rgb
+
+    # 2. Binary-mask toggle wins over the fluorescence: paint a
+    # black-and-white silhouette of the segmentation mask.
+    if show_binary and mask_arr is not None:
+        cm = _np.asarray(mask_arr)
+        binary = (cm > 0).astype(_np.uint8) * 255
+        return _np.stack([binary, binary, binary], axis=-1)
+
+    # 3. Greyscale fluorescence → apply LUT then colormap.
+    af = a.astype(_np.float32)
+    alo = lo if lo is not None else float(af.min())
+    ahi = hi if hi is not None else float(af.max())
+    if ahi <= alo:
+        ahi = alo + 1.0
+    norm = _np.clip((af - alo) / (ahi - alo), 0.0, 1.0)
+    if cmap_name:
+        try:
+            rgb = (_mpl_cmaps[cmap_name](norm)[..., :3] * 255).astype(_np.uint8).copy()
+        except Exception:
+            gray = (norm * 255).astype(_np.uint8)
+            rgb = _np.stack([gray, gray, gray], axis=-1)
+    else:
+        gray = (norm * 255).astype(_np.uint8)
+        rgb = _np.stack([gray, gray, gray], axis=-1)
+
+    # 4. Boundary overlay: paint white pixels at the segmentation
+    # boundaries (same padded-diff scheme used by the live renderer).
+    if show_boundaries and mask_arr is not None:
+        center_int = _np.asarray(mask_arr, dtype=_np.int32)
+        if center_int.shape[:2] == af.shape[:2]:
+            padded = _np.pad(center_int, 1, mode="constant", constant_values=0)
+            center = padded[1:-1, 1:-1]
+            boundary = (center > 0) & (
+                (center != padded[:-2, 1:-1]) |
+                (center != padded[2:, 1:-1]) |
+                (center != padded[1:-1, :-2]) |
+                (center != padded[1:-1, 2:])
+            )
+            rgb[boundary] = [255, 255, 255]
+
+    return rgb
 
 
 def image_table_apply_global(app, field: str) -> None:
@@ -1561,6 +1649,10 @@ def _build_export_figure(app):
     rendered = getattr(app, "_image_table_last_render", None) or {}
     crop_tool = getattr(app, "_image_table_crop_tool", None)
     use_tophat = bool(getattr(app, "_image_table_use_tophat", False))
+    # Mirror the live thumbnail's overlay toggles so the export matches
+    # what the user sees on screen.
+    show_binary = bool(getattr(app, "_image_table_show_binary", False))
+    show_boundaries = bool(getattr(app, "_image_table_show_boundaries", False))
 
     bg_face = "none" if transparent_bg else "white"
     # Probe the first available cell to learn the image aspect ratio. With
@@ -1621,31 +1713,32 @@ def _build_export_figure(app):
                 arr = crop_tool.apply_to_array(arr)
 
             if arr is not None:
-                a = _np.asarray(arr)
                 lo, hi = _parse_lut(app, chan)
-                if _is_nuc_seg(chan) or a.ndim >= 3:
-                    # RGB overlay — let matplotlib pass it through directly
-                    # (clamping to uint8 so it does not auto-rescale).
-                    rgb = a[:, :, :3] if a.ndim == 3 else a
-                    if rgb.dtype != _np.uint8:
-                        # imshow rescales floats to [0, 1]; bring it into range.
-                        rgb_f = rgb.astype(_np.float32)
-                        rmin = float(rgb_f.min())
-                        rmax = float(rgb_f.max())
-                        if rmax <= rmin:
-                            rmax = rmin + 1.0
-                        rgb = ((_np.clip(rgb_f, rmin, rmax) - rmin)
-                               / (rmax - rmin) * 255.0).astype(_np.uint8)
+                # Render exactly the same RGB the live thumbnail shows:
+                # full mpl colormap (not the black→tint approximation
+                # this path used before) + show_binary / show_boundaries
+                # toggles + crop. The shared helper is the single source
+                # of truth — anything that changes the live look auto-
+                # propagates to the export.
+                mask_arr = None
+                if (show_binary or show_boundaries) and not _is_nuc_seg(chan):
+                    mask_arr = _load_mask_array(app, cache, well, tp, fov)
+                    if mask_arr is not None and crop_tool is not None:
+                        mask_arr = crop_tool.apply_to_array(mask_arr)
+                rgb = _compose_image_table_rgb(
+                    arr, mask_arr,
+                    lo=lo, hi=hi,
+                    cmap_name=_row_cmap_name(app, r),
+                    is_overlay=_is_nuc_seg(chan),
+                    show_binary=show_binary,
+                    show_boundaries=show_boundaries,
+                )
+                if rgb is not None:
                     ax.imshow(rgb, aspect="equal")
                 else:
-                    af = a.astype(_np.float32)
-                    vmin = lo if lo is not None else float(af.min())
-                    vmax = hi if hi is not None else float(af.max())
-                    if vmax <= vmin:
-                        vmax = vmin + 1.0
-                    ax.imshow(
-                        af, cmap=_row_export_cmap(app, r),
-                        vmin=vmin, vmax=vmax, aspect="equal",
+                    ax.text(
+                        0.5, 0.5, "(unrenderable)",
+                        ha="center", va="center", transform=ax.transAxes, fontsize=7,
                     )
             else:
                 ax.text(
