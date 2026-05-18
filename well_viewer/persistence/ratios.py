@@ -1,45 +1,31 @@
-"""Ratio metric persistence (``<data_dir>/ratios.json``)."""
+"""Ratio metric persistence — ``ratios`` section of ``persistence.json``.
+
+Legacy ``ratios.json`` sidecars are migrated on first load by ``_doc``.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import QTimer
 
-from well_viewer.persistence._io import atomic_write_json
+from well_viewer.persistence import _doc
 from well_viewer.ratio_models import ratios_from_dict, ratios_to_dict
 
 _logger = logging.getLogger("well_viewer")
 
 
-def path_for(app) -> Optional[Path]:
-    if app._data_dir:
-        return app._data_dir / "ratios.json"
-    return None
-
-
 def save_to_data_dir(app) -> None:
-    path = path_for(app)
-    if path is None:
+    if not getattr(app, "_data_dir", None):
         return
-    try:
-        atomic_write_json(path, ratios_to_dict(app._ratio_metrics))
-    except OSError as exc:
-        _logger.warning("Failed to save ratios to %s: %s", path, exc)
+    _doc.set_section(app, "ratios", ratios_to_dict(app._ratio_metrics))
 
 
 def load_from_data_dir(app) -> None:
-    path = path_for(app)
-    if path is None or not path.exists():
+    if not getattr(app, "_data_dir", None):
         return
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
-        _logger.warning("Failed to load ratios from %s: %s", path, exc)
+    data = _doc.get_section(app, "ratios")
+    if data is None:
         return
     app._set_ratio_metrics(ratios_from_dict(data))
 
@@ -50,7 +36,7 @@ def schedule_save(app) -> None:
     debouncing each keystroke produces a JSON write."""
     if getattr(app, "_ratios_save_pending", False):
         return
-    if path_for(app) is None:
+    if not getattr(app, "_data_dir", None):
         return
     app._ratios_save_pending = True
     QTimer.singleShot(500, lambda: _flush(app))

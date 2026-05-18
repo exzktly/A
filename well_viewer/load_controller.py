@@ -71,6 +71,9 @@ def load_directory(app, d: Path, label=None) -> None:
             QMessageBox.warning(app, "No CSVs", f"No .csv files found in:\n{d}")
         return
     app._data_dir = d
+    # Clear the cached persistence.json so the next read pulls from the new
+    # dataset's data directory (or migrates its legacy sidecars).
+    app._persistence_doc = None
     app._well_paths.clear()
     app._cache.clear()
     app._selected_wells.clear()

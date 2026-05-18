@@ -1,50 +1,34 @@
-"""Line-plot draw-order persistence (``<data_dir>/line_order.json``)."""
+"""Line-plot draw-order persistence — ``line_order`` section of ``persistence.json``.
+
+Legacy ``line_order.json`` sidecars are migrated on first load by ``_doc``.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import QTimer
 
-from well_viewer.persistence._io import atomic_write_json
+from well_viewer.persistence import _doc
 
 _logger = logging.getLogger("well_viewer")
 
 
-def path_for(app) -> Optional[Path]:
-    if app._data_dir:
-        return app._data_dir / "line_order.json"
-    return None
-
-
 def save_to_data_dir(app) -> None:
-    path = path_for(app)
-    if path is None:
+    if not getattr(app, "_data_dir", None):
         return
     payload = {
         "version": 1,
         "rsets": list(app._line_order_rsets),
         "wells": list(app._line_order_wells),
     }
-    try:
-        atomic_write_json(path, payload)
-    except OSError as exc:
-        _logger.warning("Failed to save line order to %s: %s", path, exc)
+    _doc.set_section(app, "line_order", payload)
 
 
 def load_from_data_dir(app) -> None:
-    path = path_for(app)
-    if path is None or not path.exists():
+    if not getattr(app, "_data_dir", None):
         return
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
-        _logger.warning("Failed to load line order from %s: %s", path, exc)
-        return
+    data = _doc.get_section(app, "line_order")
     if not isinstance(data, dict):
         return
     rsets = data.get("rsets") or []
@@ -80,7 +64,7 @@ def _reorder_selections_by_line_order(app) -> None:
 def schedule_save(app) -> None:
     if app._line_order_save_pending:
         return
-    if path_for(app) is None:
+    if not getattr(app, "_data_dir", None):
         return
     app._line_order_save_pending = True
     QTimer.singleShot(500, lambda: _flush(app))
