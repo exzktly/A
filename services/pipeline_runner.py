@@ -86,14 +86,21 @@ class ProgressTracker:
                 events.append(("well_total", self.well_total))
                 return events
         if self.well_total:
-            # Count a well as "done" only after the per-well cleanup line
-            # ('temporary directories removed') — the CSV-write line
-            # ('Well xxx -> *.csv (N rows)') fires *before* the slow
-            # compression step, so counting both inflated well_done to
-            # ~2 × well_total and crushed the ETA estimate. Keep the CSV
-            # line in the log for clarity but stop using it as the
-            # progress trigger.
-            if "temporary directories removed" in line:
+            # Count a well as "done" when the pipeline emits its
+            # dedicated marker line. The marker fires *before* the
+            # finally-block cleanup (``remove_directory`` for zip mode
+            # / staging-dir cleanup for folder mode) so the GUI's ETA
+            # keeps ticking even when storage is slow (NAS / network
+            # mounts can stall directory deletion for minutes).
+            #
+            # The CSV + zip artefacts are already on disk by the time
+            # the marker fires, so the well *is* functionally done.
+            #
+            # Older pipeline versions emitted "temporary directories
+            # removed" as the only completion log; keep matching it
+            # too as a fallback for users running mismatched
+            # client/server versions.
+            if "— done." in line:
                 self.well_done += 1
                 events.append(("well_done", (self.well_done, self.well_total)))
         return events

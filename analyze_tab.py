@@ -898,13 +898,24 @@ class AnalyzeTab(QWidget):
     # Log helpers
     # ------------------------------------------------------------------
     def _log_line(self, text: str, tag: str = "INFO") -> None:
-        cursor = self._log.textCursor()
+        # Snapshot the user's scroll position before appending. Auto-
+        # scroll-to-bottom only if they were already pinned there;
+        # otherwise leave the viewport alone so a user scrolled up to
+        # read an earlier line isn't yanked back every time a new line
+        # arrives.
+        vsb = self._log.verticalScrollBar()
+        at_bottom = vsb.value() >= vsb.maximum() - 4  # 4-px tolerance
+        # Use a *fresh* QTextCursor for the insert — setting the active
+        # text cursor (the old code) is what forced the viewport to
+        # follow the caret. The doc-bound cursor leaves the visible
+        # cursor / selection alone.
+        cursor = QTextCursor(self._log.document())
         cursor.movePosition(QTextCursor.End)
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(self._LOG_COLORS.get(tag, self._LOG_COLORS["INFO"])))
         cursor.insertText(text, fmt)
-        self._log.setTextCursor(cursor)
-        self._log.ensureCursorVisible()
+        if at_bottom:
+            vsb.setValue(vsb.maximum())
 
     def _clear_log(self) -> None:
         self._log.clear()
