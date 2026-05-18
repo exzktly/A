@@ -721,6 +721,14 @@ class WellViewerApp(QWidget):
         self._heatmap_layouts: List = []
         self._active_heatmap_layout_name: Optional[str] = None
 
+        # persistence.json cache (populated lazily by persistence._doc.read).
+        # Cleared when the data dir changes so the next read reloads.
+        self._persistence_doc = None
+        # Per-tab view-state values waiting to apply on first tab visit
+        # (populated by view_state.load_from_data_dir, drained by
+        # _on_tab_change → view_state.apply_pending_tab_state).
+        self._view_state_pending: Optional[dict] = None
+
         # Plot controls — widgets are assigned in _build_ui; keep placeholders
         # until then so callers can inspect default state.
         self._threshold_min = 0.0
@@ -2253,8 +2261,8 @@ class WellViewerApp(QWidget):
     # Each block delegates to ``well_viewer.persistence.<domain>``.
 
     def _ratios_path(self) -> Optional[Path]:
-        from well_viewer.persistence import ratios as _r
-        return _r.path_for(self)
+        from well_viewer.persistence import _doc as _d
+        return _d.path_for(self)
 
     def _ratios_save_to_data_dir(self) -> None:
         # Debounced via the persistence module's schedule_save — every
@@ -2268,8 +2276,8 @@ class WellViewerApp(QWidget):
         _r.load_from_data_dir(self)
 
     def _heatmap_layouts_path(self) -> Optional[Path]:
-        from well_viewer.persistence import heatmap_layouts as _h
-        return _h.path_for(self)
+        from well_viewer.persistence import _doc as _d
+        return _d.path_for(self)
 
     def _heatmap_layouts_save_to_data_dir(self) -> None:
         # Debounced — heatmap layout drag-and-drop fires save per drop
@@ -2299,8 +2307,8 @@ class WellViewerApp(QWidget):
         _c.schedule_save(self)
 
     def _line_order_path(self) -> Optional[Path]:
-        from well_viewer.persistence import line_order as _lo
-        return _lo.path_for(self)
+        from well_viewer.persistence import _doc as _d
+        return _d.path_for(self)
 
     def _line_order_save_to_data_dir(self) -> None:
         from well_viewer.persistence import line_order as _lo
@@ -2313,6 +2321,14 @@ class WellViewerApp(QWidget):
     def _line_order_schedule_save(self) -> None:
         from well_viewer.persistence import line_order as _lo
         _lo.schedule_save(self)
+
+    def _view_state_save_to_data_dir(self) -> None:
+        from well_viewer.persistence import view_state as _vs
+        _vs.save_to_data_dir(self)
+
+    def _view_state_load_from_data_dir(self) -> None:
+        from well_viewer.persistence import view_state as _vs
+        _vs.load_from_data_dir(self)
 
     def _notes_schedule_save(self) -> None:
         """Debounced save for the Notes sub-tab (sample_definitions JSON)."""
@@ -5444,6 +5460,14 @@ class WellViewerApp(QWidget):
 
         self._run_tab_switch_smoke_checks(prev_tab, tab, prev_selected)
         self._last_tab_name = tab
+
+        # Drain any restored view-state slated for this tab. Safe no-op when
+        # nothing is pending; runs after the tab's own _on_tab_change logic
+        # so its widgets are populated and the apply step can validate
+        # combo items against the active dataset.
+        if getattr(self, "_view_state_pending", None):
+            from well_viewer.persistence import view_state as _vs
+            _vs.apply_pending_tab_state(self, tab)
 
     def _sync_heatmap_well_drag_mode(self, enable: bool) -> None:
         """Toggle WELL_MIME drag/drop on the sidebar plate widget.
