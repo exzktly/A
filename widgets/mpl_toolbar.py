@@ -32,6 +32,7 @@ if _ROOT not in _sys.path:
     _sys.path.insert(0, _ROOT)
 
 from PySide6.QtCore import QPoint  # noqa: E402
+from PySide6.QtGui import QCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QToolTip, QWidget,
 )
@@ -46,6 +47,20 @@ try:  # matplotlib is a project dependency; degrade gracefully if absent.
     _HAVE_MPL = True
 except Exception:  # pragma: no cover
     _HAVE_MPL = False
+
+
+def _axes_have_drawn_content(axes) -> bool:
+    """True iff any axis in *axes* carries a user-drawn artist.
+
+    Empty plots before the first dataset render still expose default Axes,
+    so ``event.inaxes`` is truthy and the hover tooltip would pop on bare
+    grid. Check for the actual collections matplotlib populates on draw.
+    """
+    for ax in axes or ():
+        if (ax.lines or ax.patches or ax.collections
+                or ax.images or ax.containers):
+            return True
+    return False
 
 
 if _HAVE_MPL:
@@ -176,32 +191,41 @@ if _HAVE_MPL:
             return self._coords.isVisible()
 
         def _on_mouse_move(self, event) -> None:
-            if event.inaxes and event.xdata is not None and event.ydata is not None:
-                text = f"x = {event.xdata:.3g}   ·   y = {event.ydata:.3g}"
-                self._coords.setText(text)
-                # Mirror the read-out as a hover tooltip on the canvas
-                # so the value is visible without scrolling the page
-                # down to find the bottom-right read-out. matplotlib's
-                # `event.x` / `event.y` are canvas pixel coords with
-                # Y measured from the bottom; Qt's coords are from the
-                # top, hence the height flip.
-                try:
-                    canvas_h = int(self.canvas.height())
-                    cx = int(event.x)
-                    cy = canvas_h - int(event.y)
-                    # +14/+14 puts the tooltip near the cursor without
-                    # sitting under it.
-                    pt = self.canvas.mapToGlobal(QPoint(cx + 14, cy + 14))
-                    QToolTip.showText(pt, text, self.canvas)
-                except Exception:
-                    pass
-            else:
+            ax = event.inaxes
+            if ax is None or event.xdata is None or event.ydata is None:
                 self._coords.setText("x = —   ·   y = —")
                 # Off-axes → hide the tooltip immediately.
                 try:
                     QToolTip.hideText()
                 except Exception:
                     pass
+                return
+
+            text = f"x = {event.xdata:.3g}   ·   y = {event.ydata:.3g}"
+            self._coords.setText(text)
+
+            # Don't pop a hover tooltip on an empty axis — before data is
+            # loaded the canvas is blank and a tooltip on bare grid lines is
+            # just noise. Walk the figure's axes (twins / cohabiting subplots)
+            # so a stacked chart with one populated axis still shows.
+            if not _axes_have_drawn_content(event.canvas.figure.axes):
+                try:
+                    QToolTip.hideText()
+                except Exception:
+                    pass
+                return
+
+            # Use the global cursor position rather than mapping matplotlib's
+            # canvas pixel coords ourselves. matplotlib reports event.x/event.y
+            # in physical pixels, but canvas.height() is in logical pixels —
+            # on a 2× HiDPI display the manual flip placed the tooltip well
+            # above the canvas (often at the top of the screen).
+            # +14/+14 nudges the tooltip out from under the pointer.
+            try:
+                pt = QCursor.pos() + QPoint(14, 14)
+                QToolTip.showText(pt, text, self.canvas)
+            except Exception:
+                pass
 
         def _on_figure_leave(self, _event) -> None:
             """Hide the hover tooltip when the cursor leaves the canvas."""

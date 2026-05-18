@@ -75,8 +75,10 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     app._bar_reset_order_btn.clicked.connect(lambda _=False: app._bar_reset_order())
     cl.addWidget(app._bar_reset_order_btn)
 
-    cl.addWidget(btn_primary(bar_ctrl, "Export CSV", app._export_bar_plot_data,
-                             icon="download"))
+    _export_btn = btn_primary(bar_ctrl, "", app._export_bar_plot_data,
+                              icon="download")
+    _export_btn.setToolTip("Export CSV")
+    cl.addWidget(_export_btn)
     _b = btn_secondary(bar_ctrl, "", lambda: app._copy_active_card_as_svg(), icon="copy")
     _b.setToolTip("Copy SVG")
     cl.addWidget(_b)
@@ -86,7 +88,7 @@ def build_bar_plots_tab(app, parent: QWidget) -> None:
     # Properties button last in the row so it sits flush with the right
     # edge of the plot area — adjacent to where the dock slides out.
     style_btn = btn_secondary(
-        bar_ctrl, "Properties",
+        bar_ctrl, "",
         lambda: app._open_export_style_panel("bar"),
         icon="sliders-horizontal",
     )

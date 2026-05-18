@@ -87,8 +87,10 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
 
     cl.addStretch(1)
 
-    cl.addWidget(btn_primary(ctrl, "Export CSV", app._export_scatter_agg_data,
-                             icon="download"))
+    _export_btn = btn_primary(ctrl, "", app._export_scatter_agg_data,
+                              icon="download")
+    _export_btn.setToolTip("Export CSV")
+    cl.addWidget(_export_btn)
     _b = btn_secondary(ctrl, "", lambda: app._copy_active_card_as_svg(), icon="copy")
     _b.setToolTip("Copy SVG")
     cl.addWidget(_b)
@@ -98,7 +100,7 @@ def build_scatter_agg_tab(app, parent: QWidget) -> None:
     # Properties button last in the row so it sits flush with the right
     # edge of the plot area — adjacent to where the dock slides out.
     style_btn = btn_secondary(
-        ctrl, "Properties",
+        ctrl, "",
         lambda: app._open_export_style_panel("scatter_agg"),
         icon="sliders-horizontal",
     )

@@ -566,8 +566,8 @@ def cell_gating_auto_threshold(app) -> None:
             if edit is None:
                 continue
             try:
-                edit.setText(f"{float(thr):.4g}")
-                written.append(f"{ch.upper()}={float(thr):.4g}")
+                edit.setText(f"{float(thr):.2f}")
+                written.append(f"{ch.upper()}={float(thr):.2f}")
             except Exception:
                 continue
         # Persist + re-render the CDF + kick the gating worker exactly as

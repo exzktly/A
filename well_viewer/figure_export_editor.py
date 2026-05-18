@@ -11,9 +11,9 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 DEFAULT_EXPORT_STYLE_PREFS = {
-    "axis_label_size": 22,
-    "tick_label_size": 22,
-    "title_size": 22,
+    "axis_label_size": 18,
+    "tick_label_size": 18,
+    "title_size": 18,
     "x_tick_angle": 0,
     "format": "png",
     "axis_target": "All",

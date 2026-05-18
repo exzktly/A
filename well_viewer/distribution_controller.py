@@ -286,6 +286,15 @@ def _retint_axes_text(app) -> None:
             ax.yaxis.label.set_color(sec)
         except Exception:
             pass
+    # Faceted-mode uses a figure-level suptitle, not per-axis titles —
+    # without this it kept matplotlib's default black ink and disappeared
+    # into the dark screen-mode background.
+    suptitle = getattr(fig, "_suptitle", None)
+    if suptitle is not None:
+        try:
+            suptitle.set_color(fg)
+        except Exception:
+            pass
 
 
 def _render_overlay(app, ax, groups, mode, bins, log_x, tp_h) -> None:
