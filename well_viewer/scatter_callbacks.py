@@ -137,6 +137,91 @@ class ScatterCellViewer(QDialog):
         """
         return dict(df.iloc[idx])
 
+    def _pick_member_for_fov(self, matches: list[str], target_fov: str) -> str:
+        """Pick the most-specific zip-member path from a basename-match set.
+
+        ``zf.namelist()`` is filtered by basename, so several members can
+        match the same candidate when the zip groups FOVs under
+        directories (``F001/foo_mask.tif`` + ``F002/foo_mask.tif``).
+        Without disambiguation, ``namelist()`` order picks the first one,
+        which silently shows a cell from a different FOV — same well, same
+        numeric id, different cell. Prefer the member whose full path
+        contains the target FOV with a non-digit neighbour on each side
+        so ``F001`` doesn't falsely match a path containing ``F010``.
+        """
+        if len(matches) <= 1:
+            return matches[0] if matches else ""
+        if not target_fov:
+            self._debug(
+                f"WARNING: {len(matches)} zip members matched basename but "
+                f"no FOV from CSV row to disambiguate; falling back to "
+                f"first: {matches[0]!r}"
+            )
+            return matches[0]
+        # Tokens to probe — both prefixed and unprefixed numeric forms.
+        # Padded forms come first so "F001" wins over bare "1" / "F1".
+        fov_str = str(target_fov).strip()
+        wanted: list[str] = []
+        wanted.append(fov_str.lower())
+        try:
+            fov_num = int(float(fov_str))
+            for variant in (
+                f"fov{fov_num:03d}",
+                f"f{fov_num:03d}",
+                f"fov{fov_num}",
+                f"f{fov_num}",
+                str(fov_num),
+            ):
+                if variant not in wanted:
+                    wanted.append(variant.lower())
+        except (TypeError, ValueError):
+            pass
+
+        def _contains_token(haystack: str, tok: str) -> bool:
+            """Substring with non-digit neighbours so ``f1`` won't match
+            ``f10`` and ``1`` won't match ``10`` / ``f010``."""
+            if not tok:
+                return False
+            idx = haystack.find(tok)
+            while idx >= 0:
+                before = haystack[idx - 1] if idx > 0 else ""
+                end = idx + len(tok)
+                after = haystack[end] if end < len(haystack) else ""
+                if not before.isdigit() and not after.isdigit():
+                    return True
+                idx = haystack.find(tok, idx + 1)
+            return False
+
+        def _score(member: str) -> tuple[int, int, int]:
+            low = member.lower()
+            # Index of the highest-priority token found (lower idx = better).
+            hit = -1
+            for i, tok in enumerate(wanted):
+                if _contains_token(low, tok):
+                    hit = i
+                    break
+            # Score ordering: matched > unmatched; among matched, lower
+            # token index is better; tie-break on shorter path length.
+            if hit < 0:
+                return (0, 0, 0)
+            return (1, -hit, -len(member))
+
+        ranked = sorted(matches, key=_score, reverse=True)
+        chosen = ranked[0]
+        # If nothing matched any token, the picker is guessing — flag it.
+        if _score(chosen)[0] == 0:
+            self._debug(
+                f"WARNING: FOV disambig found no token match for "
+                f"target={target_fov!r} in {matches!r}; falling back to "
+                f"first: {chosen!r}"
+            )
+        else:
+            self._debug(
+                f"FOV disambig: target={target_fov!r} candidates={matches!r} "
+                f"-> chose {chosen!r}"
+            )
+        return chosen
+
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask.
 
@@ -156,11 +241,27 @@ class ScatterCellViewer(QDialog):
                 pass
 
     def _load_cell_data_impl(self) -> None:
+        # State hygiene — wipe everything that's tied to the *previous*
+        # cell before loading the new one. update_cell() reuses the same
+        # dialog instance, so without this _cell_images / _pixmap_cache /
+        # _current_channel / _cell_bounds carry stale data forward and
+        # selecting a not-yet-reloaded channel renders the previous
+        # cell's pixmap.
+        self._cell_images = {}
+        self._pixmap_cache = None
+        self._current_channel = None
+        self._cell_bounds = None
         self._channel_luts = {}
         self._cell_outline_mask = None
         self._debug_lines = []
         if getattr(self, "_debug_text", None) is not None:
             self._debug_text.clear()
+        if getattr(self, "_channel_dropdown", None) is not None:
+            blocked = self._channel_dropdown.blockSignals(True)
+            try:
+                self._channel_dropdown.clear()
+            finally:
+                self._channel_dropdown.blockSignals(blocked)
         self._debug(f"well_label={self.well_label!r}, row_idx={self.row_idx}, filename={self.filename!r}, nuclear_id={self.nuclear_id!r}")
         try:
             nuclear_id = int(float(self.nuclear_id))
@@ -183,10 +284,35 @@ class ScatterCellViewer(QDialog):
 
         row = self._row_dict_at(rows, self.row_idx)
         self._nuclear_token = str(row.get("channel") or "").strip()
+        # Capture the row's FOV so zip-member resolution can disambiguate
+        # when several members share the same basename across FOVs (e.g.
+        # ``F001/mask.tif`` + ``F002/mask.tif``).
+        self._row_fov = str(row.get("fov") or "").strip()
+        self._row_timepoint = str(row.get("timepoint") or "").strip()
         self._debug(f"csv.channel={self._nuclear_token!r}")
+        self._debug(f"csv.fov={self._row_fov!r}  csv.timepoint={self._row_timepoint!r}")
         self._debug(f"fluor channels to probe={sorted(self.app._fluor_channels)!r}")
 
         mask_arr, mask_path = self._load_output_image_by_filename("mask")
+        # Mask-content sanity: log shape, label cardinality, and whether
+        # the requested nuclear_id actually exists in this mask. The
+        # "loaded the wrong cell" symptom hides here when the matched
+        # mask happens to contain a foreign cell with the same numeric id.
+        if mask_arr is not None:
+            try:
+                import numpy as _np
+                _arr = _np.asarray(mask_arr)
+                _uniq = _np.unique(_arr)
+                _hit = bool(_np.any(_arr == nuclear_id))
+                _sample = list(map(int, _uniq[:8]))
+                self._debug(
+                    f"mask diagnostics: shape={_arr.shape} dtype={_arr.dtype} "
+                    f"n_labels={len(_uniq)} min_label={int(_uniq.min()) if _uniq.size else 'n/a'} "
+                    f"max_label={int(_uniq.max()) if _uniq.size else 'n/a'} "
+                    f"contains_nuclear_id={_hit} sample_labels={_sample}"
+                )
+            except Exception as _exc:  # pragma: no cover - diagnostic only
+                self._debug(f"mask diagnostics failed: {_exc!r}")
         self._cell_bounds = self._get_cell_bounds(mask_arr, nuclear_id, padding_px=25)
         if not self._cell_bounds:
             self._img_label.setText(f"Cell {nuclear_id} not found in mask")
@@ -280,25 +406,41 @@ class ScatterCellViewer(QDialog):
             self._debug(f"output zip search well_token={well_token!r}, zips={[str(z) for z in zips]!r}")
 
             candidate_lowers = [c.lower() for c in candidates]
+            target_fov = getattr(self, "_row_fov", "") or ""
             for zip_path in zips:
                 self._debug(f"scan zip for {image_type}: {zip_path}")
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    for member in zf.namelist():
-                        if _Path(member).name.lower() in candidate_lowers:
-                            ref = ImgRef(zip_path=zip_path, zip_member=member)
-                            arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
-                            self._debug(f"loaded {image_type} from zip: {zip_path}::{member}")
-                            return arr, f"{zip_path}::{member}"
+                    members = zf.namelist()
+                    matches = [m for m in members
+                               if _Path(m).name.lower() in candidate_lowers]
+                    if matches:
+                        self._debug(
+                            f"{image_type}: {len(matches)} member(s) in "
+                            f"{zip_path.name} match basename — {matches!r}"
+                        )
+                        chosen = self._pick_member_for_fov(matches, target_fov)
+                        ref = ImgRef(zip_path=zip_path, zip_member=chosen)
+                        arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                        self._debug(f"loaded {image_type} from zip: {zip_path}::{chosen}")
+                        return arr, f"{zip_path}::{chosen}"
 
             search_dirs = [d for d in (data_dir, in_dir) if d and d.is_dir()]
             self._debug(f"output disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
                 for candidate in candidates:
-                    for img_path in d.rglob(candidate):
-                        ref = ImgRef(disk_path=img_path)
-                        arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
-                        self._debug(f"loaded {image_type} from disk: {img_path}")
-                        return arr, str(img_path)
+                    paths = list(d.rglob(candidate))
+                    if not paths:
+                        continue
+                    self._debug(
+                        f"{image_type}: {len(paths)} disk path(s) match "
+                        f"{candidate!r} under {d} — {[str(p) for p in paths]!r}"
+                    )
+                    chosen = self._pick_member_for_fov([str(p) for p in paths], target_fov)
+                    img_path = _Path(chosen)
+                    ref = ImgRef(disk_path=img_path)
+                    arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
+                    self._debug(f"loaded {image_type} from disk: {img_path}")
+                    return arr, str(img_path)
 
             self._debug(f"{image_type} not found. candidates={candidates!r}")
             return None, f"not found: {candidates[0]!r}"
@@ -461,29 +603,45 @@ class ScatterCellViewer(QDialog):
             )
             self._debug(f"nuclear image filename candidates={target_names!r}")
             target_lowers = {name.lower() for name in target_names}
+            target_fov = getattr(self, "_row_fov", "") or ""
             for zip_path in zips:
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    for member in zf.namelist():
-                        if _Path(member).name.lower() in target_lowers:
-                            arr = open_imgref_as_array(
-                                ref=ImgRef(zip_path=zip_path, zip_member=member),
-                                greyscale=True,
-                            )
-                            if arr is not None:
-                                self._debug(f"loaded nuclear image from zip: {zip_path}::{member}")
-                                y_min, x_min, y_max, x_max = self._cell_bounds
-                                return arr[y_min:y_max, x_min:x_max]
+                    members = zf.namelist()
+                    matches = [m for m in members
+                               if _Path(m).name.lower() in target_lowers]
+                    if matches:
+                        self._debug(
+                            f"nuclear: {len(matches)} member(s) in "
+                            f"{zip_path.name} match basename — {matches!r}"
+                        )
+                        chosen = self._pick_member_for_fov(matches, target_fov)
+                        arr = open_imgref_as_array(
+                            ref=ImgRef(zip_path=zip_path, zip_member=chosen),
+                            greyscale=True,
+                        )
+                        if arr is not None:
+                            self._debug(f"loaded nuclear image from zip: {zip_path}::{chosen}")
+                            y_min, x_min, y_max, x_max = self._cell_bounds
+                            return arr[y_min:y_max, x_min:x_max]
 
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             self._debug(f"nuclear image disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
                 for target_name in target_names:
-                    for img_path in d.rglob(target_name):
-                        arr = open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
-                        if arr is not None:
-                            self._debug(f"loaded nuclear image from disk: {img_path}")
-                            y_min, x_min, y_max, x_max = self._cell_bounds
-                            return arr[y_min:y_max, x_min:x_max]
+                    paths = list(d.rglob(target_name))
+                    if not paths:
+                        continue
+                    self._debug(
+                        f"nuclear: {len(paths)} disk path(s) match "
+                        f"{target_name!r} under {d} — {[str(p) for p in paths]!r}"
+                    )
+                    chosen = self._pick_member_for_fov([str(p) for p in paths], target_fov)
+                    img_path = _Path(chosen)
+                    arr = open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
+                    if arr is not None:
+                        self._debug(f"loaded nuclear image from disk: {img_path}")
+                        y_min, x_min, y_max, x_max = self._cell_bounds
+                        return arr[y_min:y_max, x_min:x_max]
 
             self._debug(f"nuclear image not found for filename={self.filename!r}")
             return None
@@ -531,21 +689,39 @@ class ScatterCellViewer(QDialog):
             self._debug(f"channel={channel_token}: zip search zips={[str(z) for z in zips]!r}")
 
             target_lowers = {name.lower() for name in target_names}
+            target_fov = getattr(self, "_row_fov", "") or ""
             for zip_path in zips:
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    for member in zf.namelist():
-                        if _Path(member).name.lower() in target_lowers:
-                            ref = ImgRef(zip_path=zip_path, zip_member=member)
-                            self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{member}")
-                            return open_imgref_as_array(ref=ref, greyscale=True)
+                    members = zf.namelist()
+                    matches = [m for m in members
+                               if _Path(m).name.lower() in target_lowers]
+                    if matches:
+                        self._debug(
+                            f"channel={channel_token}: {len(matches)} "
+                            f"member(s) in {zip_path.name} match basename "
+                            f"— {matches!r}"
+                        )
+                        chosen = self._pick_member_for_fov(matches, target_fov)
+                        ref = ImgRef(zip_path=zip_path, zip_member=chosen)
+                        self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{chosen}")
+                        return open_imgref_as_array(ref=ref, greyscale=True)
 
             search_dirs = [d for d in (in_dir, data_dir) if d and d.is_dir()]
             self._debug(f"channel={channel_token}: disk search dirs={[str(d) for d in search_dirs]!r}")
             for d in search_dirs:
                 for candidate_name in target_names:
-                    for img_path in d.rglob(candidate_name):
-                        self._debug(f"channel={channel_token}: loaded from disk {img_path}")
-                        return open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
+                    paths = list(d.rglob(candidate_name))
+                    if not paths:
+                        continue
+                    self._debug(
+                        f"channel={channel_token}: {len(paths)} disk path(s) "
+                        f"match {candidate_name!r} under {d} — "
+                        f"{[str(p) for p in paths]!r}"
+                    )
+                    chosen = self._pick_member_for_fov([str(p) for p in paths], target_fov)
+                    img_path = _Path(chosen)
+                    self._debug(f"channel={channel_token}: loaded from disk {img_path}")
+                    return open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
 
             self._debug(f"channel={channel_token}: not found candidates={target_names!r}")
             return None
