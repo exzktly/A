@@ -222,6 +222,37 @@ class ScatterCellViewer(QDialog):
             )
         return chosen
 
+    @staticmethod
+    def _path_carries_channel(path: str, channel_token: str) -> bool:
+        """True iff *path* embeds *channel_token* as a non-letter-bounded token.
+
+        ``resolve_filename_candidates(target_channel=...)`` substitutes the
+        channel slot in the schema-derived candidate, but it also appends
+        the *original* row filename as a fallback. When the schema-derived
+        candidate happens to miss the zip (channel name doesn't match the
+        on-disk scheme), the original-filename fallback wins for every
+        channel — every channel slot ends up loading the same source
+        file, which is exactly the "channel switch shows the wrong /
+        same image" symptom.
+
+        Guard against that by accepting only paths whose lineage
+        contains the channel token with non-letter / non-digit neighbours
+        so ``cit`` does not falsely match ``mcit``.
+        """
+        if not channel_token:
+            return True
+        tok = channel_token.lower()
+        low = path.lower()
+        idx = low.find(tok)
+        while idx >= 0:
+            before = low[idx - 1] if idx > 0 else ""
+            end = idx + len(tok)
+            after = low[end] if end < len(low) else ""
+            if not (before.isalnum() or after.isalnum()):
+                return True
+            idx = low.find(tok, idx + 1)
+        return False
+
     def _load_cell_data(self) -> None:
         """Load cell data: find images using filename, get cell bounds from mask.
 
@@ -333,24 +364,40 @@ class ScatterCellViewer(QDialog):
             self._debug(f"failed to compute cell outline mask: {e!r}")
 
         for ch in sorted(self.app._fluor_channels):
+            self._debug(f"loading fluor channel {ch!r}...")
             arr = self._load_and_crop_channel(ch)
             if arr is not None:
                 self._cell_images[ch] = arr
+                self._debug(f"  -> channel {ch!r} loaded, shape={getattr(arr, 'shape', None)}")
+            else:
+                self._debug(f"  -> channel {ch!r} unavailable (no array)")
 
         nuc_key = self._nuclear_token.lower() if self._nuclear_token else "nuclear_fluor"
+        self._debug(f"loading nuclear stain (key={nuc_key!r}, csv.channel={self._nuclear_token!r})...")
         arr = self._load_and_crop_nuclear()
         if arr is not None:
             self._cell_images[nuc_key] = arr
+            self._debug(f"  -> nuclear loaded, shape={getattr(arr, 'shape', None)}")
+        else:
+            self._debug("  -> nuclear unavailable")
 
+        self._debug("loading mask overlay (stored under key 'nuclear')...")
         arr = self._load_and_crop_channel("mask")
         if arr is not None:
             self._cell_images["nuclear"] = arr
+            self._debug(f"  -> mask loaded, shape={getattr(arr, 'shape', None)}")
+        else:
+            self._debug("  -> mask unavailable")
 
         available_channels = [ch for ch in sorted(self.app._fluor_channels) if self._cell_images.get(ch) is not None]
         if nuc_key in self._cell_images and nuc_key not in available_channels:
             available_channels.append(nuc_key)
         if "nuclear" in self._cell_images:
             available_channels.append("nuclear")
+        self._debug(
+            f"dropdown channels (in order)={available_channels!r}; "
+            f"_cell_images keys={sorted(self._cell_images.keys())!r}"
+        )
 
         self._channel_dropdown.blockSignals(True)
         self._channel_dropdown.clear()
@@ -701,7 +748,33 @@ class ScatterCellViewer(QDialog):
                             f"member(s) in {zip_path.name} match basename "
                             f"— {matches!r}"
                         )
-                        chosen = self._pick_member_for_fov(matches, target_fov)
+                        # Reject members that don't carry the channel
+                        # token. Without this the original-filename
+                        # fallback inside resolve_filename_candidates
+                        # silently won for every channel — every entry
+                        # in _cell_images ended up pointing at the same
+                        # source image, so switching channels in the
+                        # popup never changed the displayed pixmap.
+                        channel_matches = [
+                            m for m in matches
+                            if self._path_carries_channel(m, channel_token)
+                        ]
+                        if not channel_matches:
+                            self._debug(
+                                f"channel={channel_token}: rejecting all "
+                                f"matches — none carry the channel token. "
+                                f"Likely the schema-derived candidate "
+                                f"missed the zip and the original filename "
+                                f"fallback would load the wrong channel."
+                            )
+                            continue
+                        if len(channel_matches) < len(matches):
+                            self._debug(
+                                f"channel={channel_token}: filtered to "
+                                f"{len(channel_matches)} channel-carrying "
+                                f"match(es) — {channel_matches!r}"
+                            )
+                        chosen = self._pick_member_for_fov(channel_matches, target_fov)
                         ref = ImgRef(zip_path=zip_path, zip_member=chosen)
                         self._debug(f"channel={channel_token}: loaded from zip {zip_path}::{chosen}")
                         return open_imgref_as_array(ref=ref, greyscale=True)
@@ -718,7 +791,18 @@ class ScatterCellViewer(QDialog):
                         f"match {candidate_name!r} under {d} — "
                         f"{[str(p) for p in paths]!r}"
                     )
-                    chosen = self._pick_member_for_fov([str(p) for p in paths], target_fov)
+                    channel_paths = [
+                        p for p in paths
+                        if self._path_carries_channel(str(p), channel_token)
+                    ]
+                    if not channel_paths:
+                        self._debug(
+                            f"channel={channel_token}: rejecting all disk "
+                            f"matches for {candidate_name!r} — none carry "
+                            f"the channel token."
+                        )
+                        continue
+                    chosen = self._pick_member_for_fov([str(p) for p in channel_paths], target_fov)
                     img_path = _Path(chosen)
                     self._debug(f"channel={channel_token}: loaded from disk {img_path}")
                     return open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
@@ -731,17 +815,45 @@ class ScatterCellViewer(QDialog):
             return None
 
     def _on_channel_changed(self, *_args) -> None:
+        prev = self._current_channel
         self._current_channel = self._channel_dropdown.currentText()
+        # Surface the switch in the popup's debug box so the user can
+        # check exactly which array the display is about to fetch from
+        # _cell_images.
+        try:
+            cached_keys = sorted(self._cell_images.keys())
+        except Exception:
+            cached_keys = []
+        self._debug(
+            f"channel switch: {prev!r} -> {self._current_channel!r}; "
+            f"cached_channels={cached_keys}"
+        )
         if not self._current_channel:
+            self._debug("channel switch aborted: empty currentText().")
             return
 
         arr = self._cell_images.get(self._current_channel)
         if arr is None:
             self._img_label.setText("Image not found")
+            self._debug(
+                f"channel switch: no cached image for "
+                f"{self._current_channel!r}; available keys={cached_keys}"
+            )
             return
+
+        try:
+            arr_shape = getattr(arr, "shape", None)
+            arr_dtype = getattr(arr, "dtype", None)
+        except Exception:
+            arr_shape = arr_dtype = None
+        self._debug(
+            f"channel switch: drawing {self._current_channel!r} "
+            f"shape={arr_shape} dtype={arr_dtype}"
+        )
 
         if self._current_channel in self._channel_luts:
             lo, hi = self._channel_luts[self._current_channel]
+            self._debug(f"channel switch: reusing LUT {self._current_channel!r}=({lo}, {hi})")
         else:
             try:
                 lo, hi = float(arr.min()), float(arr.max())
@@ -752,6 +864,10 @@ class ScatterCellViewer(QDialog):
                 hi = lo + 1.0
 
             self._channel_luts[self._current_channel] = (lo, hi)
+            self._debug(
+                f"channel switch: new LUT computed for "
+                f"{self._current_channel!r}=({lo}, {hi})"
+            )
 
         self._current_lut = (lo, hi)
         self._lut_min_edit.setText(f"{lo:.1f}")
