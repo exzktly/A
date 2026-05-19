@@ -5882,6 +5882,7 @@ class WellViewerApp(QWidget):
         cell_area_threshold: float,
         fluor_gates: Dict[str, float],
         use_sem: bool,
+        per_fov_spread: bool = False,
     ) -> tuple[float, float, float, float]:
         """Pool per-well means and fractions at *target_t* and return
         ``(mean, mean_err, frac, frac_err)``.
@@ -5893,33 +5894,51 @@ class WellViewerApp(QWidget):
         ``scatter_controller._agg_wells`` (scatter aggregate plot) so the
         three paths agree on what "mean across wells under active
         gating" means.
+
+        When ``per_fov_spread`` is True the spread is taken across
+        per-FOV means inside each well instead of across wells: the
+        per-well mean stays the same but the returned ``mean_err`` is
+        the mean of the per-well FOV spreads (a conservative pooling
+        that keeps the answer well-defined for both single- and
+        multi-well groups).
         """
         well_means: List[float] = []
         well_fracs: List[float] = []
+        fov_mean_spreads: List[float] = []
+        fov_frac_spreads: List[float] = []
         for lbl in wells:
             if lbl not in self._well_paths:
                 continue
             pts = self._aggregate_well(
-                lbl, threshold=threshold, use_sem=False,
+                lbl, threshold=threshold, use_sem=use_sem,
                 val_col=val_col,
                 cell_area_threshold=cell_area_threshold,
                 fluor_gates=fluor_gates,
+                per_fov_spread=per_fov_spread,
             )
             for pt in pts:
                 if abs(pt[0] - target_t) < 1e-6:
-                    _, m, _sd, f, *_ = pt
+                    _, m, sd, f, fsd, *_ = pt
                     if not math.isnan(m):
                         well_means.append(m)
+                        if per_fov_spread and math.isfinite(sd):
+                            fov_mean_spreads.append(sd)
                     if not math.isnan(f):
                         well_fracs.append(f)
+                        if per_fov_spread and math.isfinite(fsd):
+                            fov_frac_spreads.append(fsd)
                     break
 
         if well_means:
             arr = np.asarray(well_means, dtype=float)
             gm = float(arr.mean())
             n = arr.size
-            gsd = float(arr.std(ddof=1)) if n > 1 else 0.0
-            gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
+            if per_fov_spread:
+                gerr = (float(np.mean(fov_mean_spreads))
+                        if fov_mean_spreads else 0.0)
+            else:
+                gsd = float(arr.std(ddof=1)) if n > 1 else 0.0
+                gerr = gsd / math.sqrt(n) if (use_sem and n > 1) else gsd
         else:
             gm, gerr = float("nan"), 0.0
 
@@ -5927,8 +5946,12 @@ class WellViewerApp(QWidget):
             arr = np.asarray(well_fracs, dtype=float)
             gf = float(arr.mean())
             nf = arr.size
-            fsd = float(arr.std(ddof=1)) if nf > 1 else 0.0
-            ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
+            if per_fov_spread:
+                ferr = (float(np.mean(fov_frac_spreads))
+                        if fov_frac_spreads else 0.0)
+            else:
+                fsd = float(arr.std(ddof=1)) if nf > 1 else 0.0
+                ferr = fsd / math.sqrt(nf) if (use_sem and nf > 1) else fsd
         else:
             gf, ferr = float("nan"), 0.0
 
@@ -6527,12 +6550,16 @@ class WellViewerApp(QWidget):
             if cb is None:
                 continue
             current = cb.currentText()
-            _set_combo_values(cb, scatter_ch_options)
-            if current and current in scatter_ch_options:
+            # X-only "Time (h)" sentinel — picking it switches the renderer
+            # into time-on-X mode (one point per timepoint, no x_err).
+            options = (["Time (h)"] + scatter_ch_options
+                       if cb_attr.endswith("_x_cb") else scatter_ch_options)
+            _set_combo_values(cb, options)
+            if current and current in options:
                 cb.setCurrentText(current)
             else:
                 default_idx = 0 if cb_attr.endswith("_x_cb") else (1 if len(scatter_ch_options) > 1 else 0)
-                cb.setCurrentText(scatter_ch_options[default_idx])
+                cb.setCurrentText(options[default_idx])
         for axis in ("x", "y"):
             self._refresh_scatter_agg_metric_for_axis(axis)
 

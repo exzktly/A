@@ -310,6 +310,15 @@ def redraw_scatter(
     app._scatter_canvas.draw()
 
 
+def _finite_positive(v) -> bool:
+    """True iff *v* is a real number strictly greater than 0."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(f) and f > 0.0
+
+
 def collect_scatter_agg_data(
     app,
     stat_x: str,  # e.g., "Mean Fluorescence GFP"
@@ -385,7 +394,19 @@ def collect_scatter_agg_data(
 
     ch_x, metric_x, intensity_x = parse_statistic(stat_x)
     ch_y, metric_y, intensity_y = parse_statistic(stat_y)
+    # "Time (h)" sentinel on the X channel combo flips the X axis from
+    # an aggregated metric value to the timepoint itself.
+    x_is_time = False
+    cb_x = getattr(app, "_scatter_agg_ch_x_cb", None)
+    if cb_x is not None:
+        try:
+            x_is_time = cb_x.currentText() == "Time (h)"
+        except Exception:
+            pass
     use_sem = app._use_sem
+    per_fov = bool(
+        getattr(app, "_use_fov_spread_active", lambda: False)()
+    )
     # Per-channel cell-gating thresholds don't apply to ratios — use 0 so
     # every cell with a defined ratio contributes to the well-level mean.
     threshold_x = 0.0 if metric_x == "ratio" else app._get_thresh_frac_on(ch_x)
@@ -454,7 +475,9 @@ def collect_scatter_agg_data(
         path agrees numerically with the line/bar plots'
         ``_compute_rep_stats`` and the Stats tab's pairwise tests.
         Returns ``(value, err)`` picking ``frac`` when ``metric ==
-        "frac"`` and ``mean`` otherwise.
+        "frac"`` and ``mean`` otherwise. When ``per_fov`` is on (driven
+        by the app's "Across FOV" toggle), the spread is computed
+        across per-FOV means rather than across wells.
         """
         if not val_col:
             return float("nan"), 0.0
@@ -465,6 +488,7 @@ def collect_scatter_agg_data(
             cell_area_threshold=cell_area_threshold,
             fluor_gates=fluor_gates,
             use_sem=use_sem,
+            per_fov_spread=per_fov,
         )
         if metric == "frac":
             return gf, ferr
@@ -474,7 +498,10 @@ def collect_scatter_agg_data(
         marker = markers[label_idx % len(markers)]
 
         for tp in sorted(timepoints_h):
-            mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
+            if x_is_time:
+                mean_x, err_x = float(tp), 0.0
+            else:
+                mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
             mean_y, err_y = _agg_wells(wells, tp, val_col_y, threshold_y, metric_y)
 
             if math.isnan(mean_x) or math.isnan(mean_y):
@@ -576,11 +603,20 @@ def redraw_scatter_agg(
     else:
         # Plot each replicate/well-timepoint as separate error bar series
         for label, data in scatter_data.items():
+            # Skip xerr / yerr entirely when there's nothing to show.
+            # ``capsize=5`` draws a "_" / "|" cap marker at every point
+            # even when the bar length is zero, producing a cross at
+            # the centre of every marker that reads as a phantom error
+            # bar. Passing None hides both the bar and its caps.
+            x_err_seq = data.get('x_err') or []
+            y_err_seq = data.get('y_err') or []
+            xerr = x_err_seq if any(_finite_positive(e) for e in x_err_seq) else None
+            yerr = y_err_seq if any(_finite_positive(e) for e in y_err_seq) else None
             app._ax_scatter_agg.errorbar(
                 data['x'],
                 data['y'],
-                xerr=data['x_err'],
-                yerr=data['y_err'],
+                xerr=xerr,
+                yerr=yerr,
                 label=data['label'],
                 color=data['color'],
                 marker=data.get('marker', 'o'),
@@ -591,12 +627,22 @@ def redraw_scatter_agg(
                 alpha=0.7,
             )
 
-        # Format axes
-        app._ax_scatter_agg.set_xlabel(stat_x)
+        # Format axes — when the user picked "Time (h)" on the X channel
+        # combo, override the stat-string label since stat_x still
+        # carries the legacy "Mean Fluorescence …" sentinel.
+        x_is_time = False
+        cb_x = getattr(app, "_scatter_agg_ch_x_cb", None)
+        if cb_x is not None:
+            try:
+                x_is_time = cb_x.currentText() == "Time (h)"
+            except Exception:
+                pass
+        x_label = "Time (h)" if x_is_time else stat_x
+        app._ax_scatter_agg.set_xlabel(x_label)
         app._ax_scatter_agg.set_ylabel(stat_y)
         tp_range = f"t={min(timepoints_h)}h to {max(timepoints_h)}h" if timepoints_h else ""
         app._ax_scatter_agg.set_title(
-            f"Aggregate Scatter: {stat_x} vs {stat_y} ({tp_range})",
+            f"Aggregate Scatter: {x_label} vs {stat_y} ({tp_range})",
             color=_title_fg,
         )
         app._ax_scatter_agg.grid(True, alpha=0.3, color=_grid)
