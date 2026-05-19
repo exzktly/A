@@ -140,15 +140,30 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
             for cap in (cap_lines or ()):
                 cap_ids.add(id(cap))
         for ln in ax.lines:
+            if id(ln) in cap_ids:
+                # Error-bar cap markers have their own intrinsic capsize-
+                # based sizing + a default "_" / "|" marker that signals
+                # the cap. Touching their markersize / markeredgewidth /
+                # marker / linestyle either makes the caps look like
+                # data points or stamps the user's data-marker onto the
+                # caps — both read as "error bars suddenly appeared".
+                continue
             ln.set_linewidth(float(prefs.get("line_width", 1.8)))
             ln.set_markersize(float(prefs.get("marker_size", 5.0)))
             ln.set_markeredgewidth(float(prefs.get("marker_edge_width", 0.8)))
-            if id(ln) in cap_ids:
-                # Leave the cap markers (and their connecting verticals) alone.
-                continue
             # ``"keep"`` lets a tab opt out of overriding the renderer's own
             # marker / linestyle pick (e.g. distinct markers per replicate).
-            if line_style and line_style != "keep":
+            # Lines the renderer drew as markers-only (linestyle='None' +
+            # a marker — the scatter / aggregate pattern) keep their no-
+            # connecting-line behaviour; overriding it to "-" stamped
+            # diagonal lines that read as spurious error bars.
+            cur_ls = ln.get_linestyle()
+            cur_mk = ln.get_marker()
+            scatter_only = (
+                cur_ls in ("None", "none", "", " ") and
+                cur_mk not in ("None", "none", "", None)
+            )
+            if line_style and line_style != "keep" and not scatter_only:
                 ln.set_linestyle(line_style if line_style != "none" else "None")
             if marker_style and marker_style != "keep":
                 ln.set_marker(marker_style if marker_style != "none" else "None")
