@@ -394,15 +394,6 @@ def collect_scatter_agg_data(
 
     ch_x, metric_x, intensity_x = parse_statistic(stat_x)
     ch_y, metric_y, intensity_y = parse_statistic(stat_y)
-    # "Time (h)" sentinel on the X channel combo flips the X axis from
-    # an aggregated metric value to the timepoint itself.
-    x_is_time = False
-    cb_x = getattr(app, "_scatter_agg_ch_x_cb", None)
-    if cb_x is not None:
-        try:
-            x_is_time = cb_x.currentText() == "Time (h)"
-        except Exception:
-            pass
     use_sem = app._use_sem
     per_fov = bool(
         getattr(app, "_use_fov_spread_active", lambda: False)()
@@ -498,10 +489,7 @@ def collect_scatter_agg_data(
         marker = markers[label_idx % len(markers)]
 
         for tp in sorted(timepoints_h):
-            if x_is_time:
-                mean_x, err_x = float(tp), 0.0
-            else:
-                mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
+            mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
             mean_y, err_y = _agg_wells(wells, tp, val_col_y, threshold_y, metric_y)
 
             if math.isnan(mean_x) or math.isnan(mean_y):
@@ -627,22 +615,12 @@ def redraw_scatter_agg(
                 alpha=0.7,
             )
 
-        # Format axes — when the user picked "Time (h)" on the X channel
-        # combo, override the stat-string label since stat_x still
-        # carries the legacy "Mean Fluorescence …" sentinel.
-        x_is_time = False
-        cb_x = getattr(app, "_scatter_agg_ch_x_cb", None)
-        if cb_x is not None:
-            try:
-                x_is_time = cb_x.currentText() == "Time (h)"
-            except Exception:
-                pass
-        x_label = "Time (h)" if x_is_time else stat_x
-        app._ax_scatter_agg.set_xlabel(x_label)
+        # Format axes
+        app._ax_scatter_agg.set_xlabel(stat_x)
         app._ax_scatter_agg.set_ylabel(stat_y)
         tp_range = f"t={min(timepoints_h)}h to {max(timepoints_h)}h" if timepoints_h else ""
         app._ax_scatter_agg.set_title(
-            f"Aggregate Scatter: {x_label} vs {stat_y} ({tp_range})",
+            f"Aggregate Scatter: {stat_x} vs {stat_y} ({tp_range})",
             color=_title_fg,
         )
         app._ax_scatter_agg.grid(True, alpha=0.3, color=_grid)

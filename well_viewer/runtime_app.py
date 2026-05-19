@@ -6550,16 +6550,12 @@ class WellViewerApp(QWidget):
             if cb is None:
                 continue
             current = cb.currentText()
-            # X-only "Time (h)" sentinel — picking it switches the renderer
-            # into time-on-X mode (one point per timepoint, no x_err).
-            options = (["Time (h)"] + scatter_ch_options
-                       if cb_attr.endswith("_x_cb") else scatter_ch_options)
-            _set_combo_values(cb, options)
-            if current and current in options:
+            _set_combo_values(cb, scatter_ch_options)
+            if current and current in scatter_ch_options:
                 cb.setCurrentText(current)
             else:
                 default_idx = 0 if cb_attr.endswith("_x_cb") else (1 if len(scatter_ch_options) > 1 else 0)
-                cb.setCurrentText(options[default_idx])
+                cb.setCurrentText(scatter_ch_options[default_idx])
         for axis in ("x", "y"):
             self._refresh_scatter_agg_metric_for_axis(axis)
 
