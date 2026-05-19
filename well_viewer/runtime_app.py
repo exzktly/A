@@ -6543,6 +6543,18 @@ class WellViewerApp(QWidget):
         if tp_strs and self._scatter_tp_var.currentText() not in tp_strs:
             self._scatter_tp_var.setCurrentText(tp_strs[0])
 
+        # Repopulate the multi-tp picker dict, preserving any prior
+        # selections that still exist in the new dataset; default to the
+        # first timepoint on a clean load so the plot isn't empty.
+        if hasattr(self, "_scatter_tp_selections"):
+            prev = {tp_str for tp_str, v in self._scatter_tp_selections.items() if v}
+            self._scatter_tp_selections.clear()
+            for tp_str in tp_strs:
+                self._scatter_tp_selections[tp_str] = (tp_str in prev)
+            if not any(self._scatter_tp_selections.values()) and tp_strs:
+                self._scatter_tp_selections[tp_strs[0]] = True
+            self._update_scatter_tp_selection_display()
+
         # Aggregate scatter — propagate the same channel list to its own
         # per-axis Channel combo.
         for cb_attr in ("_scatter_agg_ch_x_cb", "_scatter_agg_ch_y_cb"):
@@ -6599,6 +6611,18 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_scatter_agg_tp_label") and self._scatter_agg_tp_label is not None:
             self._scatter_agg_tp_label.setText(label_text)
 
+    def _update_scatter_tp_selection_display(self) -> None:
+        """Update the per-cell scatter label showing selected timepoints."""
+        sel = getattr(self, "_scatter_tp_selections", None) or {}
+        count = sum(1 for v in sel.values() if v)
+        total = len(sel)
+        label_text = (
+            f"(All {count} selected)" if count == total and total > 0
+            else f"({count}/{total} selected)"
+        )
+        if hasattr(self, "_scatter_tp_label") and self._scatter_tp_label is not None:
+            self._scatter_tp_label.setText(label_text)
+
     def _redraw_scatter(self) -> None:
         """Redraw the scatter plot with current selections."""
         # Scatter Plot: Cells tab body is built lazily — bail out if the
@@ -6608,10 +6632,38 @@ class WellViewerApp(QWidget):
         try:
             ch_x_entry = self._scatter_ch_x_var.currentText()
             ch_y_entry = self._scatter_ch_y_var.currentText()
-            tp_str = self._scatter_tp_var.currentText()
-            timepoint_h = float(tp_str) if tp_str else 0.0
         except ValueError:
             return
+
+        # Collect every selected timepoint. Falls back to the legacy
+        # single-tp combo when the multi-tp picker hasn't been populated
+        # yet (first build, before _update_scatter_menus runs).
+        selections: dict[str, bool] = getattr(self, "_scatter_tp_selections", None) or {}
+        tps_h: list[float] = []
+        for tp_str, on in selections.items():
+            if not on:
+                continue
+            try:
+                tps_h.append(float(tp_str))
+            except (TypeError, ValueError):
+                continue
+        if not tps_h:
+            try:
+                tp_str = self._scatter_tp_var.currentText()
+                if tp_str:
+                    tps_h = [float(tp_str)]
+            except (TypeError, ValueError):
+                pass
+        # Mirror the first selected tp into the legacy combo so the
+        # save-figure / export-CSV paths that still read it see a value.
+        if tps_h and getattr(self, "_scatter_tp_cb", None) is not None:
+            first_str = f"{tps_h[0]:.1f}"
+            if self._scatter_tp_cb.findText(first_str) >= 0:
+                blocked = self._scatter_tp_cb.blockSignals(True)
+                try:
+                    self._scatter_tp_cb.setCurrentText(first_str)
+                finally:
+                    self._scatter_tp_cb.blockSignals(blocked)
 
         # Extract base channel names (e.g., "gfp (spots)" -> "gfp")
         ch_x_base = ch_x_entry.split(" ")[0]
@@ -6631,7 +6683,7 @@ class WellViewerApp(QWidget):
             self,
             col_x,
             col_y,
-            timepoint_h,
+            tps_h,
             well_colors=WELL_COLORS,
             cell_area_threshold=cell_area_threshold,
             fluor_gate_x=fluor_gate_x,

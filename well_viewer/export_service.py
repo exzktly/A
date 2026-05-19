@@ -631,10 +631,31 @@ def export_scatter_data(app) -> None:
     try:
         ch_x_entry = app._scatter_ch_x_cb.currentText()
         ch_y_entry = app._scatter_ch_y_cb.currentText()
-        tp_str = app._scatter_tp_cb.currentText()
-        timepoint_h = float(tp_str) if tp_str else 0.0
     except (ValueError, AttributeError):
         _warn(app, "Export", "Select channels and timepoint first.")
+        return
+
+    # Pick every active timepoint from the multi-tp selector, falling
+    # back to the legacy single-tp combo when the picker hasn't been
+    # populated (very first build).
+    selections = getattr(app, "_scatter_tp_selections", None) or {}
+    timepoints_h: list[float] = []
+    for tp_str, on in selections.items():
+        if not on:
+            continue
+        try:
+            timepoints_h.append(float(tp_str))
+        except (TypeError, ValueError):
+            continue
+    if not timepoints_h:
+        try:
+            tp_str = app._scatter_tp_cb.currentText()
+            if tp_str:
+                timepoints_h = [float(tp_str)]
+        except (TypeError, ValueError, AttributeError):
+            pass
+    if not timepoints_h:
+        _warn(app, "Export", "Select at least one timepoint first.")
         return
 
     ch_x_base = ch_x_entry.split(" ")[0]
@@ -655,7 +676,7 @@ def export_scatter_data(app) -> None:
     fluor_gate_y = app._get_fluor_gate(ch_y_base)
 
     scatter_data = _scatter_collect_data(
-        app, col_x, col_y, timepoint_h,
+        app, col_x, col_y, timepoints_h,
         well_colors=[],
         cell_area_threshold=cell_area_threshold,
         fluor_gate_x=fluor_gate_x,
