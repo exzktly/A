@@ -405,8 +405,68 @@ class ExportStyleSidebar(QWidget):
 
         # ── Lines & Markers ─────────────────────────────────────────────────
         s_lm = section("Lines & Markers", expanded=False)
+        ls_cb = QComboBox()
+        # Pair each matplotlib value with a glyphic preview so the combo
+        # doesn't show bare punctuation. Items carry the mpl token in
+        # ``Qt.UserRole`` and a human-facing label.
+        _LINE_STYLES = [
+            ("Solid (—)",       "-"),
+            ("Dashed (––)",     "--"),
+            ("Dotted (·)",      ":"),
+            ("Dash-dot (-·)",   "-."),
+            ("None",            "none"),
+        ]
+        for label, val in _LINE_STYLES:
+            ls_cb.addItem(label, val)
+        _ls_cur = str(self._prefs.get("line_style", "-"))
+        _ls_idx = next(
+            (i for i, (_, v) in enumerate(_LINE_STYLES) if v == _ls_cur), 0,
+        )
+        ls_cb.setCurrentIndex(_ls_idx)
+        add_row(s_lm, "Line style", ls_cb)
+        self._getters["line_style"] = lambda cb=ls_cb: cb.currentData() or "-"
+        self._setters["line_style"] = lambda v, cb=ls_cb: cb.setCurrentIndex(
+            next((i for i in range(cb.count()) if cb.itemData(i) == v), 0)
+        )
+        ls_cb.currentIndexChanged.connect(lambda _i: self._on_fields_changed())
+
         for key, label, lo, hi, step in [
             ("line_width", "Line width", 0.1, 8.0, 0.1),
+        ]:
+            dsp = _Stepper(minimum=lo, maximum=hi, single_step=step,
+                           value=float(self._prefs[key]), decimals=1)
+            add_row(s_lm, label, dsp, key)
+
+        ms_cb = QComboBox()
+        _MARKER_STYLES = [
+            ("Circle (●)",      "o"),
+            ("Square (■)",      "s"),
+            ("Triangle ▲",      "^"),
+            ("Triangle ▼",      "v"),
+            ("Diamond (◆)",     "D"),
+            ("Plus (+)",        "+"),
+            ("Cross (×)",       "x"),
+            ("Star (★)",        "*"),
+            ("Point (·)",       "."),
+            ("Pentagon",        "p"),
+            ("Hexagon",         "h"),
+            ("None",            "none"),
+        ]
+        for label, val in _MARKER_STYLES:
+            ms_cb.addItem(label, val)
+        _ms_cur = str(self._prefs.get("marker_style", "o"))
+        _ms_idx = next(
+            (i for i, (_, v) in enumerate(_MARKER_STYLES) if v == _ms_cur), 0,
+        )
+        ms_cb.setCurrentIndex(_ms_idx)
+        add_row(s_lm, "Marker style", ms_cb)
+        self._getters["marker_style"] = lambda cb=ms_cb: cb.currentData() or "o"
+        self._setters["marker_style"] = lambda v, cb=ms_cb: cb.setCurrentIndex(
+            next((i for i in range(cb.count()) if cb.itemData(i) == v), 0)
+        )
+        ms_cb.currentIndexChanged.connect(lambda _i: self._on_fields_changed())
+
+        for key, label, lo, hi, step in [
             ("marker_size", "Marker size", 0.0, 20.0, 0.5),
             ("marker_edge_width", "Marker edge width", 0.0, 5.0, 0.1),
         ]:

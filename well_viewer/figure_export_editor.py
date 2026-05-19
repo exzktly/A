@@ -21,7 +21,9 @@ DEFAULT_EXPORT_STYLE_PREFS = {
     "legend_font_size": 12,
     "legend_loc": "best",
     "line_width": 1.8,
+    "line_style": "-",
     "marker_size": 5.0,
+    "marker_style": "o",
     "marker_edge_width": 0.8,
     "grid_show": True,
     "grid_alpha": 0.25,
@@ -117,10 +119,18 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
         for tick in ax.get_xticklabels():
             tick.set_rotation(int(prefs.get("x_tick_angle", 0)))
 
+        line_style = str(prefs.get("line_style", "-"))
+        marker_style = str(prefs.get("marker_style", "o"))
         for ln in ax.lines:
             ln.set_linewidth(float(prefs.get("line_width", 1.8)))
             ln.set_markersize(float(prefs.get("marker_size", 5.0)))
             ln.set_markeredgewidth(float(prefs.get("marker_edge_width", 0.8)))
+            # ``"keep"`` lets a tab opt out of overriding the renderer's own
+            # marker / linestyle pick (e.g. distinct markers per replicate).
+            if line_style and line_style != "keep":
+                ln.set_linestyle(line_style if line_style != "none" else "None")
+            if marker_style and marker_style != "keep":
+                ln.set_marker(marker_style if marker_style != "none" else "None")
 
         show_grid = bool(prefs.get("grid_show", True))
         ax.grid(show_grid, alpha=float(prefs.get("grid_alpha", 0.25)), linestyle=str(prefs.get("grid_style", "--")))
