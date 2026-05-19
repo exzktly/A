@@ -129,6 +129,45 @@ class ScatterCellViewer(QDialog):
             self._debug_text.append(line)
 
     @staticmethod
+    def _path_belongs_to_well(img_path, well_token: str) -> bool:
+        """True iff *img_path* sits inside this well's tree.
+
+        The disk-fallback rglob is unscoped so files with overlapping
+        names (e.g. each well has ``F001_mask.tif``) used to match the
+        first one walked — which, with multiple wells selected on the
+        scatter plot, silently loaded a DIFFERENT well's cell. Require
+        a path component that contains the well token (padded or
+        unpadded — "A1" and "A01" both accept) before accepting a
+        match.
+        """
+        if not well_token:
+            return True
+        # Build the set of acceptable tokens — both padded and unpadded
+        # forms of the well row+column.
+        accepted = {str(well_token).upper()}
+        import re as _re
+        m = _re.match(r"^([A-Ha-h])(\d{1,2})", str(well_token))
+        if m:
+            row = m.group(1).upper()
+            col = int(m.group(2))
+            accepted.add(f"{row}{col}")
+            accepted.add(f"{row}{col:02d}")
+        # A token "A1" matched as a bare substring would also accept
+        # "A10".."A19", so reject when the character immediately
+        # following the token is another digit.
+        for part in img_path.parts:
+            up = part.upper()
+            for tok in accepted:
+                idx = up.find(tok)
+                while idx >= 0:
+                    end = idx + len(tok)
+                    next_ch = up[end] if end < len(up) else ""
+                    if not next_ch.isdigit():
+                        return True
+                    idx = up.find(tok, end)
+        return False
+
+    @staticmethod
     def _row_dict_at(df, idx: int) -> dict:
         """Return row ``idx`` of ``_get_rows`` as a ``{column: value}`` dict.
 
@@ -295,6 +334,11 @@ class ScatterCellViewer(QDialog):
             for d in search_dirs:
                 for candidate in candidates:
                     for img_path in d.rglob(candidate):
+                        if not self._path_belongs_to_well(img_path, well_token):
+                            self._debug(
+                                f"skip {img_path}: not under well_token={well_token!r}"
+                            )
+                            continue
                         ref = ImgRef(disk_path=img_path)
                         arr = open_imgref_as_array(ref=ref, greyscale=(image_type == "mask"))
                         self._debug(f"loaded {image_type} from disk: {img_path}")
@@ -479,6 +523,11 @@ class ScatterCellViewer(QDialog):
             for d in search_dirs:
                 for target_name in target_names:
                     for img_path in d.rglob(target_name):
+                        if not self._path_belongs_to_well(img_path, well_token):
+                            self._debug(
+                                f"skip {img_path}: not under well_token={well_token!r}"
+                            )
+                            continue
                         arr = open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
                         if arr is not None:
                             self._debug(f"loaded nuclear image from disk: {img_path}")
@@ -544,6 +593,12 @@ class ScatterCellViewer(QDialog):
             for d in search_dirs:
                 for candidate_name in target_names:
                     for img_path in d.rglob(candidate_name):
+                        if not self._path_belongs_to_well(img_path, well_token):
+                            self._debug(
+                                f"channel={channel_token}: skip {img_path}: "
+                                f"not under well_token={well_token!r}"
+                            )
+                            continue
                         self._debug(f"channel={channel_token}: loaded from disk {img_path}")
                         return open_imgref_as_array(ref=ImgRef(disk_path=img_path), greyscale=True)
 
