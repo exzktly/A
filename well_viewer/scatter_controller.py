@@ -246,14 +246,20 @@ def redraw_scatter(
     # Plot each group/well as separate scatter series
     interaction_points: List[Tuple[float, float, Tuple[str, str, str, int]]] = []
     for label, data in scatter_data.items():
-        app._ax_scatter.scatter(
+        # ``plot`` over ``scatter`` so the Line2D output sits in ax.lines —
+        # the Properties sidebar's marker / size hook only touches Line2D
+        # artists, so ax.scatter() produced PathCollections that ignored
+        # the user's choices.
+        app._ax_scatter.plot(
             data['x'],
             data['y'],
+            marker='o',
+            linestyle='none',
             label=label,
             color=data['color'],
             alpha=0.6,
-            s=30,
-            edgecolors='none',
+            markersize=6,
+            markeredgecolor='none',
         )
 
         # Store metadata for click tracking
