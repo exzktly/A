@@ -121,16 +121,45 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
 
         line_style = str(prefs.get("line_style", "-"))
         marker_style = str(prefs.get("marker_style", "o"))
+        # Open / hollow markers piggyback on the existing matplotlib token
+        # via an ``_open`` suffix so the combo stays a single dropdown.
+        marker_open = marker_style.endswith("_open")
+        if marker_open:
+            marker_style = marker_style[: -len("_open")] or "o"
+        # Error-bar caps live in ``ax.lines`` too — overriding their marker /
+        # linestyle replaces the tick at the top / bottom of each bar with
+        # the user's data-marker pick, which looks like the error bar is
+        # broken. Collect their ids so the override loop below skips them.
+        cap_ids: set = set()
+        for container in getattr(ax, "containers", []) or []:
+            cap_lines = getattr(container, "caplines", None)
+            if cap_lines is None:
+                children = getattr(container, "lines", None)
+                if isinstance(children, tuple) and len(children) >= 2:
+                    cap_lines = children[1]
+            for cap in (cap_lines or ()):
+                cap_ids.add(id(cap))
         for ln in ax.lines:
             ln.set_linewidth(float(prefs.get("line_width", 1.8)))
             ln.set_markersize(float(prefs.get("marker_size", 5.0)))
             ln.set_markeredgewidth(float(prefs.get("marker_edge_width", 0.8)))
+            if id(ln) in cap_ids:
+                # Leave the cap markers (and their connecting verticals) alone.
+                continue
             # ``"keep"`` lets a tab opt out of overriding the renderer's own
             # marker / linestyle pick (e.g. distinct markers per replicate).
             if line_style and line_style != "keep":
                 ln.set_linestyle(line_style if line_style != "none" else "None")
             if marker_style and marker_style != "keep":
                 ln.set_marker(marker_style if marker_style != "none" else "None")
+                if marker_open:
+                    # Hollow marker: keep the edge colour but blank the fill.
+                    ln.set_markerfacecolor("none")
+                else:
+                    # Restore the default behaviour (filled with the line's
+                    # colour) — without this an earlier open-marker selection
+                    # would stick after the user switches back to a filled one.
+                    ln.set_markerfacecolor(ln.get_color())
 
         show_grid = bool(prefs.get("grid_show", True))
         ax.grid(show_grid, alpha=float(prefs.get("grid_alpha", 0.25)), linestyle=str(prefs.get("grid_style", "--")))
