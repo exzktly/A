@@ -439,18 +439,19 @@ class ExportStyleSidebar(QWidget):
 
         ms_cb = QComboBox()
         _MARKER_STYLES = [
-            ("Circle (●)",      "o"),
-            ("Square (■)",      "s"),
-            ("Triangle ▲",      "^"),
-            ("Triangle ▼",      "v"),
-            ("Diamond (◆)",     "D"),
-            ("Plus (+)",        "+"),
-            ("Cross (×)",       "x"),
-            ("Star (★)",        "*"),
-            ("Point (·)",       "."),
-            ("Pentagon",        "p"),
-            ("Hexagon",         "h"),
-            ("None",            "none"),
+            ("Circle (●)",        "o"),
+            ("Open circle (○)",   "o_open"),
+            ("Square (■)",        "s"),
+            ("Triangle ▲",        "^"),
+            ("Triangle ▼",        "v"),
+            ("Diamond (◆)",       "D"),
+            ("Plus (+)",          "+"),
+            ("Cross (×)",         "x"),
+            ("Star (★)",          "*"),
+            ("Point (·)",         "."),
+            ("Pentagon",          "p"),
+            ("Hexagon",           "h"),
+            ("None",              "none"),
         ]
         for label, val in _MARKER_STYLES:
             ms_cb.addItem(label, val)
