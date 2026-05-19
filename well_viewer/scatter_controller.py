@@ -32,7 +32,7 @@ def collect_scatter_data(
     app,
     col_x: str,
     col_y: str,
-    timepoint_h: float,
+    timepoints_h,
     *,
     well_colors: List[str],
     cell_area_threshold: float = 0.0,
@@ -40,7 +40,11 @@ def collect_scatter_data(
     fluor_gate_y: float = 0.0,
     ratios: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
-    """Collect scatter plot data for the given column names and timepoint.
+    """Collect scatter plot data for the given column names and timepoint(s).
+
+    ``timepoints_h`` accepts a single ``float`` (legacy) or a list of floats.
+    Cells whose ``timepoint_hours`` matches any of the supplied values
+    (within 1e-6) are included.
 
     Groups data by well group (if defined) or by individual well. Each group/well
     gets a distinct color and contains x/y values plus metadata for click tracking.
@@ -49,7 +53,7 @@ def collect_scatter_data(
         app: WellViewerApp instance with data and state
         col_x: X-axis column name (e.g., "gfp_mean_intensity" or "gfp_smfish_count")
         col_y: Y-axis column name (e.g., "mcherry_mean_intensity" or "mcherry_smfish_count")
-        timepoint_h: Target timepoint in hours
+        timepoints_h: One target timepoint or a list of them
         well_colors: List of color strings for coloring groups/wells
         cell_area_threshold: Minimum cell area in pixels; cells below are excluded
         fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
@@ -69,6 +73,12 @@ def collect_scatter_data(
     if ratios is None:
         ratios = getattr(app, "_ratio_index", None) or {}
 
+    if isinstance(timepoints_h, (int, float)):
+        target_tps = [float(timepoints_h)]
+    else:
+        target_tps = [float(t) for t in (timepoints_h or [])]
+    target_arr = np.asarray(target_tps, dtype=float)
+
     def _collect_well(well_label: str) -> Optional[Tuple[np.ndarray, np.ndarray, list]]:
         df = app._get_rows(well_label)
         if df is None or df.empty:
@@ -78,7 +88,15 @@ def collect_scatter_data(
         mask = df_included_mask(df).to_numpy(copy=True)
         tp = pd.to_numeric(df["timepoint_hours"], errors="coerce").to_numpy()
         with np.errstate(invalid="ignore"):
-            mask &= np.isfinite(tp) & (np.abs(tp - timepoint_h) <= 1e-6)
+            finite = np.isfinite(tp)
+            if target_arr.size == 0:
+                mask &= False
+            else:
+                # tp ≈ any selected target within tolerance.
+                tp_match = np.zeros_like(tp, dtype=bool)
+                for t in target_arr:
+                    tp_match |= np.abs(tp - t) <= 1e-6
+                mask &= finite & tp_match
         area = pd.to_numeric(df["area_px"], errors="coerce").to_numpy()
         with np.errstate(invalid="ignore"):
             mask &= np.isfinite(area) & (area > cell_area_threshold)
@@ -164,7 +182,7 @@ def redraw_scatter(
     app,
     col_x: str,
     col_y: str,
-    timepoint_h: float,
+    timepoints_h,
     *,
     well_colors: List[str],
     cell_area_threshold: float = 0.0,
@@ -173,11 +191,14 @@ def redraw_scatter(
 ) -> None:
     """Redraw scatter plot with new data.
 
+    ``timepoints_h`` is either a single float (legacy single-tp call) or a
+    list — every cell at any of the supplied timepoints is plotted.
+
     Args:
         app: WellViewerApp instance
         col_x: X-axis column name (e.g., "gfp_mean_intensity" or "gfp_smfish_count")
         col_y: Y-axis column name (e.g., "mcherry_mean_intensity" or "mcherry_smfish_count")
-        timepoint_h: Timepoint in hours
+        timepoints_h: One timepoint or a list of timepoints in hours
         well_colors: List of colors for groups/wells
         cell_area_threshold: Minimum cell area in pixels; cells below are excluded
         fluor_gate_x: FluorGating threshold for X channel; cells below are excluded
@@ -231,12 +252,19 @@ def redraw_scatter(
         app._scatter_canvas.draw()
         return
 
+    # Normalise the timepoint argument so single-float legacy callers
+    # keep working alongside the new multi-tp picker.
+    if isinstance(timepoints_h, (int, float)):
+        tps_list = [float(timepoints_h)]
+    else:
+        tps_list = [float(t) for t in (timepoints_h or [])]
+
     # Collect scatter data
     scatter_data = collect_scatter_data(
         app,
         col_x,
         col_y,
-        timepoint_h,
+        tps_list,
         well_colors=well_colors,
         cell_area_threshold=cell_area_threshold,
         fluor_gate_x=fluor_gate_x,
@@ -284,8 +312,16 @@ def redraw_scatter(
 
     app._ax_scatter.set_xlabel(_col_label(col_x))
     app._ax_scatter.set_ylabel(_col_label(col_y))
-    app._ax_scatter.set_title(f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)} (t={timepoint_h}h)",
-                              color=_title_fg)
+    if not tps_list:
+        tp_tag = ""
+    elif len(tps_list) == 1:
+        tp_tag = f" (t={tps_list[0]:g}h)"
+    else:
+        tp_tag = f" (t={min(tps_list):g}h–{max(tps_list):g}h, {len(tps_list)} tps)"
+    app._ax_scatter.set_title(
+        f"Scatter: {_col_label(col_x)} vs {_col_label(col_y)}{tp_tag}",
+        color=_title_fg,
+    )
     app._ax_scatter.grid(True, alpha=0.3, color=_grid)
     if scatter_data:
         # Transparent frame keeps the legend from masking the plot
@@ -295,7 +331,11 @@ def redraw_scatter(
     # Redraw canvas
     app._scatter_interaction_cache = {
         "points": interaction_points,
-        "timepoint_h": timepoint_h,
+        # Single-tp callers used ``timepoint_h``; preserve that key when
+        # exactly one tp was passed so downstream consumers (export CSV,
+        # click metadata) don't need to know about the new list shape.
+        "timepoint_h": tps_list[0] if len(tps_list) == 1 else None,
+        "timepoints_h": tps_list,
         "col_x": col_x,
         "col_y": col_y,
     }
@@ -394,15 +434,6 @@ def collect_scatter_agg_data(
 
     ch_x, metric_x, intensity_x = parse_statistic(stat_x)
     ch_y, metric_y, intensity_y = parse_statistic(stat_y)
-    # "Time (h)" sentinel on the X channel combo flips the X axis from
-    # an aggregated metric value to the timepoint itself.
-    x_is_time = False
-    cb_x = getattr(app, "_scatter_agg_ch_x_cb", None)
-    if cb_x is not None:
-        try:
-            x_is_time = cb_x.currentText() == "Time (h)"
-        except Exception:
-            pass
     use_sem = app._use_sem
     per_fov = bool(
         getattr(app, "_use_fov_spread_active", lambda: False)()
@@ -498,10 +529,7 @@ def collect_scatter_agg_data(
         marker = markers[label_idx % len(markers)]
 
         for tp in sorted(timepoints_h):
-            if x_is_time:
-                mean_x, err_x = float(tp), 0.0
-            else:
-                mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
+            mean_x, err_x = _agg_wells(wells, tp, val_col_x, threshold_x, metric_x)
             mean_y, err_y = _agg_wells(wells, tp, val_col_y, threshold_y, metric_y)
 
             if math.isnan(mean_x) or math.isnan(mean_y):
@@ -627,22 +655,12 @@ def redraw_scatter_agg(
                 alpha=0.7,
             )
 
-        # Format axes — when the user picked "Time (h)" on the X channel
-        # combo, override the stat-string label since stat_x still
-        # carries the legacy "Mean Fluorescence …" sentinel.
-        x_is_time = False
-        cb_x = getattr(app, "_scatter_agg_ch_x_cb", None)
-        if cb_x is not None:
-            try:
-                x_is_time = cb_x.currentText() == "Time (h)"
-            except Exception:
-                pass
-        x_label = "Time (h)" if x_is_time else stat_x
-        app._ax_scatter_agg.set_xlabel(x_label)
+        # Format axes
+        app._ax_scatter_agg.set_xlabel(stat_x)
         app._ax_scatter_agg.set_ylabel(stat_y)
         tp_range = f"t={min(timepoints_h)}h to {max(timepoints_h)}h" if timepoints_h else ""
         app._ax_scatter_agg.set_title(
-            f"Aggregate Scatter: {x_label} vs {stat_y} ({tp_range})",
+            f"Aggregate Scatter: {stat_x} vs {stat_y} ({tp_range})",
             color=_title_fg,
         )
         app._ax_scatter_agg.grid(True, alpha=0.3, color=_grid)

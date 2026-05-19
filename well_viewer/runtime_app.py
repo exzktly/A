@@ -6543,6 +6543,17 @@ class WellViewerApp(QWidget):
         if tp_strs and self._scatter_tp_var.currentText() not in tp_strs:
             self._scatter_tp_var.setCurrentText(tp_strs[0])
 
+        # Repopulate the multi-tp picker. Mirrors the aggregate scatter's
+        # behaviour: every refresh resets every tp to checked, so a fresh
+        # dataset load lands in the same "everything visible" state.
+        if hasattr(self, "_scatter_tp_selections"):
+            self._scatter_tp_selections.clear()
+        else:
+            self._scatter_tp_selections = {}
+        for tp_str in tp_strs:
+            self._scatter_tp_selections[tp_str] = True
+        self._update_scatter_tp_selection_display()
+
         # Aggregate scatter — propagate the same channel list to its own
         # per-axis Channel combo.
         for cb_attr in ("_scatter_agg_ch_x_cb", "_scatter_agg_ch_y_cb"):
@@ -6550,16 +6561,12 @@ class WellViewerApp(QWidget):
             if cb is None:
                 continue
             current = cb.currentText()
-            # X-only "Time (h)" sentinel — picking it switches the renderer
-            # into time-on-X mode (one point per timepoint, no x_err).
-            options = (["Time (h)"] + scatter_ch_options
-                       if cb_attr.endswith("_x_cb") else scatter_ch_options)
-            _set_combo_values(cb, options)
-            if current and current in options:
+            _set_combo_values(cb, scatter_ch_options)
+            if current and current in scatter_ch_options:
                 cb.setCurrentText(current)
             else:
                 default_idx = 0 if cb_attr.endswith("_x_cb") else (1 if len(scatter_ch_options) > 1 else 0)
-                cb.setCurrentText(options[default_idx])
+                cb.setCurrentText(scatter_ch_options[default_idx])
         for axis in ("x", "y"):
             self._refresh_scatter_agg_metric_for_axis(axis)
 
@@ -6603,8 +6610,25 @@ class WellViewerApp(QWidget):
         if hasattr(self, "_scatter_agg_tp_label") and self._scatter_agg_tp_label is not None:
             self._scatter_agg_tp_label.setText(label_text)
 
+    def _update_scatter_tp_selection_display(self) -> None:
+        """Update the per-cell scatter label showing selected timepoints.
+
+        Mirrors _update_tp_selection_display so the two pickers behave
+        identically (label format included).
+        """
+        count = sum(1 for v in self._scatter_tp_selections.values() if v)
+        total = len(self._scatter_tp_selections)
+        label_text = f"(All {count} selected)" if count == total else f"({count}/{total} selected)"
+        if hasattr(self, "_scatter_tp_label") and self._scatter_tp_label is not None:
+            self._scatter_tp_label.setText(label_text)
+
     def _redraw_scatter(self) -> None:
-        """Redraw the scatter plot with current selections."""
+        """Redraw the scatter plot with current selections.
+
+        Mirrors _redraw_scatter_agg's empty-state handling: no
+        timepoints available → "No timepoints available." placeholder;
+        none selected → "Please select timepoints to plot."
+        """
         # Scatter Plot: Cells tab body is built lazily — bail out if the
         # user triggers a redraw before that builder has run.
         if not hasattr(self, "_scatter_ch_x_var"):
@@ -6612,10 +6636,53 @@ class WellViewerApp(QWidget):
         try:
             ch_x_entry = self._scatter_ch_x_var.currentText()
             ch_y_entry = self._scatter_ch_y_var.currentText()
-            tp_str = self._scatter_tp_var.currentText()
-            timepoint_h = float(tp_str) if tp_str else 0.0
         except ValueError:
             return
+
+        if not hasattr(self, "_scatter_tp_selections") or not self._scatter_tp_selections:
+            if hasattr(self, "_ax_scatter"):
+                self._ax_scatter.clear()
+                self._ax_scatter.text(
+                    0.5, 0.5, "No timepoints available.",
+                    ha='center', va='center',
+                    transform=self._ax_scatter.transAxes,
+                    fontsize=10, color='gray',
+                )
+                if hasattr(self, "_scatter_canvas"):
+                    self._scatter_canvas.draw()
+            return
+
+        tps_h: list[float] = []
+        for tp_str, on in self._scatter_tp_selections.items():
+            if not on:
+                continue
+            try:
+                tps_h.append(float(tp_str))
+            except (TypeError, ValueError):
+                continue
+        if not tps_h:
+            if hasattr(self, "_ax_scatter"):
+                self._ax_scatter.clear()
+                self._ax_scatter.text(
+                    0.5, 0.5, "Please select timepoints to plot.",
+                    ha='center', va='center',
+                    transform=self._ax_scatter.transAxes,
+                    fontsize=10, color='gray',
+                )
+                if hasattr(self, "_scatter_canvas"):
+                    self._scatter_canvas.draw()
+            return
+
+        # Mirror the first selected tp into the legacy combo so the
+        # save-figure / export-CSV paths that still read it see a value.
+        if getattr(self, "_scatter_tp_cb", None) is not None:
+            first_str = f"{tps_h[0]:.1f}"
+            if self._scatter_tp_cb.findText(first_str) >= 0:
+                blocked = self._scatter_tp_cb.blockSignals(True)
+                try:
+                    self._scatter_tp_cb.setCurrentText(first_str)
+                finally:
+                    self._scatter_tp_cb.blockSignals(blocked)
 
         # Extract base channel names (e.g., "gfp (spots)" -> "gfp")
         ch_x_base = ch_x_entry.split(" ")[0]
@@ -6635,7 +6702,7 @@ class WellViewerApp(QWidget):
             self,
             col_x,
             col_y,
-            timepoint_h,
+            tps_h,
             well_colors=WELL_COLORS,
             cell_area_threshold=cell_area_threshold,
             fluor_gate_x=fluor_gate_x,

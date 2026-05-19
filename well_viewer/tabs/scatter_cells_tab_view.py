@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout,
+    QWidget, QWidgetAction,
 )
 
 from well_viewer.ui_helpers import (
@@ -63,12 +65,22 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
     cl.addWidget(app._scatter_metric_y_cb)
     app._scatter_metric_y_var = app._scatter_metric_y_cb
 
-    cl.addWidget(QLabel("Timepoint:", ctrl))
+    cl.addWidget(QLabel("Timepoints:", ctrl))
+    app._scatter_tp_button = QPushButton("Select Timepoints", ctrl)
+    app._scatter_tp_button.setProperty("variant", "secondary")
+    app._scatter_tp_button.clicked.connect(lambda _=False: _open_timepoint_selector(app))
+    cl.addWidget(app._scatter_tp_button)
+    app._scatter_tp_label = QLabel("(0 selected)", ctrl)
+    app._scatter_tp_label.setObjectName("Muted")
+    cl.addWidget(app._scatter_tp_label)
+    # Hidden legacy single-tp combo — kept on app so export / save-figure
+    # paths that still read ``_scatter_tp_var.currentText()`` see a valid
+    # timepoint string (the first selected one).
     app._scatter_tp_cb = QComboBox(ctrl)
     app._scatter_tp_cb.addItems(["0"])
-    app._scatter_tp_cb.currentIndexChanged.connect(lambda _i: app._redraw_scatter())
-    cl.addWidget(app._scatter_tp_cb)
+    app._scatter_tp_cb.hide()
     app._scatter_tp_var = app._scatter_tp_cb
+    app._scatter_tp_selections: dict[str, bool] = {}
     cl.addStretch(1)
 
     _export_btn = btn_primary(ctrl, "", app._export_scatter_data,
@@ -114,3 +126,53 @@ def build_scatter_cells_tab(app, parent: QWidget) -> None:
 
     app._scatter_canvas.mpl_connect("button_press_event", app._on_scatter_click)
     app._scatter_canvas.mpl_connect("motion_notify_event", app._on_scatter_motion)
+
+
+def _open_timepoint_selector(app) -> None:
+    """Pop up a QMenu of checkboxes below the per-cell Timepoints button.
+
+    Mirrors the aggregate scatter's multi-tp picker so a single config
+    pattern covers both tabs.
+    """
+    menu = QMenu(app._scatter_tp_button)
+
+    checkboxes: dict[str, QCheckBox] = {}
+    for tp_str in sorted(app._scatter_tp_selections.keys(), key=float):
+        cb = QCheckBox(tp_str, menu)
+        cb.setChecked(bool(app._scatter_tp_selections[tp_str]))
+        checkboxes[tp_str] = cb
+
+        def _make_handler(tp=tp_str, checkbox=cb):
+            def on_toggled(checked: bool) -> None:
+                app._scatter_tp_selections[tp] = bool(checked)
+                app._update_scatter_tp_selection_display()
+                app._redraw_scatter()
+            return on_toggled
+
+        cb.toggled.connect(_make_handler())
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(cb)
+        menu.addAction(wa)
+
+    menu.addSeparator()
+
+    def _set_all(value: bool) -> None:
+        for tp_str, cb in checkboxes.items():
+            cb.blockSignals(True)
+            try:
+                cb.setChecked(value)
+            finally:
+                cb.blockSignals(False)
+            app._scatter_tp_selections[tp_str] = value
+        app._update_scatter_tp_selection_display()
+        app._redraw_scatter()
+
+    all_action = QAction("All", menu)
+    all_action.triggered.connect(lambda _=False: _set_all(True))
+    menu.addAction(all_action)
+    none_action = QAction("None", menu)
+    none_action.triggered.connect(lambda _=False: _set_all(False))
+    menu.addAction(none_action)
+
+    btn = app._scatter_tp_button
+    menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
