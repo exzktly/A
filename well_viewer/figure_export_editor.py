@@ -167,14 +167,20 @@ def apply_export_style_prefs(fig, prefs: dict) -> None:
                 ln.set_linestyle(line_style if line_style != "none" else "None")
             if marker_style and marker_style != "keep":
                 ln.set_marker(marker_style if marker_style != "none" else "None")
+                # Force both edge and face explicitly. Some renderers
+                # (e.g. scatter cells) construct the line with
+                # ``markeredgecolor='none'`` for a clean filled-only
+                # look — that meant "open circle" set face='none' but
+                # the existing edge was 'none' too, producing a fully
+                # invisible marker. Pin the edge to the line colour in
+                # both modes so the ring is always visible.
+                ln_colour = ln.get_color()
                 if marker_open:
-                    # Hollow marker: keep the edge colour but blank the fill.
                     ln.set_markerfacecolor("none")
+                    ln.set_markeredgecolor(ln_colour)
                 else:
-                    # Restore the default behaviour (filled with the line's
-                    # colour) — without this an earlier open-marker selection
-                    # would stick after the user switches back to a filled one.
-                    ln.set_markerfacecolor(ln.get_color())
+                    ln.set_markerfacecolor(ln_colour)
+                    ln.set_markeredgecolor(ln_colour)
 
         show_grid = bool(prefs.get("grid_show", True))
         ax.grid(show_grid, alpha=float(prefs.get("grid_alpha", 0.25)), linestyle=str(prefs.get("grid_style", "--")))
