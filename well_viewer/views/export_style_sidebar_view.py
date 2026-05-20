@@ -611,7 +611,8 @@ class ExportStyleSidebar(QWidget):
         save_btn.clicked.connect(lambda _=False: self._save_preset())
         exp_btn = QPushButton("Export…")
         exp_btn.setObjectName("Primary")
-        exp_btn.clicked.connect(lambda _=False: self._export())
+        exp_btn.setToolTip("Save the figure as PDF, SVG, EPS, or PNG")
+        exp_btn.clicked.connect(lambda _=False: self._save_as())
         # Equal flex on the three action buttons so they share the row
         # cleanly inside the 440-px panel; without this the QPushButton
         # default minimum-width can push Export… off the right edge.
@@ -804,46 +805,6 @@ class ExportStyleSidebar(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Save As failed", str(exc))
 
-    def _export(self) -> None:
-        try:
-            self._persist()
-            fmt = (self._prefs.get("format") or "png").lower()
-            initialfile = self._default_name
-            if not initialfile.lower().endswith(f".{fmt}"):
-                initialfile = f"{Path(initialfile).stem}.{fmt}"
-            start = str(self._base_dir / initialfile)
-            out, _filter = QFileDialog.getSaveFileName(
-                self, "Save figure", start,
-                f"Image (*.{fmt});;All files (*.*)",
-            )
-            if not out:
-                return
-            out_path = Path(out)
-            kw = {"format": fmt, "bbox_inches": "tight", "transparent": True}
-            orig_svg = orig_ps = None
-            if fmt == "png":
-                kw["dpi"] = 300
-            elif fmt == "svg":
-                import matplotlib as _mpl
-                orig_svg = _mpl.rcParams.get("svg.fonttype", "path")
-                _mpl.rcParams["svg.fonttype"] = "none"
-            elif fmt == "eps":
-                import matplotlib as _mpl
-                orig_ps = _mpl.rcParams.get("ps.fonttype", 3)
-                _mpl.rcParams["ps.fonttype"] = 42
-            try:
-                self._fig.savefig(str(out_path), **kw)
-            finally:
-                if fmt == "svg" and orig_svg is not None:
-                    import matplotlib as _mpl
-                    _mpl.rcParams["svg.fonttype"] = orig_svg
-                if fmt == "eps" and orig_ps is not None:
-                    import matplotlib as _mpl
-                    _mpl.rcParams["ps.fonttype"] = orig_ps
-            self._app._set_status(f"Figure saved → {out_path.name}")
-        except Exception as exc:
-            QMessageBox.critical(self, "Export failed", str(exc))
-
     # ── Clipboard copy ───────────────────────────────────────────────────────
 
     def _copy_png(self) -> None:
@@ -868,11 +829,12 @@ class ExportStyleSidebar(QWidget):
     def _copy_svg(self) -> None:
         """Copy the current figure to the clipboard.
 
-        Standard cross-platform Qt clipboard write: ``image/svg+xml``
-        (SVG markup), ``application/pdf`` (vector container) and a
-        raster ``QImage`` via ``setImageData``. Apps pick the slot
-        they understand. For a true vector handoff to Keynote (which
-        rasterises clipboard input by design), use the **Save As…**
+        Cross-platform Qt clipboard write: ``image/svg+xml`` (SVG
+        markup), ``application/pdf`` (vector container) and a labelled
+        ``image/png`` raster blob. ``QMimeData.setImageData`` is not
+        called — it registers the native bitmap that PowerPoint pastes
+        ahead of the SVG. For a true vector handoff to Keynote (which
+        rasterises clipboard input by design), use the **Export…**
         button to write a PDF to disk and drag it onto the slide.
         """
         try:
@@ -880,7 +842,6 @@ class ExportStyleSidebar(QWidget):
             apply_export_style_to_current(self._app, self._fig, self._canvas)
             import matplotlib as _mpl
             from PySide6.QtCore import QMimeData
-            from PySide6.QtGui import QImage
 
             try:
                 svg_buf = BytesIO()
@@ -929,10 +890,10 @@ class ExportStyleSidebar(QWidget):
             if pdf_bytes is not None:
                 mime.setData("application/pdf", QByteArray(pdf_bytes))
             if png_bytes is not None:
+                # Raw PNG payload only — see centre_view._copy_svg: calling
+                # setImageData() registers the native bitmap (CF_DIB) that
+                # PowerPoint's Paste prefers over the SVG.
                 mime.setData("image/png", QByteArray(png_bytes))
-                img = QImage.fromData(png_bytes, "PNG")
-                if not img.isNull():
-                    mime.setImageData(img)
             QApplication.clipboard().setMimeData(mime)
 
             self._app._set_status(

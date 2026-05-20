@@ -1825,17 +1825,18 @@ def image_table_copy_png(app) -> None:
 def image_table_copy_svg(app) -> None:
     """Render the image table and place it on the system clipboard.
 
-    Standard cross-platform Qt clipboard write: ``image/svg+xml``,
-    ``application/pdf`` and a raster ``QImage`` via ``setImageData``.
-    Apps pick the slot they understand — Inkscape reads SVG,
-    Illustrator / Affinity read PDF, raster-only consumers (Slack,
-    Mail, browser composers) read the image. For a true vector
-    handoff to Keynote (which rasterises clipboard input by design),
-    use the Save As… button in the Export Style sidebar.
+    Cross-platform Qt clipboard write: ``image/svg+xml``,
+    ``application/pdf`` and a labelled ``image/png`` raster blob.
+    ``QMimeData.setImageData`` is not called — it registers the native
+    bitmap that PowerPoint pastes ahead of the SVG. Apps pick the slot
+    they understand — Inkscape reads SVG, Illustrator / Affinity read
+    PDF, consumers that ask for ``image/png`` get a raster. For a true
+    vector handoff to Keynote (which rasterises clipboard input by
+    design), use the Export… button in the Export Style sidebar.
     """
     import io
     from PySide6.QtCore import QByteArray, QMimeData
-    from PySide6.QtGui import QGuiApplication, QImage
+    from PySide6.QtGui import QGuiApplication
 
     fig, save_kwargs = _build_export_figure(app)
     if fig is None:
@@ -1882,10 +1883,10 @@ def image_table_copy_svg(app) -> None:
     if pdf_bytes is not None:
         md.setData("application/pdf", QByteArray(pdf_bytes))
     if png_bytes is not None:
+        # Raw PNG payload only — see centre_view._copy_svg: calling
+        # setImageData() registers the native bitmap (CF_DIB) that
+        # PowerPoint's Paste prefers over the SVG.
         md.setData("image/png", QByteArray(png_bytes))
-        img = QImage.fromData(png_bytes, "PNG")
-        if not img.isNull():
-            md.setImageData(img)
     QGuiApplication.clipboard().setMimeData(md)
 
     app._set_status("Image table copied to clipboard (SVG + PDF + PNG).")
