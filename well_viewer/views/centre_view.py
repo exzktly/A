@@ -477,20 +477,22 @@ def build_centre(app, parent: QWidget) -> None:
             """Copy the active card's matplotlib figure to the clipboard
             in publication mode.
 
-            Standard cross-platform Qt clipboard write: ``image/svg+xml``
-            (SVG markup), ``application/pdf`` (vector container) and a
-            raster ``QImage`` via ``setImageData``. Apps pick the slot
-            they understand — Inkscape reads SVG, Illustrator / Affinity
-            read PDF, Slack / Mail / browser composers read the raster.
-            Keynote on macOS rasterises everything by design regardless
-            of clipboard contents (confirmed by the user); there's no
-            data-side fix for that, so for a true vector handoff to
-            Keynote, use the Save As… button in the Export Style
-            sidebar and insert the resulting .pdf via drag-drop.
+            Cross-platform Qt clipboard write: ``image/svg+xml`` (SVG
+            markup), ``application/pdf`` (vector container) and a
+            labelled ``image/png`` raster blob. We deliberately do NOT
+            call ``QMimeData.setImageData`` — that registers the native
+            bitmap (CF_DIB on Windows), which PowerPoint's default Paste
+            grabs ahead of the SVG. Apps pick the slot they understand —
+            Inkscape reads SVG, Illustrator / Affinity read PDF, and
+            consumers that ask for ``image/png`` by name still get a
+            raster. Keynote on macOS rasterises everything by design
+            regardless of clipboard contents (confirmed by the user);
+            for a true vector handoff there, use the Save As… button in
+            the Export Style sidebar and insert the resulting .pdf.
             """
             import io
             from PySide6.QtCore import QByteArray, QMimeData
-            from PySide6.QtGui import QGuiApplication, QImage
+            from PySide6.QtGui import QGuiApplication
             for attr in ("_line_card", "_bar_card", "_scatter_card",
                          "_scatter_agg_card", "_distribution_card", "_heatmap_card"):
                 card = getattr(app, attr, None)
@@ -549,10 +551,15 @@ def build_centre(app, parent: QWidget) -> None:
                         md.setData("application/pdf", QByteArray(pdf_bytes))
                         wrote_any = True
                     if png_bytes is not None:
+                        # Raw PNG payload only — do NOT call
+                        # md.setImageData(). setImageData registers the
+                        # OS-native bitmap (CF_DIB on Windows); PowerPoint's
+                        # default Paste then grabs that bitmap over the
+                        # SVG, so "Copy SVG" silently pasted as a raster
+                        # image. Leaving just the labelled image/png mime
+                        # keeps a raster fallback for apps that ask for it
+                        # by name while letting PowerPoint pick the SVG.
                         md.setData("image/png", QByteArray(png_bytes))
-                        img = QImage.fromData(png_bytes, "PNG")
-                        if not img.isNull():
-                            md.setImageData(img)
                         wrote_any = True
                     if not wrote_any:
                         return
