@@ -136,6 +136,11 @@ def collect_scatter_data(
             xs: List[np.ndarray] = []
             ys: List[np.ndarray] = []
             metadata: List[Tuple[str, str, str, int]] = []
+            # Per-well breakdown so the SVG renderer can emit one
+            # Line2D per well (each becomes its own ``<g>`` group). The
+            # whole-group ``x``/``y``/``metadata`` arrays stay too — the
+            # CSV exporter and click resolver still consume them.
+            wells_breakdown: dict[str, dict] = {}
             for well_label in rset.wells:
                 if well_label not in app._well_paths:
                     continue
@@ -144,12 +149,18 @@ def collect_scatter_data(
                     continue
                 wx, wy, wmeta = got
                 xs.append(wx); ys.append(wy); metadata.extend(wmeta)
+                wells_breakdown[well_label] = {
+                    'x': wx.tolist(),
+                    'y': wy.tolist(),
+                    'metadata': wmeta,
+                }
             if xs:
                 scatter_data[group_name] = {
                     'x': np.concatenate(xs).tolist(),
                     'y': np.concatenate(ys).tolist(),
                     'color': color,
                     'metadata': metadata,
+                    'wells': wells_breakdown,
                 }
     else:
         from well_viewer.lineplot_controller import _apply_order as _apply_well_order
@@ -168,11 +179,22 @@ def collect_scatter_data(
             if got is None:
                 continue
             wx, wy, wmeta = got
+            wx_list = wx.tolist()
+            wy_list = wy.tolist()
             scatter_data[well_label] = {
-                'x': wx.tolist(),
-                'y': wy.tolist(),
+                'x': wx_list,
+                'y': wy_list,
                 'color': color,
                 'metadata': wmeta,
+                # Single-well groups still expose a 'wells' breakdown so
+                # the SVG renderer can treat both modes uniformly.
+                'wells': {
+                    well_label: {
+                        'x': wx_list,
+                        'y': wy_list,
+                        'metadata': wmeta,
+                    },
+                },
             }
 
     return scatter_data
@@ -271,24 +293,48 @@ def redraw_scatter(
         fluor_gate_y=fluor_gate_y,
     )
 
-    # Plot each group/well as separate scatter series
+    # Plot one Line2D per well (even inside a rep-set) so the SVG / PDF
+    # exporter emits one <g> group per well — re-colouring an individual
+    # well in Illustrator is then a single-click. ``plot`` over
+    # ``scatter`` so the artists sit in ax.lines and pick up the
+    # Properties sidebar's marker / size / line-style overrides.
     interaction_points: List[Tuple[float, float, Tuple[str, str, str, int]]] = []
     for label, data in scatter_data.items():
-        # ``plot`` over ``scatter`` so the Line2D output sits in ax.lines —
-        # the Properties sidebar's marker / size hook only touches Line2D
-        # artists, so ax.scatter() produced PathCollections that ignored
-        # the user's choices.
-        app._ax_scatter.plot(
-            data['x'],
-            data['y'],
-            marker='o',
-            linestyle='none',
-            label=label,
-            color=data['color'],
-            alpha=0.6,
-            markersize=6,
-            markeredgecolor='none',
-        )
+        wells_breakdown = data.get('wells') or {label: {
+            'x': data['x'], 'y': data['y'],
+            'metadata': data.get('metadata', []),
+        }}
+        first_well_in_group = True
+        for well_label, well_data in wells_breakdown.items():
+            # Suppress the legend for every well after the first one in
+            # the group so a rep-set still shows as a single legend entry
+            # but each well is independently styleable in the SVG output.
+            (line,) = app._ax_scatter.plot(
+                well_data['x'],
+                well_data['y'],
+                marker='o',
+                linestyle='none',
+                label=label if first_well_in_group else "_nolegend_",
+                color=data['color'],
+                alpha=0.6,
+                markersize=6,
+                markeredgecolor='none',
+            )
+            # matplotlib forwards ``gid`` to the SVG ``id`` attribute on
+            # the artist's enclosing <g>. Tag every well's <g> with a
+            # stable, human-readable id so Illustrator's layer / selection
+            # tools can target it directly. The rep-set name is folded in
+            # too when applicable, since two rep-sets can both contain a
+            # well that the user pruned to one well per set in editing.
+            gid = (
+                f"well_{well_label}__{label}"
+                if label != well_label else f"well_{well_label}"
+            )
+            try:
+                line.set_gid(gid)
+            except Exception:
+                pass
+            first_well_in_group = False
 
         # Store metadata for click tracking
         if not hasattr(app, '_scatter_metadata'):
